@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v5"
 	slogecho "github.com/samber/slog-echo"
@@ -15,22 +17,43 @@ import (
 	adkmodel "google.golang.org/adk/model"
 )
 
+type BuildStatus struct {
+	Slug   string `json:"slug"`
+	Status string `json:"status"` // "building", "completed", "failed"
+	Error  string `json:"error,omitempty"`
+}
+
 type Server struct {
-	store  *Store
-	domain string
-	port   string
-	llm    adkmodel.LLM
-	tpl    *template.Template
+	store         *Store
+	domain        string
+	port          string
+	llm           adkmodel.LLM
+	tpl           *template.Template
+	progressTpl   *template.Template
+	buildStatusMu sync.RWMutex
+	buildStatuses map[string]*BuildStatus
 }
 
 func NewServer(store *Store, domain, port string, llm adkmodel.LLM) *echo.Echo {
-	s := &Server{store: store, domain: domain, port: port, llm: llm}
+	s := &Server{
+		store:         store,
+		domain:        domain,
+		port:          port,
+		llm:           llm,
+		buildStatuses: make(map[string]*BuildStatus),
+	}
 
 	tpl, err := template.New("apps.html").Parse(appsTemplate)
 	if err != nil {
 		panic(fmt.Sprintf("failed to parse apps template: %s", err))
 	}
 	s.tpl = tpl
+
+	progressTpl, err := template.ParseFiles("templates/progress.html")
+	if err != nil {
+		panic(fmt.Sprintf("failed to parse progress template: %s", err))
+	}
+	s.progressTpl = progressTpl
 
 	e := echo.New()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -39,6 +62,7 @@ func NewServer(store *Store, domain, port string, llm adkmodel.LLM) *echo.Echo {
 
 	e.GET("/", s.landingHandler)
 	e.POST("/build", s.buildHandler)
+	e.GET("/status/:slug", s.statusHandler)
 	e.GET("/apps", s.appsHandler)
 
 	return e
@@ -108,15 +132,69 @@ func (s *Server) buildHandler(c *echo.Context) error {
 	slug := newSlug()
 	slog.Info("build.start", "slug", slug)
 
-	err := runAgent(c.Request().Context(), s.llm, s.store, slug, prompt)
-	if err != nil {
-		slog.Error("build.failed", "slug", slug, "err", err)
-		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("build failed: %s", err))
+	// Initialize build status
+	s.buildStatusMu.Lock()
+	s.buildStatuses[slug] = &BuildStatus{
+		Slug:   slug,
+		Status: "building",
+	}
+	s.buildStatusMu.Unlock()
+
+	// Run build asynchronously
+	go func() {
+		err := runAgent(context.Background(), s.llm, s.store, slug, prompt)
+		s.buildStatusMu.Lock()
+		defer s.buildStatusMu.Unlock()
+
+		if err != nil {
+			slog.Error("build.failed", "slug", slug, "err", err)
+			s.buildStatuses[slug] = &BuildStatus{
+				Slug:   slug,
+				Status: "failed",
+				Error:  err.Error(),
+			}
+			return
+		}
+
+		slog.Info("build.done", "slug", slug)
+		s.buildStatuses[slug] = &BuildStatus{
+			Slug:   slug,
+			Status: "completed",
+		}
+	}()
+
+	// Render progress page
+	progressData := map[string]string{
+		"Slug":   slug,
+		"Domain": s.domain,
+		"Port":   s.port,
 	}
 
-	slog.Info("build.done", "slug", slug)
-	target := fmt.Sprintf("http://%s.%s:%s", slug, s.domain, s.port)
-	return c.Redirect(http.StatusFound, target) //nolint:wrapcheck
+	var buf bytes.Buffer
+	err := s.progressTpl.Execute(&buf, progressData)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to render progress template: %s", err))
+	}
+
+	return c.HTML(http.StatusOK, buf.String()) //nolint:wrapcheck
+}
+
+func (s *Server) statusHandler(c *echo.Context) error {
+	slug := c.Param("slug")
+
+	s.buildStatusMu.RLock()
+	status, exists := s.buildStatuses[slug]
+	s.buildStatusMu.RUnlock()
+
+	if !exists {
+		//nolint:wrapcheck
+		return c.JSON(http.StatusNotFound, BuildStatus{
+			Slug:   slug,
+			Status: "unknown",
+		})
+	}
+
+	return c.JSON(http.StatusOK, status) //nolint:wrapcheck
 }
 
 func (s *Server) proxyHandler(c *echo.Context, slug string) error {
