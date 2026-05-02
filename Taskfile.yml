@@ -1,0 +1,62 @@
+version: '3'
+
+vars:
+  MINIO_DATA_DIR: /tmp/buildabear-minio
+  MINIO_ENDPOINT: http://localhost:9000
+  MINIO_USER: minioadmin
+  MINIO_PASS: minioadmin
+  MINIO_BUCKET: buildabear
+  LMSTUDIO_BASE_URL: http://localhost:1234/v1
+  LMSTUDIO_MODEL: lmstudio/google/gemma-4-26b-a4b
+
+tasks:
+  local:
+    desc: Run the app locally using LM Studio and Minio
+    deps: [minio:ready]
+    env:
+      AWS_ACCESS_KEY_ID: "{{.MINIO_USER}}"
+      AWS_SECRET_ACCESS_KEY: "{{.MINIO_PASS}}"
+      AWS_REGION: us-east-1
+    cmds:
+      - |
+        go run . \
+          --s3-bucket {{.MINIO_BUCKET}} \
+          --s3-endpoint-url {{.MINIO_ENDPOINT}} \
+          --llm-model {{.LMSTUDIO_MODEL}} \
+          --llm-base-url {{.LMSTUDIO_BASE_URL}} \
+          --llm-api-key lm-studio \
+          --domain lvh.me \
+          --port 8080
+
+  minio:start:
+    desc: Start Minio server in the background
+    cmds:
+      - mkdir -p {{.MINIO_DATA_DIR}}
+      - |
+        MINIO_ROOT_USER={{.MINIO_USER}} MINIO_ROOT_PASSWORD={{.MINIO_PASS}} \
+        minio server {{.MINIO_DATA_DIR}} --address :9000 &
+        echo $! > /tmp/buildabear-minio.pid
+      - sleep 1
+
+  minio:stop:
+    desc: Stop the background Minio server
+    cmds:
+      - |
+        if [ -f /tmp/buildabear-minio.pid ]; then
+          kill $(cat /tmp/buildabear-minio.pid) 2>/dev/null || true
+          rm /tmp/buildabear-minio.pid
+        fi
+
+  minio:ready:
+    desc: Ensure Minio is running (the app creates the bucket on startup)
+    cmds:
+      - |
+        if ! curl -sf {{.MINIO_ENDPOINT}}/minio/health/live > /dev/null 2>&1; then
+          echo "Starting Minio..."
+          mkdir -p {{.MINIO_DATA_DIR}}
+          MINIO_ROOT_USER={{.MINIO_USER}} MINIO_ROOT_PASSWORD={{.MINIO_PASS}} \
+            minio server {{.MINIO_DATA_DIR}} --address :9000 --quiet \
+            > /tmp/buildabear-minio.log 2>&1 &
+          echo $! > /tmp/buildabear-minio.pid
+          sleep 2
+        fi
