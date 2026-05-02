@@ -19,10 +19,13 @@ Use `task` for development automation.
 
 | Command | Description |
 | --- | --- |
+| `task fmt` | Runs linters on the codebase |
 | `task local` | Starts the application locally, ensuring Minio is ready and pointing to LM Studio. |
 | `task minio:start` | Starts a background Minio server. |
 | `task minio:stop` | Stops the running Minio server. |
 | `task minio:ready` | Verifies or starts Minio if it's not currently running. |
+
+NOTE: Please run `task fmt` and resolve all issues after finish writing code.
 
 ### Configuration
 The application is configured via CLI flags and environment variables (via `kong`).

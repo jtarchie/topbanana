@@ -12,7 +12,6 @@ import (
 	adkmodel "google.golang.org/adk/model"
 )
 
-
 type Server struct {
 	store  *Store
 	domain string
@@ -84,7 +83,7 @@ func (s *Server) subdomainMiddleware() echo.MiddlewareFunc {
 }
 
 func (s *Server) landingHandler(c echo.Context) error {
-	return c.HTML(http.StatusOK, landingPage)
+	return c.HTML(http.StatusOK, landingPage) //nolint:wrapcheck
 }
 
 func (s *Server) buildHandler(c echo.Context) error {
@@ -96,14 +95,15 @@ func (s *Server) buildHandler(c echo.Context) error {
 	slug := newSlug()
 	slog.Info("build.start", "slug", slug)
 
-	if err := runAgent(c.Request().Context(), s.llm, s.store, slug, prompt); err != nil {
+	err := runAgent(c.Request().Context(), s.llm, s.store, slug, prompt)
+	if err != nil {
 		slog.Error("build.failed", "slug", slug, "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("build failed: %s", err))
 	}
 
 	slog.Info("build.done", "slug", slug)
 	target := fmt.Sprintf("http://%s.%s:%s", slug, s.domain, s.port)
-	return c.Redirect(http.StatusFound, target)
+	return c.Redirect(http.StatusFound, target) //nolint:wrapcheck
 }
 
 func (s *Server) proxyHandler(c echo.Context, slug string) error {
@@ -120,12 +120,23 @@ func (s *Server) proxyHandler(c echo.Context, slug string) error {
 	}
 
 	for _, candidate := range candidates {
-		content, err := s.store.Read(ctx, slug, candidate)
+		obj, err := s.store.Read(ctx, slug, candidate)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
-		if content != "" {
-			return c.HTML(http.StatusOK, content)
+		if obj.Content != "" {
+			c.Response().Header().Set("ETag", obj.ETag)
+			c.Response().Header().Set("Cache-Control", "public, max-age=3600")
+
+			if c.Request().Header.Get("If-None-Match") == obj.ETag {
+				return c.NoContent(http.StatusNotModified) //nolint:wrapcheck
+			}
+
+			if match := c.Request().Header.Get("If-Match"); match != "" && match != obj.ETag {
+				return c.NoContent(http.StatusPreconditionFailed) //nolint:wrapcheck
+			}
+
+			return c.HTML(http.StatusOK, obj.Content) //nolint:wrapcheck
 		}
 	}
 

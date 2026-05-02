@@ -15,7 +15,6 @@ import (
 	"google.golang.org/genai"
 )
 
-
 type writeFileArgs struct {
 	Path    string `json:"path"`    // relative path for the HTML file (e.g. index.html)
 	Content string `json:"content"` // full HTML content to write
@@ -43,11 +42,15 @@ type listFilesResult struct {
 func runAgent(ctx context.Context, llm adkmodel.LLM, store *Store, slug, prompt string) error {
 	writeTool, err := functiontool.New(
 		functiontool.Config{Name: "write_file", Description: "Write content to an HTML file"},
-		func(ctx tool.Context, args writeFileArgs) (writeFileResult, error) {
-			slog.Info("agent.write_file", "slug", slug, "path", args.Path)
-			if err := store.Write(ctx, slug, args.Path, args.Content); err != nil {
+		func(ctx tool.Context, args writeFileArgs) (writeFileResult, error) { //nolint:contextcheck
+			slog.Info("agent.write_file", "slug", slug, "path", args.Path, "length", len(args.Content))
+			err := store.Write(ctx, slug, args.Path, args.Content)
+			if err != nil {
+				slog.Debug("agent.write_file.error", "slug", slug, "path", args.Path, "err", err)
 				return writeFileResult{Error: err.Error()}, nil
 			}
+
+			slog.Info("agent.write_file.ok", "slug", slug, "path", args.Path)
 			return writeFileResult{OK: true}, nil
 		},
 	)
@@ -57,13 +60,15 @@ func runAgent(ctx context.Context, llm adkmodel.LLM, store *Store, slug, prompt 
 
 	readTool, err := functiontool.New(
 		functiontool.Config{Name: "read_file", Description: "Read content from an HTML file"},
-		func(ctx tool.Context, args readFileArgs) (readFileResult, error) {
+		func(ctx tool.Context, args readFileArgs) (readFileResult, error) { //nolint:contextcheck
 			slog.Info("agent.read_file", "slug", slug, "path", args.Path)
-			content, err := store.Read(ctx, slug, args.Path)
+			obj, err := store.Read(ctx, slug, args.Path)
 			if err != nil {
+				slog.Debug("agent.read_file.error", "slug", slug, "path", args.Path, "err", err)
 				return readFileResult{Error: err.Error()}, nil
 			}
-			return readFileResult{Content: content}, nil
+			slog.Info("agent.read_file.ok", "slug", slug, "path", args.Path, "length", len(obj.Content))
+			return readFileResult{Content: obj.Content}, nil
 		},
 	)
 	if err != nil {
@@ -72,12 +77,14 @@ func runAgent(ctx context.Context, llm adkmodel.LLM, store *Store, slug, prompt 
 
 	listTool, err := functiontool.New(
 		functiontool.Config{Name: "list_files", Description: "List all HTML files created so far"},
-		func(ctx tool.Context, _ struct{}) (listFilesResult, error) {
+		func(ctx tool.Context, _ struct{}) (listFilesResult, error) { //nolint:contextcheck
 			slog.Info("agent.list_files", "slug", slug)
 			files, err := store.List(ctx, slug)
 			if err != nil {
+				slog.Debug("agent.list_files.error", "slug", slug, "err", err)
 				return listFilesResult{Error: err.Error()}, nil
 			}
+			slog.Info("agent.list_files.ok", "slug", slug, "count", len(files))
 			return listFilesResult{Files: files}, nil
 		},
 	)

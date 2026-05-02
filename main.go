@@ -15,15 +15,15 @@ import (
 )
 
 var cli struct {
-	Port   string `help:"HTTP port to listen on."           default:"8080"                              env:"PORT"`
-	Domain string `help:"Base domain for subdomains."       default:"localhost"                         env:"DOMAIN"`
+	Port   string `default:"8080"      env:"PORT"   help:"HTTP port to listen on."`
+	Domain string `default:"localhost" env:"DOMAIN" help:"Base domain for subdomains."`
 
-	S3Bucket      string `help:"S3 bucket name (multi-tenant)."    required:""                                 env:"S3_BUCKET"       name:"s3-bucket"`
-	S3EndpointURL string `help:"Override S3 endpoint (e.g. Minio)."                                            env:"AWS_ENDPOINT_URL" name:"s3-endpoint-url"`
+	S3Bucket      string `env:"S3_BUCKET"        help:"S3 bucket name (multi-tenant)."     name:"s3-bucket"       required:""`
+	S3EndpointURL string `env:"AWS_ENDPOINT_URL" help:"Override S3 endpoint (e.g. Minio)." name:"s3-endpoint-url"`
 
-	LLMModel  string `help:"LLM model as provider/model-name." default:"lmstudio/google/gemma-4-26b-a4b" env:"LLM_MODEL"       name:"llm-model"`
-	LLMAPIKey string `help:"API key for the LLM provider."                                                 env:"LLM_API_KEY"     name:"llm-api-key"`
-	LLMBaseURL string `help:"Override base URL for the LLM provider."                                      env:"LLM_BASE_URL"    name:"llm-base-url"`
+	LLMModel   string `default:"lmstudio/google/gemma-4-26b-a4b" env:"LLM_MODEL"                                help:"LLM model as provider/model-name." name:"llm-model"`
+	LLMAPIKey  string `env:"LLM_API_KEY"                         help:"API key for the LLM provider."           name:"llm-api-key"`
+	LLMBaseURL string `env:"LLM_BASE_URL"                        help:"Override base URL for the LLM provider." name:"llm-base-url"`
 }
 
 func main() {
@@ -56,7 +56,8 @@ func main() {
 	})
 
 	store := NewStore(s3Client, cli.S3Bucket)
-	if err := store.EnsureBucket(ctx); err != nil {
+	err = store.EnsureBucket(ctx)
+	if err != nil {
 		slog.Error("ensure bucket failed", "bucket", cli.S3Bucket, "err", err)
 		os.Exit(1)
 	}
@@ -67,7 +68,8 @@ func main() {
 	e.Server.IdleTimeout = 60 * time.Second
 
 	slog.Info("app.started", "port", cli.Port, "domain", cli.Domain, "model", cli.LLMModel)
-	if err := e.Start(":" + cli.Port); err != nil {
+	err = e.Start(":" + cli.Port)
+	if err != nil {
 		slog.Error("server error", "err", err)
 		os.Exit(1)
 	}

@@ -10,6 +10,12 @@ vars:
   LMSTUDIO_MODEL: lmstudio/google/gemma-4-26b-a4b
 
 tasks:
+  fmt:
+    cmds:
+      - gofmt -w .
+      - golangci-lint run ./... --fix
+      - go test -race ./...
+
   local:
     desc: Run the app locally using LM Studio and Minio
     deps: [minio:ready]

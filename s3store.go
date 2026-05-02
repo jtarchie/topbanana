@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 
@@ -21,18 +22,26 @@ func NewStore(client *s3.Client, bucket string) *Store {
 	return &Store{client: client, bucket: bucket}
 }
 
+type S3Object struct {
+	Content string
+	ETag    string
+}
+
 func (s *Store) Write(ctx context.Context, slug, path, content string) error {
 	key := slug + "/" + path
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(s.bucket),
 		Key:         aws.String(key),
 		Body:        bytes.NewReader([]byte(content)),
-		ContentType: aws.String("text/html; charset=utf-8"),
+		ContentType: aws.String("text/html; charset=utf8"),
 	})
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to put object %s/%s: %w", slug, path, err)
+	}
+	return nil
 }
 
-func (s *Store) Read(ctx context.Context, slug, path string) (string, error) {
+func (s *Store) Read(ctx context.Context, slug, path string) (*S3Object, error) {
 	key := slug + "/" + path
 	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
@@ -41,13 +50,25 @@ func (s *Store) Read(ctx context.Context, slug, path string) (string, error) {
 	if err != nil {
 		var nsk *types.NoSuchKey
 		if errors.As(err, &nsk) {
-			return "", nil
+			return &S3Object{}, nil
 		}
-		return "", err
+		return nil, fmt.Errorf("failed to get object %s/%s: %w", slug, path, err)
 	}
-	defer out.Body.Close()
+	defer func() {
+		_ = out.Body.Close()
+	}()
 	b, err := io.ReadAll(out.Body)
-	return string(b), err
+	if err != nil {
+		return nil, fmt.Errorf("failed to read object %s/%s: %w", slug, path, err)
+	}
+	etag := ""
+	if out.ETag != nil {
+		etag = *out.ETag
+	}
+	return &S3Object{
+		Content: string(b),
+		ETag:    etag,
+	}, nil
 }
 
 func (s *Store) List(ctx context.Context, slug string) ([]string, error) {
@@ -57,7 +78,7 @@ func (s *Store) List(ctx context.Context, slug string) ([]string, error) {
 		Prefix: aws.String(prefix),
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to list objects in %s: %w", slug, err)
 	}
 	files := make([]string, 0, len(out.Contents))
 	for _, obj := range out.Contents {
@@ -70,8 +91,8 @@ func (s *Store) List(ctx context.Context, slug string) ([]string, error) {
 }
 
 func (s *Store) Exists(ctx context.Context, slug, path string) bool {
-	content, err := s.Read(ctx, slug, path)
-	return err == nil && content != ""
+	obj, err := s.Read(ctx, slug, path)
+	return err == nil && obj.Content != ""
 }
 
 func (s *Store) EnsureBucket(ctx context.Context) error {
@@ -90,7 +111,7 @@ func (s *Store) EnsureBucket(ctx context.Context) error {
 		if errors.As(err, &owned) || errors.As(err, &exists) {
 			return nil
 		}
-		return err
+		return fmt.Errorf("failed to create bucket %s: %w", s.bucket, err)
 	}
 	return nil
 }
