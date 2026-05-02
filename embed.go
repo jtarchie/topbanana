@@ -7,3 +7,6 @@ var landingPage string
 
 //go:embed static/agent_prompt.md
 var systemPrompt string
+
+//go:embed templates/apps.html
+var appsTemplate string

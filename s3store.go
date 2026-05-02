@@ -115,3 +115,22 @@ func (s *Store) EnsureBucket(ctx context.Context) error {
 	}
 	return nil
 }
+
+func (s *Store) ListApps(ctx context.Context) ([]string, error) {
+	out, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket:    aws.String(s.bucket),
+		Delimiter: aws.String("/"),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list apps: %w", err)
+	}
+	apps := make([]string, 0, len(out.CommonPrefixes))
+	for _, cp := range out.CommonPrefixes {
+		prefix := aws.ToString(cp.Prefix)
+		app := strings.TrimSuffix(prefix, "/")
+		if app != "" {
+			apps = append(apps, app)
+		}
+	}
+	return apps, nil
+}

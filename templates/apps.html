@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head><title>Apps</title></head>
+<body>
+	<h1>Available Apps</h1>
+	<ul>
+		{{range .}}
+		<li><a href="{{.URL}}">{{.Name}}</a></li>
+		{{end}}
+	</ul>
+	<p><a href="/">Back to Home</a></p>
+</body>
+</html>

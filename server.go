@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"html/template"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,10 +20,17 @@ type Server struct {
 	domain string
 	port   string
 	llm    adkmodel.LLM
+	tpl    *template.Template
 }
 
 func NewServer(store *Store, domain, port string, llm adkmodel.LLM) *echo.Echo {
 	s := &Server{store: store, domain: domain, port: port, llm: llm}
+
+	tpl, err := template.New("apps.html").Parse(appsTemplate)
+	if err != nil {
+		panic(fmt.Sprintf("failed to parse apps template: %s", err))
+	}
+	s.tpl = tpl
 
 	e := echo.New()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -30,6 +39,7 @@ func NewServer(store *Store, domain, port string, llm adkmodel.LLM) *echo.Echo {
 
 	e.GET("/", s.landingHandler)
 	e.POST("/build", s.buildHandler)
+	e.GET("/apps", s.appsHandler)
 
 	return e
 }
@@ -60,6 +70,33 @@ func (s *Server) subdomainMiddleware() echo.MiddlewareFunc {
 
 func (s *Server) landingHandler(c *echo.Context) error {
 	return c.HTML(http.StatusOK, landingPage) //nolint:wrapcheck
+}
+
+func (s *Server) appsHandler(c *echo.Context) error {
+	ctx := c.Request().Context()
+	apps, err := s.store.ListApps(ctx)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to list apps: %s", err))
+	}
+
+	type appLink struct {
+		Name string
+		URL  string
+	}
+	var links []appLink
+	for _, app := range apps {
+		url := fmt.Sprintf("http://%s.%s:%s/", app, s.domain, s.port)
+		links = append(links, appLink{Name: app, URL: url})
+	}
+
+	var buf bytes.Buffer
+
+	err = s.tpl.Execute(&buf, links)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to render apps template: %s", err))
+	}
+
+	return c.HTML(http.StatusOK, buf.String()) //nolint:wrapcheck
 }
 
 func (s *Server) buildHandler(c *echo.Context) error {
