@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"os"
-	"time"
 
 	"github.com/alecthomas/kong"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -63,9 +62,6 @@ func main() {
 	}
 
 	e := NewServer(store, cli.Domain, cli.Port, llm)
-	e.Server.WriteTimeout = 10 * time.Minute
-	e.Server.ReadTimeout = 30 * time.Second
-	e.Server.IdleTimeout = 60 * time.Second
 
 	slog.Info("app.started", "port", cli.Port, "domain", cli.Domain, "model", cli.LLMModel)
 	err = e.Start(":" + cli.Port)

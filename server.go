@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
-	"time"
 
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/labstack/echo/v5"
+	slogecho "github.com/samber/slog-echo"
+
 	adkmodel "google.golang.org/adk/model"
 )
 
@@ -23,33 +24,8 @@ func NewServer(store *Store, domain, port string, llm adkmodel.LLM) *echo.Echo {
 	s := &Server{store: store, domain: domain, port: port, llm: llm}
 
 	e := echo.New()
-	e.HideBanner = true
-	e.HidePort = true
-
-	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
-		LogMethod:  true,
-		LogURI:     true,
-		LogStatus:  true,
-		LogLatency: true,
-		LogHost:    true,
-		LogError:   true,
-		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
-			level := slog.LevelInfo
-			if v.Error != nil || v.Status >= 500 {
-				level = slog.LevelError
-			}
-			slog.Log(c.Request().Context(), level, "request",
-				"host", v.Host,
-				"method", v.Method,
-				"uri", v.URI,
-				"status", v.Status,
-				"latency", v.Latency.Round(time.Millisecond),
-				"error", v.Error,
-			)
-			return nil
-		},
-	}))
-
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	e.Use(slogecho.New(logger))
 	e.Use(s.subdomainMiddleware())
 
 	e.GET("/", s.landingHandler)
@@ -62,7 +38,7 @@ func NewServer(store *Store, domain, port string, llm adkmodel.LLM) *echo.Echo {
 // Requests to the main domain (or localhost) fall through to normal routes.
 func (s *Server) subdomainMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			host := c.Request().Host
 			if i := strings.LastIndex(host, ":"); i != -1 {
 				host = host[:i]
@@ -82,11 +58,11 @@ func (s *Server) subdomainMiddleware() echo.MiddlewareFunc {
 	}
 }
 
-func (s *Server) landingHandler(c echo.Context) error {
+func (s *Server) landingHandler(c *echo.Context) error {
 	return c.HTML(http.StatusOK, landingPage) //nolint:wrapcheck
 }
 
-func (s *Server) buildHandler(c echo.Context) error {
+func (s *Server) buildHandler(c *echo.Context) error {
 	prompt := strings.TrimSpace(c.FormValue("prompt"))
 	if prompt == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "prompt is required")
@@ -106,7 +82,7 @@ func (s *Server) buildHandler(c echo.Context) error {
 	return c.Redirect(http.StatusFound, target) //nolint:wrapcheck
 }
 
-func (s *Server) proxyHandler(c echo.Context, slug string) error {
+func (s *Server) proxyHandler(c *echo.Context, slug string) error {
 	ctx := c.Request().Context()
 
 	path := strings.TrimPrefix(c.Request().URL.Path, "/")
