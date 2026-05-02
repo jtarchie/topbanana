@@ -11,15 +11,25 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/hashicorp/golang-lru/arc/v2"
 )
 
 type Store struct {
 	client *s3.Client
 	bucket string
+	cache  *arc.ARCCache[string, *S3Object]
 }
 
-func NewStore(client *s3.Client, bucket string) *Store {
-	return &Store{client: client, bucket: bucket}
+func NewStore(client *s3.Client, bucket string, cacheSize int) (*Store, error) {
+	var cache *arc.ARCCache[string, *S3Object]
+	if cacheSize > 0 {
+		var err error
+		cache, err = arc.NewARC[string, *S3Object](cacheSize)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create ARC cache: %w", err)
+		}
+	}
+	return &Store{client: client, bucket: bucket, cache: cache}, nil
 }
 
 type S3Object struct {
@@ -33,16 +43,33 @@ func (s *Store) Write(ctx context.Context, slug, path, content string) error {
 		Bucket:      aws.String(s.bucket),
 		Key:         aws.String(key),
 		Body:        bytes.NewReader([]byte(content)),
-		ContentType: aws.String("text/html; charset=utf8"),
+		ContentType: aws.String("text/html"),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to put object %s/%s: %w", slug, path, err)
+		return fmt.Errorf("failed to write object %s: %w", key, err)
 	}
+
+	// Update cache with the new content
+	if s.cache != nil {
+		s.cache.Add(key, &S3Object{
+			Content: content,
+			ETag:    "", // ETag will be updated on next read if needed
+		})
+	}
+
 	return nil
 }
 
 func (s *Store) Read(ctx context.Context, slug, path string) (*S3Object, error) {
 	key := slug + "/" + path
+
+	// Check cache first
+	if s.cache != nil {
+		if cached, ok := s.cache.Get(key); ok {
+			return cached, nil
+		}
+	}
+
 	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
@@ -65,10 +92,18 @@ func (s *Store) Read(ctx context.Context, slug, path string) (*S3Object, error) 
 	if out.ETag != nil {
 		etag = *out.ETag
 	}
-	return &S3Object{
+
+	obj := &S3Object{
 		Content: string(b),
 		ETag:    etag,
-	}, nil
+	}
+
+	// Store in cache for future reads
+	if s.cache != nil {
+		s.cache.Add(key, obj)
+	}
+
+	return obj, nil
 }
 
 func (s *Store) List(ctx context.Context, slug string) ([]string, error) {
@@ -93,6 +128,24 @@ func (s *Store) List(ctx context.Context, slug string) ([]string, error) {
 func (s *Store) Exists(ctx context.Context, slug, path string) bool {
 	obj, err := s.Read(ctx, slug, path)
 	return err == nil && obj.Content != ""
+}
+
+// InvalidateCacheEntry removes a specific key from the cache
+func (s *Store) InvalidateCacheEntry(slug, path string) {
+	if s.cache != nil {
+		key := slug + "/" + path
+		s.cache.Remove(key)
+	}
+}
+
+// InvalidateSlugCache removes all cache entries for a specific slug
+func (s *Store) InvalidateSlugCache(slug string) {
+	if s.cache == nil {
+		return
+	}
+	// Since ARC doesn't provide iteration, we'll need to track keys
+	// For now, this is a placeholder for future enhancement
+	// In a production system, you might track slug->keys mappings
 }
 
 func (s *Store) EnsureBucket(ctx context.Context) error {

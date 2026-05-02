@@ -8,7 +8,9 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.41.7
 	github.com/aws/aws-sdk-go-v2/config v1.32.17
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.100.1
+	github.com/hashicorp/golang-lru/arc/v2 v2.0.7
 	github.com/labstack/echo/v5 v5.1.1
+	github.com/samber/slog-echo v1.22.0
 	google.golang.org/adk v1.2.0
 	google.golang.org/genai v1.55.0
 )
@@ -45,9 +47,9 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.14 // indirect
 	github.com/googleapis/gax-go/v2 v2.18.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/openai/openai-go/v3 v3.16.0 // indirect
 	github.com/samber/lo v1.53.0 // indirect
-	github.com/samber/slog-echo v1.22.0 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
@@ -62,7 +64,6 @@ require (
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
-	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260316180232-0b37fe3546d5 // indirect
 	google.golang.org/grpc v1.79.3 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
