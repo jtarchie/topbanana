@@ -12,18 +12,6 @@ import (
 	adkmodel "google.golang.org/adk/model"
 )
 
-const landingPage = `<!DOCTYPE html>
-<html>
-<head><title>Build an App</title></head>
-<body>
-<h1>Build an App</h1>
-<p>Describe what you want and we'll build it for you.</p>
-<form method="POST" action="/build">
-  <p><textarea name="prompt" rows="6" cols="70" placeholder="Describe the app you want to build..."></textarea></p>
-  <button type="submit">Build it</button>
-</form>
-</body>
-</html>`
 
 type Server struct {
 	store  *Store
