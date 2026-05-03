@@ -92,6 +92,46 @@ func (s *Server) subdomainMiddleware() echo.MiddlewareFunc {
 	}
 }
 
+const maxLintRetries = 3
+
+func (s *Server) buildAndLint(ctx context.Context, slug, prompt string) error {
+	err := runAgent(ctx, s.llm, s.store, slug, prompt)
+	if err != nil {
+		return err
+	}
+
+	for range maxLintRetries {
+		lintErrs := lintApp(ctx, s.store, slug)
+		if len(lintErrs) == 0 {
+			return nil
+		}
+
+		msgs := make([]string, 0, len(lintErrs))
+		for _, e := range lintErrs {
+			msgs = append(msgs, e.Error())
+		}
+		fixPrompt := "Fix these issues in the site:\n" + strings.Join(msgs, "\n")
+		slog.Info("build.lint_retry", "slug", slug, "issues", len(lintErrs))
+
+		err := runAgent(ctx, s.llm, s.store, slug, fixPrompt)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Final lint check after retries
+	lintErrs := lintApp(ctx, s.store, slug)
+	if len(lintErrs) > 0 {
+		msgs := make([]string, 0, len(lintErrs))
+		for _, e := range lintErrs {
+			msgs = append(msgs, e.Error())
+		}
+		return fmt.Errorf("lint errors after %d retries: %s", maxLintRetries, strings.Join(msgs, "; "))
+	}
+
+	return nil
+}
+
 func (s *Server) landingHandler(c *echo.Context) error {
 	return c.HTML(http.StatusOK, landingPage) //nolint:wrapcheck
 }
@@ -142,25 +182,19 @@ func (s *Server) buildHandler(c *echo.Context) error {
 
 	// Run build asynchronously
 	go func() {
-		err := runAgent(context.Background(), s.llm, s.store, slug, prompt)
-		s.buildStatusMu.Lock()
-		defer s.buildStatusMu.Unlock()
-
+		ctx := context.Background()
+		err := s.buildAndLint(ctx, slug, prompt)
 		if err != nil {
 			slog.Error("build.failed", "slug", slug, "err", err)
-			s.buildStatuses[slug] = &BuildStatus{
-				Slug:   slug,
-				Status: "failed",
-				Error:  err.Error(),
-			}
+			s.buildStatusMu.Lock()
+			s.buildStatuses[slug] = &BuildStatus{Slug: slug, Status: "failed", Error: err.Error()}
+			s.buildStatusMu.Unlock()
 			return
 		}
-
 		slog.Info("build.done", "slug", slug)
-		s.buildStatuses[slug] = &BuildStatus{
-			Slug:   slug,
-			Status: "completed",
-		}
+		s.buildStatusMu.Lock()
+		s.buildStatuses[slug] = &BuildStatus{Slug: slug, Status: "completed"}
+		s.buildStatusMu.Unlock()
 	}()
 
 	// Render progress page
