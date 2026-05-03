@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	slogecho "github.com/samber/slog-echo"
@@ -22,12 +23,19 @@ const (
 	maxLintRetries         = 3
 	progressPollIntervalMS = 2000
 	progressMaxChecks      = 180
+
+	// terminalEntryTTL is how long a completed/failed BuildStatus stays in the tracker
+	// after termination. The progress page polls every progressPollIntervalMS, so this
+	// must be comfortably larger than that to guarantee the redirect is observed.
+	terminalEntryTTL = time.Minute
+	sweepInterval    = time.Minute
 )
 
 type BuildStatus struct {
-	Slug   string `json:"slug"`
-	Status string `json:"status"` // "building", "completed", "failed", "unknown"
-	Error  string `json:"error,omitempty"`
+	Slug     string    `json:"slug"`
+	Status   string    `json:"status"` // "building", "completed", "failed", "unknown"
+	Error    string    `json:"error,omitempty"`
+	Finished time.Time `json:"-"` // set when Status flips to terminal; drives eviction
 }
 
 type buildTracker struct {
@@ -35,8 +43,13 @@ type buildTracker struct {
 	m  map[string]*BuildStatus
 }
 
+// newBuildTracker spawns a background sweep goroutine that lives for the lifetime of
+// the process; we don't bother with shutdown coordination because the only consumer
+// is the long-running HTTP server.
 func newBuildTracker() *buildTracker {
-	return &buildTracker{m: make(map[string]*BuildStatus)}
+	b := &buildTracker{m: make(map[string]*BuildStatus)}
+	go b.sweepLoop()
+	return b
 }
 
 func (b *buildTracker) start(slug string) {
@@ -44,11 +57,11 @@ func (b *buildTracker) start(slug string) {
 }
 
 func (b *buildTracker) complete(slug string) {
-	b.set(&BuildStatus{Slug: slug, Status: "completed"})
+	b.set(&BuildStatus{Slug: slug, Status: "completed", Finished: time.Now()})
 }
 
 func (b *buildTracker) fail(slug string, err error) {
-	b.set(&BuildStatus{Slug: slug, Status: "failed", Error: err.Error()})
+	b.set(&BuildStatus{Slug: slug, Status: "failed", Error: err.Error(), Finished: time.Now()})
 }
 
 func (b *buildTracker) set(s *BuildStatus) {
@@ -61,6 +74,28 @@ func (b *buildTracker) get(slug string) *BuildStatus {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.m[slug]
+}
+
+func (b *buildTracker) sweepLoop() {
+	t := time.NewTicker(sweepInterval)
+	defer t.Stop()
+	for now := range t.C {
+		b.sweep(now)
+	}
+}
+
+// sweep removes terminal entries older than terminalEntryTTL. "building" entries are
+// never swept — a hung agent is a separate problem, surfaced as a stuck progress page
+// rather than silently disappearing state.
+func (b *buildTracker) sweep(now time.Time) {
+	cutoff := now.Add(-terminalEntryTTL)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for slug, s := range b.m {
+		if !s.Finished.IsZero() && s.Finished.Before(cutoff) {
+			delete(b.m, slug)
+		}
+	}
 }
 
 type Server struct {
