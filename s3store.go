@@ -43,7 +43,7 @@ func (s *Store) Write(ctx context.Context, slug, path, content string) error {
 		Bucket:      aws.String(s.bucket),
 		Key:         aws.String(key),
 		Body:        bytes.NewReader([]byte(content)),
-		ContentType: aws.String("text/html"),
+		ContentType: aws.String("text/html; charset=utf-8"),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to write object %s: %w", key, err)
