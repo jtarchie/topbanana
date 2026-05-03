@@ -15,9 +15,13 @@ import (
 	"google.golang.org/genai"
 )
 
+// Tool results surface errors as data (Error field) rather than as a Go error: this lets
+// the model see the failure in the tool response and recover (e.g. retry with a different
+// path) instead of aborting the run.
+
 type writeFileArgs struct {
-	Path    string `json:"path"`    // relative path for the HTML file (e.g. index.html)
-	Content string `json:"content"` // full HTML content to write
+	Path    string `json:"path"`
+	Content string `json:"content"`
 }
 
 type writeFileResult struct {
@@ -26,7 +30,7 @@ type writeFileResult struct {
 }
 
 type readFileArgs struct {
-	Path string `json:"path"` // relative path to read (e.g. index.html)
+	Path string `json:"path"`
 }
 
 type readFileResult struct {
@@ -40,17 +44,19 @@ type listFilesResult struct {
 }
 
 func runAgent(ctx context.Context, llm adkmodel.LLM, store *Store, slug, prompt string) error {
+	// tool.Context chains down to context.Context via interface embedding, so it can be
+	// passed to store methods directly. The contextcheck linter wants the outer ctx
+	// propagated into the closures, but tool callbacks fire later from the runner with
+	// their own per-invocation context — that is the correct one to forward.
 	writeTool, err := functiontool.New(
 		functiontool.Config{Name: "write_file", Description: "Write content to an HTML file"},
-		func(ctx tool.Context, args writeFileArgs) (writeFileResult, error) { //nolint:contextcheck
-			slog.Info("agent.write_file", "slug", slug, "path", args.Path, "length", len(args.Content))
-			err := store.Write(ctx, slug, args.Path, args.Content)
+		func(tctx tool.Context, args writeFileArgs) (writeFileResult, error) { //nolint:contextcheck
+			err := store.Write(tctx, slug, args.Path, args.Content)
 			if err != nil {
-				slog.Debug("agent.write_file.error", "slug", slug, "path", args.Path, "err", err)
+				slog.Warn("agent.write_file", "slug", slug, "path", args.Path, "err", err)
 				return writeFileResult{Error: err.Error()}, nil
 			}
-
-			slog.Info("agent.write_file.ok", "slug", slug, "path", args.Path)
+			slog.Info("agent.write_file", "slug", slug, "path", args.Path, "length", len(args.Content))
 			return writeFileResult{OK: true}, nil
 		},
 	)
@@ -60,14 +66,13 @@ func runAgent(ctx context.Context, llm adkmodel.LLM, store *Store, slug, prompt 
 
 	readTool, err := functiontool.New(
 		functiontool.Config{Name: "read_file", Description: "Read content from an HTML file"},
-		func(ctx tool.Context, args readFileArgs) (readFileResult, error) { //nolint:contextcheck
-			slog.Info("agent.read_file", "slug", slug, "path", args.Path)
-			obj, err := store.Read(ctx, slug, args.Path)
+		func(tctx tool.Context, args readFileArgs) (readFileResult, error) { //nolint:contextcheck
+			obj, err := store.Read(tctx, slug, args.Path)
 			if err != nil {
-				slog.Debug("agent.read_file.error", "slug", slug, "path", args.Path, "err", err)
+				slog.Warn("agent.read_file", "slug", slug, "path", args.Path, "err", err)
 				return readFileResult{Error: err.Error()}, nil
 			}
-			slog.Info("agent.read_file.ok", "slug", slug, "path", args.Path, "length", len(obj.Content))
+			slog.Info("agent.read_file", "slug", slug, "path", args.Path, "length", len(obj.Content))
 			return readFileResult{Content: obj.Content}, nil
 		},
 	)
@@ -77,14 +82,13 @@ func runAgent(ctx context.Context, llm adkmodel.LLM, store *Store, slug, prompt 
 
 	listTool, err := functiontool.New(
 		functiontool.Config{Name: "list_files", Description: "List all HTML files created so far"},
-		func(ctx tool.Context, _ struct{}) (listFilesResult, error) { //nolint:contextcheck
-			slog.Info("agent.list_files", "slug", slug)
-			files, err := store.List(ctx, slug)
+		func(tctx tool.Context, _ struct{}) (listFilesResult, error) { //nolint:contextcheck
+			files, err := store.List(tctx, slug)
 			if err != nil {
-				slog.Debug("agent.list_files.error", "slug", slug, "err", err)
+				slog.Warn("agent.list_files", "slug", slug, "err", err)
 				return listFilesResult{Error: err.Error()}, nil
 			}
-			slog.Info("agent.list_files.ok", "slug", slug, "count", len(files))
+			slog.Info("agent.list_files", "slug", slug, "count", len(files))
 			return listFilesResult{Files: files}, nil
 		},
 	)
@@ -103,12 +107,10 @@ func runAgent(ctx context.Context, llm adkmodel.LLM, store *Store, slug, prompt 
 		return fmt.Errorf("create agent: %w", err)
 	}
 
-	sessionSvc := session.InMemoryService()
-
 	r, err := runner.New(runner.Config{
 		AppName:           "buildabear",
 		Agent:             a,
-		SessionService:    sessionSvc,
+		SessionService:    session.InMemoryService(),
 		AutoCreateSession: true,
 	})
 	if err != nil {

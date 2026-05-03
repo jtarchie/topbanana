@@ -12,7 +12,8 @@
 		const domain = '{{.Domain}}';
 		const port = '{{.Port}}';
 		let checkCount = 0;
-		const maxChecks = 180; // 3 minutes max
+		const maxChecks = {{.MaxChecks}};
+		const pollIntervalMS = {{.PollIntervalMS}};
 
 		function checkStatus() {
 			fetch('/status/' + slug)
@@ -34,7 +35,7 @@
 						statusEl.textContent = 'Building... (checking for ' + (checkCount * 2) + 's)';
 						checkCount++;
 						if (checkCount < maxChecks) {
-							setTimeout(checkStatus, 2000);
+							setTimeout(checkStatus, pollIntervalMS);
 						} else {
 							statusEl.textContent = 'Build taking longer than expected...';
 						}
@@ -44,7 +45,7 @@
 					console.error('Status check error:', err);
 					checkCount++;
 					if (checkCount < maxChecks) {
-						setTimeout(checkStatus, 2000);
+						setTimeout(checkStatus, pollIntervalMS);
 					}
 				});
 		}

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -43,7 +42,7 @@ func (s *Store) Write(ctx context.Context, slug, path, content string) error {
 	out, err := s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(s.bucket),
 		Key:         aws.String(key),
-		Body:        bytes.NewReader([]byte(content)),
+		Body:        strings.NewReader(content),
 		ContentType: aws.String("text/html; charset=utf-8"),
 	})
 	if err != nil {
@@ -131,29 +130,6 @@ func (s *Store) List(ctx context.Context, slug string) ([]string, error) {
 		}
 	}
 	return files, nil
-}
-
-func (s *Store) Exists(ctx context.Context, slug, path string) bool {
-	obj, err := s.Read(ctx, slug, path)
-	return err == nil && obj.Content != ""
-}
-
-// InvalidateCacheEntry removes a specific key from the cache
-func (s *Store) InvalidateCacheEntry(slug, path string) {
-	if s.cache != nil {
-		key := slug + "/" + path
-		s.cache.Remove(key)
-	}
-}
-
-// InvalidateSlugCache removes all cache entries for a specific slug
-func (s *Store) InvalidateSlugCache(slug string) {
-	if s.cache == nil {
-		return
-	}
-	// Since ARC doesn't provide iteration, we'll need to track keys
-	// For now, this is a placeholder for future enhancement
-	// In a production system, you might track slug->keys mappings
 }
 
 func (s *Store) EnsureBucket(ctx context.Context) error {
