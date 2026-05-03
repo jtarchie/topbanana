@@ -10,3 +10,6 @@ var systemPrompt string
 
 //go:embed templates/apps.html
 var appsTemplate string
+
+//go:embed templates/edit.html
+var editTemplate string

@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -30,6 +31,7 @@ type Server struct {
 	llm           adkmodel.LLM
 	tpl           *template.Template
 	progressTpl   *template.Template
+	editTpl       *template.Template
 	buildStatusMu sync.RWMutex
 	buildStatuses map[string]*BuildStatus
 }
@@ -55,6 +57,12 @@ func NewServer(store *Store, domain, port string, llm adkmodel.LLM) *echo.Echo {
 	}
 	s.progressTpl = progressTpl
 
+	editTpl, err := template.New("edit.html").Parse(editTemplate)
+	if err != nil {
+		panic(fmt.Sprintf("failed to parse edit template: %s", err))
+	}
+	s.editTpl = editTpl
+
 	e := echo.New()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	e.Use(slogecho.New(logger))
@@ -64,6 +72,8 @@ func NewServer(store *Store, domain, port string, llm adkmodel.LLM) *echo.Echo {
 	e.POST("/build", s.buildHandler)
 	e.GET("/status/:slug", s.statusHandler)
 	e.GET("/apps", s.appsHandler)
+	e.GET("/edit/:slug", s.editHandler)
+	e.POST("/edit/:slug", s.editSubmitHandler)
 
 	return e
 }
@@ -261,9 +271,158 @@ func (s *Server) proxyHandler(c *echo.Context, slug string) error {
 				return c.NoContent(http.StatusPreconditionFailed) //nolint:wrapcheck
 			}
 
-			return c.HTML(http.StatusOK, obj.Content) //nolint:wrapcheck
+			content := injectEditToolbar(obj.Content, s.domain, s.port, slug, candidate)
+			return c.HTML(http.StatusOK, content) //nolint:wrapcheck
 		}
 	}
 
 	return echo.ErrNotFound
+}
+
+const editToolbarTpl = `<style>
+#_bab{position:fixed;bottom:1rem;right:1rem;z-index:9999;background:rgba(0,0,0,.8);color:#fff;padding:.5rem 1rem;border-radius:4px;font:14px sans-serif}
+#_bab a{color:#fff;text-decoration:none}
+.in-frame #_bab{display:none}
+</style>
+<div id="_bab"><a target="_top" href="http://%s:%s/edit/%s?page=%s">&#x270e; Edit this page</a></div>
+<script>
+if(self!==top)document.body.classList.add('in-frame');
+document.addEventListener('selectionchange',function(){
+var s=getSelection();
+if(!s||!s.rangeCount||!s.toString().trim())return;
+var d=document.createElement('div');
+d.appendChild(s.getRangeAt(0).cloneContents());
+parent.postMessage({type:'_bab_sel',html:d.innerHTML,text:s.toString()},'*');
+});
+</script>
+</body>`
+
+func injectEditToolbar(html, domain, port, slug, path string) string {
+	if !strings.Contains(html, "</body>") {
+		return html
+	}
+	toolbar := fmt.Sprintf(editToolbarTpl,
+		domain,
+		port,
+		url.PathEscape(slug),
+		url.QueryEscape(path),
+	)
+	return strings.Replace(html, "</body>", toolbar, 1)
+}
+
+type editData struct {
+	Slug   string
+	Domain string
+	Port   string
+	Page   string
+	Pages  []string
+}
+
+func validatePage(page string) error {
+	if page == "" {
+		return nil
+	}
+	if strings.Contains(page, "..") || strings.HasPrefix(page, "/") || strings.Contains(page, `\`) {
+		return fmt.Errorf("invalid page %q", page)
+	}
+	return nil
+}
+
+func (s *Server) editHandler(c *echo.Context) error {
+	slug := c.Param("slug")
+	page := c.QueryParam("page")
+
+	err := validatePage(page)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	ctx := c.Request().Context()
+	pages, err := s.store.List(ctx, slug)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to list pages: %s", err))
+	}
+
+	var buf bytes.Buffer
+	err = s.editTpl.Execute(&buf, editData{
+		Slug:   slug,
+		Domain: s.domain,
+		Port:   s.port,
+		Page:   page,
+		Pages:  pages,
+	})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to render edit template: %s", err))
+	}
+
+	return c.HTML(http.StatusOK, buf.String()) //nolint:wrapcheck
+}
+
+func (s *Server) editSubmitHandler(c *echo.Context) error {
+	slug := c.Param("slug")
+	prompt := strings.TrimSpace(c.FormValue("prompt"))
+	page := c.FormValue("page")
+	selection := strings.TrimSpace(c.FormValue("selection"))
+
+	if prompt == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "prompt is required")
+	}
+
+	err := validatePage(page)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	s.buildStatusMu.RLock()
+	existing := s.buildStatuses[slug]
+	s.buildStatusMu.RUnlock()
+	if existing != nil && existing.Status == "building" {
+		return echo.NewHTTPError(http.StatusConflict, "edit already in progress for this site")
+	}
+
+	var fullPrompt string
+	switch {
+	case page == "":
+		fullPrompt = prompt
+	case selection == "":
+		fullPrompt = fmt.Sprintf("Edit only the page '%s'. Use read_file to see current content first.\n\n%s", page, prompt)
+	default:
+		fullPrompt = fmt.Sprintf("In page '%s', the user selected this content:\n\n```html\n%s\n```\n\nApply this instruction to that selection (use read_file first to see the surrounding context):\n%s", page, selection, prompt)
+	}
+
+	slog.Info("edit.start", "slug", slug, "page", page, "selection_len", len(selection))
+
+	s.buildStatusMu.Lock()
+	s.buildStatuses[slug] = &BuildStatus{Slug: slug, Status: "building"}
+	s.buildStatusMu.Unlock()
+
+	go func() {
+		ctx := context.Background()
+		err := s.buildAndLint(ctx, slug, fullPrompt)
+		if err != nil {
+			slog.Error("edit.failed", "slug", slug, "err", err)
+			s.buildStatusMu.Lock()
+			s.buildStatuses[slug] = &BuildStatus{Slug: slug, Status: "failed", Error: err.Error()}
+			s.buildStatusMu.Unlock()
+			return
+		}
+		slog.Info("edit.done", "slug", slug)
+		s.buildStatusMu.Lock()
+		s.buildStatuses[slug] = &BuildStatus{Slug: slug, Status: "completed"}
+		s.buildStatusMu.Unlock()
+	}()
+
+	progressData := map[string]string{
+		"Slug":   slug,
+		"Domain": s.domain,
+		"Port":   s.port,
+	}
+
+	var buf bytes.Buffer
+	err = s.progressTpl.Execute(&buf, progressData)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to render progress template: %s", err))
+	}
+
+	return c.HTML(http.StatusOK, buf.String()) //nolint:wrapcheck
 }

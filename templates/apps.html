@@ -5,7 +5,7 @@
 	<h1>Available Apps</h1>
 	<ul>
 		{{range .}}
-		<li><a href="{{.URL}}">{{.Name}}</a></li>
+		<li><a href="{{.URL}}">{{.Name}}</a> &mdash; <a href="/edit/{{.Name}}">Edit site</a></li>
 		{{end}}
 	</ul>
 	<p><a href="/">Back to Home</a></p>
