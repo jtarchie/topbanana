@@ -98,8 +98,8 @@ func (s *Store) Read(ctx context.Context, slug, path string) (*S3Object, error) 
 		ETag:    etag,
 	}
 
-	// Store in cache for future reads
-	if s.cache != nil {
+	// Store in cache for future reads (only if content is not empty)
+	if s.cache != nil && obj.Content != "" {
 		s.cache.Add(key, obj)
 	}
 
