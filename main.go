@@ -20,7 +20,7 @@ var cli struct {
 	S3Bucket      string `env:"S3_BUCKET"        help:"S3 bucket name (multi-tenant)."     name:"s3-bucket"       required:""`
 	S3EndpointURL string `env:"AWS_ENDPOINT_URL" help:"Override S3 endpoint (e.g. Minio)." name:"s3-endpoint-url"`
 
-	CacheSize int `default:"100" env:"CACHE_SIZE" help:"Number of items to cache in ARC." name:"cache-size"`
+	CacheSize int `default:"1024" env:"CACHE_SIZE" help:"Number of items to cache in ARC." name:"cache-size"`
 
 	LLMModel   string `default:"lmstudio/google/gemma-4-26b-a4b" env:"LLM_MODEL"                                help:"LLM model as provider/model-name." name:"llm-model"`
 	LLMAPIKey  string `env:"LLM_API_KEY"                         help:"API key for the LLM provider."           name:"llm-api-key"`

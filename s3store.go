@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -39,7 +40,7 @@ type S3Object struct {
 
 func (s *Store) Write(ctx context.Context, slug, path, content string) error {
 	key := slug + "/" + path
-	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+	out, err := s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(s.bucket),
 		Key:         aws.String(key),
 		Body:        bytes.NewReader([]byte(content)),
@@ -49,11 +50,14 @@ func (s *Store) Write(ctx context.Context, slug, path, content string) error {
 		return fmt.Errorf("failed to write object %s: %w", key, err)
 	}
 
-	// Update cache with the new content
 	if s.cache != nil {
+		etag := ""
+		if out != nil && out.ETag != nil {
+			etag = *out.ETag
+		}
 		s.cache.Add(key, &S3Object{
 			Content: content,
-			ETag:    "", // ETag will be updated on next read if needed
+			ETag:    etag,
 		})
 	}
 
@@ -63,11 +67,12 @@ func (s *Store) Write(ctx context.Context, slug, path, content string) error {
 func (s *Store) Read(ctx context.Context, slug, path string) (*S3Object, error) {
 	key := slug + "/" + path
 
-	// Check cache first
 	if s.cache != nil {
 		if cached, ok := s.cache.Get(key); ok {
+			slog.Debug("store.cache", "slug", slug, "path", path, "hit", true)
 			return cached, nil
 		}
+		slog.Debug("store.cache", "slug", slug, "path", path, "hit", false)
 	}
 
 	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
@@ -77,7 +82,11 @@ func (s *Store) Read(ctx context.Context, slug, path string) (*S3Object, error) 
 	if err != nil {
 		var nsk *types.NoSuchKey
 		if errors.As(err, &nsk) {
-			return &S3Object{}, nil
+			obj := &S3Object{}
+			if s.cache != nil {
+				s.cache.Add(key, obj)
+			}
+			return obj, nil
 		}
 		return nil, fmt.Errorf("failed to get object %s/%s: %w", slug, path, err)
 	}
@@ -98,8 +107,7 @@ func (s *Store) Read(ctx context.Context, slug, path string) (*S3Object, error) 
 		ETag:    etag,
 	}
 
-	// Store in cache for future reads (only if content is not empty)
-	if s.cache != nil && obj.Content != "" {
+	if s.cache != nil {
 		s.cache.Add(key, obj)
 	}
 
