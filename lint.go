@@ -19,9 +19,10 @@ func (e *LintError) Error() string {
 	return fmt.Sprintf("%s: %s", e.File, e.Message)
 }
 
-// lintApp validates all HTML files in a slug: checks HTML parse errors and
-// ensures all relative href/src links resolve to existing files in the store.
-func lintApp(ctx context.Context, store *Store, slug string) []LintError {
+// lintApp validates all HTML files in a slug: checks HTML parse errors,
+// ensures all relative href/src links resolve to existing files in the store,
+// and runs any per-template invariants. tmpl may be nil.
+func lintApp(ctx context.Context, store *Store, slug string, tmpl *SiteTemplate) []LintError {
 	files, err := store.List(ctx, slug)
 	if err != nil {
 		return []LintError{{File: slug, Message: fmt.Sprintf("failed to list files: %s", err)}}
@@ -48,6 +49,8 @@ func lintApp(ctx context.Context, store *Store, slug string) []LintError {
 		errs = append(errs, parseErrs...)
 	}
 
+	errs = append(errs, checkTemplateInvariants(ctx, store, slug, tmpl)...)
+
 	if len(errs) > 0 {
 		slog.Warn("lint.app.errors", "slug", slug, "count", len(errs))
 		for _, e := range errs {
@@ -57,6 +60,40 @@ func lintApp(ctx context.Context, store *Store, slug string) []LintError {
 		slog.Info("lint.app.ok", "slug", slug)
 	}
 
+	return errs
+}
+
+// checkTemplateInvariants runs declarative must_contain checks for the chosen
+// template. Failures piggyback on the existing retry loop, so the agent gets
+// concrete fix instructions and self-corrects.
+func checkTemplateInvariants(ctx context.Context, store *Store, slug string, tmpl *SiteTemplate) []LintError {
+	if tmpl == nil || len(tmpl.Checks) == 0 {
+		return nil
+	}
+
+	var errs []LintError
+	for _, check := range tmpl.Checks {
+		obj, err := store.Read(ctx, slug, check.File)
+		if err != nil || obj.Content == "" {
+			errs = append(errs, LintError{
+				File:    check.File,
+				Message: fmt.Sprintf("required by %q template but missing or empty", tmpl.ID),
+			})
+			continue
+		}
+		for _, must := range check.MustContain {
+			if strings.Contains(obj.Content, must) {
+				continue
+			}
+			msg := check.Message
+			if msg == "" {
+				msg = fmt.Sprintf("must contain %q (template %q)", must, tmpl.ID)
+			} else {
+				msg = fmt.Sprintf("%s (missing %q)", msg, must)
+			}
+			errs = append(errs, LintError{File: check.File, Message: msg})
+		}
+	}
 	return errs
 }
 

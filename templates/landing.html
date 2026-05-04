@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Build an App</title>
+{{ template "head" . }}
+</head>
+<body class="narrow">
+<h1>Build an App</h1>
+<p>Pick a starting shape and describe what you want.</p>
+<form method="POST" action="/build">
+  <label for="template">Site type</label>
+  <select name="template" id="template">
+    {{- range .Templates }}
+    <option value="{{ .ID }}"{{ if eq .ID "blank" }} selected{{ end }} data-desc="{{ .Description }}">{{ .Label }}</option>
+    {{- end }}
+  </select>
+  <p class="desc" id="template-desc"></p>
+
+  <label for="prompt">Prompt</label>
+  <textarea name="prompt" id="prompt" rows="6" placeholder="Describe the app you want to build..."></textarea>
+
+  <button type="submit">Build it</button>
+</form>
+
+<p><a href="/apps">View existing apps</a></p>
+
+<script>
+  (function () {
+    var sel = document.getElementById('template');
+    var desc = document.getElementById('template-desc');
+    function update() {
+      var opt = sel.options[sel.selectedIndex];
+      desc.textContent = opt ? opt.getAttribute('data-desc') || '' : '';
+    }
+    sel.addEventListener('change', update);
+    update();
+  })();
+</script>
+</body>
+</html>

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -30,6 +31,15 @@ const (
 	terminalEntryTTL = time.Minute
 	sweepInterval    = time.Minute
 )
+
+// siteMetaFile holds the per-site sidecar (template id, creation time). Stored
+// alongside the HTML files in the same S3 prefix so it travels with the site.
+const siteMetaFile = ".buildabear.json"
+
+type siteMeta struct {
+	Template string    `json:"template"`
+	Created  time.Time `json:"created"`
+}
 
 type BuildStatus struct {
 	Slug     string    `json:"slug"`
@@ -116,7 +126,11 @@ var fallThroughHosts = map[string]bool{
 
 func NewServer(store *Store, domain, port string, llm adkmodel.LLM) *echo.Echo {
 	tpl := template.New("")
+	// layout.html defines shared partials (e.g. "head") used by the platform pages
+	// below. It must be parsed first so the others can reference its blocks.
+	template.Must(tpl.Parse(layoutTemplate))
 	for _, t := range []struct{ name, body string }{
+		{"landing", landingTemplate},
 		{"apps", appsTemplate},
 		{"progress", progressTemplate},
 		{"edit", editTemplate},
@@ -173,14 +187,14 @@ func (s *Server) subdomainMiddleware() echo.MiddlewareFunc {
 	}
 }
 
-func (s *Server) buildAndLint(ctx context.Context, slug, prompt string) error {
-	err := runAgent(ctx, s.llm, s.store, slug, prompt)
+func (s *Server) buildAndLint(ctx context.Context, slug, prompt string, tmpl *SiteTemplate) error {
+	err := runAgent(ctx, s.llm, s.store, slug, prompt, tmpl)
 	if err != nil {
 		return err
 	}
 
 	for attempt := 0; attempt <= maxLintRetries; attempt++ {
-		lintErrs := lintApp(ctx, s.store, slug)
+		lintErrs := lintApp(ctx, s.store, slug, tmpl)
 		if len(lintErrs) == 0 {
 			return nil
 		}
@@ -196,7 +210,7 @@ func (s *Server) buildAndLint(ctx context.Context, slug, prompt string) error {
 
 		slog.Info("build.lint_retry", "slug", slug, "attempt", attempt+1, "issues", len(lintErrs))
 		fixPrompt := "Fix these issues in the site:\n" + strings.Join(msgs, "\n")
-		err := runAgent(ctx, s.llm, s.store, slug, fixPrompt)
+		err := runAgent(ctx, s.llm, s.store, slug, fixPrompt, tmpl)
 		if err != nil {
 			return err
 		}
@@ -206,13 +220,23 @@ func (s *Server) buildAndLint(ctx context.Context, slug, prompt string) error {
 }
 
 // startBuild seeds build status, runs buildAndLint asynchronously, and renders the progress page.
-// logKey distinguishes "build" vs "edit" in slog output.
-func (s *Server) startBuild(c *echo.Context, slug, prompt, logKey string) error {
+// logKey distinguishes "build" vs "edit" in slog output. When seedSkeleton is true (initial
+// builds only), the template's skeleton files and metadata sidecar are written before the
+// agent runs.
+func (s *Server) startBuild(c *echo.Context, slug, prompt, logKey string, tmpl *SiteTemplate, seedSkeleton bool) error {
 	s.builds.start(slug)
 
 	go func() {
 		ctx := context.Background()
-		err := s.buildAndLint(ctx, slug, prompt)
+		if seedSkeleton {
+			err := s.seedTemplate(ctx, slug, tmpl)
+			if err != nil {
+				slog.Error(logKey+".seed_failed", "slug", slug, "template", tmpl.ID, "err", err)
+				s.builds.fail(slug, err)
+				return
+			}
+		}
+		err := s.buildAndLint(ctx, slug, prompt, tmpl)
 		if err != nil {
 			slog.Error(logKey+".failed", "slug", slug, "err", err)
 			s.builds.fail(slug, err)
@@ -231,6 +255,53 @@ func (s *Server) startBuild(c *echo.Context, slug, prompt, logKey string) error 
 	})
 }
 
+// seedTemplate writes the template's skeleton files (if any) and the
+// .buildabear.json sidecar recording the template id. The sidecar lets later
+// edits re-apply the same template addendum.
+func (s *Server) seedTemplate(ctx context.Context, slug string, tmpl *SiteTemplate) error {
+	if tmpl == nil {
+		return nil
+	}
+	for path, content := range tmpl.Skeleton {
+		err := s.store.Write(ctx, slug, path, content)
+		if err != nil {
+			return fmt.Errorf("seed %s: %w", path, err)
+		}
+		slog.Info("template.seed", "slug", slug, "template", tmpl.ID, "path", path)
+	}
+
+	meta := siteMeta{Template: tmpl.ID, Created: time.Now().UTC()}
+	body, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("encode site meta: %w", err)
+	}
+	err = s.store.Write(ctx, slug, siteMetaFile, string(body))
+	if err != nil {
+		return fmt.Errorf("write site meta: %w", err)
+	}
+	return nil
+}
+
+// readSiteMeta returns the recorded template id for an existing site, or an
+// empty value if the sidecar is missing (older sites pre-date templates).
+func (s *Server) readSiteMeta(ctx context.Context, slug string) siteMeta {
+	obj, err := s.store.Read(ctx, slug, siteMetaFile)
+	if err != nil {
+		slog.Warn("site_meta.read_failed", "slug", slug, "err", err)
+		return siteMeta{}
+	}
+	if obj.Content == "" {
+		return siteMeta{}
+	}
+	var m siteMeta
+	err = json.Unmarshal([]byte(obj.Content), &m)
+	if err != nil {
+		slog.Warn("site_meta.decode_failed", "slug", slug, "err", err)
+		return siteMeta{}
+	}
+	return m
+}
+
 func (s *Server) render(c *echo.Context, name string, data any) error {
 	var buf bytes.Buffer
 	err := s.tpl.ExecuteTemplate(&buf, name, data)
@@ -245,7 +316,9 @@ func httpErr(code int, msg string, err error) *echo.HTTPError {
 }
 
 func (s *Server) landingHandler(c *echo.Context) error {
-	return c.HTML(http.StatusOK, landingPage) //nolint:wrapcheck
+	return s.render(c, "landing", map[string]any{
+		"Templates": AllSiteTemplates(),
+	})
 }
 
 type appLink struct {
@@ -276,9 +349,10 @@ func (s *Server) buildHandler(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "prompt is required")
 	}
 
+	tmpl := GetSiteTemplate(c.FormValue("template"))
 	slug := newSlug()
-	slog.Info("build.start", "slug", slug)
-	return s.startBuild(c, slug, prompt, "build")
+	slog.Info("build.start", "slug", slug, "template", tmpl.ID)
+	return s.startBuild(c, slug, prompt, "build", tmpl, true)
 }
 
 func (s *Server) statusHandler(c *echo.Context) error {
@@ -412,8 +486,10 @@ func (s *Server) editSubmitHandler(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusConflict, "edit already in progress for this site")
 	}
 
-	slog.Info("edit.start", "slug", slug, "page", page, "selection_len", len(selection))
-	return s.startBuild(c, slug, buildEditPrompt(prompt, page, selection), "edit")
+	meta := s.readSiteMeta(c.Request().Context(), slug)
+	tmpl := GetSiteTemplate(meta.Template)
+	slog.Info("edit.start", "slug", slug, "page", page, "selection_len", len(selection), "template", tmpl.ID)
+	return s.startBuild(c, slug, buildEditPrompt(prompt, page, selection), "edit", tmpl, false)
 }
 
 func buildEditPrompt(prompt, page, selection string) string {

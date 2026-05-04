@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portfolio</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; color: #111; background: #fafafa; line-height: 1.5; }
+  .hero { padding: 5rem 1.5rem 3rem; max-width: 56rem; margin: 0 auto; }
+  h1 { font-size: 3rem; margin: 0 0 0.5rem; letter-spacing: -0.02em; }
+  .hero p { font-size: 1.2rem; color: #555; margin: 0; max-width: 38rem; }
+  main { max-width: 64rem; margin: 0 auto; padding: 1rem 1.5rem 4rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.5rem; }
+  .card { background: #fff; border: 1px solid #eee; border-radius: 12px; overflow: hidden; transition: transform 0.15s ease, box-shadow 0.15s ease; text-decoration: none; color: inherit; display: flex; flex-direction: column; }
+  .card:hover { transform: translateY(-4px); box-shadow: 0 12px 30px rgba(0,0,0,0.08); }
+  .thumb { aspect-ratio: 4/3; display: grid; place-items: center; color: #fff; font-size: 1.5rem; font-weight: 700; letter-spacing: 0.05em; }
+  .t1 { background: linear-gradient(135deg, #f6a26b, #e64980); }
+  .t2 { background: linear-gradient(135deg, #4dabf7, #364fc7); }
+  .t3 { background: linear-gradient(135deg, #69db7c, #2f9e44); }
+  .t4 { background: linear-gradient(135deg, #ffd43b, #fd7e14); }
+  .t5 { background: linear-gradient(135deg, #b197fc, #5f3dc4); }
+  .t6 { background: linear-gradient(135deg, #748ffc, #1864ab); }
+  .body { padding: 1rem 1.25rem 1.25rem; }
+  .body h3 { margin: 0 0 0.25rem; font-size: 1.1rem; }
+  .body p { margin: 0; color: #666; font-size: 0.95rem; }
+  .tag { display: inline-block; margin-top: 0.6rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: #888; }
+  footer { max-width: 56rem; margin: 0 auto; padding: 3rem 1.5rem; border-top: 1px solid #eee; color: #555; }
+  footer a { color: #111; }
+</style>
+</head>
+<body>
+
+<section class="hero">
+  <h1>Replace with your name</h1>
+  <p>Replace with a one-line summary of what you make and who it's for.</p>
+</section>
+
+<main>
+  <div class="grid">
+    <a class="card" href="#">
+      <div class="thumb t1">01</div>
+      <div class="body"><h3>Project one</h3><p>One-line description of what it is.</p><span class="tag">Tag</span></div>
+    </a>
+    <a class="card" href="#">
+      <div class="thumb t2">02</div>
+      <div class="body"><h3>Project two</h3><p>One-line description of what it is.</p><span class="tag">Tag</span></div>
+    </a>
+    <a class="card" href="#">
+      <div class="thumb t3">03</div>
+      <div class="body"><h3>Project three</h3><p>One-line description of what it is.</p><span class="tag">Tag</span></div>
+    </a>
+    <a class="card" href="#">
+      <div class="thumb t4">04</div>
+      <div class="body"><h3>Project four</h3><p>One-line description of what it is.</p><span class="tag">Tag</span></div>
+    </a>
+    <a class="card" href="#">
+      <div class="thumb t5">05</div>
+      <div class="body"><h3>Project five</h3><p>One-line description of what it is.</p><span class="tag">Tag</span></div>
+    </a>
+    <a class="card" href="#">
+      <div class="thumb t6">06</div>
+      <div class="body"><h3>Project six</h3><p>One-line description of what it is.</p><span class="tag">Tag</span></div>
+    </a>
+  </div>
+</main>
+
+<footer>
+  Get in touch — <a href="mailto:replace@example.com">replace@example.com</a>
+</footer>
+
+</body>
+</html>

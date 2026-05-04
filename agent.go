@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
@@ -43,7 +44,7 @@ type listFilesResult struct {
 	Error string   `json:"error,omitempty"`
 }
 
-func runAgent(ctx context.Context, llm adkmodel.LLM, store *Store, slug, prompt string) error {
+func runAgent(ctx context.Context, llm adkmodel.LLM, store *Store, slug, prompt string, tmpl *SiteTemplate) error {
 	// tool.Context chains down to context.Context via interface embedding, so it can be
 	// passed to store methods directly. The contextcheck linter wants the outer ctx
 	// propagated into the closures, but tool callbacks fire later from the runner with
@@ -99,7 +100,7 @@ func runAgent(ctx context.Context, llm adkmodel.LLM, store *Store, slug, prompt 
 	a, err := llmagent.New(llmagent.Config{
 		Name:        "html-builder",
 		Description: "Builds static HTML apps from a prompt",
-		Instruction: systemPrompt,
+		Instruction: buildInstruction(tmpl),
 		Model:       llm,
 		Tools:       []tool.Tool{writeTool, readTool, listTool},
 	})
@@ -133,4 +134,21 @@ func runAgent(ctx context.Context, llm adkmodel.LLM, store *Store, slug, prompt 
 	}
 
 	return nil
+}
+
+// buildInstruction layers the per-template addendum on top of the base system
+// prompt and adds a one-liner whenever the template ships skeleton files, so
+// the agent knows to inspect the existing filesystem before writing.
+func buildInstruction(tmpl *SiteTemplate) string {
+	if tmpl == nil {
+		return systemPrompt
+	}
+	parts := []string{systemPrompt}
+	if tmpl.PromptAddendum != "" {
+		parts = append(parts, tmpl.PromptAddendum)
+	}
+	if len(tmpl.Skeleton) > 0 {
+		parts = append(parts, "A starter skeleton has already been written for this site. Call list_files and read_file before deciding what to write — extend or refine the existing files rather than starting from scratch.")
+	}
+	return strings.Join(parts, "\n\n")
 }

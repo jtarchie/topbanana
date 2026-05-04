@@ -1,9 +1,12 @@
 <!DOCTYPE html>
 <html>
-<head><title>Apps</title></head>
+<head>
+<title>Apps</title>
+{{ template "head" . }}
+</head>
 <body>
 	<h1>Available Apps</h1>
-	<ul>
+	<ul class="list">
 		{{range .}}
 		<li><a href="{{.URL}}">{{.Name}}</a> &mdash; <a href="/edit/{{.Name}}">Edit site</a></li>
 		{{end}}
