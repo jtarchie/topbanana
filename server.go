@@ -21,6 +21,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 	slogecho "github.com/samber/slog-echo"
+	"golang.org/x/crypto/bcrypt"
 
 	adkmodel "google.golang.org/adk/model"
 )
@@ -42,8 +43,10 @@ const (
 const siteMetaFile = ".buildabear.json"
 
 type siteMeta struct {
-	Template string    `json:"template"`
-	Created  time.Time `json:"created"`
+	Template     string    `json:"template"`
+	Created      time.Time `json:"created"`
+	Username     string    `json:"username,omitempty"`
+	PasswordHash string    `json:"password_hash,omitempty"`
 }
 
 // BuildEvent is the payload streamed to /events/:slug subscribers and recorded
@@ -52,6 +55,7 @@ type BuildEvent struct {
 	Type    string    `json:"type"`              // "status" | "tool"
 	Status  string    `json:"status,omitempty"`  // for type=status: building|completed|failed|linting|retry
 	Tool    string    `json:"tool,omitempty"`    // for type=tool: write_file|read_file|list_files|list_assets
+	Phase   string    `json:"phase,omitempty"`   // for type=tool: "start" | "done" | "error"
 	Path    string    `json:"path,omitempty"`    // for type=tool: file path the tool acted on
 	Message string    `json:"message,omitempty"` // optional human-readable detail (errors, retry reason)
 	Time    time.Time `json:"time"`
@@ -230,6 +234,7 @@ func NewServer(store *Store, domain, port string, llm adkmodel.LLM) *echo.Echo {
 		{"apps", appsTemplate},
 		{"progress", progressTemplate},
 		{"edit", editTemplate},
+		{"settings", settingsTemplate},
 		{"toolbar", editToolbarTemplate},
 	} {
 		template.Must(tpl.New(t.name).Parse(t.body))
@@ -257,6 +262,8 @@ func NewServer(store *Store, domain, port string, llm adkmodel.LLM) *echo.Echo {
 	e.GET("/edit/:slug", s.editHandler)
 	e.POST("/edit/:slug", s.editSubmitHandler)
 	e.POST("/upload/:slug", s.uploadHandler)
+	e.GET("/settings/:slug", s.settingsHandler)
+	e.POST("/settings/:slug", s.settingsSubmitHandler)
 
 	return e
 }
@@ -325,13 +332,13 @@ func (s *Server) buildAndLint(ctx context.Context, slug, prompt string, tmpl *Si
 // logKey distinguishes "build" vs "edit" in slog output. When seedSkeleton is true (initial
 // builds only), the template's skeleton files and metadata sidecar are written before the
 // agent runs.
-func (s *Server) startBuild(c *echo.Context, slug, prompt, logKey string, tmpl *SiteTemplate, seedSkeleton bool, seeds []seedToolCall) error {
+func (s *Server) startBuild(c *echo.Context, slug, prompt, logKey string, tmpl *SiteTemplate, seedSkeleton bool, seeds []seedToolCall, username, passwordHash string) error {
 	s.builds.start(slug)
 
 	go func() {
 		ctx := context.Background()
 		if seedSkeleton {
-			err := s.seedTemplate(ctx, slug, tmpl)
+			err := s.seedTemplate(ctx, slug, tmpl, username, passwordHash)
 			if err != nil {
 				slog.Error(logKey+".seed_failed", "slug", slug, "template", tmpl.ID, "err", err)
 				s.builds.fail(slug, err)
@@ -360,7 +367,7 @@ func (s *Server) startBuild(c *echo.Context, slug, prompt, logKey string, tmpl *
 // seedTemplate writes the template's skeleton files (if any) and the
 // .buildabear.json sidecar recording the template id. The sidecar lets later
 // edits re-apply the same template addendum.
-func (s *Server) seedTemplate(ctx context.Context, slug string, tmpl *SiteTemplate) error {
+func (s *Server) seedTemplate(ctx context.Context, slug string, tmpl *SiteTemplate, username, passwordHash string) error {
 	if tmpl == nil {
 		return nil
 	}
@@ -372,7 +379,15 @@ func (s *Server) seedTemplate(ctx context.Context, slug string, tmpl *SiteTempla
 		slog.Info("template.seed", "slug", slug, "template", tmpl.ID, "path", path)
 	}
 
-	meta := siteMeta{Template: tmpl.ID, Created: time.Now().UTC()}
+	return s.writeSiteMeta(ctx, slug, siteMeta{
+		Template:     tmpl.ID,
+		Created:      time.Now().UTC(),
+		Username:     username,
+		PasswordHash: passwordHash,
+	})
+}
+
+func (s *Server) writeSiteMeta(ctx context.Context, slug string, meta siteMeta) error {
 	body, err := json.Marshal(meta)
 	if err != nil {
 		return fmt.Errorf("encode site meta: %w", err)
@@ -459,8 +474,18 @@ func (s *Server) buildHandler(c *echo.Context) error {
 	}
 
 	tmpl := GetSiteTemplate(c.FormValue("template"))
+	username := strings.TrimSpace(c.FormValue("username"))
+	password := c.FormValue("password")
+	passwordHash := ""
+	if password != "" {
+		h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return httpErr(http.StatusInternalServerError, "hash password", err)
+		}
+		passwordHash = string(h)
+	}
 	slog.Info("build.start", "slug", slug, "template", tmpl.ID)
-	return s.startBuild(c, slug, prompt, "build", tmpl, true, nil)
+	return s.startBuild(c, slug, prompt, "build", tmpl, true, nil, username, passwordHash)
 }
 
 // resolveSlug returns either a validated user-provided slug or a freshly generated one.
@@ -565,6 +590,16 @@ func writeSSE(w io.Writer, event BuildEvent) error {
 
 func (s *Server) proxyHandler(c *echo.Context, slug string) error {
 	ctx := c.Request().Context()
+
+	meta := s.readSiteMeta(ctx, slug)
+	if meta.PasswordHash != "" {
+		username, password, ok := c.Request().BasicAuth()
+		usernameOK := meta.Username == "" || username == meta.Username
+		if !ok || !usernameOK || bcrypt.CompareHashAndPassword([]byte(meta.PasswordHash), []byte(password)) != nil {
+			c.Response().Header().Set("WWW-Authenticate", `Basic realm="`+slug+`"`)
+			return c.NoContent(http.StatusUnauthorized) //nolint:wrapcheck
+		}
+	}
 
 	path := strings.TrimPrefix(c.Request().URL.Path, "/")
 	if path == "" {
@@ -883,7 +918,60 @@ func (s *Server) editSubmitHandler(c *echo.Context) error {
 	tmpl := GetSiteTemplate(meta.Template)
 	seeds := s.editSeeds(ctx, slug, prompt)
 	slog.Info("edit.start", "slug", slug, "page", page, "selection_len", len(selection), "template", tmpl.ID, "seeds", len(seeds))
-	return s.startBuild(c, slug, buildEditPrompt(prompt, page, selection), "edit", tmpl, false, seeds)
+	return s.startBuild(c, slug, buildEditPrompt(prompt, page, selection), "edit", tmpl, false, seeds, "", "")
+}
+
+type settingsData struct {
+	Slug        string
+	Domain      string
+	Port        string
+	Username    string
+	HasPassword bool
+}
+
+func (s *Server) settingsHandler(c *echo.Context) error {
+	slug := c.Param("slug")
+	err := validateSlug(slug)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	meta := s.readSiteMeta(c.Request().Context(), slug)
+	return s.render(c, "settings", settingsData{
+		Slug:        slug,
+		Domain:      s.domain,
+		Port:        s.port,
+		Username:    meta.Username,
+		HasPassword: meta.PasswordHash != "",
+	})
+}
+
+func (s *Server) settingsSubmitHandler(c *echo.Context) error {
+	slug := c.Param("slug")
+	err := validateSlug(slug)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	ctx := c.Request().Context()
+	meta := s.readSiteMeta(ctx, slug)
+
+	meta.Username = strings.TrimSpace(c.FormValue("username"))
+	password := c.FormValue("password")
+	if password == "" {
+		meta.PasswordHash = ""
+	} else {
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return httpErr(http.StatusInternalServerError, "hash password", err)
+		}
+		meta.PasswordHash = string(hash)
+	}
+
+	err = s.writeSiteMeta(ctx, slug, meta)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "save settings", err)
+	}
+	return c.Redirect(http.StatusSeeOther, "/settings/"+slug) //nolint:wrapcheck
 }
 
 const (

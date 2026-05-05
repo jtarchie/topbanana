@@ -205,14 +205,15 @@ func newWriteFileTool(store *Store, slug string, emit func(BuildEvent)) (tool.To
 	t, err := functiontool.New(
 		functiontool.Config{Name: "write_file", Description: "Write content to an HTML file"},
 		func(tctx tool.Context, args writeFileArgs) (writeFileResult, error) {
+			emit(BuildEvent{Type: "tool", Tool: "write_file", Phase: "start", Path: args.Path})
 			err := store.Write(tctx, slug, args.Path, args.Content, "text/html; charset=utf-8", nil)
 			if err != nil {
 				slog.Warn("agent.write_file", "slug", slug, "path", args.Path, "err", err)
-				emit(BuildEvent{Type: "tool", Tool: "write_file", Path: args.Path, Message: err.Error()})
+				emit(BuildEvent{Type: "tool", Tool: "write_file", Phase: "error", Path: args.Path, Message: err.Error()})
 				return writeFileResult{Error: err.Error()}, nil
 			}
 			slog.Info("agent.write_file", "slug", slug, "path", args.Path, "length", len(args.Content))
-			emit(BuildEvent{Type: "tool", Tool: "write_file", Path: args.Path})
+			emit(BuildEvent{Type: "tool", Tool: "write_file", Phase: "done", Path: args.Path})
 			return writeFileResult{OK: true}, nil
 		},
 	)
@@ -226,14 +227,15 @@ func newReadFileTool(store *Store, slug string, emit func(BuildEvent)) (tool.Too
 	t, err := functiontool.New(
 		functiontool.Config{Name: "read_file", Description: "Read content from an HTML file"},
 		func(tctx tool.Context, args readFileArgs) (readFileResult, error) {
+			emit(BuildEvent{Type: "tool", Tool: "read_file", Phase: "start", Path: args.Path})
 			obj, err := store.Read(tctx, slug, args.Path)
 			if err != nil {
 				slog.Warn("agent.read_file", "slug", slug, "path", args.Path, "err", err)
-				emit(BuildEvent{Type: "tool", Tool: "read_file", Path: args.Path, Message: err.Error()})
+				emit(BuildEvent{Type: "tool", Tool: "read_file", Phase: "error", Path: args.Path, Message: err.Error()})
 				return readFileResult{Error: err.Error()}, nil
 			}
 			slog.Info("agent.read_file", "slug", slug, "path", args.Path, "length", len(obj.Content))
-			emit(BuildEvent{Type: "tool", Tool: "read_file", Path: args.Path})
+			emit(BuildEvent{Type: "tool", Tool: "read_file", Phase: "done", Path: args.Path})
 			return readFileResult{Content: obj.Content}, nil
 		},
 	)
@@ -247,9 +249,11 @@ func newListFilesTool(store *Store, slug string, emit func(BuildEvent)) (tool.To
 	t, err := functiontool.New(
 		functiontool.Config{Name: "list_files", Description: "List all HTML files created so far"},
 		func(tctx tool.Context, _ struct{}) (listFilesResult, error) {
+			emit(BuildEvent{Type: "tool", Tool: "list_files", Phase: "start"})
 			files, err := store.List(tctx, slug)
 			if err != nil {
 				slog.Warn("agent.list_files", "slug", slug, "err", err)
+				emit(BuildEvent{Type: "tool", Tool: "list_files", Phase: "error", Message: err.Error()})
 				return listFilesResult{Error: err.Error()}, nil
 			}
 			html := make([]string, 0, len(files))
@@ -259,7 +263,7 @@ func newListFilesTool(store *Store, slug string, emit func(BuildEvent)) (tool.To
 				}
 			}
 			slog.Info("agent.list_files", "slug", slug, "count", len(html))
-			emit(BuildEvent{Type: "tool", Tool: "list_files"})
+			emit(BuildEvent{Type: "tool", Tool: "list_files", Phase: "done"})
 			return listFilesResult{Files: html}, nil
 		},
 	)
@@ -276,14 +280,16 @@ func newListAssetsTool(store *Store, slug string, emit func(BuildEvent)) (tool.T
 			Description: "List uploaded image assets with their alt text and descriptions. Embed an asset with <img src=\"assets/filename.ext\" alt=\"...\"> using the alt verbatim. Use the description to decide which images to use and where.",
 		},
 		func(tctx tool.Context, _ struct{}) (listAssetsResult, error) {
+			emit(BuildEvent{Type: "tool", Tool: "list_assets", Phase: "start"})
 			files, err := store.List(tctx, slug)
 			if err != nil {
 				slog.Warn("agent.list_assets", "slug", slug, "err", err)
+				emit(BuildEvent{Type: "tool", Tool: "list_assets", Phase: "error", Message: err.Error()})
 				return listAssetsResult{Error: err.Error()}, nil
 			}
 			assets := collectAssetEntries(tctx, store, slug, files)
 			slog.Info("agent.list_assets", "slug", slug, "count", len(assets))
-			emit(BuildEvent{Type: "tool", Tool: "list_assets"})
+			emit(BuildEvent{Type: "tool", Tool: "list_assets", Phase: "done"})
 			return listAssetsResult{Assets: assets}, nil
 		},
 	)

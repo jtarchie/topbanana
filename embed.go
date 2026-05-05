@@ -22,3 +22,6 @@ var progressTemplate string
 
 //go:embed templates/edit.html
 var editTemplate string
+
+//go:embed templates/settings.html
+var settingsTemplate string

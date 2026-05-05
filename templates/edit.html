@@ -6,7 +6,7 @@
 </head>
 <body>
 	<h1>Edit: {{.Slug}}</h1>
-	<p><a href="http://{{.Slug}}.{{.Domain}}:{{.Port}}/" target="_blank">View live site</a> | <a href="/apps">All apps</a></p>
+	<p><a href="http://{{.Slug}}.{{.Domain}}:{{.Port}}/" target="_blank">View live site</a> | <a href="/settings/{{.Slug}}">Settings</a> | <a href="/apps">All apps</a></p>
 
 	{{if .Page}}
 		<div class="row">

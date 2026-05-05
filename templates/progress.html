@@ -14,8 +14,12 @@
 		.log { list-style: none; padding: 0; margin: 1rem 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9rem; }
 		.log li { padding: 0.25rem 0; border-bottom: 1px solid #f0f0f0; color: #444; }
 		.log li.tool { color: #555; }
+		.log li.tool.pending { color: #888; }
+		.log li.tool.done { color: #444; }
+		.log li.tool.error { color: #c00; }
 		.log li.status { color: #111; font-weight: 600; }
 		.log .ts { color: #999; margin-right: 0.5rem; }
+		.log .icon { margin-right: 0.3rem; }
 	</style>
 
 	<script>
@@ -26,45 +30,129 @@
 		const logEl = document.getElementById('log');
 		const errorEl = document.getElementById('error');
 
+		// Tracks in-flight tool <li> elements by "tool:path" key so we can update them on completion.
+		const pendingItems = new Map();
+
 		function fmtTime(iso) {
 			try { return new Date(iso).toLocaleTimeString(); } catch (_) { return ''; }
 		}
 
-		function describe(ev) {
-			if (ev.type === 'status') {
-				switch (ev.status) {
-					case 'building': return 'Build started';
-					case 'linting': return 'Validating HTML and links...';
-					case 'retry': return 'Fixing issues: ' + (ev.message || '');
-					case 'completed': return 'Build complete!';
-					case 'failed': return 'Build failed: ' + (ev.message || 'unknown error');
-					case 'unknown': return 'No build in progress.';
-					default: return 'Status: ' + ev.status;
-				}
+		function toolKey(ev) {
+			return ev.tool + ':' + (ev.path || '');
+		}
+
+		function describeStatus(ev) {
+			switch (ev.status) {
+				case 'building': return 'Build started';
+				case 'linting': return 'Validating HTML and links...';
+				case 'retry': return 'Fixing issues: ' + (ev.message || '');
+				case 'completed': return 'Build complete!';
+				case 'failed': return 'Build failed: ' + (ev.message || 'unknown error');
+				case 'unknown': return 'No build in progress.';
+				default: return 'Status: ' + ev.status;
 			}
+		}
+
+		function describeToolStart(ev) {
+			switch (ev.tool) {
+				case 'write_file': return '→ Writing ' + ev.path + '...';
+				case 'read_file': return '→ Reading ' + ev.path + '...';
+				case 'list_files': return '→ Listing files...';
+				case 'list_assets': return '→ Checking assets...';
+				default: return '→ ' + ev.tool + '...';
+			}
+		}
+
+		function describeToolDone(ev) {
+			switch (ev.tool) {
+				case 'write_file': return '✓ Wrote ' + ev.path;
+				case 'read_file': return '✓ Read ' + ev.path;
+				case 'list_files': return '✓ Listed files';
+				case 'list_assets': return '✓ Checked assets';
+				default: return '✓ ' + ev.tool;
+			}
+		}
+
+		function describeToolError(ev) {
+			switch (ev.tool) {
+				case 'write_file': return '✗ Failed to write ' + ev.path + ': ' + (ev.message || '');
+				case 'read_file': return '✗ Failed to read ' + ev.path + ': ' + (ev.message || '');
+				case 'list_files': return '✗ Failed to list files: ' + (ev.message || '');
+				case 'list_assets': return '✗ Failed to check assets: ' + (ev.message || '');
+				default: return '✗ ' + ev.tool + ': ' + (ev.message || '');
+			}
+		}
+
+		function describe(ev) {
+			if (ev.type === 'status') return describeStatus(ev);
 			if (ev.type === 'tool') {
-				switch (ev.tool) {
-					case 'write_file': return ev.message ? ('Failed to write ' + ev.path + ': ' + ev.message) : ('Writing ' + ev.path);
-					case 'read_file': return ev.message ? ('Failed to read ' + ev.path + ': ' + ev.message) : ('Reading ' + ev.path);
-					case 'list_files': return 'Listing existing files';
-					case 'list_assets': return 'Checking uploaded assets';
-					default: return ev.tool;
-				}
+				if (ev.phase === 'done') return describeToolDone(ev);
+				if (ev.phase === 'error') return describeToolError(ev);
+				return describeToolStart(ev); // 'start' or legacy (no phase)
 			}
 			return '';
 		}
 
 		function append(ev) {
-			const li = document.createElement('li');
-			li.className = ev.type;
-			const ts = document.createElement('span');
-			ts.className = 'ts';
-			ts.textContent = fmtTime(ev.time);
-			const msg = document.createElement('span');
-			msg.textContent = describe(ev);
-			li.appendChild(ts);
-			li.appendChild(msg);
-			logEl.appendChild(li);
+			if (ev.type !== 'tool') {
+				const li = document.createElement('li');
+				li.className = ev.type;
+				const ts = document.createElement('span');
+				ts.className = 'ts';
+				ts.textContent = fmtTime(ev.time);
+				const msg = document.createElement('span');
+				msg.textContent = describe(ev);
+				li.appendChild(ts);
+				li.appendChild(msg);
+				logEl.appendChild(li);
+				return;
+			}
+
+			const key = toolKey(ev);
+			if (ev.phase === 'start') {
+				const li = document.createElement('li');
+				li.className = 'tool pending';
+				const ts = document.createElement('span');
+				ts.className = 'ts';
+				ts.textContent = fmtTime(ev.time);
+				const msg = document.createElement('span');
+				msg.textContent = describe(ev);
+				li.appendChild(ts);
+				li.appendChild(msg);
+				logEl.appendChild(li);
+				pendingItems.set(key, { li, msg });
+			} else if (ev.phase === 'done' || ev.phase === 'error') {
+				const pending = pendingItems.get(key);
+				if (pending) {
+					pending.li.className = 'tool ' + ev.phase;
+					pending.msg.textContent = describe(ev);
+					pendingItems.delete(key);
+				} else {
+					// Replayed completion without a prior start (e.g. late connect) — just append.
+					const li = document.createElement('li');
+					li.className = 'tool ' + ev.phase;
+					const ts = document.createElement('span');
+					ts.className = 'ts';
+					ts.textContent = fmtTime(ev.time);
+					const msg = document.createElement('span');
+					msg.textContent = describe(ev);
+					li.appendChild(ts);
+					li.appendChild(msg);
+					logEl.appendChild(li);
+				}
+			} else {
+				// Legacy event with no phase — append as-is.
+				const li = document.createElement('li');
+				li.className = 'tool done';
+				const ts = document.createElement('span');
+				ts.className = 'ts';
+				ts.textContent = fmtTime(ev.time);
+				const msg = document.createElement('span');
+				msg.textContent = describe(ev);
+				li.appendChild(ts);
+				li.appendChild(msg);
+				logEl.appendChild(li);
+			}
 		}
 
 		function done(ev) {
