@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -33,17 +34,40 @@ func NewStore(client *s3.Client, bucket string, cacheSize int) (*Store, error) {
 }
 
 type S3Object struct {
-	Content string
-	ETag    string
+	Content     string
+	ETag        string
+	ContentType string
+	// Metadata is user-defined key/value pairs stored as x-amz-meta-* headers
+	// on the object. Values are URL-decoded on read so callers see plain
+	// unicode; the store handles encoding on write because S3 metadata must
+	// be ASCII.
+	Metadata map[string]string
 }
 
-func (s *Store) Write(ctx context.Context, slug, path, content string) error {
+const defaultContentType = "text/html; charset=utf-8"
+
+func (s *Store) Write(ctx context.Context, slug, path, content, contentType string, metadata map[string]string) error {
 	key := slug + "/" + path
+	if contentType == "" {
+		contentType = defaultContentType
+	}
+
+	// S3 user-defined metadata must be ASCII. URL-encode so unicode (e.g. an
+	// alt-text with em-dashes or non-Latin characters) round-trips safely.
+	var encoded map[string]string
+	if len(metadata) > 0 {
+		encoded = make(map[string]string, len(metadata))
+		for k, v := range metadata {
+			encoded[k] = url.QueryEscape(v)
+		}
+	}
+
 	out, err := s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(s.bucket),
 		Key:         aws.String(key),
 		Body:        strings.NewReader(content),
-		ContentType: aws.String("text/html; charset=utf-8"),
+		ContentType: aws.String(contentType),
+		Metadata:    encoded,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to write object %s: %w", key, err)
@@ -55,12 +79,25 @@ func (s *Store) Write(ctx context.Context, slug, path, content string) error {
 			etag = *out.ETag
 		}
 		s.cache.Add(key, &S3Object{
-			Content: content,
-			ETag:    etag,
+			Content:     content,
+			ETag:        etag,
+			ContentType: contentType,
+			Metadata:    cloneMetadata(metadata),
 		})
 	}
 
 	return nil
+}
+
+func cloneMetadata(m map[string]string) map[string]string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
 
 func (s *Store) Read(ctx context.Context, slug, path string) (*S3Object, error) {
@@ -100,10 +137,29 @@ func (s *Store) Read(ctx context.Context, slug, path string) (*S3Object, error) 
 	if out.ETag != nil {
 		etag = *out.ETag
 	}
+	contentType := ""
+	if out.ContentType != nil {
+		contentType = *out.ContentType
+	}
+
+	// Decode user-defined metadata (URL-escaped on write).
+	var metadata map[string]string
+	if len(out.Metadata) > 0 {
+		metadata = make(map[string]string, len(out.Metadata))
+		for k, v := range out.Metadata {
+			dec, decErr := url.QueryUnescape(v)
+			if decErr != nil {
+				dec = v
+			}
+			metadata[strings.ToLower(k)] = dec
+		}
+	}
 
 	obj := &S3Object{
-		Content: string(b),
-		ETag:    etag,
+		Content:     string(b),
+		ETag:        etag,
+		ContentType: contentType,
+		Metadata:    metadata,
 	}
 
 	if s.cache != nil {

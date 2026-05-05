@@ -6,55 +6,96 @@
 </head>
 <body class="narrow">
 	<h1>Building Your App</h1>
-	<p>Please wait while we build your app...</p>
-	<div id="status" class="muted">Initializing...</div>
+	<p id="status" class="muted">Initializing...</p>
+	<ul id="log" class="log"></ul>
 	<div id="error" class="error" style="display:none;"></div>
+
+	<style>
+		.log { list-style: none; padding: 0; margin: 1rem 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9rem; }
+		.log li { padding: 0.25rem 0; border-bottom: 1px solid #f0f0f0; color: #444; }
+		.log li.tool { color: #555; }
+		.log li.status { color: #111; font-weight: 600; }
+		.log .ts { color: #999; margin-right: 0.5rem; }
+	</style>
 
 	<script>
 		const slug = '{{.Slug}}';
 		const domain = '{{.Domain}}';
 		const port = '{{.Port}}';
-		let checkCount = 0;
-		const maxChecks = {{.MaxChecks}};
-		const pollIntervalMS = {{.PollIntervalMS}};
+		const statusEl = document.getElementById('status');
+		const logEl = document.getElementById('log');
+		const errorEl = document.getElementById('error');
 
-		function checkStatus() {
-			fetch('/status/' + slug)
-				.then(response => response.json())
-				.then(data => {
-					const statusEl = document.getElementById('status');
-
-					if (data.status === 'completed') {
-						statusEl.textContent = 'Build complete! Redirecting...';
-						setTimeout(() => {
-							window.location.href = 'http://' + slug + '.' + domain + ':' + port;
-						}, 1000);
-					} else if (data.status === 'failed') {
-						statusEl.textContent = 'Build failed!';
-						const errorEl = document.getElementById('error');
-						errorEl.textContent = 'Error: ' + (data.error || 'Unknown error');
-						errorEl.style.display = 'block';
-					} else {
-						statusEl.textContent = 'Building... (checking for ' + (checkCount * 2) + 's)';
-						checkCount++;
-						if (checkCount < maxChecks) {
-							setTimeout(checkStatus, pollIntervalMS);
-						} else {
-							statusEl.textContent = 'Build taking longer than expected...';
-						}
-					}
-				})
-				.catch(err => {
-					console.error('Status check error:', err);
-					checkCount++;
-					if (checkCount < maxChecks) {
-						setTimeout(checkStatus, pollIntervalMS);
-					}
-				});
+		function fmtTime(iso) {
+			try { return new Date(iso).toLocaleTimeString(); } catch (_) { return ''; }
 		}
 
-		// Start checking status
-		setTimeout(checkStatus, 500);
+		function describe(ev) {
+			if (ev.type === 'status') {
+				switch (ev.status) {
+					case 'building': return 'Build started';
+					case 'linting': return 'Validating HTML and links...';
+					case 'retry': return 'Fixing issues: ' + (ev.message || '');
+					case 'completed': return 'Build complete!';
+					case 'failed': return 'Build failed: ' + (ev.message || 'unknown error');
+					case 'unknown': return 'No build in progress.';
+					default: return 'Status: ' + ev.status;
+				}
+			}
+			if (ev.type === 'tool') {
+				switch (ev.tool) {
+					case 'write_file': return ev.message ? ('Failed to write ' + ev.path + ': ' + ev.message) : ('Writing ' + ev.path);
+					case 'read_file': return ev.message ? ('Failed to read ' + ev.path + ': ' + ev.message) : ('Reading ' + ev.path);
+					case 'list_files': return 'Listing existing files';
+					case 'list_assets': return 'Checking uploaded assets';
+					default: return ev.tool;
+				}
+			}
+			return '';
+		}
+
+		function append(ev) {
+			const li = document.createElement('li');
+			li.className = ev.type;
+			const ts = document.createElement('span');
+			ts.className = 'ts';
+			ts.textContent = fmtTime(ev.time);
+			const msg = document.createElement('span');
+			msg.textContent = describe(ev);
+			li.appendChild(ts);
+			li.appendChild(msg);
+			logEl.appendChild(li);
+		}
+
+		function done(ev) {
+			if (ev.status === 'completed') {
+				statusEl.textContent = 'Build complete! Redirecting...';
+				setTimeout(function () {
+					window.location.href = 'http://' + slug + '.' + domain + ':' + port;
+				}, 1000);
+			} else if (ev.status === 'failed') {
+				statusEl.textContent = 'Build failed.';
+				errorEl.textContent = ev.message || 'Unknown error';
+				errorEl.style.display = 'block';
+			} else if (ev.status === 'unknown') {
+				statusEl.textContent = 'No build in progress.';
+			}
+		}
+
+		const es = new EventSource('/events/' + slug);
+		es.onmessage = function (e) {
+			let ev;
+			try { ev = JSON.parse(e.data); } catch (_) { return; }
+			append(ev);
+			statusEl.textContent = describe(ev);
+			if (ev.type === 'status' && (ev.status === 'completed' || ev.status === 'failed' || ev.status === 'unknown')) {
+				done(ev);
+				es.close();
+			}
+		};
+		es.onerror = function () {
+			// Browser will auto-reconnect; nothing to do.
+		};
 	</script>
 </body>
 </html>
