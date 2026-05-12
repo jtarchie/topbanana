@@ -1,4 +1,7 @@
-package main
+// Package lint validates generated HTML — parse errors, broken relative
+// links, and per-template invariants. Failures piggyback on the build retry
+// loop so the agent gets concrete fix instructions.
+package lint
 
 import (
 	"context"
@@ -8,24 +11,27 @@ import (
 	"strings"
 
 	"golang.org/x/net/html"
+
+	"github.com/jtarchie/buildabear/internal/store"
+	"github.com/jtarchie/buildabear/internal/templates"
 )
 
-type LintError struct {
+type Error struct {
 	File    string
 	Message string
 }
 
-func (e *LintError) Error() string {
+func (e *Error) Error() string {
 	return fmt.Sprintf("%s: %s", e.File, e.Message)
 }
 
-// lintApp validates all HTML files in a slug: checks HTML parse errors,
-// ensures all relative href/src links resolve to existing files in the store,
-// and runs any per-template invariants. tmpl may be nil.
-func lintApp(ctx context.Context, store *Store, slug string, tmpl *SiteTemplate) []LintError {
-	files, err := store.List(ctx, slug)
+// App validates all HTML files in a slug: checks HTML parse errors, ensures
+// all relative href/src links resolve to existing files in the store, and
+// runs any per-template invariants. tmpl may be nil.
+func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteTemplate) []Error {
+	files, err := s.List(ctx, slug)
 	if err != nil {
-		return []LintError{{File: slug, Message: fmt.Sprintf("failed to list files: %s", err)}}
+		return []Error{{File: slug, Message: fmt.Sprintf("failed to list files: %s", err)}}
 	}
 
 	fileSet := make(map[string]bool, len(files))
@@ -33,15 +39,15 @@ func lintApp(ctx context.Context, store *Store, slug string, tmpl *SiteTemplate)
 		fileSet[f] = true
 	}
 
-	var errs []LintError
+	var errs []Error
 	for _, file := range files {
 		if !strings.HasSuffix(file, ".html") {
 			continue
 		}
 
-		obj, err := store.Read(ctx, slug, file)
+		obj, err := s.Read(ctx, slug, file)
 		if err != nil || obj.Content == "" {
-			errs = append(errs, LintError{File: file, Message: "could not read file"})
+			errs = append(errs, Error{File: file, Message: "could not read file"})
 			continue
 		}
 
@@ -49,7 +55,7 @@ func lintApp(ctx context.Context, store *Store, slug string, tmpl *SiteTemplate)
 		errs = append(errs, parseErrs...)
 	}
 
-	errs = append(errs, checkTemplateInvariants(ctx, store, slug, tmpl)...)
+	errs = append(errs, checkTemplateInvariants(ctx, s, slug, tmpl)...)
 
 	if len(errs) > 0 {
 		slog.Warn("lint.app.errors", "slug", slug, "count", len(errs))
@@ -64,18 +70,17 @@ func lintApp(ctx context.Context, store *Store, slug string, tmpl *SiteTemplate)
 }
 
 // checkTemplateInvariants runs declarative must_contain checks for the chosen
-// template. Failures piggyback on the existing retry loop, so the agent gets
-// concrete fix instructions and self-corrects.
-func checkTemplateInvariants(ctx context.Context, store *Store, slug string, tmpl *SiteTemplate) []LintError {
+// template.
+func checkTemplateInvariants(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteTemplate) []Error {
 	if tmpl == nil || len(tmpl.Checks) == 0 {
 		return nil
 	}
 
-	var errs []LintError
+	var errs []Error
 	for _, check := range tmpl.Checks {
-		obj, err := store.Read(ctx, slug, check.File)
+		obj, err := s.Read(ctx, slug, check.File)
 		if err != nil || obj.Content == "" {
-			errs = append(errs, LintError{
+			errs = append(errs, Error{
 				File:    check.File,
 				Message: fmt.Sprintf("required by %q template but missing or empty", tmpl.ID),
 			})
@@ -91,22 +96,22 @@ func checkTemplateInvariants(ctx context.Context, store *Store, slug string, tmp
 			} else {
 				msg = fmt.Sprintf("%s (missing %q)", msg, must)
 			}
-			errs = append(errs, LintError{File: check.File, Message: msg})
+			errs = append(errs, Error{File: check.File, Message: msg})
 		}
 	}
 	return errs
 }
 
 // checkHTMLLinks parses the HTML and checks all relative href/src attributes
-// against the known file set. External URLs (http/https/mailto/etc.) are skipped.
-func checkHTMLLinks(filename, content string, fileSet map[string]bool) []LintError {
+// against the known file set. External URLs are skipped.
+func checkHTMLLinks(filename, content string, fileSet map[string]bool) []Error {
 	doc, err := html.Parse(strings.NewReader(content))
 	if err != nil {
-		return []LintError{{File: filename, Message: fmt.Sprintf("HTML parse error: %s", err)}}
+		return []Error{{File: filename, Message: fmt.Sprintf("HTML parse error: %s", err)}}
 	}
 
 	dir := path.Dir(filename)
-	var errs []LintError
+	var errs []Error
 
 	var walk func(*html.Node)
 	walk = func(n *html.Node) {
@@ -122,8 +127,8 @@ func checkHTMLLinks(filename, content string, fileSet map[string]bool) []LintErr
 	return errs
 }
 
-func checkNodeLinks(filename, dir string, n *html.Node, fileSet map[string]bool) []LintError {
-	var errs []LintError
+func checkNodeLinks(filename, dir string, n *html.Node, fileSet map[string]bool) []Error {
+	var errs []Error
 	for _, attr := range n.Attr {
 		if attr.Key != "href" && attr.Key != "src" && attr.Key != "action" {
 			continue
@@ -136,7 +141,7 @@ func checkNodeLinks(filename, dir string, n *html.Node, fileSet map[string]bool)
 	return errs
 }
 
-func checkLink(filename, dir, rawVal string, fileSet map[string]bool) *LintError {
+func checkLink(filename, dir, rawVal string, fileSet map[string]bool) *Error {
 	link := strings.TrimSpace(rawVal)
 	if link == "" || link == "#" || isExternalLink(link) {
 		return nil
@@ -154,7 +159,7 @@ func checkLink(filename, dir, rawVal string, fileSet map[string]bool) *LintError
 	if fileSet[resolved] || fileSet[resolved+".html"] || fileSet[path.Join(resolved, "index.html")] {
 		return nil
 	}
-	return &LintError{
+	return &Error{
 		File:    filename,
 		Message: fmt.Sprintf("broken link %q (resolved to %q)", rawVal, resolved),
 	}

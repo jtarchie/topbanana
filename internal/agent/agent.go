@@ -1,4 +1,7 @@
-package main
+// Package agent wires the ADK runner, tools, and system prompt for a single
+// build. It also provides the vision-captioning entrypoint used during asset
+// uploads, since both consume the configured LLM model.
+package agent
 
 import (
 	"context"
@@ -6,6 +9,8 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+
+	_ "embed"
 
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
@@ -15,22 +20,29 @@ import (
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
 	"google.golang.org/genai"
+
+	"github.com/jtarchie/buildabear/internal/events"
+	"github.com/jtarchie/buildabear/internal/store"
+	"github.com/jtarchie/buildabear/internal/templates"
 )
 
-// seedToolCall is a synthetic tool-call/response pair that the caller can
+//go:embed agent_prompt.md
+var systemPrompt string
+
+// SeedToolCall is a synthetic tool-call/response pair the caller can
 // pre-populate in the agent's session. The model sees these as if it had
-// already issued the call and received the response, so we can skip
-// round-trips for things we already know (the file list, the content of
-// pages the user named in the prompt).
-type seedToolCall struct {
+// already issued the call and received the response, so we skip round-trips
+// for things we already know (the file list, the content of pages the user
+// named in the prompt).
+type SeedToolCall struct {
 	Name     string
 	Args     map[string]any
 	Response map[string]any
 }
 
-// Tool results surface errors as data (Error field) rather than as a Go error: this lets
-// the model see the failure in the tool response and recover (e.g. retry with a different
-// path) instead of aborting the run.
+// Tool results surface errors as data (Error field) rather than as a Go
+// error: this lets the model see the failure in the tool response and recover
+// (e.g. retry with a different path) instead of aborting the run.
 
 type writeFileArgs struct {
 	Path    string `json:"path"`
@@ -67,15 +79,15 @@ type listAssetsResult struct {
 	Error  string       `json:"error,omitempty"`
 }
 
-func runAgent(ctx context.Context, llm adkmodel.LLM, store *Store, slug, prompt string, tmpl *SiteTemplate, seeds []seedToolCall, emit func(BuildEvent)) error {
+// Run invokes the agent against the given slug. emit may be nil.
+func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, seeds []SeedToolCall, emit func(events.Event)) error {
 	if emit == nil {
-		emit = func(BuildEvent) {}
+		emit = func(events.Event) {}
 	}
 
-	// contextcheck flags this because runAgent has a ctx, but the tools fire
-	// later under per-invocation contexts from the runner; passing ctx would
-	// be wrong, not right.
-	tools, err := buildAgentTools(store, slug, emit)
+	// contextcheck flags this because Run has a ctx, but the tools fire later
+	// under per-invocation contexts from the runner; passing ctx would be wrong.
+	tools, err := buildAgentTools(s, slug, emit)
 	if err != nil {
 		return err
 	}
@@ -126,10 +138,8 @@ func runAgent(ctx context.Context, llm adkmodel.LLM, store *Store, slug, prompt 
 }
 
 // seedSession creates a fresh session for the given slug and pre-populates it
-// with synthetic tool-call/response pairs. The model sees this on its first
-// turn as if it had already made those calls — saves a round-trip for things
-// the caller already knows (file list, content of named pages).
-func seedSession(ctx context.Context, sessSvc session.Service, slug string, seeds []seedToolCall) (session.Session, error) {
+// with synthetic tool-call/response pairs.
+func seedSession(ctx context.Context, sessSvc session.Service, slug string, seeds []SeedToolCall) (session.Session, error) {
 	createResp, err := sessSvc.Create(ctx, &session.CreateRequest{
 		AppName:   "buildabear",
 		UserID:    slug,
@@ -176,15 +186,31 @@ func seedSession(ctx context.Context, sessSvc session.Service, slug string, seed
 	return sess, nil
 }
 
+// emitter wraps the emit callback with the tool name so call sites stay short.
+type emitter struct {
+	emit func(events.Event)
+	tool string
+}
+
+func (e emitter) start(path string) {
+	e.emit(events.Event{Type: events.TypeTool, Tool: e.tool, Phase: events.PhaseStart, Path: path})
+}
+
+func (e emitter) done(path string) {
+	e.emit(events.Event{Type: events.TypeTool, Tool: e.tool, Phase: events.PhaseDone, Path: path})
+}
+
+func (e emitter) fail(path string, err error) {
+	e.emit(events.Event{Type: events.TypeTool, Tool: e.tool, Phase: events.PhaseError, Path: path, Message: err.Error()})
+}
+
 // buildAgentTools constructs the four tools the agent uses against a single
-// site. Pulled out of runAgent so the latter stays under the cognitive
-// complexity ceiling. tool.Context chains down to context.Context via interface
-// embedding, so it's passed to store methods directly. The contextcheck linter
-// wants the outer ctx propagated into the closures, but tool callbacks fire
-// later from the runner with their own per-invocation context — that is the
-// correct one to forward.
-func buildAgentTools(store *Store, slug string, emit func(BuildEvent)) ([]tool.Tool, error) {
-	builders := []func(*Store, string, func(BuildEvent)) (tool.Tool, error){
+// site. tool.Context chains down to context.Context via interface embedding,
+// so it's passed to store methods directly. Tool callbacks fire later from
+// the runner with their own per-invocation context — that is the correct one
+// to forward (contextcheck objects to this but is wrong).
+func buildAgentTools(s *store.Store, slug string, emit func(events.Event)) ([]tool.Tool, error) {
+	builders := []func(*store.Store, string, func(events.Event)) (tool.Tool, error){
 		newWriteFileTool,
 		newReadFileTool,
 		newListFilesTool,
@@ -192,7 +218,7 @@ func buildAgentTools(store *Store, slug string, emit func(BuildEvent)) ([]tool.T
 	}
 	tools := make([]tool.Tool, 0, len(builders))
 	for _, b := range builders {
-		t, err := b(store, slug, emit)
+		t, err := b(s, slug, emit)
 		if err != nil {
 			return nil, err
 		}
@@ -201,19 +227,20 @@ func buildAgentTools(store *Store, slug string, emit func(BuildEvent)) ([]tool.T
 	return tools, nil
 }
 
-func newWriteFileTool(store *Store, slug string, emit func(BuildEvent)) (tool.Tool, error) {
+func newWriteFileTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
+	em := emitter{emit: emit, tool: "write_file"}
 	t, err := functiontool.New(
 		functiontool.Config{Name: "write_file", Description: "Write content to an HTML file"},
 		func(tctx tool.Context, args writeFileArgs) (writeFileResult, error) {
-			emit(BuildEvent{Type: "tool", Tool: "write_file", Phase: "start", Path: args.Path})
-			err := store.Write(tctx, slug, args.Path, args.Content, "text/html; charset=utf-8", nil)
+			em.start(args.Path)
+			err := s.Write(tctx, slug, args.Path, args.Content, "text/html; charset=utf-8", nil)
 			if err != nil {
 				slog.Warn("agent.write_file", "slug", slug, "path", args.Path, "err", err)
-				emit(BuildEvent{Type: "tool", Tool: "write_file", Phase: "error", Path: args.Path, Message: err.Error()})
+				em.fail(args.Path, err)
 				return writeFileResult{Error: err.Error()}, nil
 			}
 			slog.Info("agent.write_file", "slug", slug, "path", args.Path, "length", len(args.Content))
-			emit(BuildEvent{Type: "tool", Tool: "write_file", Phase: "done", Path: args.Path})
+			em.done(args.Path)
 			return writeFileResult{OK: true}, nil
 		},
 	)
@@ -223,19 +250,20 @@ func newWriteFileTool(store *Store, slug string, emit func(BuildEvent)) (tool.To
 	return t, nil
 }
 
-func newReadFileTool(store *Store, slug string, emit func(BuildEvent)) (tool.Tool, error) {
+func newReadFileTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
+	em := emitter{emit: emit, tool: "read_file"}
 	t, err := functiontool.New(
 		functiontool.Config{Name: "read_file", Description: "Read content from an HTML file"},
 		func(tctx tool.Context, args readFileArgs) (readFileResult, error) {
-			emit(BuildEvent{Type: "tool", Tool: "read_file", Phase: "start", Path: args.Path})
-			obj, err := store.Read(tctx, slug, args.Path)
+			em.start(args.Path)
+			obj, err := s.Read(tctx, slug, args.Path)
 			if err != nil {
 				slog.Warn("agent.read_file", "slug", slug, "path", args.Path, "err", err)
-				emit(BuildEvent{Type: "tool", Tool: "read_file", Phase: "error", Path: args.Path, Message: err.Error()})
+				em.fail(args.Path, err)
 				return readFileResult{Error: err.Error()}, nil
 			}
 			slog.Info("agent.read_file", "slug", slug, "path", args.Path, "length", len(obj.Content))
-			emit(BuildEvent{Type: "tool", Tool: "read_file", Phase: "done", Path: args.Path})
+			em.done(args.Path)
 			return readFileResult{Content: obj.Content}, nil
 		},
 	)
@@ -245,15 +273,16 @@ func newReadFileTool(store *Store, slug string, emit func(BuildEvent)) (tool.Too
 	return t, nil
 }
 
-func newListFilesTool(store *Store, slug string, emit func(BuildEvent)) (tool.Tool, error) {
+func newListFilesTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
+	em := emitter{emit: emit, tool: "list_files"}
 	t, err := functiontool.New(
 		functiontool.Config{Name: "list_files", Description: "List all HTML files created so far"},
 		func(tctx tool.Context, _ struct{}) (listFilesResult, error) {
-			emit(BuildEvent{Type: "tool", Tool: "list_files", Phase: "start"})
-			files, err := store.List(tctx, slug)
+			em.start("")
+			files, err := s.List(tctx, slug)
 			if err != nil {
 				slog.Warn("agent.list_files", "slug", slug, "err", err)
-				emit(BuildEvent{Type: "tool", Tool: "list_files", Phase: "error", Message: err.Error()})
+				em.fail("", err)
 				return listFilesResult{Error: err.Error()}, nil
 			}
 			html := make([]string, 0, len(files))
@@ -263,7 +292,7 @@ func newListFilesTool(store *Store, slug string, emit func(BuildEvent)) (tool.To
 				}
 			}
 			slog.Info("agent.list_files", "slug", slug, "count", len(html))
-			emit(BuildEvent{Type: "tool", Tool: "list_files", Phase: "done"})
+			em.done("")
 			return listFilesResult{Files: html}, nil
 		},
 	)
@@ -273,23 +302,24 @@ func newListFilesTool(store *Store, slug string, emit func(BuildEvent)) (tool.To
 	return t, nil
 }
 
-func newListAssetsTool(store *Store, slug string, emit func(BuildEvent)) (tool.Tool, error) {
+func newListAssetsTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
+	em := emitter{emit: emit, tool: "list_assets"}
 	t, err := functiontool.New(
 		functiontool.Config{
 			Name:        "list_assets",
 			Description: "List uploaded image assets with their alt text and descriptions. Embed an asset with <img src=\"assets/filename.ext\" alt=\"...\"> using the alt verbatim. Use the description to decide which images to use and where.",
 		},
 		func(tctx tool.Context, _ struct{}) (listAssetsResult, error) {
-			emit(BuildEvent{Type: "tool", Tool: "list_assets", Phase: "start"})
-			files, err := store.List(tctx, slug)
+			em.start("")
+			files, err := s.List(tctx, slug)
 			if err != nil {
 				slog.Warn("agent.list_assets", "slug", slug, "err", err)
-				emit(BuildEvent{Type: "tool", Tool: "list_assets", Phase: "error", Message: err.Error()})
+				em.fail("", err)
 				return listAssetsResult{Error: err.Error()}, nil
 			}
-			assets := collectAssetEntries(tctx, store, slug, files)
+			assets := collectAssetEntries(tctx, s, slug, files)
 			slog.Info("agent.list_assets", "slug", slug, "count", len(assets))
-			emit(BuildEvent{Type: "tool", Tool: "list_assets", Phase: "done"})
+			em.done("")
 			return listAssetsResult{Assets: assets}, nil
 		},
 	)
@@ -302,14 +332,14 @@ func newListAssetsTool(store *Store, slug string, emit func(BuildEvent)) (tool.T
 // collectAssetEntries reads each asset's metadata via the store (cached, so
 // repeat calls are cheap) and returns the path/alt/description rows the
 // list_assets tool surfaces to the agent.
-func collectAssetEntries(ctx context.Context, store *Store, slug string, files []string) []assetEntry {
+func collectAssetEntries(ctx context.Context, s *store.Store, slug string, files []string) []assetEntry {
 	out := make([]assetEntry, 0, len(files))
 	for _, f := range files {
 		if !strings.HasPrefix(f, "assets/") {
 			continue
 		}
 		entry := assetEntry{Path: f}
-		obj, err := store.Read(ctx, slug, f)
+		obj, err := s.Read(ctx, slug, f)
 		if err != nil {
 			slog.Warn("agent.list_assets.read", "slug", slug, "path", f, "err", err)
 			out = append(out, entry)
@@ -327,7 +357,7 @@ func collectAssetEntries(ctx context.Context, store *Store, slug string, files [
 // buildInstruction layers the per-template addendum on top of the base system
 // prompt and adds a one-liner whenever the template ships skeleton files, so
 // the agent knows to inspect the existing filesystem before writing.
-func buildInstruction(tmpl *SiteTemplate) string {
+func buildInstruction(tmpl *templates.SiteTemplate) string {
 	if tmpl == nil {
 		return systemPrompt
 	}

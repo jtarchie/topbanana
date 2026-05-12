@@ -1,4 +1,4 @@
-package main
+package store
 
 import (
 	"context"
@@ -21,7 +21,7 @@ type Store struct {
 	cache  *arc.ARCCache[string, *S3Object]
 }
 
-func NewStore(client *s3.Client, bucket string, cacheSize int) (*Store, error) {
+func New(client *s3.Client, bucket string, cacheSize int) (*Store, error) {
 	var cache *arc.ARCCache[string, *S3Object]
 	if cacheSize > 0 {
 		var err error
@@ -44,12 +44,12 @@ type S3Object struct {
 	Metadata map[string]string
 }
 
-const defaultContentType = "text/html; charset=utf-8"
+const DefaultContentType = "text/html; charset=utf-8"
 
 func (s *Store) Write(ctx context.Context, slug, path, content, contentType string, metadata map[string]string) error {
 	key := slug + "/" + path
 	if contentType == "" {
-		contentType = defaultContentType
+		contentType = DefaultContentType
 	}
 
 	// S3 user-defined metadata must be ASCII. URL-encode so unicode (e.g. an

@@ -25,7 +25,7 @@ tasks:
       AWS_REGION: us-east-1
     cmds:
       - |
-        go run . \
+        go run ./cmd/buildabear \
           --s3-bucket {{.MINIO_BUCKET}} \
           --s3-endpoint-url {{.MINIO_ENDPOINT}} \
           --llm-model {{.LMSTUDIO_MODEL}} \

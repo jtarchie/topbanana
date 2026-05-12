@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"context"
@@ -20,20 +20,21 @@ const captionInstruction = `Look at the image and respond with ONLY a single-lin
 
 const altMaxLen = 125
 
-// AssetCaption is what the upload handler stores on the S3 object as
-// x-amz-meta-alt and x-amz-meta-description, and what list_assets returns
-// to the agent so it can place images intelligently.
-type AssetCaption struct {
+// Caption is what the upload handler stores on the S3 object as
+// x-amz-meta-alt and x-amz-meta-description, and what list_assets returns to
+// the agent so it can place images intelligently.
+type Caption struct {
 	Alt         string `json:"alt"`
 	Description string `json:"description"`
 }
 
-// captionAsset asks the configured LLM to describe an image. SVGs are skipped
-// because most multimodal models render rasters, not vectors — captioning them
-// produces low-quality results and we'd rather have no caption than a misleading one.
-func captionAsset(ctx context.Context, llm adkmodel.LLM, content []byte, mimeType string) (AssetCaption, error) {
+// CaptionAsset asks the configured LLM to describe an image. SVGs are skipped
+// because most multimodal models render rasters, not vectors — captioning
+// them produces low-quality results and we'd rather have no caption than a
+// misleading one.
+func CaptionAsset(ctx context.Context, llm adkmodel.LLM, content []byte, mimeType string) (Caption, error) {
 	if mimeType == "image/svg+xml" {
-		return AssetCaption{}, errors.New("svg captioning not supported")
+		return Caption{}, errors.New("svg captioning not supported")
 	}
 
 	req := &adkmodel.LLMRequest{
@@ -52,7 +53,7 @@ func captionAsset(ctx context.Context, llm adkmodel.LLM, content []byte, mimeTyp
 	var text strings.Builder
 	for resp, err := range llm.GenerateContent(ctx, req, false) {
 		if err != nil {
-			return AssetCaption{}, fmt.Errorf("vision call: %w", err)
+			return Caption{}, fmt.Errorf("vision call: %w", err)
 		}
 		if resp == nil || resp.Content == nil {
 			continue
@@ -66,13 +67,13 @@ func captionAsset(ctx context.Context, llm adkmodel.LLM, content []byte, mimeTyp
 
 	raw := extractJSON(text.String())
 	if raw == "" {
-		return AssetCaption{}, fmt.Errorf("no JSON in vision output: %q", text.String())
+		return Caption{}, fmt.Errorf("no JSON in vision output: %q", text.String())
 	}
 
-	var c AssetCaption
+	var c Caption
 	err := json.Unmarshal([]byte(raw), &c)
 	if err != nil {
-		return AssetCaption{}, fmt.Errorf("parse caption JSON %q: %w", raw, err)
+		return Caption{}, fmt.Errorf("parse caption JSON %q: %w", raw, err)
 	}
 	c.Alt = strings.TrimSpace(c.Alt)
 	c.Description = strings.TrimSpace(c.Description)

@@ -1,4 +1,4 @@
-package main
+package templates
 
 import (
 	"embed"
@@ -22,71 +22,71 @@ type SiteTemplate struct {
 	Description    string
 	PromptAddendum string
 	Skeleton       map[string]string
-	Checks         []TemplateCheck
+	Checks         []Check
 }
 
-// TemplateCheck is a declarative invariant for a generated file. The lint loop
-// runs these alongside the structural HTML checks so any failure becomes a
-// concrete fix-prompt for the agent to address on retry.
-type TemplateCheck struct {
+// Check is a declarative invariant for a generated file. The lint loop runs
+// these alongside the structural HTML checks so any failure becomes a concrete
+// fix-prompt for the agent to address on retry.
+type Check struct {
 	File        string   `json:"file"`
 	MustContain []string `json:"must_contain"`
 	Message     string   `json:"message"`
 }
 
 const (
-	defaultTemplateID = "blank"
-	templatesRoot     = "templates/sites"
+	defaultID = "blank"
+	root      = "sites"
 )
 
-//go:embed templates/sites
+//go:embed sites
 var templatesFS embed.FS
 
 type templateMeta struct {
-	Label       string          `json:"label"`
-	Description string          `json:"description"`
-	Checks      []TemplateCheck `json:"checks,omitempty"`
+	Label       string  `json:"label"`
+	Description string  `json:"description"`
+	Checks      []Check `json:"checks,omitempty"`
 }
 
 var (
-	siteTemplatesAll []*SiteTemplate
-	siteTemplateByID map[string]*SiteTemplate
+	allTemplates []*SiteTemplate
+	byID         map[string]*SiteTemplate
 )
 
 func init() {
-	all, err := loadSiteTemplates()
+	loaded, err := loadAll()
 	if err != nil {
 		panic(fmt.Errorf("load site templates: %w", err))
 	}
-	siteTemplatesAll = all
-	siteTemplateByID = make(map[string]*SiteTemplate, len(all))
-	for _, t := range all {
-		siteTemplateByID[t.ID] = t
+	allTemplates = loaded
+	byID = make(map[string]*SiteTemplate, len(loaded))
+	for _, t := range loaded {
+		byID[t.ID] = t
 	}
-	if siteTemplateByID[defaultTemplateID] == nil {
-		panic(fmt.Errorf("default site template %q is missing", defaultTemplateID))
+	if byID[defaultID] == nil {
+		panic(fmt.Errorf("default site template %q is missing", defaultID))
 	}
 }
 
-// AllSiteTemplates returns the registry in stable order: the default first,
-// then the rest alphabetically.
-func AllSiteTemplates() []*SiteTemplate {
-	return siteTemplatesAll
+// All returns the registry in stable order: the default first, then the rest
+// alphabetically.
+func All() []*SiteTemplate {
+	return allTemplates
 }
 
-// GetSiteTemplate looks up a template by id. Unknown ids fall back to the
-// default ("blank") so a stale form value never breaks a build.
-func GetSiteTemplate(id string) *SiteTemplate {
-	if t, ok := siteTemplateByID[id]; ok {
+// Get looks up a template by id. Unknown ids fall back to the default
+// ("blank") so a stale form value never breaks a build.
+func Get(id string) *SiteTemplate {
+	if t, ok := byID[id]; ok {
 		return t
 	}
-	return siteTemplateByID[defaultTemplateID]
+	return byID[defaultID]
 }
 
-func loadSiteTemplates() ([]*SiteTemplate, error) {
-	entries, err := fs.ReadDir(templatesFS, templatesRoot)
+func loadAll() ([]*SiteTemplate, error) {
+	entries, err := fs.ReadDir(templatesFS, root)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", templatesRoot, err)
+		return nil, fmt.Errorf("read %s: %w", root, err)
 	}
 
 	tmpls := make([]*SiteTemplate, 0, len(entries))
@@ -94,7 +94,7 @@ func loadSiteTemplates() ([]*SiteTemplate, error) {
 		if !e.IsDir() {
 			continue
 		}
-		t, err := loadSiteTemplate(e.Name())
+		t, err := loadOne(e.Name())
 		if err != nil {
 			return nil, fmt.Errorf("template %s: %w", e.Name(), err)
 		}
@@ -103,9 +103,9 @@ func loadSiteTemplates() ([]*SiteTemplate, error) {
 
 	sort.SliceStable(tmpls, func(i, j int) bool {
 		switch {
-		case tmpls[i].ID == defaultTemplateID:
+		case tmpls[i].ID == defaultID:
 			return true
-		case tmpls[j].ID == defaultTemplateID:
+		case tmpls[j].ID == defaultID:
 			return false
 		default:
 			return tmpls[i].ID < tmpls[j].ID
@@ -115,8 +115,8 @@ func loadSiteTemplates() ([]*SiteTemplate, error) {
 	return tmpls, nil
 }
 
-func loadSiteTemplate(id string) (*SiteTemplate, error) {
-	promptPath := path.Join(templatesRoot, id, "prompt.md")
+func loadOne(id string) (*SiteTemplate, error) {
+	promptPath := path.Join(root, id, "prompt.md")
 	raw, err := fs.ReadFile(templatesFS, promptPath)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", promptPath, err)
@@ -127,7 +127,7 @@ func loadSiteTemplate(id string) (*SiteTemplate, error) {
 		return nil, fmt.Errorf("parse %s: %w", promptPath, err)
 	}
 
-	skeleton, err := loadTemplateSkeleton(id)
+	skeleton, err := loadSkeleton(id)
 	if err != nil {
 		return nil, fmt.Errorf("load skeleton: %w", err)
 	}
@@ -142,8 +142,8 @@ func loadSiteTemplate(id string) (*SiteTemplate, error) {
 	}, nil
 }
 
-func loadTemplateSkeleton(id string) (map[string]string, error) {
-	base := path.Join(templatesRoot, id, "skeleton")
+func loadSkeleton(id string) (map[string]string, error) {
+	base := path.Join(root, id, "skeleton")
 	skeleton := make(map[string]string)
 
 	_, err := fs.Stat(templatesFS, base)
