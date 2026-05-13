@@ -86,6 +86,7 @@ func New(d Deps) *echo.Echo {
 		{"settings", settingsTemplate},
 		{"toolbar", editToolbarTemplate},
 		{"visual_edit", visualEditTemplate},
+		{"function_edit", functionEditTemplate},
 	} {
 		template.Must(tpl.New(t.name).Parse(t.body))
 	}
@@ -116,6 +117,8 @@ func New(d Deps) *echo.Echo {
 	e.POST("/edit/:slug", s.editSubmitHandler)
 	e.GET("/edit/:slug/visual", s.visualEditHandler)
 	e.POST("/edit/:slug/visual", s.visualEditSaveHandler)
+	e.GET("/edit/:slug/function/:name", s.functionEditHandler)
+	e.POST("/test/:slug/api/:name", s.functionTestHandler)
 	e.POST("/upload/:slug", s.uploadHandler)
 	e.GET("/settings/:slug", s.settingsHandler)
 	e.POST("/settings/:slug", s.settingsSubmitHandler)
@@ -452,12 +455,13 @@ func (s *Server) injectEditToolbar(htmlContent, slug, page string) string {
 }
 
 type editData struct {
-	Slug   string
-	Domain string
-	Port   string
-	Page   string
-	Pages  []string
-	Assets []editAsset
+	Slug      string
+	Domain    string
+	Port      string
+	Page      string
+	Pages     []string
+	Assets    []editAsset
+	Functions []string
 }
 
 // editAsset is the per-image row rendered on the edit page. Alt is shown
@@ -534,9 +538,12 @@ func (s *Server) editHandler(c *echo.Context) error {
 		assets = append(assets, row)
 	}
 
+	functions := collectFunctionNames(all)
+
 	return s.render(c, "edit", editData{
-		Slug:   slug,
-		Domain: s.domain,
+		Slug:      slug,
+		Functions: functions,
+		Domain:    s.domain,
 		Port:   s.port,
 		Page:   page,
 		Pages:  pages,

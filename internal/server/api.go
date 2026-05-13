@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -258,6 +259,159 @@ func translateSandboxError(err error, slug, name string) error {
 		slog.Error("api.invoke_failed", "slug", slug, "fn", name, "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "function failed")
 	}
+}
+
+// functionEditHandler renders the per-function source-view + test page. The
+// test endpoint POSTs JSON to /test/:slug/api/:name; live log streaming reuses
+// the existing /events/:slug SSE feed.
+func (s *Server) functionEditHandler(c *echo.Context) error {
+	slug := c.Param("slug")
+	name := c.Param("name")
+	err := validateSlug(slug)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	err = validateFunctionPathName(name)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	ctx := c.Request().Context()
+	obj, err := s.store.Read(ctx, slug, "functions/"+name+".js")
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "read function", err)
+	}
+	if obj.Content == "" {
+		return echo.ErrNotFound
+	}
+	return s.render(c, "function_edit", map[string]any{
+		"Slug":   slug,
+		"Name":   name,
+		"Domain": s.domain,
+		"Port":   s.port,
+		"Source": obj.Content,
+	})
+}
+
+// functionTestRequest is the JSON body the editor sends to /test/:slug/api/:name.
+type functionTestRequest struct {
+	Method      string `json:"method"`
+	ContentType string `json:"content_type"`
+	Body        string `json:"body"`
+}
+
+// functionTestResponse is what the editor renders. Headers are passed through
+// verbatim so the editor can show what the function set (Location, etc.).
+type functionTestResponse struct {
+	Status      int               `json:"status"`
+	ContentType string            `json:"content_type"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Body        string            `json:"body"`
+}
+
+func (s *Server) functionTestHandler(c *echo.Context) error {
+	slug := c.Param("slug")
+	name := c.Param("name")
+	err := validateSlug(slug)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	err = validateFunctionPathName(name)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	var in functionTestRequest
+	err = c.Bind(&in)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid test request: "+err.Error())
+	}
+	if in.Method == "" {
+		in.Method = http.MethodGet
+	}
+
+	ctx := c.Request().Context()
+	src, err := s.loadFunctionSource(ctx, slug, name)
+	if err != nil {
+		if errors.Is(err, errFunctionNotFound) {
+			return echo.ErrNotFound
+		}
+		return httpErr(http.StatusInternalServerError, "load function", err)
+	}
+
+	req := sandbox.Request{
+		Method:  in.Method,
+		Path:    "/api/" + name,
+		Query:   map[string]string{},
+		Headers: map[string]string{"content-type": in.ContentType},
+		Body:    in.Body,
+	}
+	parseTestRequestBody(&req, in.ContentType, in.Body)
+
+	logFn := func(level, line string) {
+		slog.Info("function.test_log", "slug", slug, "fn", name, "level", level, "line", line)
+		s.events.Emit(slug, events.Event{
+			Type: events.TypeFunction, Tool: name, Phase: events.PhaseLog,
+			Message: "(test) " + level + ": " + line,
+		})
+	}
+
+	s.events.Emit(slug, events.Event{
+		Type: events.TypeFunction, Tool: name, Phase: events.PhaseInvoke, Message: "(test)",
+	})
+	resp, err := s.invokeWithCAS(ctx, slug, name, src, req, logFn)
+	if err != nil {
+		return translateSandboxError(err, slug, name)
+	}
+	return c.JSON(http.StatusOK, functionTestResponse{ //nolint:wrapcheck
+		Status:      resp.Status,
+		ContentType: resp.ContentType,
+		Headers:     resp.Headers,
+		Body:        string(resp.Body),
+	})
+}
+
+// parseTestRequestBody pre-parses the test body the same way real requests
+// would arrive, so the function sees `request.form` / `request.json` when the
+// content-type matches.
+func parseTestRequestBody(req *sandbox.Request, ct, body string) {
+	switch strings.ToLower(strings.SplitN(ct, ";", 2)[0]) {
+	case "application/x-www-form-urlencoded":
+		vals, err := url.ParseQuery(body)
+		if err != nil {
+			return
+		}
+		form := map[string]string{}
+		for k, vs := range vals {
+			if len(vs) > 0 {
+				form[k] = vs[0]
+			}
+		}
+		req.Form = form
+	case "application/json":
+		var parsed any
+		err := json.Unmarshal([]byte(body), &parsed)
+		if err == nil {
+			req.JSON = parsed
+		}
+	}
+}
+
+// collectFunctionNames extracts the bare handler names from a slug's file
+// listing. `functions/submit.js` → `submit`. Returned in stable order so the
+// editor render is deterministic.
+func collectFunctionNames(files []string) []string {
+	names := make([]string, 0, len(files))
+	for _, f := range files {
+		if !strings.HasPrefix(f, "functions/") || !strings.HasSuffix(f, ".js") {
+			continue
+		}
+		bare := strings.TrimSuffix(strings.TrimPrefix(f, "functions/"), ".js")
+		if bare != "" {
+			names = append(names, bare)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 func writeSandboxResponse(c *echo.Context, resp sandbox.Response) error {

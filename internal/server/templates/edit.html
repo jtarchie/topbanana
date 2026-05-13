@@ -25,6 +25,16 @@
 		<p class="muted">Editing the whole site. Your prompt will apply across all pages.</p>
 	{{end}}
 
+	{{if .Functions}}
+		<div class="row">
+			<label>Functions</label>
+			<ul id="function-list" class="list">
+				{{range .Functions}}<li><code>functions/{{.}}.js</code> <span class="muted">→ /api/{{.}}</span> <a href="/edit/{{$.Slug}}/function/{{.}}">view / test</a></li>{{end}}
+			</ul>
+			<p class="desc">Server-side handlers. Open one to view its source or test it with a custom request body. Log lines appear in the live stream.</p>
+		</div>
+	{{end}}
+
 	<div class="row">
 		<label>Images</label>
 		<div id="drop-zone" class="drop-zone">

@@ -25,3 +25,6 @@ var settingsTemplate string
 
 //go:embed templates/visual_edit.html
 var visualEditTemplate string
+
+//go:embed templates/function_edit.html
+var functionEditTemplate string

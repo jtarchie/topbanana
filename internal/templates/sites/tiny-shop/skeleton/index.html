@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shop</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh; background: #fafafa; color: #111; padding: 2rem; }
+  .wrap { max-width: 44rem; margin: 0 auto; }
+  h1 { margin: 0 0 0.5rem; font-size: 2rem; }
+  p.intro { color: #555; margin: 0 0 2rem; }
+  .product-list { display: grid; gap: 1rem; margin-bottom: 2rem; }
+  .product { background: #fff; padding: 1.25rem; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.05); display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
+  .product .meta { flex: 1; }
+  .product .name { font-weight: 700; font-size: 1.1rem; }
+  .product .desc { color: #555; margin: 0.25rem 0 0; }
+  .product .price { font-weight: 700; font-size: 1.1rem; }
+  form { background: #fff; padding: 1.5rem; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.06); }
+  label { display: block; font-weight: 600; margin: 0.75rem 0 0.25rem; }
+  input, select { width: 100%; padding: 0.65rem; border: 1px solid #ccc; border-radius: 6px; font-size: 1rem; box-sizing: border-box; }
+  button { margin-top: 1rem; width: 100%; padding: 0.85rem; background: #111; color: #fff; border: 0; border-radius: 6px; font-size: 1rem; cursor: pointer; }
+  .owner-note { color: #888; font-size: 0.85rem; margin-top: 1rem; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Shop</h1>
+    <p class="intro">Edit this copy to introduce what's for sale.</p>
+
+    <div class="product-list" id="products"><p class="owner-note">loading…</p></div>
+
+    <form method="POST" action="/api/order">
+      <label for="product">Product</label>
+      <select id="product" name="product" required></select>
+      <label for="qty">Quantity</label>
+      <input id="qty" name="qty" type="number" min="1" value="1" required>
+      <label for="name">Your name</label>
+      <input id="name" name="name" type="text" required>
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" required>
+      <button type="submit">Place order</button>
+    </form>
+
+    <p class="owner-note">Owner: <a href="/orders.html">view orders</a></p>
+  </div>
+  <script>
+    fetch('/api/products')
+      .then(function (r) { return r.json(); })
+      .then(function (products) {
+        var list = document.getElementById('products');
+        var select = document.getElementById('product');
+        list.innerHTML = '';
+        select.innerHTML = '';
+        products.forEach(function (p) {
+          var card = document.createElement('div');
+          card.className = 'product';
+          card.innerHTML = '<div class="meta"><div class="name"></div><div class="desc"></div></div><div class="price"></div>';
+          card.querySelector('.name').textContent = p.name;
+          card.querySelector('.desc').textContent = p.description || '';
+          card.querySelector('.price').textContent = p.price;
+          list.appendChild(card);
+          var opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = p.name + ' — ' + p.price;
+          select.appendChild(opt);
+        });
+      })
+      .catch(function () { document.getElementById('products').textContent = 'Could not load products.'; });
+  </script>
+</body>
+</html>

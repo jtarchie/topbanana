@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Orders</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh; background: #fafafa; color: #111; padding: 2rem; }
+  .wrap { max-width: 56rem; margin: 0 auto; }
+  h1 { margin: 0 0 1.5rem; font-size: 1.75rem; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.05); }
+  th, td { padding: 0.65rem 0.85rem; text-align: left; border-bottom: 1px solid #eee; font-size: 0.95rem; }
+  th { background: #f4f4f4; font-weight: 700; }
+  tr:last-child td { border-bottom: 0; }
+  .empty { color: #888; font-style: italic; padding: 2rem; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Orders</h1>
+    <p><a href="/">← back to shop</a></p>
+    <div id="orders"><p class="empty">Loading…</p></div>
+  </div>
+  <script>
+    fetch('/api/orders')
+      .then(function (r) { return r.json(); })
+      .then(function (orders) {
+        var root = document.getElementById('orders');
+        if (!orders.length) { root.innerHTML = '<p class="empty">No orders yet.</p>'; return; }
+        var table = document.createElement('table');
+        table.innerHTML = '<tr><th>When</th><th>Product</th><th>Qty</th><th>Name</th><th>Email</th></tr>';
+        orders.slice().reverse().forEach(function (o) {
+          var tr = document.createElement('tr');
+          tr.innerHTML = '<td></td><td></td><td></td><td></td><td></td>';
+          var cells = tr.querySelectorAll('td');
+          cells[0].textContent = o.ts ? new Date(o.ts).toLocaleString() : '';
+          cells[1].textContent = o.product_name || o.product;
+          cells[2].textContent = o.qty;
+          cells[3].textContent = o.name;
+          cells[4].textContent = o.email;
+          table.appendChild(tr);
+        });
+        root.innerHTML = '';
+        root.appendChild(table);
+      })
+      .catch(function () { document.getElementById('orders').innerHTML = '<p class="empty">Could not load orders.</p>'; });
+  </script>
+</body>
+</html>
