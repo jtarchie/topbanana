@@ -52,6 +52,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.18.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
+	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/openai/openai-go/v3 v3.16.0 // indirect
 	github.com/samber/lo v1.53.0 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect

@@ -28,6 +28,7 @@ import (
 	"github.com/jtarchie/buildabear/internal/build"
 	"github.com/jtarchie/buildabear/internal/events"
 	"github.com/jtarchie/buildabear/internal/sandbox"
+	"github.com/jtarchie/buildabear/internal/snapshot"
 	"github.com/jtarchie/buildabear/internal/state"
 	"github.com/jtarchie/buildabear/internal/store"
 	"github.com/jtarchie/buildabear/internal/templates"
@@ -40,27 +41,29 @@ const (
 
 // Deps holds the dependencies the server needs. Wired up in cmd/buildabear.
 type Deps struct {
-	Store   *store.Store
-	Build   *build.Service
-	Events  *events.Tracker
-	LLM     adkmodel.LLM
-	Sandbox *sandbox.Manager
-	State   state.Store
-	Domain  string
-	Port    string
+	Store    *store.Store
+	Build    *build.Service
+	Events   *events.Tracker
+	LLM      adkmodel.LLM
+	Sandbox  *sandbox.Manager
+	State    state.Store
+	Snapshot *snapshot.Service
+	Domain   string
+	Port     string
 }
 
 // Server is the wired-up state shared across handlers.
 type Server struct {
-	store   *store.Store
-	build   *build.Service
-	events  *events.Tracker
-	llm     adkmodel.LLM
-	sandbox *sandbox.Manager
-	state   state.Store
-	domain  string
-	port    string
-	tpl     *template.Template
+	store    *store.Store
+	build    *build.Service
+	events   *events.Tracker
+	llm      adkmodel.LLM
+	sandbox  *sandbox.Manager
+	state    state.Store
+	snapshot *snapshot.Service
+	domain   string
+	port     string
+	tpl      *template.Template
 }
 
 // fallThroughHosts are hosts that should bypass subdomain proxying and hit
@@ -87,20 +90,22 @@ func New(d Deps) *echo.Echo {
 		{"toolbar", editToolbarTemplate},
 		{"visual_edit", visualEditTemplate},
 		{"function_edit", functionEditTemplate},
+		{"history", historyTemplate},
 	} {
 		template.Must(tpl.New(t.name).Parse(t.body))
 	}
 
 	s := &Server{
-		store:   d.Store,
-		build:   d.Build,
-		events:  d.Events,
-		llm:     d.LLM,
-		sandbox: d.Sandbox,
-		state:   d.State,
-		domain:  d.Domain,
-		port:    d.Port,
-		tpl:     tpl,
+		store:    d.Store,
+		build:    d.Build,
+		events:   d.Events,
+		llm:      d.LLM,
+		sandbox:  d.Sandbox,
+		state:    d.State,
+		snapshot: d.Snapshot,
+		domain:   d.Domain,
+		port:     d.Port,
+		tpl:      tpl,
 	}
 
 	e := echo.New()
@@ -122,6 +127,9 @@ func New(d Deps) *echo.Echo {
 	e.POST("/upload/:slug", s.uploadHandler)
 	e.GET("/settings/:slug", s.settingsHandler)
 	e.POST("/settings/:slug", s.settingsSubmitHandler)
+	e.GET("/history/:slug", s.historyHandler)
+	e.POST("/history/:slug/restore", s.historyRestoreHandler)
+	e.POST("/history/:slug/delete", s.historyDeleteHandler)
 
 	return e
 }
@@ -159,6 +167,19 @@ func (s *Server) subdomainMiddleware() echo.MiddlewareFunc {
 
 			return s.proxyHandler(c, slug)
 		}
+	}
+}
+
+// snapshotBefore wraps snapshot.Create with the "warn-only" policy used by
+// every non-build mutation hook. Losing an undo point is not as bad as
+// blocking the user's edit, so failures are logged and swallowed.
+func (s *Server) snapshotBefore(ctx context.Context, slug, reason string) {
+	if s.snapshot == nil {
+		return
+	}
+	_, err := s.snapshot.Create(ctx, slug, reason)
+	if err != nil {
+		slog.Warn("snapshot.create_failed", "slug", slug, "reason", reason, "err", err)
 	}
 }
 
@@ -497,6 +518,7 @@ func validatePage(page string) error {
 var reservedSlugs = map[string]bool{
 	"www": true, "api": true, "edit": true, "apps": true,
 	"status": true, "build": true, "events": true, "upload": true,
+	"history": true, "settings": true, "test": true,
 }
 
 func validateSlug(slug string) error {
@@ -554,10 +576,10 @@ func (s *Server) editHandler(c *echo.Context) error {
 		Slug:      slug,
 		Functions: functions,
 		Domain:    s.domain,
-		Port:   s.port,
-		Page:   page,
-		Pages:  pages,
-		Assets: assets,
+		Port:      s.port,
+		Page:      page,
+		Pages:     pages,
+		Assets:    assets,
 	})
 }
 
@@ -594,13 +616,13 @@ func (s *Server) editSubmitHandler(c *echo.Context) error {
 }
 
 type settingsData struct {
-	Slug              string
-	Domain            string
-	Port              string
-	Username          string
-	HasPassword       bool
-	FunctionsEnabled  bool
-	FunctionsByTmpl   bool // the template already enables functions — checkbox is locked-on
+	Slug             string
+	Domain           string
+	Port             string
+	Username         string
+	HasPassword      bool
+	FunctionsEnabled bool
+	FunctionsByTmpl  bool // the template already enables functions — checkbox is locked-on
 }
 
 func (s *Server) settingsHandler(c *echo.Context) error {
@@ -645,6 +667,8 @@ func (s *Server) settingsSubmitHandler(c *echo.Context) error {
 	if base := templates.Get(meta.Template); base == nil || !base.EnablesFunctions {
 		meta.EnablesFunctions = c.FormValue("enable_functions") == "on"
 	}
+
+	s.snapshotBefore(ctx, slug, snapshot.ReasonSettings)
 
 	err = s.build.WriteMeta(ctx, slug, meta)
 	if err != nil {
@@ -750,6 +774,8 @@ func (s *Server) uploadHandler(c *echo.Context) error {
 	if caption.Description != "" {
 		metadata["description"] = caption.Description
 	}
+
+	s.snapshotBefore(c.Request().Context(), slug, snapshot.ReasonUpload)
 
 	err = s.store.Write(c.Request().Context(), slug, relPath, string(body), contentType, metadata)
 	if err != nil {

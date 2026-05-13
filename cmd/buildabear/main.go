@@ -15,6 +15,7 @@ import (
 	"github.com/jtarchie/buildabear/internal/model"
 	"github.com/jtarchie/buildabear/internal/sandbox"
 	"github.com/jtarchie/buildabear/internal/server"
+	"github.com/jtarchie/buildabear/internal/snapshot"
 	"github.com/jtarchie/buildabear/internal/state"
 	"github.com/jtarchie/buildabear/internal/store"
 )
@@ -27,6 +28,8 @@ var cli struct {
 	S3EndpointURL string `env:"AWS_ENDPOINT_URL" help:"Override S3 endpoint (e.g. Minio)." name:"s3-endpoint-url"`
 
 	CacheSize int `default:"1024" env:"CACHE_SIZE" help:"Number of items to cache in ARC." name:"cache-size"`
+
+	SnapshotKeep int `default:"100" env:"SNAPSHOT_KEEP" help:"Max snapshot archives to retain per site (0 disables retention)." name:"snapshot-keep"`
 
 	LLMModel   string `default:"lmstudio/google/gemma-4-26b-a4b" env:"LLM_MODEL"                                help:"LLM model as provider/model-name." name:"llm-model"`
 	LLMAPIKey  string `env:"LLM_API_KEY"                         help:"API key for the LLM provider."           name:"llm-api-key"`
@@ -75,19 +78,21 @@ func main() {
 	}
 
 	tracker := events.NewTracker()
-	buildSvc := build.New(s, llm, tracker)
+	snapshotSvc := snapshot.New(s, cli.SnapshotKeep)
+	buildSvc := build.New(s, llm, tracker, snapshotSvc)
 	sb := sandbox.New(sandbox.Config{})
 	stateStore := state.NewS3(s3Client, cli.S3Bucket)
 
 	e := server.New(server.Deps{
-		Store:   s,
-		Build:   buildSvc,
-		Events:  tracker,
-		LLM:     llm,
-		Sandbox: sb,
-		State:   stateStore,
-		Domain:  cli.Domain,
-		Port:    cli.Port,
+		Store:    s,
+		Build:    buildSvc,
+		Events:   tracker,
+		LLM:      llm,
+		Sandbox:  sb,
+		State:    stateStore,
+		Snapshot: snapshotSvc,
+		Domain:   cli.Domain,
+		Port:     cli.Port,
 	})
 
 	slog.Info("app.started", "port", cli.Port, "domain", cli.Domain, "model", cli.LLMModel)

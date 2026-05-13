@@ -209,6 +209,111 @@ func (s *Store) EnsureBucket(ctx context.Context) error {
 	return nil
 }
 
+// Delete removes a single object at `{slug}/{path}`. Cache entry, if any, is
+// evicted so subsequent Reads don't return a phantom object.
+func (s *Store) Delete(ctx context.Context, slug, path string) error {
+	key := slug + "/" + path
+	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete object %s: %w", key, err)
+	}
+	if s.cache != nil {
+		s.cache.Remove(key)
+	}
+	return nil
+}
+
+// WriteRaw writes to an arbitrary bucket key, bypassing the slug-prefix
+// convention. Used by snapshot infrastructure that stores archives under a
+// reserved `_snapshots/` prefix outside any user slug. No metadata encoding;
+// pass already-ASCII values.
+func (s *Store) WriteRaw(ctx context.Context, key, content, contentType string, metadata map[string]string) error {
+	if contentType == "" {
+		contentType = DefaultContentType
+	}
+	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(s.bucket),
+		Key:         aws.String(key),
+		Body:        strings.NewReader(content),
+		ContentType: aws.String(contentType),
+		Metadata:    metadata,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to write raw object %s: %w", key, err)
+	}
+	return nil
+}
+
+// ReadRaw is the symmetric counterpart to WriteRaw: fetches an object by
+// absolute bucket key. Returns an S3Object with empty Content for missing
+// keys (no error). Bypasses the ARC cache.
+func (s *Store) ReadRaw(ctx context.Context, key string) (*S3Object, error) {
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		var nsk *types.NoSuchKey
+		if errors.As(err, &nsk) {
+			return &S3Object{}, nil
+		}
+		return nil, fmt.Errorf("failed to get raw object %s: %w", key, err)
+	}
+	defer func() { _ = out.Body.Close() }()
+	b, err := io.ReadAll(out.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read raw object %s: %w", key, err)
+	}
+	etag := ""
+	if out.ETag != nil {
+		etag = *out.ETag
+	}
+	contentType := ""
+	if out.ContentType != nil {
+		contentType = *out.ContentType
+	}
+	var metadata map[string]string
+	if len(out.Metadata) > 0 {
+		metadata = make(map[string]string, len(out.Metadata))
+		for k, v := range out.Metadata {
+			metadata[strings.ToLower(k)] = v
+		}
+	}
+	return &S3Object{Content: string(b), ETag: etag, ContentType: contentType, Metadata: metadata}, nil
+}
+
+// DeleteRaw removes an object by absolute bucket key.
+func (s *Store) DeleteRaw(ctx context.Context, key string) error {
+	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete raw object %s: %w", key, err)
+	}
+	return nil
+}
+
+// ListPrefix returns absolute bucket keys under the given prefix. Used to
+// enumerate snapshot archives at `_snapshots/{slug}/`.
+func (s *Store) ListPrefix(ctx context.Context, prefix string) ([]string, error) {
+	out, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket: aws.String(s.bucket),
+		Prefix: aws.String(prefix),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list prefix %s: %w", prefix, err)
+	}
+	keys := make([]string, 0, len(out.Contents))
+	for _, obj := range out.Contents {
+		keys = append(keys, aws.ToString(obj.Key))
+	}
+	return keys, nil
+}
+
 func (s *Store) ListApps(ctx context.Context) ([]string, error) {
 	out, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 		Bucket:    aws.String(s.bucket),

@@ -14,6 +14,7 @@ import (
 
 	"github.com/jtarchie/buildabear/internal/build"
 	"github.com/jtarchie/buildabear/internal/lint"
+	"github.com/jtarchie/buildabear/internal/snapshot"
 )
 
 const maxVisualSaveBytes = 2 << 20 // 2 MiB
@@ -127,6 +128,8 @@ func (s *Server) visualEditSaveHandler(c *echo.Context) error {
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "assemble page", err)
 	}
+
+	s.snapshotBefore(ctx, slug, snapshot.ReasonVisualSave)
 
 	err = s.store.Write(ctx, slug, req.Page, assembled, "text/html; charset=utf-8", nil)
 	if err != nil {

@@ -16,6 +16,7 @@ import (
 	"github.com/jtarchie/buildabear/internal/agent"
 	"github.com/jtarchie/buildabear/internal/events"
 	"github.com/jtarchie/buildabear/internal/lint"
+	"github.com/jtarchie/buildabear/internal/snapshot"
 	"github.com/jtarchie/buildabear/internal/store"
 	"github.com/jtarchie/buildabear/internal/templates"
 )
@@ -59,15 +60,18 @@ func EffectiveTemplate(meta SiteMeta) *templates.SiteTemplate {
 }
 
 // Service runs builds against a Store using a configured LLM, reporting
-// progress through an events Tracker.
+// progress through an events Tracker. Snapshots (when configured) capture
+// the site state right before the agent runs so each build/edit is
+// reversible from the History UI.
 type Service struct {
-	store  *store.Store
-	llm    adkmodel.LLM
-	events *events.Tracker
+	store    *store.Store
+	llm      adkmodel.LLM
+	events   *events.Tracker
+	snapshot *snapshot.Service
 }
 
-func New(s *store.Store, llm adkmodel.LLM, t *events.Tracker) *Service {
-	return &Service{store: s, llm: llm, events: t}
+func New(s *store.Store, llm adkmodel.LLM, t *events.Tracker, snap *snapshot.Service) *Service {
+	return &Service{store: s, llm: llm, events: t, snapshot: snap}
 }
 
 // Params describes one invocation of Start. LogKey distinguishes build vs.
@@ -98,6 +102,17 @@ func (svc *Service) Start(p Params) {
 				slog.Error(p.LogKey+".seed_failed", "slug", p.Slug, "template", p.Template.ID, "err", err)
 				svc.events.Fail(p.Slug, err)
 				return
+			}
+		}
+		// Snapshot post-seed and pre-agent. For initial builds this captures
+		// the bare template (restorable to a known-good starting point); for
+		// edits it captures the prior agent-built site. Failures are logged
+		// but don't block the build — losing undo is better than losing the
+		// edit.
+		if svc.snapshot != nil {
+			_, err := svc.snapshot.Create(ctx, p.Slug, p.LogKey)
+			if err != nil {
+				slog.Warn(p.LogKey+".snapshot_failed", "slug", p.Slug, "err", err)
 			}
 		}
 		err := svc.buildAndLint(ctx, p.Slug, p.Prompt, p.Template, p.Seeds)

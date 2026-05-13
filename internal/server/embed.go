@@ -28,3 +28,6 @@ var visualEditTemplate string
 
 //go:embed templates/function_edit.html
 var functionEditTemplate string
+
+//go:embed templates/history.html
+var historyTemplate string
