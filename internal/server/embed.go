@@ -22,3 +22,6 @@ var editTemplate string
 
 //go:embed templates/settings.html
 var settingsTemplate string
+
+//go:embed templates/visual_edit.html
+var visualEditTemplate string

@@ -79,6 +79,7 @@ func New(d Deps) *echo.Echo {
 		{"edit", editTemplate},
 		{"settings", settingsTemplate},
 		{"toolbar", editToolbarTemplate},
+		{"visual_edit", visualEditTemplate},
 	} {
 		template.Must(tpl.New(t.name).Parse(t.body))
 	}
@@ -105,6 +106,8 @@ func New(d Deps) *echo.Echo {
 	e.GET("/apps", s.appsHandler)
 	e.GET("/edit/:slug", s.editHandler)
 	e.POST("/edit/:slug", s.editSubmitHandler)
+	e.GET("/edit/:slug/visual", s.visualEditHandler)
+	e.POST("/edit/:slug/visual", s.visualEditSaveHandler)
 	e.POST("/upload/:slug", s.uploadHandler)
 	e.GET("/settings/:slug", s.settingsHandler)
 	e.POST("/settings/:slug", s.settingsSubmitHandler)
@@ -406,10 +409,20 @@ func (s *Server) injectEditToolbar(htmlContent, slug, page string) string {
 		Path:     "/edit/" + slug,
 		RawQuery: url.Values{"page": []string{page}}.Encode(),
 	}).String()
+	visualURL := (&url.URL{
+		Scheme:   "http",
+		Host:     s.domain + ":" + s.port,
+		Path:     "/edit/" + slug + "/visual",
+		RawQuery: url.Values{"page": []string{page}}.Encode(),
+	}).String()
 
 	var buf bytes.Buffer
-	err := s.tpl.ExecuteTemplate(&buf, "toolbar", struct{ EditURL template.URL }{
-		EditURL: template.URL(editURL), //nolint:gosec // URL built from controlled inputs above.
+	err := s.tpl.ExecuteTemplate(&buf, "toolbar", struct {
+		EditURL   template.URL
+		VisualURL template.URL
+	}{
+		EditURL:   template.URL(editURL),   //nolint:gosec // URL built from controlled inputs above.
+		VisualURL: template.URL(visualURL), //nolint:gosec // URL built from controlled inputs above.
 	})
 	if err != nil {
 		slog.Warn("toolbar.render_failed", "slug", slug, "err", err)

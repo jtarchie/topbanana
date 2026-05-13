@@ -14,7 +14,7 @@
 			<select id="page-select" onchange="location='/edit/{{.Slug}}?page='+encodeURIComponent(this.value)">
 				{{range .Pages}}<option value="{{.}}" {{if eq . $.Page}}selected{{end}}>{{.}}</option>{{end}}
 			</select>
-			<p class="desc"><a href="/edit/{{.Slug}}">Edit whole site instead</a></p>
+			<p class="desc"><a href="/edit/{{.Slug}}/visual?page={{.Page}}">Open visual editor</a> · <a href="/edit/{{.Slug}}">Edit whole site instead</a></p>
 		</div>
 		<iframe src="http://{{.Slug}}.{{.Domain}}:{{.Port}}/{{.Page}}" id="preview"></iframe>
 		<div class="row">
