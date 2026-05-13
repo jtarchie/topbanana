@@ -189,6 +189,16 @@ func httpErr(code int, msg string, err error) *echo.HTTPError {
 	return echo.NewHTTPError(code, fmt.Sprintf("%s: %s", msg, err))
 }
 
+// notFound returns a real *echo.HTTPError so it survives the slog-echo
+// middleware unchanged. The echo.Err* sentinels (echo.ErrNotFound &c.) are an
+// unexported *httpError type that slog-echo's `err.(*echo.HTTPError)` check
+// fails, after which slog-echo wraps them in a fresh 500 — turning every 404
+// into an Internal Server Error in the response. Use this helper anywhere
+// we'd reach for echo.ErrNotFound.
+func notFound() *echo.HTTPError {
+	return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+}
+
 func (s *Server) landingHandler(c *echo.Context) error {
 	return s.render(c, "landing", map[string]any{
 		"Templates": templates.All(),
@@ -395,7 +405,7 @@ func (s *Server) proxyHandler(c *echo.Context, slug string) error {
 		return c.Blob(http.StatusOK, ct, []byte(obj.Content)) //nolint:wrapcheck
 	}
 
-	return echo.ErrNotFound
+	return notFound()
 }
 
 // resolveContentType prefers the type recorded with the object. When that's

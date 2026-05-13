@@ -36,7 +36,7 @@ const maxAPIBodyBytes = 256 * 1024
 // enable functions, so brochure sites stay byte-for-byte unchanged.
 func (s *Server) apiHandler(c *echo.Context, slug, name string) error {
 	if s.sandbox == nil {
-		return echo.ErrNotFound
+		return notFound()
 	}
 
 	ctx := c.Request().Context()
@@ -45,11 +45,11 @@ func (s *Server) apiHandler(c *echo.Context, slug, name string) error {
 	if meta.Template == "" {
 		// No metadata sidecar — sites created before templates existed don't
 		// have functions. Treat as not-found.
-		return echo.ErrNotFound
+		return notFound()
 	}
 	tmpl := build.EffectiveTemplate(meta)
 	if tmpl == nil || !tmpl.EnablesFunctions {
-		return echo.ErrNotFound
+		return notFound()
 	}
 
 	if !verifyBasicAuth(meta, c.Request()) {
@@ -65,7 +65,7 @@ func (s *Server) apiHandler(c *echo.Context, slug, name string) error {
 	src, err := s.loadFunctionSource(ctx, slug, name)
 	if err != nil {
 		if errors.Is(err, errFunctionNotFound) {
-			return echo.ErrNotFound
+			return notFound()
 		}
 		return httpErr(http.StatusInternalServerError, "load function", err)
 	}
@@ -277,7 +277,7 @@ func (s *Server) functionEditHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "read function", err)
 	}
 	if obj.Content == "" {
-		return echo.ErrNotFound
+		return notFound()
 	}
 	return s.render(c, "function_edit", map[string]any{
 		"Slug":   slug,
@@ -329,7 +329,7 @@ func (s *Server) functionTestHandler(c *echo.Context) error {
 	src, err := s.loadFunctionSource(ctx, slug, name)
 	if err != nil {
 		if errors.Is(err, errFunctionNotFound) {
-			return echo.ErrNotFound
+			return notFound()
 		}
 		return httpErr(http.StatusInternalServerError, "load function", err)
 	}
