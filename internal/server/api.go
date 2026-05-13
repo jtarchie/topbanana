@@ -77,7 +77,9 @@ func (s *Server) apiHandler(c *echo.Context, slug, name string) error {
 	}
 
 	s.events.Emit(slug, events.Event{Type: events.TypeFunction, Tool: name, Phase: events.PhaseInvoke})
-	resp, err := s.sandbox.Invoke(ctx, slug, name, src, req, logFn)
+	// snap=nil for Phase 1: handlers can return responses but have no kv state.
+	// Commit 5 (Phase 2 b) wires state.Store in here.
+	resp, err := s.sandbox.Invoke(ctx, slug, name, src, req, nil, logFn)
 	if err != nil {
 		return translateSandboxError(err, slug, name)
 	}

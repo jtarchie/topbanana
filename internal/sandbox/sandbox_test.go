@@ -12,7 +12,7 @@ func mustInvoke(t *testing.T, src string, req Request) (Response, []string) {
 	t.Helper()
 	m := New(Config{CPUTimeout: 500 * time.Millisecond})
 	var logs []string
-	resp, err := m.Invoke(context.Background(), "slug", "fn", src, req, func(level, line string) {
+	resp, err := m.Invoke(context.Background(), "slug", "fn", src, req, nil, func(level, line string) {
 		logs = append(logs, level+": "+line)
 	})
 	if err != nil {
@@ -84,7 +84,7 @@ func TestSandbox_ConsoleLogStreamed(t *testing.T) {
 func TestSandbox_TimeoutInfiniteLoop(t *testing.T) {
 	src := `module.exports = function () { while(true){} };`
 	m := New(Config{CPUTimeout: 50 * time.Millisecond})
-	_, err := m.Invoke(context.Background(), "slug", "fn", src, Request{}, nil)
+	_, err := m.Invoke(context.Background(), "slug", "fn", src, Request{}, nil, nil)
 	if !errors.Is(err, ErrTimeout) {
 		t.Fatalf("expected ErrTimeout, got: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestSandbox_TimeoutInfiniteLoop(t *testing.T) {
 func TestSandbox_NoHandlerExportedRejected(t *testing.T) {
 	src := `var x = 1;` // no module.exports assignment
 	m := New(Config{})
-	_, err := m.Invoke(context.Background(), "slug", "fn", src, Request{}, nil)
+	_, err := m.Invoke(context.Background(), "slug", "fn", src, Request{}, nil, nil)
 	if !errors.Is(err, ErrNoHandler) {
 		t.Fatalf("expected ErrNoHandler, got: %v", err)
 	}
@@ -123,14 +123,14 @@ func TestSandbox_RateLimitedEventually(t *testing.T) {
 	m := New(Config{RPS: 1, RPSBurst: 1})
 	ctx := context.Background()
 	// First call should succeed.
-	_, err := m.Invoke(ctx, "s", "f", src, Request{}, nil)
+	_, err := m.Invoke(ctx, "s", "f", src, Request{}, nil, nil)
 	if err != nil {
 		t.Fatalf("first invoke: %v", err)
 	}
 	// Spam until we see a rate-limit error.
 	var saw bool
 	for i := 0; i < 5; i++ {
-		_, err = m.Invoke(ctx, "s", "f", src, Request{}, nil)
+		_, err = m.Invoke(ctx, "s", "f", src, Request{}, nil, nil)
 		if errors.Is(err, ErrRateLimit) {
 			saw = true
 			break
@@ -144,7 +144,7 @@ func TestSandbox_RateLimitedEventually(t *testing.T) {
 func TestSandbox_CompileErrorWrapped(t *testing.T) {
 	src := `module.exports = function ( {` // syntax error
 	m := New(Config{})
-	_, err := m.Invoke(context.Background(), "s", "f", src, Request{}, nil)
+	_, err := m.Invoke(context.Background(), "s", "f", src, Request{}, nil, nil)
 	if !errors.Is(err, ErrCompile) {
 		t.Fatalf("expected ErrCompile, got: %v", err)
 	}

@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/dop251/goja"
+
+	"github.com/jtarchie/buildabear/internal/state"
 )
 
 const (
@@ -105,8 +107,10 @@ var (
 type LogFn func(level, line string)
 
 // Invoke compiles and runs source against req. slug and name scope the rate
-// limiter so a hot site can't starve others.
-func (m *Manager) Invoke(ctx context.Context, slug, name, source string, req Request, log LogFn) (Response, error) {
+// limiter so a hot site can't starve others. If snap is non-nil, the handler
+// gets a `kv.*` global that mutates snap; the caller is responsible for
+// persisting via state.Store.Save afterwards.
+func (m *Manager) Invoke(ctx context.Context, slug, name, source string, req Request, snap *state.Snapshot, log LogFn) (Response, error) {
 	if !m.lim.allow(slug, name) {
 		return Response{}, ErrRateLimit
 	}
@@ -132,6 +136,12 @@ func (m *Manager) Invoke(ctx context.Context, slug, name, source string, req Req
 	err = installResponseBuilder(vm)
 	if err != nil {
 		return Response{}, fmt.Errorf("install response: %w", err)
+	}
+	if snap != nil {
+		err = installKV(vm, snap)
+		if err != nil {
+			return Response{}, fmt.Errorf("install kv: %w", err)
+		}
 	}
 
 	// Hard CPU timer. Interrupt sends a panic into the running script; goja
