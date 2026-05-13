@@ -24,7 +24,22 @@
       <label for="password">Password <span class="hint">(leave blank to remove protection)</span></label>
       <input type="password" name="password" id="password" autocomplete="new-password">
     </div>
-    <button type="submit">{{if .HasPassword}}Update{{else}}Set password{{end}}</button>
+
+    <h2>Dynamic features</h2>
+    {{if .FunctionsByTmpl}}
+      <p>This site was built from a template that already includes server-side handlers. Dynamic features are always on. <span class="hint">(/api/* routes through the sandbox; the agent can author functions.)</span></p>
+      <input type="hidden" name="enable_functions" value="on">
+    {{else}}
+      <p>Server-side handlers let the agent build forms with persistence, counters, RSVPs, tiny shops — anything that needs state. Turning this on gives the agent the function-authoring tools on the next edit; turning it off makes /api/* return 404 but keeps any existing handler files.</p>
+      <div class="row">
+        <label>
+          <input type="checkbox" name="enable_functions" {{if .FunctionsEnabled}}checked{{end}}>
+          Enable server-side handlers for this site
+        </label>
+      </div>
+    {{end}}
+
+    <button type="submit">Save settings</button>
   </form>
 </body>
 </html>

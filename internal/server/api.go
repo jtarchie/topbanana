@@ -14,10 +14,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/jtarchie/buildabear/internal/build"
 	"github.com/jtarchie/buildabear/internal/events"
 	"github.com/jtarchie/buildabear/internal/sandbox"
 	"github.com/jtarchie/buildabear/internal/state"
-	"github.com/jtarchie/buildabear/internal/templates"
 )
 
 // maxCASRetries caps the number of times we'll re-run a handler after an
@@ -47,7 +47,8 @@ func (s *Server) apiHandler(c *echo.Context, slug, name string) error {
 		// have functions. Treat as not-found.
 		return echo.ErrNotFound
 	}
-	if !s.templateEnablesFunctions(meta.Template) {
+	tmpl := build.EffectiveTemplate(meta)
+	if tmpl == nil || !tmpl.EnablesFunctions {
 		return echo.ErrNotFound
 	}
 
@@ -146,11 +147,6 @@ func (s *Server) loadFunctionSource(ctx context.Context, slug, name string) (str
 		return "", errFunctionNotFound
 	}
 	return obj.Content, nil
-}
-
-func (s *Server) templateEnablesFunctions(id string) bool {
-	tmpl := templates.Get(id)
-	return tmpl != nil && tmpl.EnablesFunctions
 }
 
 // validateFunctionPathName matches the agent-side validateFunctionName so the

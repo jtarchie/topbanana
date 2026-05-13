@@ -30,11 +30,32 @@ const (
 )
 
 // SiteMeta is the per-site sidecar persisted at MetaFile.
+//
+// EnablesFunctions is a per-site override layered on top of the template's
+// default — set when a user opts in to dynamic features from the settings page
+// for a site whose template didn't ship with them. Always read through
+// EffectiveTemplate so the override is honoured everywhere the template's
+// bit is consulted.
 type SiteMeta struct {
-	Template     string    `json:"template"`
-	Created      time.Time `json:"created"`
-	Username     string    `json:"username,omitempty"`
-	PasswordHash string    `json:"password_hash,omitempty"`
+	Template         string    `json:"template"`
+	Created          time.Time `json:"created"`
+	Username         string    `json:"username,omitempty"`
+	PasswordHash     string    `json:"password_hash,omitempty"`
+	EnablesFunctions bool      `json:"enables_functions,omitempty"`
+}
+
+// EffectiveTemplate returns the template a build/edit/route lookup should use,
+// OR-ing the per-site EnablesFunctions override on top of the template's
+// default. Returns a shallow copy when the override flips the bit on so
+// callers can never mutate the package-level template registry.
+func EffectiveTemplate(meta SiteMeta) *templates.SiteTemplate {
+	base := templates.Get(meta.Template)
+	if base == nil || base.EnablesFunctions || !meta.EnablesFunctions {
+		return base
+	}
+	out := *base
+	out.EnablesFunctions = true
+	return &out
 }
 
 // Service runs builds against a Store using a configured LLM, reporting

@@ -14,7 +14,6 @@ import (
 
 	"github.com/jtarchie/buildabear/internal/build"
 	"github.com/jtarchie/buildabear/internal/lint"
-	"github.com/jtarchie/buildabear/internal/templates"
 )
 
 const maxVisualSaveBytes = 2 << 20 // 2 MiB
@@ -135,7 +134,7 @@ func (s *Server) visualEditSaveHandler(c *echo.Context) error {
 	}
 
 	meta := s.build.ReadMeta(ctx, slug)
-	tmpl := templates.Get(meta.Template)
+	tmpl := build.EffectiveTemplate(meta)
 	lintErrs := lint.App(ctx, s.store, slug, tmpl)
 	warnings := make([]string, 0, len(lintErrs))
 	for i := range lintErrs {

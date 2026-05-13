@@ -571,7 +571,7 @@ func (s *Server) editSubmitHandler(c *echo.Context) error {
 
 	ctx := c.Request().Context()
 	meta := s.build.ReadMeta(ctx, slug)
-	tmpl := templates.Get(meta.Template)
+	tmpl := build.EffectiveTemplate(meta)
 	seeds := s.build.EditSeeds(ctx, slug, prompt)
 	slog.Info("edit.start", "slug", slug, "page", page, "selection_len", len(selection), "template", tmpl.ID, "seeds", len(seeds))
 	return s.startBuild(c, build.Params{
@@ -584,11 +584,13 @@ func (s *Server) editSubmitHandler(c *echo.Context) error {
 }
 
 type settingsData struct {
-	Slug        string
-	Domain      string
-	Port        string
-	Username    string
-	HasPassword bool
+	Slug              string
+	Domain            string
+	Port              string
+	Username          string
+	HasPassword       bool
+	FunctionsEnabled  bool
+	FunctionsByTmpl   bool // the template already enables functions — checkbox is locked-on
 }
 
 func (s *Server) settingsHandler(c *echo.Context) error {
@@ -598,12 +600,16 @@ func (s *Server) settingsHandler(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	meta := s.build.ReadMeta(c.Request().Context(), slug)
+	tmpl := build.EffectiveTemplate(meta)
+	byTmpl := tmpl != nil && templates.Get(meta.Template) != nil && templates.Get(meta.Template).EnablesFunctions
 	return s.render(c, "settings", settingsData{
-		Slug:        slug,
-		Domain:      s.domain,
-		Port:        s.port,
-		Username:    meta.Username,
-		HasPassword: meta.PasswordHash != "",
+		Slug:             slug,
+		Domain:           s.domain,
+		Port:             s.port,
+		Username:         meta.Username,
+		HasPassword:      meta.PasswordHash != "",
+		FunctionsEnabled: tmpl != nil && tmpl.EnablesFunctions,
+		FunctionsByTmpl:  byTmpl,
 	})
 }
 
@@ -621,6 +627,13 @@ func (s *Server) settingsSubmitHandler(c *echo.Context) error {
 	meta.PasswordHash, err = hashPassword(c.FormValue("password"))
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "hash password", err)
+	}
+	// Only honour the override when the template doesn't already enable
+	// functions. Templates that do (contact-form, guestbook, tiny-shop) keep
+	// functions on regardless of the per-site bit, so the form's checked-state
+	// always matches what the user sees.
+	if base := templates.Get(meta.Template); base == nil || !base.EnablesFunctions {
+		meta.EnablesFunctions = c.FormValue("enable_functions") == "on"
 	}
 
 	err = s.build.WriteMeta(ctx, slug, meta)
