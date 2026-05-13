@@ -27,6 +27,7 @@ import (
 	"github.com/jtarchie/buildabear/internal/agent"
 	"github.com/jtarchie/buildabear/internal/build"
 	"github.com/jtarchie/buildabear/internal/events"
+	"github.com/jtarchie/buildabear/internal/sandbox"
 	"github.com/jtarchie/buildabear/internal/store"
 	"github.com/jtarchie/buildabear/internal/templates"
 )
@@ -38,23 +39,25 @@ const (
 
 // Deps holds the dependencies the server needs. Wired up in cmd/buildabear.
 type Deps struct {
-	Store  *store.Store
-	Build  *build.Service
-	Events *events.Tracker
-	LLM    adkmodel.LLM
-	Domain string
-	Port   string
+	Store   *store.Store
+	Build   *build.Service
+	Events  *events.Tracker
+	LLM     adkmodel.LLM
+	Sandbox *sandbox.Manager
+	Domain  string
+	Port    string
 }
 
 // Server is the wired-up state shared across handlers.
 type Server struct {
-	store  *store.Store
-	build  *build.Service
-	events *events.Tracker
-	llm    adkmodel.LLM
-	domain string
-	port   string
-	tpl    *template.Template
+	store   *store.Store
+	build   *build.Service
+	events  *events.Tracker
+	llm     adkmodel.LLM
+	sandbox *sandbox.Manager
+	domain  string
+	port    string
+	tpl     *template.Template
 }
 
 // fallThroughHosts are hosts that should bypass subdomain proxying and hit
@@ -85,13 +88,14 @@ func New(d Deps) *echo.Echo {
 	}
 
 	s := &Server{
-		store:  d.Store,
-		build:  d.Build,
-		events: d.Events,
-		llm:    d.LLM,
-		domain: d.Domain,
-		port:   d.Port,
-		tpl:    tpl,
+		store:   d.Store,
+		build:   d.Build,
+		events:  d.Events,
+		llm:     d.LLM,
+		sandbox: d.Sandbox,
+		domain:  d.Domain,
+		port:    d.Port,
+		tpl:     tpl,
 	}
 
 	e := echo.New()
@@ -117,6 +121,13 @@ func New(d Deps) *echo.Echo {
 
 // subdomainMiddleware intercepts requests to *.domain and proxies them to S3.
 // Requests to the main domain (or loopback) fall through to normal routes.
+//
+// Path-based dispatch ordering inside a subdomain:
+//  1. /api/{name}  → apiHandler (only when the template enabled functions)
+//  2. anything else → proxyHandler (static)
+//
+// Auth lives inside each handler so a slug with basic auth covers both static
+// pages and dynamic /api hits with the same credentials.
 func (s *Server) subdomainMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
@@ -132,6 +143,11 @@ func (s *Server) subdomainMiddleware() echo.MiddlewareFunc {
 			slug, isSubdomain := strings.CutSuffix(host, "."+s.domain)
 			if !isSubdomain {
 				return next(c)
+			}
+
+			reqPath := c.Request().URL.Path
+			if name, ok := strings.CutPrefix(reqPath, "/api/"); ok {
+				return s.apiHandler(c, slug, name)
 			}
 
 			return s.proxyHandler(c, slug)
