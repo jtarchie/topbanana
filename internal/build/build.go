@@ -136,7 +136,11 @@ func (svc *Service) seedTemplate(ctx context.Context, slug string, tmpl *templat
 		return nil
 	}
 	for path, content := range tmpl.Skeleton {
-		err := svc.store.Write(ctx, slug, path, content, "text/html; charset=utf-8", nil)
+		ct := "text/html; charset=utf-8"
+		if strings.HasSuffix(path, ".js") {
+			ct = "application/javascript; charset=utf-8"
+		}
+		err := svc.store.Write(ctx, slug, path, content, ct, nil)
 		if err != nil {
 			return fmt.Errorf("seed %s: %w", path, err)
 		}

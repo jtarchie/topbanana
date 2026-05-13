@@ -41,18 +41,26 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 
 	var errs []Error
 	for _, file := range files {
-		if !strings.HasSuffix(file, ".html") {
-			continue
+		switch {
+		case strings.HasSuffix(file, ".html"):
+			obj, err := s.Read(ctx, slug, file)
+			if err != nil || obj.Content == "" {
+				errs = append(errs, Error{File: file, Message: "could not read file"})
+				continue
+			}
+			errs = append(errs, checkHTMLLinks(file, obj.Content, fileSet)...)
+		case strings.HasSuffix(file, ".js"):
+			// JS files are allowed under functions/ only — JSFile rejects
+			// .js files anywhere else. The agent's path validation also
+			// blocks this, but we double-check here so a hand-edited site
+			// can't smuggle JS into HTML paths.
+			obj, err := s.Read(ctx, slug, file)
+			if err != nil || obj.Content == "" {
+				errs = append(errs, Error{File: file, Message: "could not read file"})
+				continue
+			}
+			errs = append(errs, JSFile(file, obj.Content)...)
 		}
-
-		obj, err := s.Read(ctx, slug, file)
-		if err != nil || obj.Content == "" {
-			errs = append(errs, Error{File: file, Message: "could not read file"})
-			continue
-		}
-
-		parseErrs := checkHTMLLinks(file, obj.Content, fileSet)
-		errs = append(errs, parseErrs...)
 	}
 
 	errs = append(errs, checkTemplateInvariants(ctx, s, slug, tmpl)...)

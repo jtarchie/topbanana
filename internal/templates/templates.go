@@ -15,14 +15,19 @@ import (
 //
 // A template expresses itself across the three surfaces the agent already sees:
 // the system prompt (PromptAddendum), the filesystem (Skeleton, pre-written
-// before the agent runs), and the lint/retry loop (Checks).
+// before the agent runs), and the lint/retry loop (Checks). When
+// EnablesFunctions is true, the build additionally exposes the
+// write_function/read_function/list_functions tools and the /api/* router
+// for this slug — opt-in so existing brochure templates are byte-for-byte
+// unchanged.
 type SiteTemplate struct {
-	ID             string
-	Label          string
-	Description    string
-	PromptAddendum string
-	Skeleton       map[string]string
-	Checks         []Check
+	ID               string
+	Label            string
+	Description      string
+	PromptAddendum   string
+	Skeleton         map[string]string
+	Checks           []Check
+	EnablesFunctions bool
 }
 
 // Check is a declarative invariant for a generated file. The lint loop runs
@@ -43,9 +48,10 @@ const (
 var templatesFS embed.FS
 
 type templateMeta struct {
-	Label       string  `json:"label"`
-	Description string  `json:"description"`
-	Checks      []Check `json:"checks,omitempty"`
+	Label            string  `json:"label"`
+	Description      string  `json:"description"`
+	Checks           []Check `json:"checks,omitempty"`
+	EnablesFunctions bool    `json:"enables_functions,omitempty"`
 }
 
 var (
@@ -133,12 +139,13 @@ func loadOne(id string) (*SiteTemplate, error) {
 	}
 
 	return &SiteTemplate{
-		ID:             id,
-		Label:          meta.Label,
-		Description:    meta.Description,
-		PromptAddendum: strings.TrimSpace(body),
-		Skeleton:       skeleton,
-		Checks:         meta.Checks,
+		ID:               id,
+		Label:            meta.Label,
+		Description:      meta.Description,
+		PromptAddendum:   strings.TrimSpace(body),
+		Skeleton:         skeleton,
+		Checks:           meta.Checks,
+		EnablesFunctions: meta.EnablesFunctions,
 	}, nil
 }
 

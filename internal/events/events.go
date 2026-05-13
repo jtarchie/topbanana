@@ -28,15 +28,18 @@ const (
 
 // Event types.
 const (
-	TypeStatus = "status"
-	TypeTool   = "tool"
+	TypeStatus   = "status"
+	TypeTool     = "tool"
+	TypeFunction = "function"
 )
 
-// Tool phases.
+// Tool phases (also used for TypeFunction).
 const (
-	PhaseStart = "start"
-	PhaseDone  = "done"
-	PhaseError = "error"
+	PhaseStart  = "start"
+	PhaseDone   = "done"
+	PhaseError  = "error"
+	PhaseInvoke = "invoke"
+	PhaseLog    = "log"
 )
 
 // Event is the payload streamed to subscribers and recorded for replay on
