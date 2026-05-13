@@ -15,6 +15,7 @@ import (
 	"github.com/jtarchie/buildabear/internal/model"
 	"github.com/jtarchie/buildabear/internal/sandbox"
 	"github.com/jtarchie/buildabear/internal/server"
+	"github.com/jtarchie/buildabear/internal/state"
 	"github.com/jtarchie/buildabear/internal/store"
 )
 
@@ -76,6 +77,7 @@ func main() {
 	tracker := events.NewTracker()
 	buildSvc := build.New(s, llm, tracker)
 	sb := sandbox.New(sandbox.Config{})
+	stateStore := state.NewS3(s3Client, cli.S3Bucket)
 
 	e := server.New(server.Deps{
 		Store:   s,
@@ -83,6 +85,7 @@ func main() {
 		Events:  tracker,
 		LLM:     llm,
 		Sandbox: sb,
+		State:   stateStore,
 		Domain:  cli.Domain,
 		Port:    cli.Port,
 	})

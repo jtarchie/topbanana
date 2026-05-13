@@ -12,6 +12,7 @@
   input, select, textarea { width: 100%; padding: 0.75rem; border: 1px solid #ccc; border-radius: 6px; font-size: 1rem; box-sizing: border-box; }
   button { margin-top: 1.5rem; width: 100%; padding: 0.85rem; background: #111; color: #fff; border: 0; border-radius: 6px; font-size: 1rem; cursor: pointer; }
   button:hover { background: #222; }
+  .count { margin-top: 1rem; color: #888; font-size: 0.9rem; text-align: center; }
 </style>
 </head>
 <body>
@@ -25,6 +26,13 @@
       <input id="email" name="email" type="email" required>
       <button type="submit">Send</button>
     </form>
+    <p class="count"><span id="count">…</span> submissions so far</p>
   </div>
+  <script>
+    fetch('/api/count')
+      .then(function (r) { return r.json(); })
+      .then(function (j) { document.getElementById('count').textContent = j.count; })
+      .catch(function () { document.getElementById('count').textContent = '–'; });
+  </script>
 </body>
 </html>

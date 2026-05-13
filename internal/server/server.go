@@ -28,6 +28,7 @@ import (
 	"github.com/jtarchie/buildabear/internal/build"
 	"github.com/jtarchie/buildabear/internal/events"
 	"github.com/jtarchie/buildabear/internal/sandbox"
+	"github.com/jtarchie/buildabear/internal/state"
 	"github.com/jtarchie/buildabear/internal/store"
 	"github.com/jtarchie/buildabear/internal/templates"
 )
@@ -44,6 +45,7 @@ type Deps struct {
 	Events  *events.Tracker
 	LLM     adkmodel.LLM
 	Sandbox *sandbox.Manager
+	State   state.Store
 	Domain  string
 	Port    string
 }
@@ -55,6 +57,7 @@ type Server struct {
 	events  *events.Tracker
 	llm     adkmodel.LLM
 	sandbox *sandbox.Manager
+	state   state.Store
 	domain  string
 	port    string
 	tpl     *template.Template
@@ -93,6 +96,7 @@ func New(d Deps) *echo.Echo {
 		events:  d.Events,
 		llm:     d.LLM,
 		sandbox: d.Sandbox,
+		state:   d.State,
 		domain:  d.Domain,
 		port:    d.Port,
 		tpl:     tpl,

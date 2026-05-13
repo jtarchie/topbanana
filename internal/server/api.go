@@ -15,8 +15,15 @@ import (
 
 	"github.com/jtarchie/buildabear/internal/events"
 	"github.com/jtarchie/buildabear/internal/sandbox"
+	"github.com/jtarchie/buildabear/internal/state"
 	"github.com/jtarchie/buildabear/internal/templates"
 )
+
+// maxCASRetries caps the number of times we'll re-run a handler after an
+// ErrConflict from state.Store.Save. Three is enough to ride through bursts
+// of two or three concurrent writers; beyond that we surface 503 so callers
+// back off.
+const maxCASRetries = 3
 
 // maxAPIBodyBytes caps incoming /api/* request bodies. The sandbox enforces
 // its own response cap; this is the matching ingress side. Conservative — most
@@ -77,13 +84,50 @@ func (s *Server) apiHandler(c *echo.Context, slug, name string) error {
 	}
 
 	s.events.Emit(slug, events.Event{Type: events.TypeFunction, Tool: name, Phase: events.PhaseInvoke})
-	// snap=nil for Phase 1: handlers can return responses but have no kv state.
-	// Commit 5 (Phase 2 b) wires state.Store in here.
-	resp, err := s.sandbox.Invoke(ctx, slug, name, src, req, nil, logFn)
+
+	resp, err := s.invokeWithCAS(ctx, slug, name, src, req, logFn)
 	if err != nil {
 		return translateSandboxError(err, slug, name)
 	}
 	return writeSandboxResponse(c, resp)
+}
+
+// invokeWithCAS runs the handler with an optional Snapshot, then persists the
+// snapshot if the handler marked it dirty. On ErrConflict (a concurrent writer
+// won the race), the whole handler is re-run with the freshly-loaded snapshot
+// up to maxCASRetries times before surfacing 503 via ErrConflict.
+func (s *Server) invokeWithCAS(ctx context.Context, slug, name, src string, req sandbox.Request, logFn sandbox.LogFn) (sandbox.Response, error) {
+	if s.state == nil {
+		// No state backend wired: invoke stateless. Brochure paths and unit
+		// tests both rely on this branch.
+		return s.sandbox.Invoke(ctx, slug, name, src, req, nil, logFn) //nolint:wrapcheck
+	}
+
+	for attempt := 0; attempt <= maxCASRetries; attempt++ {
+		snap, err := s.state.Load(ctx, slug)
+		if err != nil {
+			return sandbox.Response{}, fmt.Errorf("state load: %w", err)
+		}
+		resp, err := s.sandbox.Invoke(ctx, slug, name, src, req, snap, logFn)
+		if err != nil {
+			return sandbox.Response{}, err //nolint:wrapcheck
+		}
+		if !snap.Dirty {
+			return resp, nil
+		}
+		err = s.state.Save(ctx, slug, snap)
+		if err == nil {
+			return resp, nil
+		}
+		if errors.Is(err, state.ErrConflict) {
+			slog.Info("api.cas_retry", "slug", slug, "fn", name, "attempt", attempt+1)
+			continue
+		}
+		return sandbox.Response{}, fmt.Errorf("state save: %w", err)
+	}
+	// Exhausted retries — return the conflict sentinel so translateSandboxError
+	// can map it to 503.
+	return sandbox.Response{}, state.ErrConflict
 }
 
 var errFunctionNotFound = errors.New("function not found")
@@ -207,6 +251,9 @@ func translateSandboxError(err error, slug, name string) error {
 	case errors.Is(err, sandbox.ErrResponseTooLarge):
 		slog.Warn("api.response_too_large", "slug", slug, "fn", name)
 		return echo.NewHTTPError(http.StatusInternalServerError, "function response too large")
+	case errors.Is(err, state.ErrConflict):
+		slog.Warn("api.cas_exhausted", "slug", slug, "fn", name)
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "state contention — retry shortly")
 	default:
 		slog.Error("api.invoke_failed", "slug", slug, "fn", name, "err", err)
 		return echo.NewHTTPError(http.StatusInternalServerError, "function failed")
