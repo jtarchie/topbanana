@@ -11,18 +11,16 @@
   form { display: flex; gap: 0.5rem; }
   input[type="email"] { flex: 1; padding: 0.75rem; border: 1px solid #ccc; border-radius: 6px; font-size: 1rem; }
   button { padding: 0.75rem 1.25rem; background: #111; color: #fff; border: 0; border-radius: 6px; font-size: 1rem; cursor: pointer; }
-  .thanks { display: none; color: #0a7; margin-top: 1rem; }
 </style>
 </head>
 <body>
   <div class="card">
     <h1>Coming soon</h1>
     <p>Replace this with a one-line value proposition. Drop your email to get notified.</p>
-    <form onsubmit="document.getElementById('thanks').style.display='block'; this.style.display='none'; return false;">
-      <input type="email" name="email" placeholder="you@example.com" required>
+    <form action="/api/submit" method="post">
+      <input type="email" name="email" placeholder="you@example.com" autocomplete="email" required>
       <button type="submit">Notify me</button>
     </form>
-    <p id="thanks" class="thanks">Thanks — we'll be in touch.</p>
   </div>
 </body>
 </html>

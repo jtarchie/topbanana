@@ -11,7 +11,7 @@
     <li>
       <a href="{{.URL}}">{{if .Title}}{{.Title}}{{else}}{{.Name}}{{end}}</a>
       {{if .Description}}<p class="desc">{{.Description}}</p>{{end}}
-      <p class="desc muted"><code>{{.Name}}</code> &mdash; <a href="/edit/{{.Name}}">Edit site</a></p>
+      <p class="desc muted"><code>{{.Name}}</code> &mdash; <a href="/edit/{{.Name}}">Edit site</a> &mdash; <a href="/data/{{.Name}}">View data</a></p>
     </li>
     {{end}}
   </ul>

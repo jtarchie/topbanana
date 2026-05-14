@@ -31,3 +31,6 @@ var functionEditTemplate string
 
 //go:embed templates/history.html
 var historyTemplate string
+
+//go:embed templates/data.html
+var dataTemplate string
