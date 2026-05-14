@@ -48,7 +48,13 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 				errs = append(errs, Error{File: file, Message: "could not read file"})
 				continue
 			}
-			errs = append(errs, checkHTMLLinks(file, obj.Content, fileSet)...)
+			doc, parseErr := html.Parse(strings.NewReader(obj.Content))
+			if parseErr != nil {
+				errs = append(errs, Error{File: file, Message: fmt.Sprintf("HTML parse error: %s", parseErr)})
+				continue
+			}
+			errs = append(errs, checkHTMLLinks(file, doc, fileSet)...)
+			errs = append(errs, checkInlineJS(file, doc)...)
 		case strings.HasSuffix(file, ".js"):
 			// JS files are allowed under functions/ only — JSFile rejects
 			// .js files anywhere else. The agent's path validation also
@@ -110,14 +116,9 @@ func checkTemplateInvariants(ctx context.Context, s *store.Store, slug string, t
 	return errs
 }
 
-// checkHTMLLinks parses the HTML and checks all relative href/src attributes
-// against the known file set. External URLs are skipped.
-func checkHTMLLinks(filename, content string, fileSet map[string]bool) []Error {
-	doc, err := html.Parse(strings.NewReader(content))
-	if err != nil {
-		return []Error{{File: filename, Message: fmt.Sprintf("HTML parse error: %s", err)}}
-	}
-
+// checkHTMLLinks walks a parsed HTML tree and checks all relative href/src
+// attributes against the known file set. External URLs are skipped.
+func checkHTMLLinks(filename string, doc *html.Node, fileSet map[string]bool) []Error {
 	dir := path.Dir(filename)
 	var errs []Error
 

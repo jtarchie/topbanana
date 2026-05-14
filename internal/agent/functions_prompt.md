@@ -3,7 +3,7 @@
 This site supports server-side handlers under `/api/*`. Use them when a page needs to do something a static site cannot — receive a form submission, increment a counter, render data, return JSON.
 
 ### File layout
-- Functions live under `functions/{name}.js`. A form posting to `/api/submit` resolves to `functions/submit.js`. A GET to `/api/count` resolves to `functions/count.js`. The name must match `[a-z0-9_-]{1,40}`.
+- Functions live under `functions/<name>.js` (where `<name>` is the handler name). A form posting to `/api/submit` resolves to `functions/submit.js`. A GET to `/api/count` resolves to `functions/count.js`. The name must match `[a-z0-9_-]{1,40}`.
 - Each function file is a CommonJS module exporting a single handler: `module.exports = function (request) { ... }`. The handler receives one argument and returns a response.
 - Write functions with `write_function`, never `write_file`. Pages are `.html`, handlers are `.js` — the tools are not interchangeable.
 - Use `list_functions` before writing to see what exists, and `read_function` to inspect a handler before rewriting it.

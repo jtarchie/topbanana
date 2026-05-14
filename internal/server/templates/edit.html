@@ -6,7 +6,17 @@
 </head>
 <body>
 	<h1>Edit: {{.Slug}}</h1>
-	<p><a href="http://{{.Slug}}.{{.Domain}}:{{.Port}}/" target="_blank">View live site</a> | <a href="/settings/{{.Slug}}">Settings</a> | <a href="/history/{{.Slug}}">History</a> | <a href="/apps">All apps</a></p>
+	<p>
+		<a href="http://{{.Slug}}.{{.Domain}}:{{.Port}}/" target="_blank">View live site</a>
+		| <a href="/settings/{{.Slug}}">Settings</a>
+		| <a href="/history/{{.Slug}}">History</a>
+		| <a href="/apps">All apps</a>
+		| <form method="POST" action="/relint/{{.Slug}}" style="display:inline">
+			<button type="submit" class="link-button" title="Run lint now; send any issues to the agent for a fix.">Re-lint</button>
+		</form>
+	</p>
+
+	{{if eq .Flash "lint-clean"}}<div class="flash flash-ok" role="status">Lint clean — no issues found.</div>{{end}}
 
 	{{if .Page}}
 		<div class="row">

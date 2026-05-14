@@ -126,6 +126,24 @@ func (svc *Service) Start(p Params) {
 	}()
 }
 
+// Lint runs the standard lint pass against a site. Exposed so callers (like
+// a "force re-lint" endpoint) can ask for the same checks the build retry
+// loop uses, without invoking the agent.
+func (svc *Service) Lint(ctx context.Context, slug string, tmpl *templates.SiteTemplate) []lint.Error {
+	return lint.App(ctx, svc.store, slug, tmpl)
+}
+
+// LintFixPrompt formats lint errors as a prompt the agent can act on. Shared
+// between the retry loop and any caller (e.g. a force-relint button) that
+// wants to kick off a build to fix observed issues.
+func LintFixPrompt(errs []lint.Error) string {
+	msgs := make([]string, 0, len(errs))
+	for _, e := range errs {
+		msgs = append(msgs, e.Error())
+	}
+	return "Fix these issues in the site:\n" + strings.Join(msgs, "\n")
+}
+
 // buildAndLint runs the agent then lints with up to maxLintRetries fix-up
 // passes when issues are found.
 func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl *templates.SiteTemplate, seeds []agent.SeedToolCall) error {
@@ -138,24 +156,22 @@ func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl 
 
 	for attempt := 0; attempt <= maxLintRetries; attempt++ {
 		emit(events.Event{Type: events.TypeStatus, Status: events.StatusLinting})
-		lintErrs := lint.App(ctx, svc.store, slug, tmpl)
+		lintErrs := svc.Lint(ctx, slug, tmpl)
 		if len(lintErrs) == 0 {
 			return nil
 		}
 
-		msgs := make([]string, 0, len(lintErrs))
-		for _, e := range lintErrs {
-			msgs = append(msgs, e.Error())
-		}
-
 		if attempt == maxLintRetries {
+			msgs := make([]string, 0, len(lintErrs))
+			for _, e := range lintErrs {
+				msgs = append(msgs, e.Error())
+			}
 			return fmt.Errorf("lint errors after %d retries: %s", maxLintRetries, strings.Join(msgs, "; "))
 		}
 
 		slog.Info("build.lint_retry", "slug", slug, "attempt", attempt+1, "issues", len(lintErrs))
 		emit(events.Event{Type: events.TypeStatus, Status: events.StatusRetry, Message: fmt.Sprintf("fixing %d issue(s)", len(lintErrs))})
-		fixPrompt := "Fix these issues in the site:\n" + strings.Join(msgs, "\n")
-		err := agent.Run(ctx, svc.llm, svc.store, slug, fixPrompt, tmpl, nil, emit)
+		err := agent.Run(ctx, svc.llm, svc.store, slug, LintFixPrompt(lintErrs), tmpl, nil, emit)
 		if err != nil {
 			return fmt.Errorf("agent retry: %w", err)
 		}

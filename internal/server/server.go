@@ -120,6 +120,7 @@ func New(d Deps) *echo.Echo {
 	e.GET("/apps", s.appsHandler)
 	e.GET("/edit/:slug", s.editHandler)
 	e.POST("/edit/:slug", s.editSubmitHandler)
+	e.POST("/relint/:slug", s.relintHandler)
 	e.GET("/edit/:slug/visual", s.visualEditHandler)
 	e.POST("/edit/:slug/visual", s.visualEditSaveHandler)
 	e.GET("/edit/:slug/function/:name", s.functionEditHandler)
@@ -493,6 +494,9 @@ type editData struct {
 	Pages     []string
 	Assets    []editAsset
 	Functions []string
+	// Flash is a transient banner key set via ?flash=... after a redirect.
+	// Currently only "lint-clean" is used; the template ignores unknown keys.
+	Flash string
 }
 
 // editAsset is the per-image row rendered on the edit page. Alt is shown
@@ -518,7 +522,7 @@ func validatePage(page string) error {
 var reservedSlugs = map[string]bool{
 	"www": true, "api": true, "edit": true, "apps": true,
 	"status": true, "build": true, "events": true, "upload": true,
-	"history": true, "settings": true, "test": true,
+	"history": true, "settings": true, "test": true, "relint": true,
 }
 
 func validateSlug(slug string) error {
@@ -580,6 +584,7 @@ func (s *Server) editHandler(c *echo.Context) error {
 		Page:      page,
 		Pages:     pages,
 		Assets:    assets,
+		Flash:     c.QueryParam("flash"),
 	})
 }
 
@@ -612,6 +617,39 @@ func (s *Server) editSubmitHandler(c *echo.Context) error {
 		LogKey:   "edit",
 		Template: tmpl,
 		Seeds:    seeds,
+	})
+}
+
+// relintHandler forces a fresh lint pass and, when issues are found, pushes
+// them back to the agent for a fix-up build. On clean sites it redirects to
+// the edit page with a flash banner — no LLM cycles spent.
+func (s *Server) relintHandler(c *echo.Context) error {
+	slug := c.Param("slug")
+	err := validateSlug(slug)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	if existing := s.events.Get(slug); existing != nil && existing.Status == events.StatusBuilding {
+		return echo.NewHTTPError(http.StatusConflict, "build already in progress for this site")
+	}
+
+	ctx := c.Request().Context()
+	meta := s.build.ReadMeta(ctx, slug)
+	tmpl := build.EffectiveTemplate(meta)
+	lintErrs := s.build.Lint(ctx, slug, tmpl)
+
+	if len(lintErrs) == 0 {
+		slog.Info("relint.clean", "slug", slug)
+		return c.Redirect(http.StatusSeeOther, "/edit/"+slug+"?flash=lint-clean") //nolint:wrapcheck
+	}
+
+	slog.Info("relint.start", "slug", slug, "issues", len(lintErrs), "template", tmpl.ID)
+	return s.startBuild(c, build.Params{
+		Slug:     slug,
+		Prompt:   build.LintFixPrompt(lintErrs),
+		LogKey:   "relint",
+		Template: tmpl,
 	})
 }
 
