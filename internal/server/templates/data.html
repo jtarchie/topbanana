@@ -12,7 +12,8 @@
 </style>
 </head>
 <body>
-  <h1>Data &mdash; <code>{{.Slug}}</code></h1>
+  <h1>Data: {{.Slug}}</h1>
+  <p><a href="/edit/{{.Slug}}">Edit site</a> | <a href="/settings/{{.Slug}}">Settings</a> | <a href="/history/{{.Slug}}">History</a> | <a href="/apps">All apps</a></p>
   <p class="desc">Captured submissions for this site. Stored in the per-site KV store.</p>
   {{if .Rows}}
   <div class="toolbar">
@@ -38,6 +39,5 @@
   {{else}}
   <p class="muted">No submissions yet. As visitors submit the form, their entries will appear here.</p>
   {{end}}
-  <p><a href="/apps">Back to Apps</a></p>
 </body>
 </html>
