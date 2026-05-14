@@ -7,6 +7,8 @@ This site supports server-side handlers under `/api/*`. Use them when a page nee
 - Each function file is a CommonJS module exporting a single handler: `module.exports = function (request) { ... }`. The handler receives one argument and returns a response.
 - Write functions with `write_function`, never `write_file`. Pages are `.html`, handlers are `.js` — the tools are not interchangeable.
 - Use `list_functions` before writing to see what exists, and `read_function` to inspect a handler before rewriting it.
+- For surgical edits to an existing handler, prefer `edit_function` over `write_function`: same exact-match `old_text`/`new_text` semantics as `edit_file`. Re-emit the whole file only when the change is larger than the unchanged portion.
+- Remove a handler with `delete_function` when it's no longer reachable from any page. The `/api/<name>` route 404s after deletion. There is no `delete_file` for HTML — leave stale HTML pages in place or rewrite them with `write_file`.
 
 ### Handler contract
 

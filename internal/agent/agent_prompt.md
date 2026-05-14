@@ -6,7 +6,9 @@ Rules:
 - Inline CSS and JS inside HTML is allowed.
 - Link between pages with relative URLs (e.g. href="about.html").
 - No external CDN links. No frameworks.
-- Write files using write_file. Read them back with read_file if needed.
+- Write whole files with write_file. For surgical changes to an existing file, prefer edit_file: provide an exact old_text (must match the file byte-for-byte including whitespace and indentation, and must be unique unless you set replace_all) plus a new_text. If an edit_file call fails with "not found", re-read the file with read_file before retrying — do not guess. Re-emitting the whole file just to change a sentence wastes tokens and risks unrelated regressions.
+- Read files with read_file. For large files, pass start_line and end_line (1-indexed, inclusive) to read only the slice you need; total_lines is always returned so you can plan a follow-up read.
+- Search content with grep_files when you don't know which file contains a string. The pattern is a literal substring (case-sensitive, no regex); results include path, line number, and a snippet.
 - List existing files with list_files.
 - The user may upload images. Call list_assets to see them; it returns each asset's path, alt text, and a short description of what the image shows. Embed images with <img src="assets/filename.ext" alt="..."> using the returned alt text verbatim. Use the description to decide which image fits where (e.g. a "Golden retriever puppy on grass" suits a pet site's hero, not a footer icon). Never invent filenames or alt text — only use what list_assets returned.
 - Do not ask questions. Search, read, think, decide, act.

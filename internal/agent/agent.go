@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -60,11 +61,49 @@ type writeFileResult struct {
 
 type readFileArgs struct {
 	Path string `json:"path"`
+	// StartLine and EndLine are optional 1-indexed inclusive line bounds. Zero
+	// means "from the beginning" or "through the end" respectively, so the
+	// zero-value behaviour (both fields unset) returns the whole file — keeping
+	// backward compatibility with seeded responses in internal/build/edit.go.
+	StartLine int `json:"start_line,omitempty"`
+	EndLine   int `json:"end_line,omitempty"`
 }
 
 type readFileResult struct {
-	Content string `json:"content"`
-	Error   string `json:"error,omitempty"`
+	Content    string `json:"content"`
+	TotalLines int    `json:"total_lines,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+type editFileArgs struct {
+	Path       string `json:"path"`
+	OldText    string `json:"old_text"`
+	NewText    string `json:"new_text"`
+	ReplaceAll bool   `json:"replace_all,omitempty"`
+}
+
+type editFileResult struct {
+	OK           bool   `json:"ok"`
+	Replacements int    `json:"replacements,omitempty"`
+	Error        string `json:"error,omitempty"`
+}
+
+type grepFilesArgs struct {
+	Pattern    string `json:"pattern"`
+	MaxResults int    `json:"max_results,omitempty"`
+}
+
+type grepMatch struct {
+	Path       string `json:"path"`
+	LineNumber int    `json:"line_number"`
+	Snippet    string `json:"snippet"`
+}
+
+type grepFilesResult struct {
+	Matches      []grepMatch `json:"matches"`
+	TotalMatches int         `json:"total_matches"`
+	Truncated    bool        `json:"truncated,omitempty"`
+	Error        string      `json:"error,omitempty"`
 }
 
 type listFilesResult struct {
@@ -106,6 +145,30 @@ type readFunctionResult struct {
 type listFunctionsResult struct {
 	Functions []string `json:"functions"`
 	Error     string   `json:"error,omitempty"`
+}
+
+type editFunctionArgs struct {
+	Name       string `json:"name"`
+	OldText    string `json:"old_text"`
+	NewText    string `json:"new_text"`
+	ReplaceAll bool   `json:"replace_all,omitempty"`
+}
+
+type editFunctionResult struct {
+	OK           bool   `json:"ok"`
+	Path         string `json:"path,omitempty"`
+	Replacements int    `json:"replacements,omitempty"`
+	Error        string `json:"error,omitempty"`
+}
+
+type deleteFunctionArgs struct {
+	Name string `json:"name"`
+}
+
+type deleteFunctionResult struct {
+	OK    bool   `json:"ok"`
+	Path  string `json:"path,omitempty"`
+	Error string `json:"error,omitempty"`
 }
 
 // Run invokes the agent against the given slug. emit may be nil.
@@ -246,13 +309,17 @@ func buildAgentTools(s *store.Store, slug string, tmpl *templates.SiteTemplate, 
 	builders := []func(*store.Store, string, func(events.Event)) (tool.Tool, error){
 		newWriteFileTool,
 		newReadFileTool,
+		newEditFileTool,
 		newListFilesTool,
+		newGrepFilesTool,
 		newListAssetsTool,
 	}
 	if tmpl != nil && tmpl.EnablesFunctions {
 		builders = append(builders,
 			newWriteFunctionTool,
 			newReadFunctionTool,
+			newEditFunctionTool,
+			newDeleteFunctionTool,
 			newListFunctionsTool,
 		)
 	}
@@ -293,7 +360,10 @@ func newWriteFileTool(s *store.Store, slug string, emit func(events.Event)) (too
 func newReadFileTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
 	em := emitter{emit: emit, tool: "read_file"}
 	t, err := functiontool.New(
-		functiontool.Config{Name: "read_file", Description: "Read content from an HTML file"},
+		functiontool.Config{
+			Name:        "read_file",
+			Description: "Read content from an HTML file. Optionally pass start_line and end_line (1-indexed, inclusive) to read only a slice; total_lines is always returned so you can plan a follow-up read.",
+		},
 		func(tctx tool.Context, args readFileArgs) (readFileResult, error) {
 			em.start(args.Path)
 			obj, err := s.Read(tctx, slug, args.Path)
@@ -302,15 +372,269 @@ func newReadFileTool(s *store.Store, slug string, emit func(events.Event)) (tool
 				em.fail(args.Path, err)
 				return readFileResult{Error: err.Error()}, nil
 			}
-			slog.Info("agent.read_file", "slug", slug, "path", args.Path, "length", len(obj.Content))
+			content, total, sliceErr := sliceLines(obj.Content, args.StartLine, args.EndLine)
+			if sliceErr != nil {
+				em.fail(args.Path, sliceErr)
+				return readFileResult{Error: sliceErr.Error(), TotalLines: total}, nil
+			}
+			slog.Info("agent.read_file", "slug", slug, "path", args.Path,
+				"length", len(content), "total_lines", total,
+				"start_line", args.StartLine, "end_line", args.EndLine)
 			em.done(args.Path)
-			return readFileResult{Content: obj.Content}, nil
+			return readFileResult{Content: content, TotalLines: total}, nil
 		},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create read_file tool: %w", err)
 	}
 	return t, nil
+}
+
+// sliceLines returns a 1-indexed-inclusive slice of content delimited by \n,
+// plus the total line count of the full content. start/end of 0 mean "from
+// line 1" and "through last line" respectively, so the zero-value (both 0)
+// returns the whole content unchanged. start past the end returns an empty
+// slice with no error (lets the agent self-correct using total_lines).
+func sliceLines(content string, start, end int) (string, int, error) {
+	var total int
+	if content == "" {
+		total = 0
+	} else {
+		total = strings.Count(content, "\n") + 1
+	}
+	if start <= 0 && end <= 0 {
+		return content, total, nil
+	}
+	if start > 0 && end > 0 && start > end {
+		return "", total, errors.New("start_line must be <= end_line")
+	}
+	lines := strings.Split(content, "\n")
+	if start <= 0 {
+		start = 1
+	}
+	if end <= 0 || end > len(lines) {
+		end = len(lines)
+	}
+	if start > len(lines) {
+		return "", total, nil
+	}
+	return strings.Join(lines[start-1:end], "\n"), total, nil
+}
+
+func newEditFileTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
+	em := emitter{emit: emit, tool: "edit_file"}
+	t, err := functiontool.New(
+		functiontool.Config{
+			Name:        "edit_file",
+			Description: "Replace exact text in an existing HTML file. Provide old_text (must match verbatim — include enough surrounding context to be unique) and new_text. Prefer this over write_file for surgical changes: rewriting whole files wastes tokens and risks regressions in unrelated content. Set replace_all=true to replace every occurrence.",
+		},
+		func(tctx tool.Context, args editFileArgs) (editFileResult, error) {
+			em.start(args.Path)
+			if args.OldText == "" {
+				em.fail(args.Path, errors.New("old_text required"))
+				return editFileResult{Error: "old_text is required"}, nil
+			}
+			if args.OldText == args.NewText {
+				em.fail(args.Path, errors.New("no-op edit"))
+				return editFileResult{Error: "old_text and new_text are identical; nothing to do"}, nil
+			}
+			obj, err := s.Read(tctx, slug, args.Path)
+			if err != nil {
+				slog.Warn("agent.edit_file", "slug", slug, "path", args.Path, "err", err)
+				em.fail(args.Path, err)
+				return editFileResult{Error: err.Error()}, nil
+			}
+			if obj.Content == "" {
+				em.fail(args.Path, errors.New("file not found"))
+				return editFileResult{Error: "file not found: " + args.Path}, nil
+			}
+			updated, count, applyErr := applyEdit(obj.Content, args.OldText, args.NewText, args.ReplaceAll)
+			if applyErr != nil {
+				em.fail(args.Path, applyErr)
+				return editFileResult{Error: applyErr.Error()}, nil
+			}
+			contentType := obj.ContentType
+			if contentType == "" {
+				contentType = "text/html; charset=utf-8"
+			}
+			err = s.Write(tctx, slug, args.Path, updated, contentType, obj.Metadata)
+			if err != nil {
+				slog.Warn("agent.edit_file", "slug", slug, "path", args.Path, "err", err)
+				em.fail(args.Path, err)
+				return editFileResult{Error: err.Error()}, nil
+			}
+			slog.Info("agent.edit_file", "slug", slug, "path", args.Path,
+				"old_len", len(args.OldText), "new_len", len(args.NewText), "replacements", count)
+			em.done(args.Path)
+			return editFileResult{OK: true, Replacements: count}, nil
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create edit_file tool: %w", err)
+	}
+	return t, nil
+}
+
+// applyEdit performs the find/replace at the heart of edit_file and
+// edit_function. Returning errors as values (not Go errors) lets the caller
+// surface them in the tool's Error field so the agent can recover.
+func applyEdit(content, oldText, newText string, replaceAll bool) (string, int, error) {
+	count := strings.Count(content, oldText)
+	if count == 0 {
+		return "", 0, diagnoseNotFound(content, oldText)
+	}
+	if count > 1 && !replaceAll {
+		return "", 0, fmt.Errorf("old_text matches %d locations; include more surrounding context to make it unique, or set replace_all=true", count)
+	}
+	if replaceAll {
+		return strings.ReplaceAll(content, oldText, newText), count, nil
+	}
+	return strings.Replace(content, oldText, newText, 1), 1, nil
+}
+
+// diagnoseNotFound returns the most actionable error message for a failed
+// edit_file lookup. The common failure mode is that the model copied old_text
+// with slightly-wrong whitespace (tabs vs spaces, missing indent, extra
+// trailing newline), so we check for those first and tell the model exactly
+// what to fix. Falling back to a generic message would just trigger another
+// blind retry.
+func diagnoseNotFound(content, oldText string) error {
+	trimmed := strings.TrimSpace(oldText)
+	if trimmed != "" && trimmed != oldText && strings.Contains(content, trimmed) {
+		return errors.New("old_text has extra leading or trailing whitespace that the file does not contain; trim it and retry")
+	}
+	if containsCollapsedWS(content, oldText) {
+		return errors.New("old_text matches only when whitespace is normalized — the file uses different indentation, tabs, or line breaks than your old_text. Re-read the file (use start_line/end_line to zoom in) and copy the whitespace verbatim")
+	}
+	return errors.New("old_text not found in file. Re-read the file to confirm the exact text (whitespace included), or use grep_files to locate a unique substring before retrying")
+}
+
+// containsCollapsedWS reports whether needle appears in haystack after every
+// run of whitespace is collapsed to a single space in both. Used only for
+// diagnostics — the actual replace still requires a byte-exact match.
+func containsCollapsedWS(haystack, needle string) bool {
+	return strings.Contains(collapseWS(haystack), collapseWS(needle))
+}
+
+func collapseWS(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	inWS := false
+	for _, r := range s {
+		switch r {
+		case ' ', '\t', '\n', '\r':
+			if !inWS {
+				b.WriteByte(' ')
+				inWS = true
+			}
+		default:
+			b.WriteRune(r)
+			inWS = false
+		}
+	}
+	return b.String()
+}
+
+const (
+	grepDefaultMax = 50
+	grepHardCap    = 200
+	grepSnippetMax = 200
+)
+
+func newGrepFilesTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
+	em := emitter{emit: emit, tool: "grep_files"}
+	t, err := functiontool.New(
+		functiontool.Config{
+			Name:        "grep_files",
+			Description: "Search a literal (case-sensitive, no regex) substring across all HTML pages and function handlers. Returns matching paths with 1-indexed line numbers and snippets. Use before edit_file to find the unique surrounding context you need.",
+		},
+		func(tctx tool.Context, args grepFilesArgs) (grepFilesResult, error) {
+			em.start("")
+			if args.Pattern == "" {
+				em.fail("", errors.New("pattern required"))
+				return grepFilesResult{Error: "pattern is required"}, nil
+			}
+			max := args.MaxResults
+			if max <= 0 {
+				max = grepDefaultMax
+			}
+			if max > grepHardCap {
+				max = grepHardCap
+			}
+			files, err := s.List(tctx, slug)
+			if err != nil {
+				slog.Warn("agent.grep_files", "slug", slug, "err", err)
+				em.fail("", err)
+				return grepFilesResult{Error: err.Error()}, nil
+			}
+			sort.Strings(files)
+			out := make([]grepMatch, 0, max)
+			total := 0
+			truncated := false
+			for _, f := range files {
+				if !grepEligible(f) {
+					continue
+				}
+				obj, rerr := s.Read(tctx, slug, f)
+				if rerr != nil || obj.Content == "" {
+					continue
+				}
+				out, total, truncated = appendFileMatches(out, total, max, truncated, f, obj.Content, args.Pattern)
+			}
+			slog.Info("agent.grep_files", "slug", slug, "pattern_len", len(args.Pattern),
+				"total", total, "returned", len(out), "truncated", truncated)
+			em.done("")
+			return grepFilesResult{Matches: out, TotalMatches: total, Truncated: truncated}, nil
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create grep_files tool: %w", err)
+	}
+	return t, nil
+}
+
+// appendFileMatches scans a single file's content for the literal pattern and
+// extends out with up to (max - len(out)) new matches. Anything past the cap
+// is counted in totalMatches and flips truncated to true. Extracting this
+// keeps newGrepFilesTool's cognitive complexity in check.
+func appendFileMatches(out []grepMatch, totalMatches, max int, truncated bool, path, content, pattern string) ([]grepMatch, int, bool) {
+	if !strings.Contains(content, pattern) {
+		return out, totalMatches, truncated
+	}
+	for i, line := range strings.Split(content, "\n") {
+		if !strings.Contains(line, pattern) {
+			continue
+		}
+		totalMatches++
+		if len(out) < max {
+			out = append(out, grepMatch{
+				Path: path, LineNumber: i + 1, Snippet: truncateSnippet(line),
+			})
+		} else {
+			truncated = true
+		}
+	}
+	return out, totalMatches, truncated
+}
+
+// grepEligible decides whether a stored path is worth grepping. Assets are
+// binary-ish, the sidecar is internal metadata, and other extensions don't
+// belong in a search aimed at HTML + function source.
+func grepEligible(path string) bool {
+	if strings.HasPrefix(path, "assets/") {
+		return false
+	}
+	if path == ".buildabear.json" {
+		return false
+	}
+	return strings.HasSuffix(path, ".html") || strings.HasSuffix(path, ".js")
+}
+
+func truncateSnippet(line string) string {
+	if len(line) <= grepSnippetMax {
+		return line
+	}
+	return line[:grepSnippetMax] + "…"
 }
 
 func newListFilesTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
@@ -499,6 +823,94 @@ func newReadFunctionTool(s *store.Store, slug string, emit func(events.Event)) (
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create read_function tool: %w", err)
+	}
+	return t, nil
+}
+
+func newEditFunctionTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
+	em := emitter{emit: emit, tool: "edit_function"}
+	t, err := functiontool.New(
+		functiontool.Config{
+			Name:        "edit_function",
+			Description: "Replace exact text in an existing functions/<name>.js handler. Same semantics as edit_file but for JS handlers. Prefer this over write_function for surgical changes.",
+		},
+		func(tctx tool.Context, args editFunctionArgs) (editFunctionResult, error) {
+			path := functionsDir + args.Name + jsExt
+			err := validateFunctionName(args.Name)
+			if err != nil {
+				em.fail(path, err)
+				return editFunctionResult{Error: err.Error()}, nil
+			}
+			em.start(path)
+			if args.OldText == "" {
+				em.fail(path, errors.New("old_text required"))
+				return editFunctionResult{Error: "old_text is required"}, nil
+			}
+			if args.OldText == args.NewText {
+				em.fail(path, errors.New("no-op edit"))
+				return editFunctionResult{Error: "old_text and new_text are identical; nothing to do"}, nil
+			}
+			obj, err := s.Read(tctx, slug, path)
+			if err != nil {
+				slog.Warn("agent.edit_function", "slug", slug, "name", args.Name, "err", err)
+				em.fail(path, err)
+				return editFunctionResult{Error: err.Error()}, nil
+			}
+			if obj.Content == "" {
+				em.fail(path, errors.New("function not found"))
+				return editFunctionResult{Error: "function not found: " + args.Name}, nil
+			}
+			updated, count, applyErr := applyEdit(obj.Content, args.OldText, args.NewText, args.ReplaceAll)
+			if applyErr != nil {
+				em.fail(path, applyErr)
+				return editFunctionResult{Error: applyErr.Error()}, nil
+			}
+			err = s.Write(tctx, slug, path, updated, "application/javascript; charset=utf-8", nil)
+			if err != nil {
+				slog.Warn("agent.edit_function", "slug", slug, "name", args.Name, "err", err)
+				em.fail(path, err)
+				return editFunctionResult{Error: err.Error()}, nil
+			}
+			slog.Info("agent.edit_function", "slug", slug, "name", args.Name,
+				"old_len", len(args.OldText), "new_len", len(args.NewText), "replacements", count)
+			em.done(path)
+			return editFunctionResult{OK: true, Path: path, Replacements: count}, nil
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create edit_function tool: %w", err)
+	}
+	return t, nil
+}
+
+func newDeleteFunctionTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
+	em := emitter{emit: emit, tool: "delete_function"}
+	t, err := functiontool.New(
+		functiontool.Config{
+			Name:        "delete_function",
+			Description: "Remove a functions/<name>.js handler. The /api/<name> endpoint will return 404 after deletion. HTML pages cannot be deleted — leave stale pages in place or rewrite with write_file.",
+		},
+		func(tctx tool.Context, args deleteFunctionArgs) (deleteFunctionResult, error) {
+			path := functionsDir + args.Name + jsExt
+			err := validateFunctionName(args.Name)
+			if err != nil {
+				em.fail(path, err)
+				return deleteFunctionResult{Error: err.Error()}, nil
+			}
+			em.start(path)
+			err = s.Delete(tctx, slug, path)
+			if err != nil {
+				slog.Warn("agent.delete_function", "slug", slug, "name", args.Name, "err", err)
+				em.fail(path, err)
+				return deleteFunctionResult{Error: err.Error()}, nil
+			}
+			slog.Info("agent.delete_function", "slug", slug, "name", args.Name)
+			em.done(path)
+			return deleteFunctionResult{OK: true, Path: path}, nil
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create delete_function tool: %w", err)
 	}
 	return t, nil
 }
