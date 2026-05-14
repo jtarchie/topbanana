@@ -53,7 +53,7 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 				errs = append(errs, Error{File: file, Message: fmt.Sprintf("HTML parse error: %s", parseErr)})
 				continue
 			}
-			errs = append(errs, checkHTMLLinks(file, doc, fileSet)...)
+			errs = append(errs, checkHTMLLinks(file, doc, fileSet, tmpl != nil && tmpl.EnablesFunctions)...)
 			errs = append(errs, checkInlineJS(file, doc)...)
 		case strings.HasSuffix(file, ".js"):
 			// JS files are allowed under functions/ only — JSFile rejects
@@ -117,15 +117,17 @@ func checkTemplateInvariants(ctx context.Context, s *store.Store, slug string, t
 }
 
 // checkHTMLLinks walks a parsed HTML tree and checks all relative href/src
-// attributes against the known file set. External URLs are skipped.
-func checkHTMLLinks(filename string, doc *html.Node, fileSet map[string]bool) []Error {
+// attributes against the known file set. External URLs are skipped. When
+// enablesFns is true, absolute /api/* paths are treated as valid dynamic
+// routes (handled by apiHandler at runtime) and not flagged as broken.
+func checkHTMLLinks(filename string, doc *html.Node, fileSet map[string]bool, enablesFns bool) []Error {
 	dir := path.Dir(filename)
 	var errs []Error
 
 	var walk func(*html.Node)
 	walk = func(n *html.Node) {
 		if n.Type == html.ElementNode {
-			errs = append(errs, checkNodeLinks(filename, dir, n, fileSet)...)
+			errs = append(errs, checkNodeLinks(filename, dir, n, fileSet, enablesFns)...)
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			walk(c)
@@ -136,13 +138,13 @@ func checkHTMLLinks(filename string, doc *html.Node, fileSet map[string]bool) []
 	return errs
 }
 
-func checkNodeLinks(filename, dir string, n *html.Node, fileSet map[string]bool) []Error {
+func checkNodeLinks(filename, dir string, n *html.Node, fileSet map[string]bool, enablesFns bool) []Error {
 	var errs []Error
 	for _, attr := range n.Attr {
 		if attr.Key != "href" && attr.Key != "src" && attr.Key != "action" {
 			continue
 		}
-		err := checkLink(filename, dir, attr.Val, fileSet)
+		err := checkLink(filename, dir, attr.Val, fileSet, enablesFns)
 		if err != nil {
 			errs = append(errs, *err)
 		}
@@ -150,7 +152,7 @@ func checkNodeLinks(filename, dir string, n *html.Node, fileSet map[string]bool)
 	return errs
 }
 
-func checkLink(filename, dir, rawVal string, fileSet map[string]bool) *Error {
+func checkLink(filename, dir, rawVal string, fileSet map[string]bool, enablesFns bool) *Error {
 	link := strings.TrimSpace(rawVal)
 	if link == "" || link == "#" || isExternalLink(link) {
 		return nil
@@ -162,6 +164,13 @@ func checkLink(filename, dir, rawVal string, fileSet map[string]bool) *Error {
 		link = link[:i]
 	}
 	if link == "" {
+		return nil
+	}
+	// Dynamic API routes are served by apiHandler, not by static files. When
+	// the template enables functions, treat /api/* as always valid — the lint
+	// has no way to know which {name} handlers the agent has authored, and
+	// functions/{name}.js may not yet be written when the page is linted.
+	if enablesFns && strings.HasPrefix(link, "/api/") {
 		return nil
 	}
 	resolved := path.Join(dir, link)
