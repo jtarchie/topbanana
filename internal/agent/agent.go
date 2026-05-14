@@ -85,7 +85,21 @@ type editFileArgs struct {
 type editFileResult struct {
 	OK           bool   `json:"ok"`
 	Replacements int    `json:"replacements,omitempty"`
+	Note         string `json:"note,omitempty"`
 	Error        string `json:"error,omitempty"`
+}
+
+type replaceLinesArgs struct {
+	Path      string `json:"path"`
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
+	NewText   string `json:"new_text"`
+}
+
+type insertAtLineArgs struct {
+	Path      string `json:"path"`
+	AfterLine int    `json:"after_line"`
+	Content   string `json:"content"`
 }
 
 type grepFilesArgs struct {
@@ -158,6 +172,7 @@ type editFunctionResult struct {
 	OK           bool   `json:"ok"`
 	Path         string `json:"path,omitempty"`
 	Replacements int    `json:"replacements,omitempty"`
+	Note         string `json:"note,omitempty"`
 	Error        string `json:"error,omitempty"`
 }
 
@@ -310,6 +325,8 @@ func buildAgentTools(s *store.Store, slug string, tmpl *templates.SiteTemplate, 
 		newWriteFileTool,
 		newReadFileTool,
 		newEditFileTool,
+		newReplaceLinesTool,
+		newInsertAtLineTool,
 		newListFilesTool,
 		newGrepFilesTool,
 		newListAssetsTool,
@@ -435,8 +452,15 @@ func newEditFileTool(s *store.Store, slug string, emit func(events.Event)) (tool
 				return editFileResult{Error: "old_text is required"}, nil
 			}
 			if args.OldText == args.NewText {
-				em.fail(args.Path, errors.New("no-op edit"))
-				return editFileResult{Error: "old_text and new_text are identical; nothing to do"}, nil
+				// No-op is not an error: the model occasionally submits
+				// identical strings while reasoning about a fix. Returning
+				// success with replacements=0 + a note lets the loop continue
+				// instead of burning a lint-retry on a "no-op edit" failure.
+				em.done(args.Path)
+				return editFileResult{
+					OK:   true,
+					Note: "old_text and new_text are identical; no change made",
+				}, nil
 			}
 			obj, err := s.Read(tctx, slug, args.Path)
 			if err != nil {
@@ -448,7 +472,7 @@ func newEditFileTool(s *store.Store, slug string, emit func(events.Event)) (tool
 				em.fail(args.Path, errors.New("file not found"))
 				return editFileResult{Error: "file not found: " + args.Path}, nil
 			}
-			updated, count, applyErr := applyEdit(obj.Content, args.OldText, args.NewText, args.ReplaceAll)
+			updated, count, note, applyErr := applyEdit(obj.Content, args.OldText, args.NewText, args.ReplaceAll)
 			if applyErr != nil {
 				em.fail(args.Path, applyErr)
 				return editFileResult{Error: applyErr.Error()}, nil
@@ -466,7 +490,7 @@ func newEditFileTool(s *store.Store, slug string, emit func(events.Event)) (tool
 			slog.Info("agent.edit_file", "slug", slug, "path", args.Path,
 				"old_len", len(args.OldText), "new_len", len(args.NewText), "replacements", count)
 			em.done(args.Path)
-			return editFileResult{OK: true, Replacements: count}, nil
+			return editFileResult{OK: true, Replacements: count, Note: note}, nil
 		},
 	)
 	if err != nil {
@@ -475,21 +499,221 @@ func newEditFileTool(s *store.Store, slug string, emit func(events.Event)) (tool
 	return t, nil
 }
 
+// newReplaceLinesTool returns a tool that replaces a 1-indexed inclusive
+// line range with new_text. Pairs with read_file's line-numbered output so
+// the agent can sidestep whitespace-matching entirely when it already knows
+// the exact lines to swap. Pass empty new_text to delete the range.
+func newReplaceLinesTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
+	em := emitter{emit: emit, tool: "replace_lines"}
+	t, err := functiontool.New(
+		functiontool.Config{
+			Name:        "replace_lines",
+			Description: "Replace lines start_line..end_line (1-indexed, inclusive) in an HTML file with new_text. Use when read_file showed you the exact line range and you want to avoid whitespace-matching headaches. Pass empty new_text to delete those lines. Both line numbers refer to the file as it exists right now; if you make multiple replacements, re-read between them to get fresh numbers.",
+		},
+		func(tctx tool.Context, args replaceLinesArgs) (editFileResult, error) {
+			em.start(args.Path)
+			obj, err := s.Read(tctx, slug, args.Path)
+			if err != nil {
+				slog.Warn("agent.replace_lines", "slug", slug, "path", args.Path, "err", err)
+				em.fail(args.Path, err)
+				return editFileResult{Error: err.Error()}, nil
+			}
+			if obj.Content == "" {
+				em.fail(args.Path, errors.New("file not found"))
+				return editFileResult{Error: "file not found: " + args.Path}, nil
+			}
+			updated, err := spliceLines(obj.Content, args.StartLine, args.EndLine, args.NewText)
+			if err != nil {
+				em.fail(args.Path, err)
+				return editFileResult{Error: err.Error()}, nil
+			}
+			contentType := obj.ContentType
+			if contentType == "" {
+				contentType = "text/html; charset=utf-8"
+			}
+			err = s.Write(tctx, slug, args.Path, updated, contentType, obj.Metadata)
+			if err != nil {
+				slog.Warn("agent.replace_lines", "slug", slug, "path", args.Path, "err", err)
+				em.fail(args.Path, err)
+				return editFileResult{Error: err.Error()}, nil
+			}
+			slog.Info("agent.replace_lines", "slug", slug, "path", args.Path,
+				"start_line", args.StartLine, "end_line", args.EndLine, "new_len", len(args.NewText))
+			em.done(args.Path)
+			return editFileResult{OK: true, Replacements: args.EndLine - args.StartLine + 1}, nil
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create replace_lines tool: %w", err)
+	}
+	return t, nil
+}
+
+// newInsertAtLineTool returns a tool that inserts content after a given line
+// without replacing anything. after_line=0 prepends; after_line=total_lines
+// appends. Mirrors the well-trodden semantics of Anthropic's text_editor
+// `insert` command so models that know that interface get it for free.
+func newInsertAtLineTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
+	em := emitter{emit: emit, tool: "insert_at_line"}
+	t, err := functiontool.New(
+		functiontool.Config{
+			Name:        "insert_at_line",
+			Description: "Insert content after line N (1-indexed) in an HTML file. Use after_line=0 to prepend, after_line=total_lines to append. Content is inserted verbatim — include a trailing newline if you want a clean break before the next line.",
+		},
+		func(tctx tool.Context, args insertAtLineArgs) (editFileResult, error) {
+			em.start(args.Path)
+			obj, err := s.Read(tctx, slug, args.Path)
+			if err != nil {
+				slog.Warn("agent.insert_at_line", "slug", slug, "path", args.Path, "err", err)
+				em.fail(args.Path, err)
+				return editFileResult{Error: err.Error()}, nil
+			}
+			if obj.Content == "" {
+				em.fail(args.Path, errors.New("file not found"))
+				return editFileResult{Error: "file not found: " + args.Path}, nil
+			}
+			updated, err := insertAfterLine(obj.Content, args.AfterLine, args.Content)
+			if err != nil {
+				em.fail(args.Path, err)
+				return editFileResult{Error: err.Error()}, nil
+			}
+			contentType := obj.ContentType
+			if contentType == "" {
+				contentType = "text/html; charset=utf-8"
+			}
+			err = s.Write(tctx, slug, args.Path, updated, contentType, obj.Metadata)
+			if err != nil {
+				slog.Warn("agent.insert_at_line", "slug", slug, "path", args.Path, "err", err)
+				em.fail(args.Path, err)
+				return editFileResult{Error: err.Error()}, nil
+			}
+			slog.Info("agent.insert_at_line", "slug", slug, "path", args.Path,
+				"after_line", args.AfterLine, "inserted_len", len(args.Content))
+			em.done(args.Path)
+			return editFileResult{OK: true, Replacements: 1}, nil
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create insert_at_line tool: %w", err)
+	}
+	return t, nil
+}
+
+// spliceLines replaces lines start..end (1-indexed, inclusive) of content
+// with newText. Validates the range; returns a descriptive error if the
+// range is out-of-bounds or inverted so the agent can correct itself.
+func spliceLines(content string, start, end int, newText string) (string, error) {
+	if start < 1 {
+		return "", fmt.Errorf("start_line must be >= 1 (got %d)", start)
+	}
+	if end < start {
+		return "", fmt.Errorf("end_line (%d) must be >= start_line (%d)", end, start)
+	}
+	lines := strings.Split(content, "\n")
+	if end > len(lines) {
+		return "", fmt.Errorf("end_line %d exceeds file length %d", end, len(lines))
+	}
+	// strings.Split on newText so multi-line replacements rejoin cleanly with
+	// the surrounding context. Empty newText splices in nothing (i.e. deletes
+	// the range).
+	var head, mid, tail []string
+	head = lines[:start-1]
+	tail = lines[end:]
+	if newText != "" {
+		mid = strings.Split(newText, "\n")
+	}
+	out := make([]string, 0, len(head)+len(mid)+len(tail))
+	out = append(out, head...)
+	out = append(out, mid...)
+	out = append(out, tail...)
+	return strings.Join(out, "\n"), nil
+}
+
+// insertAfterLine returns content with insertContent spliced in after line
+// `after` (1-indexed). after=0 prepends; after=total_lines appends.
+func insertAfterLine(content string, after int, insertContent string) (string, error) {
+	lines := strings.Split(content, "\n")
+	if after < 0 {
+		return "", fmt.Errorf("after_line must be >= 0 (got %d)", after)
+	}
+	if after > len(lines) {
+		return "", fmt.Errorf("after_line %d exceeds file length %d", after, len(lines))
+	}
+	insertLines := strings.Split(insertContent, "\n")
+	out := make([]string, 0, len(lines)+len(insertLines))
+	out = append(out, lines[:after]...)
+	out = append(out, insertLines...)
+	out = append(out, lines[after:]...)
+	return strings.Join(out, "\n"), nil
+}
+
 // applyEdit performs the find/replace at the heart of edit_file and
-// edit_function. Returning errors as values (not Go errors) lets the caller
-// surface them in the tool's Error field so the agent can recover.
-func applyEdit(content, oldText, newText string, replaceAll bool) (string, int, error) {
+// edit_function. Returns the updated content, the replacement count, a note
+// surfaced to the caller (empty when there's nothing to flag), and an error.
+// Returning errors as values (not Go errors) lets the caller surface them in
+// the tool's Error field so the agent can recover.
+//
+// When exact-string matching fails, applyEdit attempts a whitespace-tolerant
+// search: if the file contains exactly one byte range whose whitespace-
+// collapsed form equals the whitespace-collapsed old_text, that range is
+// replaced and a note advises the model to copy whitespace verbatim next
+// time. Zero or multiple tolerant matches still fall through to the original
+// diagnostic so the model has actionable feedback.
+func applyEdit(content, oldText, newText string, replaceAll bool) (string, int, string, error) {
 	count := strings.Count(content, oldText)
 	if count == 0 {
-		return "", 0, diagnoseNotFound(content, oldText)
+		updated, ok := applyTolerantEdit(content, oldText, newText)
+		if ok {
+			return updated, 1, "applied a whitespace-tolerant match — the file's whitespace at the match site differed from old_text. Re-read the file (use read_file with start_line/end_line) to copy whitespace verbatim for predictable edits next time.", nil
+		}
+		return "", 0, "", diagnoseNotFound(content, oldText)
 	}
 	if count > 1 && !replaceAll {
-		return "", 0, fmt.Errorf("old_text matches %d locations; include more surrounding context to make it unique, or set replace_all=true", count)
+		return "", 0, "", fmt.Errorf("old_text matches %d locations; include more surrounding context to make it unique, or set replace_all=true", count)
 	}
 	if replaceAll {
-		return strings.ReplaceAll(content, oldText, newText), count, nil
+		return strings.ReplaceAll(content, oldText, newText), count, "", nil
 	}
-	return strings.Replace(content, oldText, newText, 1), 1, nil
+	return strings.Replace(content, oldText, newText, 1), 1, "", nil
+}
+
+// applyTolerantEdit looks for exactly one substring of content whose
+// whitespace-collapsed form equals collapseWS(oldText). When that uniquely
+// identifies a region, it's safe to replace — the alternative is forcing the
+// agent to re-read and retry, which is what wasted retries in the failing
+// build. When zero or >1 candidates exist, returns ok=false so the caller
+// falls through to the existing error path.
+func applyTolerantEdit(content, oldText, newText string) (string, bool) {
+	target := collapseWS(oldText)
+	if target == "" {
+		return "", false
+	}
+	type span struct{ start, end int }
+	var found []span
+	for i := 0; i <= len(content); i++ {
+		// Find the smallest j > i such that collapseWS(content[i:j]) == target.
+		// Once equal we record it and resume the outer loop past the match;
+		// once it exceeds target length we abandon this start.
+		for j := i; j <= len(content); j++ {
+			collapsed := collapseWS(content[i:j])
+			if collapsed == target {
+				found = append(found, span{i, j})
+				if len(found) > 1 {
+					return "", false // ambiguous — bail
+				}
+				i = j - 1 // -1 because outer loop's i++ will bump it
+				break
+			}
+			if len(collapsed) > len(target) {
+				break
+			}
+		}
+	}
+	if len(found) != 1 {
+		return "", false
+	}
+	m := found[0]
+	return content[:m.start] + newText + content[m.end:], true
 }
 
 // diagnoseNotFound returns the most actionable error message for a failed
@@ -847,8 +1071,12 @@ func newEditFunctionTool(s *store.Store, slug string, emit func(events.Event)) (
 				return editFunctionResult{Error: "old_text is required"}, nil
 			}
 			if args.OldText == args.NewText {
-				em.fail(path, errors.New("no-op edit"))
-				return editFunctionResult{Error: "old_text and new_text are identical; nothing to do"}, nil
+				em.done(path)
+				return editFunctionResult{
+					OK:   true,
+					Path: path,
+					Note: "old_text and new_text are identical; no change made",
+				}, nil
 			}
 			obj, err := s.Read(tctx, slug, path)
 			if err != nil {
@@ -860,7 +1088,7 @@ func newEditFunctionTool(s *store.Store, slug string, emit func(events.Event)) (
 				em.fail(path, errors.New("function not found"))
 				return editFunctionResult{Error: "function not found: " + args.Name}, nil
 			}
-			updated, count, applyErr := applyEdit(obj.Content, args.OldText, args.NewText, args.ReplaceAll)
+			updated, count, note, applyErr := applyEdit(obj.Content, args.OldText, args.NewText, args.ReplaceAll)
 			if applyErr != nil {
 				em.fail(path, applyErr)
 				return editFunctionResult{Error: applyErr.Error()}, nil
@@ -874,7 +1102,7 @@ func newEditFunctionTool(s *store.Store, slug string, emit func(events.Event)) (
 			slog.Info("agent.edit_function", "slug", slug, "name", args.Name,
 				"old_len", len(args.OldText), "new_len", len(args.NewText), "replacements", count)
 			em.done(path)
-			return editFunctionResult{OK: true, Path: path, Replacements: count}, nil
+			return editFunctionResult{OK: true, Path: path, Replacements: count, Note: note}, nil
 		},
 	)
 	if err != nil {

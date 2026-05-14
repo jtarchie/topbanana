@@ -14,6 +14,7 @@ func TestApplyEdit(t *testing.T) {
 		replaceAll bool
 		wantOut    string
 		wantCount  int
+		wantNote   string // substring that must appear in the returned note (empty = note must be empty)
 		// errSubstrings: empty means no error; otherwise each must appear in err.Error()
 		errSubstrings []string
 	}{
@@ -40,11 +41,20 @@ func TestApplyEdit(t *testing.T) {
 			errSubstrings: []string{"trim"},
 		},
 		{
-			name:          "diagnoses internal whitespace mismatch",
-			content:       "<div>\n    <p>Hello</p>\n</div>",
-			oldText:       "<div>\n  <p>Hello</p>\n</div>",
+			name:      "unique whitespace-tolerant fallback applies",
+			content:   "<div>\n    <p>Hello</p>\n</div>",
+			oldText:   "<div>\n  <p>Hello</p>\n</div>",
+			newText:   "<div><p>Hi</p></div>",
+			wantOut:   "<div><p>Hi</p></div>",
+			wantCount: 1,
+			wantNote:  "whitespace-tolerant",
+		},
+		{
+			name:          "ambiguous tolerant matches still error",
+			content:       "<p> a </p>\n<p>  a  </p>",
+			oldText:       "<p>a</p>",
 			newText:       "x",
-			errSubstrings: []string{"whitespace is normalized"},
+			errSubstrings: []string{"not found"},
 		},
 		{
 			name:          "ambiguous without replace_all",
@@ -66,15 +76,76 @@ func TestApplyEdit(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			out, count, err := applyEdit(tc.content, tc.oldText, tc.newText, tc.replaceAll)
-			if len(tc.errSubstrings) > 0 {
+			out, count, note, err := applyEdit(tc.content, tc.oldText, tc.newText, tc.replaceAll)
+			checkApplyEdit(t, out, count, note, err, tc.wantOut, tc.wantCount, tc.wantNote, tc.errSubstrings)
+		})
+	}
+}
+
+func checkApplyEdit(t *testing.T, out string, count int, note string, err error,
+	wantOut string, wantCount int, wantNote string, errSubstrings []string,
+) {
+	t.Helper()
+	if len(errSubstrings) > 0 {
+		if err == nil {
+			t.Fatalf("expected error, got out=%q count=%d", out, count)
+		}
+		for _, sub := range errSubstrings {
+			if !strings.Contains(err.Error(), sub) {
+				t.Errorf("error %q missing substring %q", err.Error(), sub)
+			}
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if out != wantOut {
+		t.Errorf("out: got %q, want %q", out, wantOut)
+	}
+	if count != wantCount {
+		t.Errorf("count: got %d, want %d", count, wantCount)
+	}
+	if wantNote == "" && note != "" {
+		t.Errorf("note: got %q, want empty", note)
+	}
+	if wantNote != "" && !strings.Contains(note, wantNote) {
+		t.Errorf("note: got %q, want substring %q", note, wantNote)
+	}
+}
+
+func TestSpliceLines(t *testing.T) {
+	t.Parallel()
+	const five = "a\nb\nc\nd\ne"
+
+	cases := []struct {
+		name       string
+		content    string
+		start, end int
+		newText    string
+		wantOut    string
+		wantErr    string // substring; empty means no error expected
+	}{
+		{"replace single line", five, 3, 3, "C", "a\nb\nC\nd\ne", ""},
+		{"replace range", five, 2, 4, "X\nY", "a\nX\nY\ne", ""},
+		{"delete range (empty new_text)", five, 2, 4, "", "a\ne", ""},
+		{"replace first line", five, 1, 1, "A", "A\nb\nc\nd\ne", ""},
+		{"replace last line", five, 5, 5, "E", "a\nb\nc\nd\nE", ""},
+		{"start < 1 errors", five, 0, 1, "x", "", "start_line must be"},
+		{"end < start errors", five, 3, 2, "x", "", "must be >= start_line"},
+		{"end > total errors", five, 4, 99, "x", "", "exceeds file length"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			out, err := spliceLines(tc.content, tc.start, tc.end, tc.newText)
+			if tc.wantErr != "" {
 				if err == nil {
-					t.Fatalf("expected error, got out=%q count=%d", out, count)
+					t.Fatalf("expected error %q, got out=%q", tc.wantErr, out)
 				}
-				for _, sub := range tc.errSubstrings {
-					if !strings.Contains(err.Error(), sub) {
-						t.Errorf("error %q missing substring %q", err.Error(), sub)
-					}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Errorf("error %q missing substring %q", err.Error(), tc.wantErr)
 				}
 				return
 			}
@@ -84,8 +155,48 @@ func TestApplyEdit(t *testing.T) {
 			if out != tc.wantOut {
 				t.Errorf("out: got %q, want %q", out, tc.wantOut)
 			}
-			if count != tc.wantCount {
-				t.Errorf("count: got %d, want %d", count, tc.wantCount)
+		})
+	}
+}
+
+func TestInsertAfterLine(t *testing.T) {
+	t.Parallel()
+	const three = "a\nb\nc"
+
+	cases := []struct {
+		name    string
+		content string
+		after   int
+		insert  string
+		wantOut string
+		wantErr string
+	}{
+		{"prepend with after_line=0", three, 0, "Z", "Z\na\nb\nc", ""},
+		{"insert in middle", three, 1, "X", "a\nX\nb\nc", ""},
+		{"append at total_lines", three, 3, "Z", "a\nb\nc\nZ", ""},
+		{"multi-line insert", three, 1, "X\nY", "a\nX\nY\nb\nc", ""},
+		{"negative after_line errors", three, -1, "x", "", "must be >= 0"},
+		{"after_line past end errors", three, 99, "x", "", "exceeds file length"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			out, err := insertAfterLine(tc.content, tc.after, tc.insert)
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected error %q, got out=%q", tc.wantErr, out)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Errorf("error %q missing substring %q", err.Error(), tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected err: %v", err)
+			}
+			if out != tc.wantOut {
+				t.Errorf("out: got %q, want %q", out, tc.wantOut)
 			}
 		})
 	}

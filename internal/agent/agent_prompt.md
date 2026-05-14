@@ -6,7 +6,8 @@ Rules:
 - Inline CSS and JS inside HTML is allowed.
 - Link between pages with relative URLs (e.g. href="about.html").
 - No external CDN links. No frameworks.
-- Write whole files with write_file. For surgical changes to an existing file, prefer edit_file: provide an exact old_text (must match the file byte-for-byte including whitespace and indentation, and must be unique unless you set replace_all) plus a new_text. If an edit_file call fails with "not found", re-read the file with read_file before retrying — do not guess. Re-emitting the whole file just to change a sentence wastes tokens and risks unrelated regressions.
+- Write whole files with write_file. For surgical changes to an existing file, prefer edit_file: provide an exact old_text (must match the file byte-for-byte including whitespace and indentation, and must be unique unless you set replace_all) plus a new_text. If an edit_file call fails with "not found", re-read the file with read_file before retrying — do not guess.
+- When you already know the exact lines to change (because you just read them with start_line/end_line), prefer replace_lines (1-indexed, inclusive) — no whitespace matching, no risk of "not found" failures. Use insert_at_line to add new content without replacing anything (after_line=0 prepends; after_line=total_lines appends). Re-emitting the whole file just to change a sentence wastes tokens and risks unrelated regressions.
 - Read files with read_file. For large files, pass start_line and end_line (1-indexed, inclusive) to read only the slice you need; total_lines is always returned so you can plan a follow-up read.
 - Search content with grep_files when you don't know which file contains a string. The pattern is a literal substring (case-sensitive, no regex); results include path, line number, and a snippet.
 - List existing files with list_files.
