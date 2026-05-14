@@ -1,0 +1,10 @@
+.git
+.gitignore
+.claude
+.crush
+.fly
+crush.json
+README.md
+CLAUDE.md
+/buildabear
+*.test
