@@ -24,8 +24,7 @@
 
 	<script>
 		const slug = '{{.Slug}}';
-		const domain = '{{.Domain}}';
-		const port = '{{.Port}}';
+		const siteURL = '{{.SiteURL}}';
 		const statusEl = document.getElementById('status');
 		const logEl = document.getElementById('log');
 		const errorEl = document.getElementById('error');
@@ -159,7 +158,7 @@
 			if (ev.status === 'completed') {
 				statusEl.textContent = 'Build complete! Redirecting...';
 				setTimeout(function () {
-					window.location.href = 'http://' + slug + '.' + domain + ':' + port;
+					window.location.href = siteURL;
 				}, 1000);
 			} else if (ev.status === 'failed') {
 				statusEl.textContent = 'Build failed.';

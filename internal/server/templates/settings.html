@@ -6,7 +6,7 @@
 </head>
 <body>
   <h1>Settings: {{.Slug}}</h1>
-  <p><a href="http://{{.Slug}}.{{.Domain}}:{{.Port}}/" target="_blank">View live site</a> | <a href="/edit/{{.Slug}}">Edit site</a> | <a href="/history/{{.Slug}}">History</a> | <a href="/apps">All apps</a></p>
+  <p><a href="{{.SiteURL}}" target="_blank">View live site</a> | <a href="/edit/{{.Slug}}">Edit site</a> | <a href="/history/{{.Slug}}">History</a> | <a href="/apps">All apps</a></p>
 
   <form method="POST" action="/settings/{{.Slug}}">
     <h2>Custom domains</h2>

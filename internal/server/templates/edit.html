@@ -7,7 +7,7 @@
 <body>
 	<h1>Edit: {{.Slug}}</h1>
 	<p>
-		<a href="http://{{.Slug}}.{{.Domain}}:{{.Port}}/" target="_blank">View live site</a>
+		<a href="{{.SiteURL}}" target="_blank">View live site</a>
 		| <a href="/settings/{{.Slug}}">Settings</a>
 		| <a href="/history/{{.Slug}}">History</a>
 		| <a href="/apps">All apps</a>
@@ -26,7 +26,7 @@
 			</select>
 			<p class="desc"><a href="/edit/{{.Slug}}/visual?page={{.Page}}">Open visual editor</a> · <a href="/edit/{{.Slug}}">Edit whole site instead</a></p>
 		</div>
-		<iframe src="http://{{.Slug}}.{{.Domain}}:{{.Port}}/{{.Page}}" id="preview"></iframe>
+		<iframe src="{{.PageURL}}" id="preview"></iframe>
 		<div class="row">
 			<strong>Selection</strong>
 			<div id="sel-preview">(select text in the preview above to target a specific section)</div>

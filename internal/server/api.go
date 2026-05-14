@@ -292,8 +292,7 @@ func (s *Server) functionEditHandler(c *echo.Context) error {
 	return s.render(c, "function_edit", map[string]any{
 		"Slug":   slug,
 		"Name":   name,
-		"Domain": s.domain,
-		"Port":   s.port,
+		"APIURL": s.siteURL(c, slug, "/api/"+name),
 		"Source": obj.Content,
 	})
 }

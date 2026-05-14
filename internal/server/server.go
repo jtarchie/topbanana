@@ -237,6 +237,36 @@ func (s *Server) lookupCustomDomain(host string) (string, bool) {
 	return slug, ok
 }
 
+// publicPort extracts the port the visitor used from the request's Host
+// header. Empty when the request was on a default port (80/443) so we can
+// build URLs without a trailing :443. Falls back to s.port for safety.
+func (s *Server) publicPort(c *echo.Context) string {
+	if i := strings.LastIndex(c.Request().Host, ":"); i != -1 {
+		return c.Request().Host[i:] // includes the leading ':'
+	}
+	return ""
+}
+
+// siteURL builds the public URL of a hosted site, using the same scheme/port
+// the admin caller is on. https://slug.apps.jtarchie.com on Fly,
+// http://slug.localhost:8080 in dev.
+func (s *Server) siteURL(c *echo.Context, slug, path string) string {
+	if path != "" && !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return c.Scheme() + "://" + slug + "." + s.domain + s.publicPort(c) + path
+}
+
+// adminURL builds an absolute URL on the main app domain. Used by the toolbar
+// links injected into hosted-site pages on subdomains, where relative paths
+// would point at the wrong host.
+func (s *Server) adminURL(c *echo.Context, path string) string {
+	if path != "" && !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return c.Scheme() + "://" + s.domain + s.publicPort(c) + path
+}
+
 // snapshotBefore wraps snapshot.Create with the "warn-only" policy used by
 // every non-build mutation hook. Losing an undo point is not as bad as
 // blocking the user's edit, so failures are logged and swallowed.
@@ -257,8 +287,7 @@ func (s *Server) startBuild(c *echo.Context, p build.Params) error {
 	s.build.Start(p)
 	return s.render(c, "progress", map[string]any{
 		"Slug":           p.Slug,
-		"Domain":         s.domain,
-		"Port":           s.port,
+		"SiteURL":        s.siteURL(c, p.Slug, "/"),
 		"PollIntervalMS": progressPollIntervalMS,
 		"MaxChecks":      progressMaxChecks,
 	})
@@ -309,7 +338,7 @@ func (s *Server) appsHandler(c *echo.Context) error {
 	for _, app := range apps {
 		links = append(links, appLink{
 			Name: app,
-			URL:  fmt.Sprintf("http://%s.%s:%s/", app, s.domain, s.port),
+			URL:  s.siteURL(c, app, "/"),
 		})
 	}
 
@@ -532,18 +561,9 @@ func (s *Server) injectEditToolbar(c *echo.Context, htmlContent, slug, page stri
 		return htmlContent
 	}
 
-	editURL := (&url.URL{
-		Scheme:   "http",
-		Host:     s.domain + ":" + s.port,
-		Path:     "/edit/" + slug,
-		RawQuery: url.Values{"page": []string{page}}.Encode(),
-	}).String()
-	visualURL := (&url.URL{
-		Scheme:   "http",
-		Host:     s.domain + ":" + s.port,
-		Path:     "/edit/" + slug + "/visual",
-		RawQuery: url.Values{"page": []string{page}}.Encode(),
-	}).String()
+	q := url.Values{"page": []string{page}}.Encode()
+	editURL := s.adminURL(c, "/edit/"+slug) + "?" + q
+	visualURL := s.adminURL(c, "/edit/"+slug+"/visual") + "?" + q
 
 	var buf bytes.Buffer
 	err := s.tpl.ExecuteTemplate(&buf, "toolbar", struct {
@@ -562,8 +582,8 @@ func (s *Server) injectEditToolbar(c *echo.Context, htmlContent, slug, page stri
 
 type editData struct {
 	Slug      string
-	Domain    string
-	Port      string
+	SiteURL   string // root of the live site (no trailing path)
+	PageURL   string // current page on the live site (for the iframe)
 	Page      string
 	Pages     []string
 	Assets    []editAsset
@@ -654,8 +674,8 @@ func (s *Server) editHandler(c *echo.Context) error {
 	return s.render(c, "edit", editData{
 		Slug:      slug,
 		Functions: functions,
-		Domain:    s.domain,
-		Port:      s.port,
+		SiteURL:   s.siteURL(c, slug, "/"),
+		PageURL:   s.siteURL(c, slug, "/"+page),
 		Page:      page,
 		Pages:     pages,
 		Assets:    assets,
@@ -730,8 +750,7 @@ func (s *Server) relintHandler(c *echo.Context) error {
 
 type settingsData struct {
 	Slug             string
-	Domain           string
-	Port             string
+	SiteURL          string
 	Domains          string
 	DomainsError     string
 	FunctionsEnabled bool
@@ -749,8 +768,7 @@ func (s *Server) settingsHandler(c *echo.Context) error {
 	byTmpl := tmpl != nil && templates.Get(meta.Template) != nil && templates.Get(meta.Template).EnablesFunctions
 	return s.render(c, "settings", settingsData{
 		Slug:             slug,
-		Domain:           s.domain,
-		Port:             s.port,
+		SiteURL:          s.siteURL(c, slug, "/"),
 		Domains:          strings.Join(meta.Domains, "\n"),
 		FunctionsEnabled: tmpl != nil && tmpl.EnablesFunctions,
 		FunctionsByTmpl:  byTmpl,

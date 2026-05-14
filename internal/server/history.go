@@ -21,8 +21,7 @@ type historyRow struct {
 
 type historyData struct {
 	Slug      string
-	Domain    string
-	Port      string
+	SiteURL   string
 	Snapshots []historyRow
 	Flash     string
 }
@@ -56,8 +55,7 @@ func (s *Server) historyHandler(c *echo.Context) error {
 
 	return s.render(c, "history", historyData{
 		Slug:      slug,
-		Domain:    s.domain,
-		Port:      s.port,
+		SiteURL:   s.siteURL(c, slug, "/"),
 		Snapshots: rows,
 		Flash:     c.QueryParam("flash"),
 	})
