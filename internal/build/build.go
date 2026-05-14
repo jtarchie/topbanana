@@ -6,6 +6,7 @@ package build
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -24,8 +25,8 @@ import (
 const (
 	maxLintRetries = 3
 
-	// MetaFile holds the per-site sidecar (template id, creation time, basic
-	// auth). Stored alongside the HTML files in the same S3 prefix so it
+	// MetaFile holds the per-site sidecar (template id, creation time, custom
+	// domains). Stored alongside the HTML files in the same S3 prefix so it
 	// travels with the site.
 	MetaFile = ".buildabear.json"
 )
@@ -37,11 +38,14 @@ const (
 // for a site whose template didn't ship with them. Always read through
 // EffectiveTemplate so the override is honoured everywhere the template's
 // bit is consulted.
+//
+// Domains are external hostnames (e.g. `example.com`, `www.example.com`)
+// that resolve to this site. Lowercased + port-stripped on write; the server
+// builds a reverse Host → slug index from them.
 type SiteMeta struct {
 	Template         string    `json:"template"`
 	Created          time.Time `json:"created"`
-	Username         string    `json:"username,omitempty"`
-	PasswordHash     string    `json:"password_hash,omitempty"`
+	Domains          []string  `json:"domains,omitempty"`
 	EnablesFunctions bool      `json:"enables_functions,omitempty"`
 }
 
@@ -84,8 +88,6 @@ type Params struct {
 	Template     *templates.SiteTemplate
 	SeedSkeleton bool
 	Seeds        []agent.SeedToolCall
-	Username     string
-	PasswordHash string
 }
 
 // Start records the build as in-flight and runs it asynchronously. The
@@ -97,7 +99,7 @@ func (svc *Service) Start(p Params) {
 	go func() {
 		ctx := context.Background()
 		if p.SeedSkeleton {
-			err := svc.seedTemplate(ctx, p.Slug, p.Template, p.Username, p.PasswordHash)
+			err := svc.seedTemplate(ctx, p.Slug, p.Template)
 			if err != nil {
 				slog.Error(p.LogKey+".seed_failed", "slug", p.Slug, "template", p.Template.ID, "err", err)
 				svc.events.Fail(p.Slug, err)
@@ -183,7 +185,7 @@ func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl 
 // seedTemplate writes the template's skeleton files (if any) and the
 // .buildabear.json sidecar recording the template id. The sidecar lets later
 // edits re-apply the same template addendum.
-func (svc *Service) seedTemplate(ctx context.Context, slug string, tmpl *templates.SiteTemplate, username, passwordHash string) error {
+func (svc *Service) seedTemplate(ctx context.Context, slug string, tmpl *templates.SiteTemplate) error {
 	if tmpl == nil {
 		return nil
 	}
@@ -200,10 +202,8 @@ func (svc *Service) seedTemplate(ctx context.Context, slug string, tmpl *templat
 	}
 
 	return svc.WriteMeta(ctx, slug, SiteMeta{
-		Template:     tmpl.ID,
-		Created:      time.Now().UTC(),
-		Username:     username,
-		PasswordHash: passwordHash,
+		Template: tmpl.ID,
+		Created:  time.Now().UTC(),
 	})
 }
 
@@ -218,6 +218,26 @@ func (svc *Service) WriteMeta(ctx context.Context, slug string, meta SiteMeta) e
 		return fmt.Errorf("write site meta: %w", err)
 	}
 	return nil
+}
+
+// NormalizeDomain lowercases and strips an optional port from a user-entered
+// host. Returns an error for empty input or anything that isn't a plausible
+// hostname (catches obvious typos like trailing slashes or schemes).
+func NormalizeDomain(raw string) (string, error) {
+	h := strings.ToLower(strings.TrimSpace(raw))
+	if i := strings.LastIndex(h, ":"); i != -1 {
+		h = h[:i]
+	}
+	if h == "" {
+		return "", errors.New("empty domain")
+	}
+	if strings.ContainsAny(h, "/ \t\r\n") || strings.Contains(h, "://") {
+		return "", fmt.Errorf("invalid domain %q", raw)
+	}
+	if !strings.Contains(h, ".") {
+		return "", fmt.Errorf("domain %q must contain a dot", raw)
+	}
+	return h, nil
 }
 
 // ReadMeta returns the recorded sidecar for an existing site, or a zero value

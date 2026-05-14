@@ -8,21 +8,12 @@
   <h1>Settings: {{.Slug}}</h1>
   <p><a href="http://{{.Slug}}.{{.Domain}}:{{.Port}}/" target="_blank">View live site</a> | <a href="/edit/{{.Slug}}">Edit site</a> | <a href="/history/{{.Slug}}">History</a> | <a href="/apps">All apps</a></p>
 
-  <h2>Password protection</h2>
-  {{if .HasPassword}}
-    <p>This site is password protected. Enter a new password to change it, or leave both fields blank to remove protection.</p>
-  {{else}}
-    <p>This site is publicly accessible. Enter a password to restrict access.</p>
-  {{end}}
-
   <form method="POST" action="/settings/{{.Slug}}">
+    <h2>Custom domains</h2>
+    <p>One hostname per line. Point each domain at this server with a CNAME/A record. <span class="hint">Static HTML is cached at the edge for 5&nbsp;minutes; <code>/api/*</code> calls bypass the cache so any KV state stays live.</span></p>
     <div class="row">
-      <label for="username">Username <span class="hint">(optional)</span></label>
-      <input type="text" name="username" id="username" value="{{.Username}}" autocomplete="username">
-    </div>
-    <div class="row">
-      <label for="password">Password <span class="hint">(leave blank to remove protection)</span></label>
-      <input type="password" name="password" id="password" autocomplete="new-password">
+      <label for="domains">Domains</label>
+      <textarea name="domains" id="domains" rows="4" placeholder="example.com&#10;www.example.com">{{.Domains}}</textarea>
     </div>
 
     <h2>Dynamic features</h2>

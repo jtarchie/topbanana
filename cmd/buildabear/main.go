@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/jtarchie/buildabear/internal/build"
 	"github.com/jtarchie/buildabear/internal/events"
@@ -23,6 +24,9 @@ import (
 var cli struct {
 	Port   string `default:"8080"      env:"PORT"   help:"HTTP port to listen on."`
 	Domain string `default:"localhost" env:"DOMAIN" help:"Base domain for subdomains."`
+
+	AdminUsername string `default:"admin"      env:"ADMIN_USERNAME"                                           help:"Username for the admin HTTP Basic Auth gate." name:"admin-username"`
+	AdminPassword string `env:"ADMIN_PASSWORD" help:"Password for the admin HTTP Basic Auth gate (required)." name:"admin-password"                               required:""`
 
 	S3Bucket      string `env:"S3_BUCKET"        help:"S3 bucket name (multi-tenant)."     name:"s3-bucket"       required:""`
 	S3EndpointURL string `env:"AWS_ENDPOINT_URL" help:"Override S3 endpoint (e.g. Minio)." name:"s3-endpoint-url"`
@@ -83,16 +87,24 @@ func main() {
 	sb := sandbox.New(sandbox.Config{})
 	stateStore := state.NewS3(s3Client, cli.S3Bucket)
 
+	adminHash, err := bcrypt.GenerateFromPassword([]byte(cli.AdminPassword), bcrypt.DefaultCost)
+	if err != nil {
+		slog.Error("admin password hash failed", "err", err)
+		os.Exit(1)
+	}
+
 	e := server.New(server.Deps{
-		Store:    s,
-		Build:    buildSvc,
-		Events:   tracker,
-		LLM:      llm,
-		Sandbox:  sb,
-		State:    stateStore,
-		Snapshot: snapshotSvc,
-		Domain:   cli.Domain,
-		Port:     cli.Port,
+		Store:             s,
+		Build:             buildSvc,
+		Events:            tracker,
+		LLM:               llm,
+		Sandbox:           sb,
+		State:             stateStore,
+		Snapshot:          snapshotSvc,
+		Domain:            cli.Domain,
+		Port:              cli.Port,
+		AdminUsername:     cli.AdminUsername,
+		AdminPasswordHash: string(adminHash),
 	})
 
 	slog.Info("app.started", "port", cli.Port, "domain", cli.Domain, "model", cli.LLMModel)

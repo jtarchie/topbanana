@@ -41,6 +41,8 @@ All options are available as CLI flags or environment variables.
 |---|---|---|---|
 | `--port` | | `8080` | HTTP listen port |
 | `--domain` | | `localhost` | Base domain for subdomain routing |
+| `--admin-username` | `ADMIN_USERNAME` | `admin` | Username for the admin HTTP Basic Auth gate |
+| `--admin-password` | `ADMIN_PASSWORD` | *(required)* | Password for the admin gate; server refuses to start without it |
 | `--s3-bucket` | `S3_BUCKET` | *(required)* | S3 bucket name |
 | `--s3-endpoint-url` | `AWS_ENDPOINT_URL` | | Override S3 endpoint (e.g. Minio) |
 | `--llm-model` | `LLM_MODEL` | | LLM model string |
@@ -57,6 +59,65 @@ task minio:start  # Start Minio in background
 task minio:stop   # Stop Minio
 task minio:ready  # Start Minio if not running
 ```
+
+## Custom Domains with Cloudflare
+
+A BuildABear site can be served on any external domain (e.g. `myblog.com`) by attaching the hostname under **Settings → Custom domains** and pointing DNS at your origin. Putting Cloudflare in front gives you free TLS and a global cache; BuildABear already emits the right cache headers, so the Cloudflare config is small.
+
+### 1. Add the domain in BuildABear
+
+Open **Settings** for the site (e.g. `http://your-domain/settings/{slug}`) and add the hostnames you'll be using — one per line:
+
+```
+myblog.com
+www.myblog.com
+```
+
+Save. The server rebuilds its host → slug index immediately; requests carrying those `Host` headers now resolve to that site.
+
+### 2. Point DNS at your origin (Cloudflare)
+
+In the Cloudflare dashboard for the zone:
+
+- **Apex (`myblog.com`)** — CNAME record to your origin hostname (e.g. `origin.example.com`). Cloudflare flattens CNAMEs at the apex automatically.
+- **`www.myblog.com`** — CNAME to the same origin hostname.
+- Set **Proxy status: Proxied** (orange cloud) on both records so traffic flows through Cloudflare's edge.
+
+If you're running BuildABear behind a bare IP, use `A` records instead of `CNAME` — same idea.
+
+### 3. SSL/TLS
+
+BuildABear listens on plain HTTP. Terminate TLS at Cloudflare (or with a Caddy/nginx reverse proxy on the origin):
+
+- **SSL/TLS → Overview → Encryption mode**:
+  - `Full` (or `Full (strict)`) if you put a TLS-terminating proxy in front of BuildABear.
+  - `Flexible` if BuildABear is exposed over plain HTTP — Cloudflare ↔ visitor is HTTPS, Cloudflare ↔ origin is HTTP. Easier to set up; weaker than Full.
+- **SSL/TLS → Edge Certificates → Always Use HTTPS**: on.
+
+### 4. Caching
+
+BuildABear sends explicit cache directives:
+
+| Path on a custom domain | `Cache-Control` |
+| --- | --- |
+| HTML / CSS / JS / images | `public, max-age=300, s-maxage=3600` (+ `Vary: Accept-Encoding`, `ETag`) |
+| `/api/*` (dynamic state) | `no-store, private` (+ `Pragma: no-cache`, `Vary: *`) |
+
+Cloudflare's default cache only stores certain file extensions, so extensionless URLs like `/` won't be cached unless you say so. Create **one** Cache Rule:
+
+- **Caching → Cache Rules → Create rule**
+- **Name**: `BuildABear — respect origin headers`
+- **When incoming requests match**: `Hostname` equals `myblog.com` (add a second `or` for `www.myblog.com`)
+- **Then**:
+  - **Cache eligibility**: *Eligible for cache*
+  - **Edge TTL**: *Use cache-control header from origin*
+  - **Browser TTL**: *Use cache-control header from origin*
+
+That single rule is enough: Cloudflare obeys the `no-store` on `/api/*` and the public TTL on static content. No bypass-cache rule needed for `/api/` because the origin's `no-store` already opts those responses out of the edge cache.
+
+### 5. Cache invalidation
+
+Site edits propagate within the 5-minute `max-age` window. If you need a change live immediately, purge from **Caching → Configuration → Purge cache** (single-file purge by URL is enough — you don't need a full purge).
 
 ## Agent Constraints
 

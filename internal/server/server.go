@@ -17,6 +17,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -41,29 +42,39 @@ const (
 
 // Deps holds the dependencies the server needs. Wired up in cmd/buildabear.
 type Deps struct {
-	Store    *store.Store
-	Build    *build.Service
-	Events   *events.Tracker
-	LLM      adkmodel.LLM
-	Sandbox  *sandbox.Manager
-	State    state.Store
-	Snapshot *snapshot.Service
-	Domain   string
-	Port     string
+	Store             *store.Store
+	Build             *build.Service
+	Events            *events.Tracker
+	LLM               adkmodel.LLM
+	Sandbox           *sandbox.Manager
+	State             state.Store
+	Snapshot          *snapshot.Service
+	Domain            string
+	Port              string
+	AdminUsername     string
+	AdminPasswordHash string
 }
 
 // Server is the wired-up state shared across handlers.
 type Server struct {
-	store    *store.Store
-	build    *build.Service
-	events   *events.Tracker
-	llm      adkmodel.LLM
-	sandbox  *sandbox.Manager
-	state    state.Store
-	snapshot *snapshot.Service
-	domain   string
-	port     string
-	tpl      *template.Template
+	store             *store.Store
+	build             *build.Service
+	events            *events.Tracker
+	llm               adkmodel.LLM
+	sandbox           *sandbox.Manager
+	state             state.Store
+	snapshot          *snapshot.Service
+	domain            string
+	port              string
+	tpl               *template.Template
+	adminUsername     string
+	adminPasswordHash string
+
+	// domainIndex maps lowercased custom hostnames to the slug that owns
+	// them. Rebuilt at startup and after any settings save that touches
+	// Domains. Lookups dominate writes, so a single RWMutex is enough.
+	domainMu    sync.RWMutex
+	domainIndex map[string]string
 }
 
 // fallThroughHosts are hosts that should bypass subdomain proxying and hit
@@ -96,79 +107,134 @@ func New(d Deps) *echo.Echo {
 	}
 
 	s := &Server{
-		store:    d.Store,
-		build:    d.Build,
-		events:   d.Events,
-		llm:      d.LLM,
-		sandbox:  d.Sandbox,
-		state:    d.State,
-		snapshot: d.Snapshot,
-		domain:   d.Domain,
-		port:     d.Port,
-		tpl:      tpl,
+		store:             d.Store,
+		build:             d.Build,
+		events:            d.Events,
+		llm:               d.LLM,
+		sandbox:           d.Sandbox,
+		state:             d.State,
+		snapshot:          d.Snapshot,
+		domain:            d.Domain,
+		port:              d.Port,
+		tpl:               tpl,
+		adminUsername:     d.AdminUsername,
+		adminPasswordHash: d.AdminPasswordHash,
+		domainIndex:       map[string]string{},
 	}
+	s.rebuildDomainIndex(context.Background())
 
 	e := echo.New()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	e.Use(slogecho.New(logger))
 	e.Use(s.subdomainMiddleware())
 
-	e.GET("/", s.landingHandler)
-	e.POST("/build", s.buildHandler)
+	// /status and /events are reachable unauthed: they're polled by the
+	// progress page (which is itself admin-gated) but don't carry any
+	// sensitive data, and admins land here mid-build before the cookie has
+	// propagated cross-page.
 	e.GET("/status/:slug", s.statusHandler)
 	e.GET("/events/:slug", s.eventsHandler)
-	e.GET("/apps", s.appsHandler)
-	e.GET("/edit/:slug", s.editHandler)
-	e.POST("/edit/:slug", s.editSubmitHandler)
-	e.POST("/relint/:slug", s.relintHandler)
-	e.GET("/edit/:slug/visual", s.visualEditHandler)
-	e.POST("/edit/:slug/visual", s.visualEditSaveHandler)
-	e.GET("/edit/:slug/function/:name", s.functionEditHandler)
-	e.POST("/test/:slug/api/:name", s.functionTestHandler)
-	e.POST("/upload/:slug", s.uploadHandler)
-	e.GET("/settings/:slug", s.settingsHandler)
-	e.POST("/settings/:slug", s.settingsSubmitHandler)
-	e.GET("/history/:slug", s.historyHandler)
-	e.POST("/history/:slug/restore", s.historyRestoreHandler)
-	e.POST("/history/:slug/delete", s.historyDeleteHandler)
+
+	admin := e.Group("", s.requireAdmin)
+	admin.GET("/", s.landingHandler)
+	admin.POST("/build", s.buildHandler)
+	admin.GET("/apps", s.appsHandler)
+	admin.GET("/edit/:slug", s.editHandler)
+	admin.POST("/edit/:slug", s.editSubmitHandler)
+	admin.POST("/relint/:slug", s.relintHandler)
+	admin.GET("/edit/:slug/visual", s.visualEditHandler)
+	admin.POST("/edit/:slug/visual", s.visualEditSaveHandler)
+	admin.GET("/edit/:slug/function/:name", s.functionEditHandler)
+	admin.POST("/test/:slug/api/:name", s.functionTestHandler)
+	admin.POST("/upload/:slug", s.uploadHandler)
+	admin.GET("/settings/:slug", s.settingsHandler)
+	admin.POST("/settings/:slug", s.settingsSubmitHandler)
+	admin.GET("/history/:slug", s.historyHandler)
+	admin.POST("/history/:slug/restore", s.historyRestoreHandler)
+	admin.POST("/history/:slug/delete", s.historyDeleteHandler)
 
 	return e
 }
 
-// subdomainMiddleware intercepts requests to *.domain and proxies them to S3.
-// Requests to the main domain (or loopback) fall through to normal routes.
+// subdomainMiddleware dispatches by Host:
 //
-// Path-based dispatch ordering inside a subdomain:
+//  1. main domain (or loopback) → admin routes (gated by requireAdmin).
+//  2. `*.<domain>` subdomain    → proxy/api for that slug.
+//  3. registered custom domain  → proxy/api for the owning slug, with the
+//     custom-domain flag set so cache headers go public and the toolbar
+//     stays hidden.
+//  4. anything else             → 404 (don't let unknown Host headers fall
+//     through to admin routes — that's the leak we're closing).
+//
+// Path-based dispatch inside cases 2 and 3:
 //  1. /api/{name}  → apiHandler (only when the template enabled functions)
 //  2. anything else → proxyHandler (static)
-//
-// Auth lives inside each handler so a slug with basic auth covers both static
-// pages and dynamic /api hits with the same credentials.
 func (s *Server) subdomainMiddleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			host := c.Request().Host
-			if i := strings.LastIndex(host, ":"); i != -1 {
-				host = host[:i]
-			}
+			host := stripPort(c.Request().Host)
 
 			if host == s.domain || fallThroughHosts[host] {
 				return next(c)
 			}
 
-			slug, isSubdomain := strings.CutSuffix(host, "."+s.domain)
-			if !isSubdomain {
-				return next(c)
+			if slug, ok := strings.CutSuffix(host, "."+s.domain); ok {
+				return s.dispatchSite(c, slug)
 			}
 
-			reqPath := c.Request().URL.Path
-			if name, ok := strings.CutPrefix(reqPath, "/api/"); ok {
-				return s.apiHandler(c, slug, name)
+			if slug, ok := s.lookupCustomDomain(host); ok {
+				c.Set("custom_domain", true)
+				return s.dispatchSite(c, slug)
 			}
 
-			return s.proxyHandler(c, slug)
+			return notFound()
 		}
 	}
+}
+
+// dispatchSite routes a request that's already been mapped to a slug to either
+// /api or the static proxy.
+func (s *Server) dispatchSite(c *echo.Context, slug string) error {
+	reqPath := c.Request().URL.Path
+	if name, ok := strings.CutPrefix(reqPath, "/api/"); ok {
+		return s.apiHandler(c, slug, name)
+	}
+	return s.proxyHandler(c, slug)
+}
+
+// rebuildDomainIndex scans all sites and rebuilds the host → slug map. Called
+// at startup and after any settings save that changes Domains. Errors are
+// logged but don't block startup — a partial index just means the affected
+// custom domains 404 until the next rebuild.
+func (s *Server) rebuildDomainIndex(ctx context.Context) {
+	apps, err := s.store.ListApps(ctx)
+	if err != nil {
+		slog.Warn("domain_index.list_apps_failed", "err", err)
+		return
+	}
+	idx := make(map[string]string, len(apps))
+	for _, slug := range apps {
+		meta := s.build.ReadMeta(ctx, slug)
+		for _, d := range meta.Domains {
+			if existing, dup := idx[d]; dup && existing != slug {
+				slog.Warn("domain_index.duplicate", "domain", d, "kept", existing, "dropped", slug)
+				continue
+			}
+			idx[d] = slug
+		}
+	}
+	s.domainMu.Lock()
+	s.domainIndex = idx
+	s.domainMu.Unlock()
+	slog.Info("domain_index.rebuilt", "count", len(idx))
+}
+
+// lookupCustomDomain returns the slug that owns host, if any.
+func (s *Server) lookupCustomDomain(host string) (string, bool) {
+	s.domainMu.RLock()
+	defer s.domainMu.RUnlock()
+	slug, ok := s.domainIndex[host]
+	return slug, ok
 }
 
 // snapshotBefore wraps snapshot.Create with the "warn-only" policy used by
@@ -263,11 +329,6 @@ func (s *Server) buildHandler(c *echo.Context) error {
 	}
 
 	tmpl := templates.Get(c.FormValue("template"))
-	username := strings.TrimSpace(c.FormValue("username"))
-	passwordHash, err := hashPassword(c.FormValue("password"))
-	if err != nil {
-		return httpErr(http.StatusInternalServerError, "hash password", err)
-	}
 	slog.Info("build.start", "slug", slug, "template", tmpl.ID)
 	return s.startBuild(c, build.Params{
 		Slug:         slug,
@@ -275,8 +336,6 @@ func (s *Server) buildHandler(c *echo.Context) error {
 		LogKey:       "build",
 		Template:     tmpl,
 		SeedSkeleton: true,
-		Username:     username,
-		PasswordHash: passwordHash,
 	})
 }
 
@@ -385,12 +444,6 @@ func writeSSE(w io.Writer, event events.Event) error {
 func (s *Server) proxyHandler(c *echo.Context, slug string) error {
 	ctx := c.Request().Context()
 
-	meta := s.build.ReadMeta(ctx, slug)
-	if !verifyBasicAuth(meta, c.Request()) {
-		c.Response().Header().Set("WWW-Authenticate", `Basic realm="`+slug+`"`)
-		return c.NoContent(http.StatusUnauthorized) //nolint:wrapcheck
-	}
-
 	reqPath := strings.TrimPrefix(c.Request().URL.Path, "/")
 	if reqPath == "" {
 		reqPath = "index.html"
@@ -411,7 +464,7 @@ func (s *Server) proxyHandler(c *echo.Context, slug string) error {
 		}
 
 		c.Response().Header().Set("ETag", obj.ETag)
-		c.Response().Header().Set("Cache-Control", "public, max-age=3600")
+		setProxyCacheHeaders(c)
 
 		if c.Request().Header.Get("If-None-Match") == obj.ETag {
 			return c.NoContent(http.StatusNotModified) //nolint:wrapcheck
@@ -422,12 +475,25 @@ func (s *Server) proxyHandler(c *echo.Context, slug string) error {
 
 		ct := resolveContentType(obj.ContentType, candidate)
 		if strings.HasPrefix(ct, "text/html") {
-			return c.HTML(http.StatusOK, s.injectEditToolbar(obj.Content, slug, candidate)) //nolint:wrapcheck
+			return c.HTML(http.StatusOK, s.injectEditToolbar(c, obj.Content, slug, candidate)) //nolint:wrapcheck
 		}
 		return c.Blob(http.StatusOK, ct, []byte(obj.Content)) //nolint:wrapcheck
 	}
 
 	return notFound()
+}
+
+// setProxyCacheHeaders picks cache headers for static-proxy responses based
+// on whether we're serving the main app subdomain (admin previewing — always
+// fresh) or a custom domain (cacheable, since a CDN sits in front).
+func setProxyCacheHeaders(c *echo.Context) {
+	h := c.Response().Header()
+	if c.Get("custom_domain") == true {
+		h.Set("Cache-Control", "public, max-age=300, s-maxage=3600")
+		h.Set("Vary", "Accept-Encoding")
+		return
+	}
+	h.Set("Cache-Control", "no-store")
 }
 
 // resolveContentType prefers the type recorded with the object. When that's
@@ -451,9 +517,17 @@ func resolveContentType(stored, name string) string {
 	return store.DefaultContentType
 }
 
-// injectEditToolbar inserts the edit toolbar before </body>. If no </body>
-// tag exists, the content is returned unchanged.
-func (s *Server) injectEditToolbar(htmlContent, slug, page string) string {
+// injectEditToolbar inserts the edit toolbar before </body>. Skipped on
+// custom-domain responses (so the CDN never caches the toolbar bytes) and
+// when the visitor isn't an admin. If no </body> tag exists, the content is
+// returned unchanged.
+func (s *Server) injectEditToolbar(c *echo.Context, htmlContent, slug, page string) string {
+	if c.Get("custom_domain") == true {
+		return htmlContent
+	}
+	if !s.isAdmin(c) {
+		return htmlContent
+	}
 	if !strings.Contains(htmlContent, "</body>") {
 		return htmlContent
 	}
@@ -523,6 +597,7 @@ var reservedSlugs = map[string]bool{
 	"www": true, "api": true, "edit": true, "apps": true,
 	"status": true, "build": true, "events": true, "upload": true,
 	"history": true, "settings": true, "test": true, "relint": true,
+	"admin": true, "login": true, "logout": true,
 }
 
 func validateSlug(slug string) error {
@@ -657,8 +732,8 @@ type settingsData struct {
 	Slug             string
 	Domain           string
 	Port             string
-	Username         string
-	HasPassword      bool
+	Domains          string
+	DomainsError     string
 	FunctionsEnabled bool
 	FunctionsByTmpl  bool // the template already enables functions — checkbox is locked-on
 }
@@ -676,8 +751,7 @@ func (s *Server) settingsHandler(c *echo.Context) error {
 		Slug:             slug,
 		Domain:           s.domain,
 		Port:             s.port,
-		Username:         meta.Username,
-		HasPassword:      meta.PasswordHash != "",
+		Domains:          strings.Join(meta.Domains, "\n"),
 		FunctionsEnabled: tmpl != nil && tmpl.EnablesFunctions,
 		FunctionsByTmpl:  byTmpl,
 	})
@@ -693,11 +767,12 @@ func (s *Server) settingsSubmitHandler(c *echo.Context) error {
 	ctx := c.Request().Context()
 	meta := s.build.ReadMeta(ctx, slug)
 
-	meta.Username = strings.TrimSpace(c.FormValue("username"))
-	meta.PasswordHash, err = hashPassword(c.FormValue("password"))
-	if err != nil {
-		return httpErr(http.StatusInternalServerError, "hash password", err)
+	domains, derr := s.parseDomains(c.FormValue("domains"), slug)
+	if derr != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, derr.Error())
 	}
+	meta.Domains = domains
+
 	// Only honour the override when the template doesn't already enable
 	// functions. Templates that do (contact-form, guestbook, tiny-shop) keep
 	// functions on regardless of the per-site bit, so the form's checked-state
@@ -712,7 +787,38 @@ func (s *Server) settingsSubmitHandler(c *echo.Context) error {
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "save settings", err)
 	}
+	s.rebuildDomainIndex(ctx)
 	return c.Redirect(http.StatusSeeOther, "/settings/"+slug) //nolint:wrapcheck
+}
+
+// parseDomains splits the settings-form textarea into a deduped, normalized
+// list of hostnames. Rejects entries that collide with the main app domain
+// (or its subdomains) and ones already claimed by another slug.
+func (s *Server) parseDomains(raw, owningSlug string) ([]string, error) {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		host, err := build.NormalizeDomain(line)
+		if err != nil {
+			return nil, fmt.Errorf("normalize domain: %w", err)
+		}
+		if host == s.domain || strings.HasSuffix(host, "."+s.domain) {
+			return nil, fmt.Errorf("domain %q overlaps the main app domain", host)
+		}
+		if other, ok := s.lookupCustomDomain(host); ok && other != owningSlug {
+			return nil, fmt.Errorf("domain %q is already claimed by site %q", host, other)
+		}
+		if seen[host] {
+			continue
+		}
+		seen[host] = true
+		out = append(out, host)
+	}
+	return out, nil
 }
 
 const (

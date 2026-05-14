@@ -31,10 +31,25 @@ const maxCASRetries = 3
 // form posts are well under a kilobyte.
 const maxAPIBodyBytes = 256 * 1024
 
+// setAPICacheHeaders marks an /api/* response as uncacheable. Necessary on
+// custom domains (CDN safety) and harmless on subdomain previews.
+func setAPICacheHeaders(c *echo.Context) {
+	h := c.Response().Header()
+	h.Set("Cache-Control", "no-store, private")
+	h.Set("Pragma", "no-cache")
+	h.Set("Vary", "*")
+}
+
 // apiHandler dispatches GET/POST/etc. to functions/{name}.js inside the slug's
 // store. Per-template opt-in: returns 404 for slugs whose template did not
 // enable functions, so brochure sites stay byte-for-byte unchanged.
 func (s *Server) apiHandler(c *echo.Context, slug, name string) error {
+	// /api/* responses are dynamic per-call (CAS reads/writes against the KV
+	// store). Set no-store unconditionally — even on 404s — so a CDN never
+	// caches a stale answer, including the "functions disabled" case that
+	// could later be flipped on.
+	setAPICacheHeaders(c)
+
 	if s.sandbox == nil {
 		return notFound()
 	}
@@ -50,11 +65,6 @@ func (s *Server) apiHandler(c *echo.Context, slug, name string) error {
 	tmpl := build.EffectiveTemplate(meta)
 	if tmpl == nil || !tmpl.EnablesFunctions {
 		return notFound()
-	}
-
-	if !verifyBasicAuth(meta, c.Request()) {
-		c.Response().Header().Set("WWW-Authenticate", `Basic realm="`+slug+`"`)
-		return c.NoContent(http.StatusUnauthorized) //nolint:wrapcheck
 	}
 
 	err := validateFunctionPathName(name)
