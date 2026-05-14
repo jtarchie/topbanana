@@ -10,6 +10,10 @@
   a:hover { text-decoration: none; }
   p { margin: 0.75rem 0; }
 
+  /* nav row: a <div> so inline <form> children don't auto-close a <p>. */
+  .nav { margin: 0.75rem 0; }
+  .nav-form { display: inline; margin: 0; }
+
   label { display: block; font-weight: 600; margin: 1rem 0 0.25rem; }
   label .hint { font-weight: 400; color: #888; font-size: 0.9em; }
   input, select, textarea { width: 100%; padding: 0.6rem; font: inherit; border: 1px solid #bbb; border-radius: 6px; box-sizing: border-box; background: #fff; }

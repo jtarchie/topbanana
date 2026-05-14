@@ -104,6 +104,7 @@ func New(d Deps) *echo.Echo {
 		{"function_edit", functionEditTemplate},
 		{"history", historyTemplate},
 		{"data", dataTemplate},
+		{"files", filesTemplate},
 	} {
 		template.Must(tpl.New(t.name).Parse(t.body))
 	}
@@ -155,6 +156,7 @@ func New(d Deps) *echo.Echo {
 	admin.POST("/history/:slug/restore", s.historyRestoreHandler)
 	admin.POST("/history/:slug/delete", s.historyDeleteHandler)
 	admin.GET("/data/:slug", s.dataHandler)
+	admin.GET("/files/:slug", s.filesHandler)
 
 	return e
 }

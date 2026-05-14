@@ -13,7 +13,7 @@
 </head>
 <body>
   <h1>Data: {{.Slug}}</h1>
-  <p><a href="/edit/{{.Slug}}">Edit site</a> | <a href="/settings/{{.Slug}}">Settings</a> | <a href="/history/{{.Slug}}">History</a> | <a href="/apps">All apps</a></p>
+  <div class="nav"><a href="/edit/{{.Slug}}">Edit site</a> | <a href="/settings/{{.Slug}}">Settings</a> | <a href="/files/{{.Slug}}">Files</a> | <a href="/history/{{.Slug}}">History</a> | <a href="/apps">All apps</a></div>
   <p class="desc">Captured submissions for this site. Stored in the per-site KV store.</p>
   {{if .Rows}}
   <div class="toolbar">

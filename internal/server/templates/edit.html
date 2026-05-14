@@ -6,16 +6,17 @@
 </head>
 <body>
 	<h1>Edit: {{.Slug}}</h1>
-	<p>
+	<div class="nav">
 		<a href="{{.SiteURL}}" target="_blank">View live site</a>
 		| <a href="/settings/{{.Slug}}">Settings</a>
 		| <a href="/data/{{.Slug}}">Data</a>
+		| <a href="/files/{{.Slug}}">Files</a>
 		| <a href="/history/{{.Slug}}">History</a>
 		| <a href="/apps">All apps</a>
-		| <form method="POST" action="/relint/{{.Slug}}" style="display:inline">
+		| <form method="POST" action="/relint/{{.Slug}}" class="nav-form">
 			<button type="submit" class="link-button" title="Run lint now; send any issues to the agent for a fix.">Re-lint</button>
 		</form>
-	</p>
+	</div>
 
 	{{if eq .Flash "lint-clean"}}<div class="flash flash-ok" role="status">Lint clean — no issues found.</div>{{end}}
 

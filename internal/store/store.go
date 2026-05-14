@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -184,6 +185,42 @@ func (s *Store) List(ctx context.Context, slug string) ([]string, error) {
 		if name != "" {
 			files = append(files, name)
 		}
+	}
+	return files, nil
+}
+
+// FileEntry is one row of ListWithMeta — the data the file explorer renders.
+// LastModified comes straight from S3 and is already UTC.
+type FileEntry struct {
+	Path         string
+	Size         int64
+	LastModified time.Time
+}
+
+// ListWithMeta is like List but returns size and last-modified for each
+// object, parsed from the ListObjectsV2 response (no extra GETs). The flat
+// List is kept for callers that only need names — changing its signature would
+// touch every existing caller for no gain.
+func (s *Store) ListWithMeta(ctx context.Context, slug string) ([]FileEntry, error) {
+	prefix := slug + "/"
+	out, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket: aws.String(s.bucket),
+		Prefix: aws.String(prefix),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list objects in %s: %w", slug, err)
+	}
+	files := make([]FileEntry, 0, len(out.Contents))
+	for _, obj := range out.Contents {
+		name := strings.TrimPrefix(aws.ToString(obj.Key), prefix)
+		if name == "" {
+			continue
+		}
+		entry := FileEntry{Path: name, Size: aws.ToInt64(obj.Size)}
+		if obj.LastModified != nil {
+			entry.LastModified = *obj.LastModified
+		}
+		files = append(files, entry)
 	}
 	return files, nil
 }

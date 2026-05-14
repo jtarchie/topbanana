@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Files: {{.Slug}}</title>
+{{ template "head" . }}
+<style>
+  table.files { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+  table.files th, table.files td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #eee; text-align: left; font-size: 0.95rem; vertical-align: top; }
+  table.files th { background: #f5f5f5; font-weight: 600; }
+  table.files td.path { font-family: ui-monospace, monospace; word-break: break-all; }
+  table.files td.size, table.files td.modified { white-space: nowrap; color: #666; }
+  table.files td.action { white-space: nowrap; }
+</style>
+</head>
+<body>
+  <h1>Files: {{.Slug}}</h1>
+  <div class="nav"><a href="{{.SiteURL}}" target="_blank">View live site</a> | <a href="/edit/{{.Slug}}">Edit site</a> | <a href="/settings/{{.Slug}}">Settings</a> | <a href="/data/{{.Slug}}">Data</a> | <a href="/history/{{.Slug}}">History</a> | <a href="/apps">All apps</a></div>
+  <p class="desc">Everything in this site&rsquo;s bucket prefix. HTML pages and uploaded assets open on the live site; functions open in the function editor; <code>_state/</code> opens the data viewer.</p>
+  {{if .Rows}}
+  <table class="files">
+    <thead>
+      <tr>
+        <th>path</th>
+        <th>size</th>
+        <th>modified (UTC)</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Rows}}
+      <tr>
+        <td class="path">{{.Path}}</td>
+        <td class="size">{{.Size}}</td>
+        <td class="modified">{{.Modified}}</td>
+        <td class="action">{{if .LinkURL}}<a href="{{.LinkURL}}">{{.LinkLabel}}</a>{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="muted">No files yet.</p>
+  {{end}}
+</body>
+</html>

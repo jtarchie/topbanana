@@ -34,3 +34,6 @@ var historyTemplate string
 
 //go:embed templates/data.html
 var dataTemplate string
+
+//go:embed templates/files.html
+var filesTemplate string
