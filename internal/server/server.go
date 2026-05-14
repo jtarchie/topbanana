@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -324,25 +325,44 @@ func (s *Server) landingHandler(c *echo.Context) error {
 }
 
 type appLink struct {
-	Name string
-	URL  string
+	Name        string
+	Title       string
+	Description string
+	URL         string
 }
 
 func (s *Server) appsHandler(c *echo.Context) error {
-	apps, err := s.store.ListApps(c.Request().Context())
+	ctx := c.Request().Context()
+	apps, err := s.store.ListApps(ctx)
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "list apps", err)
 	}
 
 	links := make([]appLink, 0, len(apps))
 	for _, app := range apps {
+		meta := s.build.ReadMeta(ctx, app)
 		links = append(links, appLink{
-			Name: app,
-			URL:  s.siteURL(c, app, "/"),
+			Name:        app,
+			Title:       meta.Title,
+			Description: meta.Description,
+			URL:         s.siteURL(c, app, "/"),
 		})
 	}
+	sort.SliceStable(links, func(i, j int) bool {
+		return appLinkKey(links[i]) < appLinkKey(links[j])
+	})
 
 	return s.render(c, "apps", links)
+}
+
+// appLinkKey orders apps by Title when present, otherwise by slug — keeps
+// the listing readable as titles fill in over time without burying legacy
+// (title-less) sites at the end.
+func appLinkKey(a appLink) string {
+	if a.Title != "" {
+		return strings.ToLower(a.Title)
+	}
+	return strings.ToLower(a.Name)
 }
 
 func (s *Server) buildHandler(c *echo.Context) error {

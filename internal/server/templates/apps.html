@@ -5,12 +5,16 @@
 {{ template "head" . }}
 </head>
 <body>
-	<h1>Available Apps</h1>
-	<ul class="list">
-		{{range .}}
-		<li><a href="{{.URL}}">{{.Name}}</a> &mdash; <a href="/edit/{{.Name}}">Edit site</a></li>
-		{{end}}
-	</ul>
-	<p><a href="/">Back to Home</a></p>
+  <h1>Available Apps</h1>
+  <ul class="list">
+    {{range .}}
+    <li>
+      <a href="{{.URL}}">{{if .Title}}{{.Title}}{{else}}{{.Name}}{{end}}</a>
+      {{if .Description}}<p class="desc">{{.Description}}</p>{{end}}
+      <p class="desc muted"><code>{{.Name}}</code> &mdash; <a href="/edit/{{.Name}}">Edit site</a></p>
+    </li>
+    {{end}}
+  </ul>
+  <p><a href="/">Back to Home</a></p>
 </body>
 </html>

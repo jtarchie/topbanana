@@ -47,6 +47,8 @@ type SiteMeta struct {
 	Created          time.Time `json:"created"`
 	Domains          []string  `json:"domains,omitempty"`
 	EnablesFunctions bool      `json:"enables_functions,omitempty"`
+	Title            string    `json:"title,omitempty"`
+	Description      string    `json:"description,omitempty"`
 }
 
 // EffectiveTemplate returns the template a build/edit/route lookup should use,
@@ -123,6 +125,7 @@ func (svc *Service) Start(p Params) {
 			svc.events.Fail(p.Slug, err)
 			return
 		}
+		svc.refreshDescription(ctx, p.Slug, p.Prompt)
 		slog.Info(p.LogKey+".done", "slug", p.Slug)
 		svc.events.Complete(p.Slug)
 	}()
@@ -205,6 +208,25 @@ func (svc *Service) seedTemplate(ctx context.Context, slug string, tmpl *templat
 		Template: tmpl.ID,
 		Created:  time.Now().UTC(),
 	})
+}
+
+// refreshDescription asks the LLM for a fresh title + description for the
+// site and merges them into the existing sidecar. Best-effort: any failure
+// is logged and swallowed so the build still completes — the Available Apps
+// page just falls back to showing the slug.
+func (svc *Service) refreshDescription(ctx context.Context, slug, userPrompt string) {
+	desc, err := agent.DescribeSite(ctx, svc.llm, svc.store, slug, userPrompt)
+	if err != nil {
+		slog.Warn("describe.failed", "slug", slug, "err", err)
+		return
+	}
+	meta := svc.ReadMeta(ctx, slug)
+	meta.Title = desc.Title
+	meta.Description = desc.Description
+	err = svc.WriteMeta(ctx, slug, meta)
+	if err != nil {
+		slog.Warn("describe.write_failed", "slug", slug, "err", err)
+	}
 }
 
 // WriteMeta persists the per-site sidecar.
