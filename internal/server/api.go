@@ -31,6 +31,16 @@ const maxCASRetries = 3
 // form posts are well under a kilobyte.
 const maxAPIBodyBytes = 256 * 1024
 
+// maxAPIFieldBytes caps each individual form field (or top-level JSON string)
+// arriving at /api/*. Catches the case where the overall body budget is
+// blown on a single oversized field — a handler that forgets to validate
+// still can't ingest megabytes into one column.
+const maxAPIFieldBytes = 4 * 1024
+
+// errAPIPayloadTooLarge signals an oversize-input failure that should map to
+// HTTP 413 rather than the generic 400 buildSandboxRequest otherwise returns.
+var errAPIPayloadTooLarge = errors.New("payload too large")
+
 // setAPICacheHeaders marks an /api/* response as uncacheable. Necessary on
 // custom domains (CDN safety) and harmless on subdomain previews.
 func setAPICacheHeaders(c *echo.Context) {
@@ -82,6 +92,9 @@ func (s *Server) apiHandler(c *echo.Context, slug, name string) error {
 
 	req, err := buildSandboxRequest(c.Request(), name)
 	if err != nil {
+		if errors.Is(err, errAPIPayloadTooLarge) {
+			return echo.NewHTTPError(http.StatusRequestEntityTooLarge, err.Error())
+		}
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
@@ -179,62 +192,113 @@ func validateFunctionPathName(name string) error {
 
 // buildSandboxRequest copies headers/query/body off the *http.Request into a
 // sandbox-friendly form. Headers are lowercased. Body is capped at
-// maxAPIBodyBytes; over-cap requests get a 413 via the returned error.
+// maxAPIBodyBytes; individual form fields and top-level JSON string values
+// are capped at maxAPIFieldBytes. Over-cap requests return errAPIPayloadTooLarge.
 func buildSandboxRequest(r *http.Request, name string) (sandbox.Request, error) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxAPIBodyBytes+1))
 	if err != nil {
 		return sandbox.Request{}, fmt.Errorf("read body: %w", err)
 	}
 	if len(body) > maxAPIBodyBytes {
-		return sandbox.Request{}, fmt.Errorf("body exceeds %d bytes", maxAPIBodyBytes)
-	}
-
-	q := map[string]string{}
-	for k, vs := range r.URL.Query() {
-		if len(vs) > 0 {
-			q[k] = vs[0]
-		}
-	}
-	h := map[string]string{}
-	for k, vs := range r.Header {
-		if len(vs) > 0 {
-			h[strings.ToLower(k)] = vs[0]
-		}
+		return sandbox.Request{}, fmt.Errorf("%w: body exceeds %d bytes", errAPIPayloadTooLarge, maxAPIBodyBytes)
 	}
 
 	req := sandbox.Request{
 		Method:  r.Method,
 		Path:    "/api/" + name,
-		Query:   q,
-		Headers: h,
+		Query:   firstValues(r.URL.Query()),
+		Headers: lowercasedFirstValues(r.Header),
 		Body:    string(body),
 	}
 
 	ct := strings.ToLower(strings.SplitN(r.Header.Get("Content-Type"), ";", 2)[0])
 	switch ct {
 	case "application/x-www-form-urlencoded":
-		// Parse the captured body directly — r.PostForm would re-read r.Body.
-		vals, perr := url.ParseQuery(string(body))
-		if perr == nil {
-			form := map[string]string{}
-			for k, vs := range vals {
-				if len(vs) > 0 {
-					form[k] = vs[0]
-				}
-			}
-			req.Form = form
+		form, ferr := parseFormBody(body)
+		if ferr != nil {
+			return sandbox.Request{}, ferr
 		}
+		req.Form = form
 	case "application/json":
-		// Surface as `request.json` only when the body is valid JSON; the raw
-		// string is always available via request.body.
-		var parsed any
-		err := json.Unmarshal(body, &parsed)
-		if err == nil {
-			req.JSON = parsed
+		parsed, jerr := parseJSONBody(body)
+		if jerr != nil {
+			return sandbox.Request{}, jerr
 		}
+		req.JSON = parsed
 	}
 
 	return req, nil
+}
+
+// firstValues collapses a url.Values-style map (each key has 0+ values) to a
+// single-value map by picking the first. Empty slots drop.
+func firstValues(in map[string][]string) map[string]string {
+	out := map[string]string{}
+	for k, vs := range in {
+		if len(vs) > 0 {
+			out[k] = vs[0]
+		}
+	}
+	return out
+}
+
+// lowercasedFirstValues is like firstValues but lowercases the keys — used for
+// HTTP headers so handlers don't have to case-match.
+func lowercasedFirstValues(in map[string][]string) map[string]string {
+	out := map[string]string{}
+	for k, vs := range in {
+		if len(vs) > 0 {
+			out[strings.ToLower(k)] = vs[0]
+		}
+	}
+	return out
+}
+
+// parseFormBody pulls form-encoded values out of body. Returns an empty map
+// on parse failure (matches the prior behavior) and a non-nil error only when
+// a single field exceeds maxAPIFieldBytes.
+func parseFormBody(body []byte) (map[string]string, error) {
+	form := map[string]string{}
+	vals, perr := url.ParseQuery(string(body))
+	if perr != nil {
+		return form, nil
+	}
+	for k, vs := range vals {
+		if len(vs) == 0 {
+			continue
+		}
+		v := vs[0]
+		if len(v) > maxAPIFieldBytes {
+			return nil, fmt.Errorf("%w: form field %q exceeds %d bytes", errAPIPayloadTooLarge, k, maxAPIFieldBytes)
+		}
+		form[k] = v
+	}
+	return form, nil
+}
+
+// parseJSONBody surfaces parsed JSON via request.json when the body is valid
+// JSON. Top-level string values are size-checked the same way as form fields
+// so a handler that reads request.json.bio can't be handed a 200 KiB blob.
+// Invalid JSON degrades to a nil parsed value (request.body still carries the
+// raw bytes for handlers that want it).
+func parseJSONBody(body []byte) (any, error) {
+	var parsed any
+	err := json.Unmarshal(body, &parsed)
+	if err != nil {
+		return parsed, nil
+	}
+	if obj, ok := parsed.(map[string]any); ok {
+		for k, v := range obj {
+			s, isStr := v.(string)
+			if !isStr {
+				continue
+			}
+			if len(s) > maxAPIFieldBytes {
+				return nil, fmt.Errorf("%w: json field %q exceeds %d bytes", errAPIPayloadTooLarge, k, maxAPIFieldBytes)
+			}
+		}
+	}
+	return parsed, nil
 }
 
 // translateSandboxError maps sandbox-level errors to HTTP responses. Compile
