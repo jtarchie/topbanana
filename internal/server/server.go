@@ -417,12 +417,12 @@ const (
 	maxAttachmentsTotalBytes = 512 * 1024
 )
 
-// parseMarkdownAttachments pulls user-uploaded markdown files out of a
-// multipart form on /build and /edit/:slug. Returns nil for "no files
-// attached" (which is the common case — the input is optional). Validation
-// failures surface as 400s with a readable message; nothing is silently
-// dropped.
-func parseMarkdownAttachments(c *echo.Context) ([]agent.MarkdownAttachment, error) {
+// parseAttachments pulls user-uploaded reference files (markdown or HTML)
+// out of a multipart form on /build and /edit/:slug. Returns nil for "no
+// files attached" (which is the common case — the input is optional).
+// Validation failures surface as 400s with a readable message; nothing is
+// silently dropped.
+func parseAttachments(c *echo.Context) ([]agent.Attachment, error) {
 	form, err := c.MultipartForm()
 	if err != nil {
 		// Not a multipart submission (URL-encoded form): treat as "no attachments".
@@ -434,16 +434,16 @@ func parseMarkdownAttachments(c *echo.Context) ([]agent.MarkdownAttachment, erro
 	if form == nil {
 		return nil, nil
 	}
-	files := form.File["markdown"]
+	files := form.File["attachment"]
 	if len(files) == 0 {
 		return nil, nil
 	}
 	if len(files) > maxAttachments {
 		return nil, echo.NewHTTPError(http.StatusBadRequest,
-			fmt.Sprintf("too many markdown attachments (max %d)", maxAttachments))
+			fmt.Sprintf("too many attachments (max %d)", maxAttachments))
 	}
 
-	out := make([]agent.MarkdownAttachment, 0, len(files))
+	out := make([]agent.Attachment, 0, len(files))
 	seen := make(map[string]int, len(files))
 	total := 0
 	for _, fh := range files {
@@ -451,7 +451,7 @@ func parseMarkdownAttachments(c *echo.Context) ([]agent.MarkdownAttachment, erro
 			return nil, echo.NewHTTPError(http.StatusBadRequest,
 				fmt.Sprintf("attachment %q is too large (max %d bytes)", fh.Filename, maxAttachmentBytes))
 		}
-		name, err := sanitizeMarkdownName(fh.Filename)
+		name, err := sanitizeAttachmentName(fh.Filename)
 		if err != nil {
 			return nil, echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
@@ -488,22 +488,27 @@ func parseMarkdownAttachments(c *echo.Context) ([]agent.MarkdownAttachment, erro
 			uniq = fmt.Sprintf("%s-%d%s", stem, n+1, ext)
 		}
 		seen[name]++
-		out = append(out, agent.MarkdownAttachment{Name: uniq, Content: string(body)})
+		out = append(out, agent.Attachment{Name: uniq, Content: string(body)})
 	}
 	return out, nil
 }
 
-// sanitizeMarkdownName returns a safe basename for an uploaded markdown file.
-// Rejects empty, path-bearing, non-markdown, or syntactically suspicious
-// names. The result is always lowercase and limited to [a-z0-9._-].
-func sanitizeMarkdownName(raw string) (string, error) {
+// allowedAttachmentExts are the file extensions accepted for reference
+// attachments. Markdown for prose source, HTML for existing pages the user
+// wants the agent to draw from.
+var allowedAttachmentExts = []string{".md", ".markdown", ".html", ".htm"}
+
+// sanitizeAttachmentName returns a safe basename for an uploaded reference
+// file. Rejects empty, path-bearing, non-markdown/HTML, or syntactically
+// suspicious names. The result is always lowercase and limited to [a-z0-9._-].
+func sanitizeAttachmentName(raw string) (string, error) {
 	base := path.Base(strings.TrimSpace(raw))
 	if base == "" || base == "." || base == "/" {
 		return "", errors.New("attachment filename is empty")
 	}
 	lower := strings.ToLower(base)
-	if !strings.HasSuffix(lower, ".md") && !strings.HasSuffix(lower, ".markdown") {
-		return "", fmt.Errorf("attachment %q must end in .md or .markdown", raw)
+	if !hasAnySuffix(lower, allowedAttachmentExts) {
+		return "", fmt.Errorf("attachment %q must end in %s", raw, strings.Join(allowedAttachmentExts, ", "))
 	}
 	if len(lower) > 80 {
 		return "", fmt.Errorf("attachment name %q is too long (max 80 chars)", raw)
@@ -512,6 +517,15 @@ func sanitizeMarkdownName(raw string) (string, error) {
 		return "", fmt.Errorf("attachment name %q contains unsupported character %q (allowed: a-z, 0-9, . _ -)", raw, bad)
 	}
 	return lower, nil
+}
+
+func hasAnySuffix(s string, suffixes []string) bool {
+	for _, suf := range suffixes {
+		if strings.HasSuffix(s, suf) {
+			return true
+		}
+	}
+	return false
 }
 
 func firstDisallowedRune(name string) (rune, bool) {
@@ -545,7 +559,7 @@ func (s *Server) buildHandler(c *echo.Context) error {
 			fmt.Sprintf("prompt is too long (max %d bytes)", maxPromptBytes))
 	}
 
-	attachments, err := parseMarkdownAttachments(c)
+	attachments, err := parseAttachments(c)
 	if err != nil {
 		return err
 	}
@@ -903,7 +917,7 @@ func (s *Server) editSubmitHandler(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	attachments, err := parseMarkdownAttachments(c)
+	attachments, err := parseAttachments(c)
 	if err != nil {
 		return err
 	}

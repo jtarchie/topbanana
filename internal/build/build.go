@@ -94,8 +94,8 @@ func New(s *store.Store, llm adkmodel.LLM, t *events.Tracker, snap *snapshot.Ser
 // Params describes one invocation of Start. LogKey distinguishes build vs.
 // edit in slog output. SeedSkeleton (initial builds only) writes the
 // template's skeleton files and metadata sidecar before the agent runs.
-// Attachments are user-uploaded markdown files surfaced to the agent as
-// pre-seeded read_attached_markdown calls; one-shot per invocation.
+// Attachments are user-uploaded reference files (markdown or HTML) surfaced
+// to the agent as pre-seeded read_attachment calls; one-shot per invocation.
 type Params struct {
 	Slug         string
 	Prompt       string
@@ -103,7 +103,7 @@ type Params struct {
 	Template     *templates.SiteTemplate
 	SeedSkeleton bool
 	Seeds        []agent.SeedToolCall
-	Attachments  []agent.MarkdownAttachment
+	Attachments  []agent.Attachment
 }
 
 // Start records the build as in-flight and runs it asynchronously. The
@@ -165,7 +165,7 @@ func LintFixPrompt(errs []lint.Error) string {
 
 // buildAndLint runs the agent then lints with up to maxLintRetries fix-up
 // passes when issues are found.
-func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.MarkdownAttachment, seeds []agent.SeedToolCall) error {
+func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall) error {
 	ctx, cancel := context.WithTimeout(ctx, buildTimeout)
 	defer cancel()
 
