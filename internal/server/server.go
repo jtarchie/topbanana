@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 	slogecho "github.com/samber/slog-echo"
 
 	adkmodel "google.golang.org/adk/model"
@@ -139,14 +140,18 @@ func New(d Deps) *echo.Echo {
 	e.GET("/events/:slug", s.eventsHandler)
 
 	admin := e.Group("", s.requireAdmin)
+	// promptBodyCap bounds the whole request body on prompt-bearing POSTs so a
+	// runaway hidden field or selection can't sneak past the per-field caps in
+	// the handlers. Leaves /upload/:slug alone — image uploads need 5 MiB.
+	promptBodyCap := middleware.BodyLimit(maxPromptBodyBytes)
 	admin.GET("/", s.landingHandler)
-	admin.POST("/build", s.buildHandler)
+	admin.POST("/build", s.buildHandler, promptBodyCap)
 	admin.GET("/apps", s.appsHandler)
 	admin.GET("/edit/:slug", s.editHandler)
-	admin.POST("/edit/:slug", s.editSubmitHandler)
+	admin.POST("/edit/:slug", s.editSubmitHandler, promptBodyCap)
 	admin.POST("/relint/:slug", s.relintHandler)
 	admin.GET("/edit/:slug/visual", s.visualEditHandler)
-	admin.POST("/edit/:slug/visual", s.visualEditSaveHandler)
+	admin.POST("/edit/:slug/visual", s.visualEditSaveHandler, promptBodyCap)
 	admin.GET("/edit/:slug/function/:name", s.functionEditHandler)
 	admin.POST("/test/:slug/api/:name", s.functionTestHandler)
 	admin.POST("/upload/:slug", s.uploadHandler)
@@ -369,10 +374,25 @@ func appLinkKey(a appLink) string {
 	return strings.ToLower(a.Name)
 }
 
+// maxPromptBytes caps the user-supplied prompt on /build, /edit/:slug, and
+// /edit/:slug/visual. Most real prompts are under a few hundred bytes; this is
+// the field-level check that pairs with maxPromptBodyBytes on the route.
+const maxPromptBytes = 4 * 1024
+
+// maxPromptBodyBytes caps the entire request body on prompt-bearing POSTs.
+// The handler-side check on maxPromptBytes still applies; this bounds the
+// overall body so the hidden selection field and any other form data combined
+// can't blow past a sane budget.
+const maxPromptBodyBytes = 32 * 1024
+
 func (s *Server) buildHandler(c *echo.Context) error {
 	prompt := strings.TrimSpace(c.FormValue("prompt"))
 	if prompt == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "prompt is required")
+	}
+	if len(prompt) > maxPromptBytes {
+		return echo.NewHTTPError(http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("prompt is too long (max %d bytes)", maxPromptBytes))
 	}
 
 	requested := strings.TrimSpace(c.FormValue("slug"))
@@ -717,6 +737,10 @@ func (s *Server) editSubmitHandler(c *echo.Context) error {
 
 	if prompt == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "prompt is required")
+	}
+	if len(prompt) > maxPromptBytes {
+		return echo.NewHTTPError(http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("prompt is too long (max %d bytes)", maxPromptBytes))
 	}
 	err := validatePage(page)
 	if err != nil {

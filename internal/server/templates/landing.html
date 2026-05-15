@@ -23,7 +23,7 @@
     <p class="desc">Lowercase letters, digits, and hyphens. 3&ndash;30 characters. The site will be served at <code>{slug}.{{ .Domain }}</code>.</p>
 
     <label for="prompt">Prompt</label>
-    <textarea name="prompt" id="prompt" rows="6" placeholder="Describe the app you want to build..."></textarea>
+    <textarea name="prompt" id="prompt" rows="6" maxlength="4096" placeholder="Describe the app you want to build..."></textarea>
 
     <button type="submit">Build it</button>
   </form>
