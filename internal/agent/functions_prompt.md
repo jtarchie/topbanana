@@ -71,9 +71,36 @@ Important behaviours to know:
 
 `console.log`, `console.info`, `console.warn`, `console.error`, `console.debug` all route to the server log and the live editor SSE stream. Use them for debugging; do not rely on them for user-facing output.
 
+### `escape` — HTML escaping for user input
+
+`escape(s)` returns an HTML-safe copy of `s` (escapes `& < > " '`). Use it whenever you concatenate user-supplied values into `response.html(...)` or into a JSON value the page will assign to `.innerHTML`. Plain text in `response.text()` and values that the page renders via `textContent` do **not** need escaping.
+
+```js
+return response.html("<p>Hi " + escape(name) + "!</p>");
+```
+
+### `validate` — schema-driven input validation
+
+`validate(input, schema)` runs a Rails-style strong-parameters check over a flat object (typically `request.form` or `request.json`). Unknown keys in `input` are dropped silently; only fields declared in `schema` appear in the result.
+
+```js
+var result = validate(request.form, {
+  name:    { type: "string",  required: true, maxLen: 60, trim: true },
+  email:   { type: "email",   required: true, maxLen: 200 },
+  message: { type: "string",  maxLen: 1000, trim: true },
+  agree:   { type: "boolean", required: true },
+});
+if (!result.ok) {
+  return response.json({ errors: result.errors }, 400);
+}
+var clean = result.data; // { name, email, message, agree }
+```
+
+Supported types: `string`, `email`, `url`, `integer`, `number`, `boolean`. Schema options per field: `required`, `maxLen` (strings; default 1024), `minLen`, `min`/`max` (numbers), `pattern` (string regex), `trim` (strings — strip surrounding whitespace before checks). The result is either `{ ok: true, data }` or `{ ok: false, errors: [{ field, message }, ...] }`. Always validate **before** writing to `kv` so bad input never lands in storage.
+
 ### Available globals
 
-`request`, `response`, `console`, `kv`. **Nothing else.** No `require`, `process`, `fetch`, `setTimeout`, `eval`, `Function`, `globalThis`, `WebAssembly`. The lint pass rejects those before the handler ever runs — if you reach for one, the build will fail with a clear error.
+`request`, `response`, `console`, `kv`, `escape`, `validate`. **Nothing else.** No `require`, `process`, `fetch`, `setTimeout`, `eval`, `Function`, `globalThis`, `WebAssembly`. The lint pass rejects those before the handler ever runs — if you reach for one, the build will fail with a clear error.
 
 ### Common patterns
 
@@ -81,8 +108,16 @@ Important behaviours to know:
 
 ```js
 module.exports = function (request) {
+  var result = validate(request.form, {
+    name:  { type: "string", required: true, maxLen: 60,  trim: true },
+    email: { type: "email",  required: true, maxLen: 200, trim: true },
+  });
+  if (!result.ok) {
+    return response.json({ errors: result.errors }, 400);
+  }
   var n = kv.incr("submission_seq");
-  kv.put("submission:" + String(n).padStart(8, "0"), request.form || {});
+  kv.put("submission:" + String(n).padStart(8, "0"),
+    Object.assign({ ts: Date.now() }, result.data));
   return response.redirect("/thanks.html");
 };
 ```

@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"strings"
 	"time"
 
@@ -125,23 +126,9 @@ func (m *Manager) Invoke(ctx context.Context, slug, name, source string, req Req
 
 	stripUnsafeGlobals(vm)
 
-	moduleObj, err := installModule(vm)
+	moduleObj, err := installGlobals(vm, snap, log)
 	if err != nil {
 		return Response{}, err
-	}
-	err = installConsole(vm, log)
-	if err != nil {
-		return Response{}, fmt.Errorf("install console: %w", err)
-	}
-	err = installResponseBuilder(vm)
-	if err != nil {
-		return Response{}, fmt.Errorf("install response: %w", err)
-	}
-	if snap != nil {
-		err = installKV(vm, snap)
-		if err != nil {
-			return Response{}, fmt.Errorf("install kv: %w", err)
-		}
 	}
 
 	// Hard CPU timer. Interrupt sends a panic into the running script; goja
@@ -192,6 +179,41 @@ func (m *Manager) Invoke(ctx context.Context, slug, name, source string, req Req
 	}
 
 	return marshalResponse(vm, result, m.cfg.ResponseLimit)
+}
+
+// installGlobals wires the host-provided JS globals (module/exports, console,
+// response, escape, validate, optional kv) onto vm in one place. Pulled out of
+// Invoke to keep that function under the cyclomatic limit; each installer is
+// independent of the others, so the order only matters for kv (which depends
+// on snap being non-nil).
+func installGlobals(vm *goja.Runtime, snap *state.Snapshot, log LogFn) (*goja.Object, error) {
+	moduleObj, err := installModule(vm)
+	if err != nil {
+		return nil, err
+	}
+	err = installConsole(vm, log)
+	if err != nil {
+		return nil, fmt.Errorf("install console: %w", err)
+	}
+	err = installResponseBuilder(vm)
+	if err != nil {
+		return nil, fmt.Errorf("install response: %w", err)
+	}
+	err = installEscape(vm)
+	if err != nil {
+		return nil, fmt.Errorf("install escape: %w", err)
+	}
+	err = installValidate(vm)
+	if err != nil {
+		return nil, fmt.Errorf("install validate: %w", err)
+	}
+	if snap != nil {
+		err = installKV(vm, snap)
+		if err != nil {
+			return nil, fmt.Errorf("install kv: %w", err)
+		}
+	}
+	return moduleObj, nil
 }
 
 // installModule wires up the CommonJS `module` / `exports` globals so handlers
@@ -436,4 +458,73 @@ func isInterruptErr(err error) bool {
 	}
 	var ie *goja.InterruptedError
 	return errors.As(err, &ie)
+}
+
+// installEscape exposes a global `escape(s)` that HTML-escapes a string so
+// handlers can safely concatenate user-supplied values into response.html(...)
+// or into JSON the client will assign to .innerHTML. Matches Go's
+// html/template auto-escaping byte-for-byte.
+func installEscape(vm *goja.Runtime) error {
+	fn := func(call goja.FunctionCall) goja.Value {
+		if len(call.Arguments) == 0 {
+			return vm.ToValue("")
+		}
+		in := call.Argument(0)
+		if goja.IsUndefined(in) || goja.IsNull(in) {
+			return vm.ToValue("")
+		}
+		return vm.ToValue(template.HTMLEscapeString(in.String()))
+	}
+	return vm.Set("escape", fn) //nolint:wrapcheck
+}
+
+// installValidate exposes a global `validate(input, schema)` that runs
+// schema-driven validation against an input object (typically request.form or
+// request.json) and returns either { ok: true, data } or { ok: false, errors }.
+// Unknown fields in input are dropped (strong-parameters posture) so handlers
+// can pass request.form directly without worrying about extras.
+func installValidate(vm *goja.Runtime) error {
+	fn := func(call goja.FunctionCall) goja.Value {
+		inputMap := exportObject(call.Argument(0))
+		schemaMap := exportObject(call.Argument(1))
+		if schemaMap == nil {
+			return mkValidateResult(vm, nil, []validationError{{Field: "_schema", Message: "schema must be an object"}})
+		}
+		data, errs := validateInput(inputMap, schemaMap)
+		return mkValidateResult(vm, data, errs)
+	}
+	return vm.Set("validate", fn) //nolint:wrapcheck
+}
+
+// exportObject converts a goja value to a plain map[string]any. Returns nil
+// when the value is undefined/null or not an object — callers decide whether
+// that's a schema error or "no input".
+func exportObject(v goja.Value) map[string]any {
+	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+		return nil
+	}
+	exported := v.Export()
+	if m, ok := exported.(map[string]any); ok {
+		return m
+	}
+	return nil
+}
+
+func mkValidateResult(vm *goja.Runtime, data map[string]any, errs []validationError) goja.Value {
+	obj := vm.NewObject()
+	if len(errs) > 0 {
+		_ = obj.Set("ok", false)
+		arr := make([]any, 0, len(errs))
+		for _, e := range errs {
+			arr = append(arr, map[string]any{"field": e.Field, "message": e.Message})
+		}
+		_ = obj.Set("errors", arr)
+		return obj
+	}
+	_ = obj.Set("ok", true)
+	if data == nil {
+		data = map[string]any{}
+	}
+	_ = obj.Set("data", data)
+	return obj
 }
