@@ -23,6 +23,7 @@ type fileRow struct {
 type filesView struct {
 	Slug    string
 	SiteURL string
+	Active  string
 	Rows    []fileRow
 }
 
@@ -57,6 +58,7 @@ func (s *Server) filesHandler(c *echo.Context) error {
 	return s.render(c, "files", filesView{
 		Slug:    slug,
 		SiteURL: siteURL,
+		Active:  "files",
 		Rows:    rows,
 	})
 }

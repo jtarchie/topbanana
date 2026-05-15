@@ -608,6 +608,7 @@ type editData struct {
 	Slug      string
 	SiteURL   string // root of the live site (no trailing path)
 	PageURL   string // current page on the live site (for the iframe)
+	Active    string // sub-nav highlight key; always "edit" for this handler
 	Page      string
 	Pages     []string
 	Assets    []editAsset
@@ -700,6 +701,7 @@ func (s *Server) editHandler(c *echo.Context) error {
 		Functions: functions,
 		SiteURL:   s.siteURL(c, slug, "/"),
 		PageURL:   s.siteURL(c, slug, "/"+page),
+		Active:    "edit",
 		Page:      page,
 		Pages:     pages,
 		Assets:    assets,
@@ -775,6 +777,7 @@ func (s *Server) relintHandler(c *echo.Context) error {
 type settingsData struct {
 	Slug             string
 	SiteURL          string
+	Active           string
 	Domains          string
 	DomainsError     string
 	FunctionsEnabled bool
@@ -793,6 +796,7 @@ func (s *Server) settingsHandler(c *echo.Context) error {
 	return s.render(c, "settings", settingsData{
 		Slug:             slug,
 		SiteURL:          s.siteURL(c, slug, "/"),
+		Active:           "settings",
 		Domains:          strings.Join(meta.Domains, "\n"),
 		FunctionsEnabled: tmpl != nil && tmpl.EnablesFunctions,
 		FunctionsByTmpl:  byTmpl,

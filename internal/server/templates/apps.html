@@ -4,17 +4,24 @@
 <title>Apps</title>
 {{ template "head" . }}
 </head>
-<body>
-  <h1>Available Apps</h1>
+<body class="fullscreen">
+{{ template "brand" . }}
+<main>
+  <h1>Apps</h1>
+  {{ if . }}
   <ul class="list">
-    {{range .}}
+    {{ range . }}
     <li>
-      <a href="{{.URL}}">{{if .Title}}{{.Title}}{{else}}{{.Name}}{{end}}</a>
-      {{if .Description}}<p class="desc">{{.Description}}</p>{{end}}
-      <p class="desc muted"><code>{{.Name}}</code> &mdash; <a href="/edit/{{.Name}}">Edit site</a> &mdash; <a href="/data/{{.Name}}">View data</a></p>
+      <a href="{{ .URL }}">{{ if .Title }}{{ .Title }}{{ else }}{{ .Name }}{{ end }}</a>
+      {{ if .Description }}<p class="desc">{{ .Description }}</p>{{ end }}
+      <p class="desc muted"><code>{{ .Name }}</code> &middot; <a href="/edit/{{ .Name }}">Edit</a> &middot; <a href="/data/{{ .Name }}">Data</a></p>
     </li>
-    {{end}}
+    {{ end }}
   </ul>
-  <p><a href="/">Back to Home</a></p>
+  {{ else }}
+  <p class="muted">No apps yet. <a href="/">Build your first one.</a></p>
+  {{ end }}
+</main>
+{{ template "footer" . }}
 </body>
 </html>

@@ -1,43 +1,40 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Data &mdash; {{.Slug}}</title>
+<title>Data: {{ .Slug }}</title>
 {{ template "head" . }}
-<style>
-  table.data { border-collapse: collapse; width: 100%; margin: 1rem 0; }
-  table.data th, table.data td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #eee; text-align: left; vertical-align: top; font-size: 0.95rem; }
-  table.data th { background: #f5f5f5; font-weight: 600; }
-  table.data td.key { font-family: ui-monospace, monospace; color: #666; white-space: nowrap; }
-  .toolbar { display: flex; gap: 0.75rem; align-items: center; margin: 1rem 0; }
-</style>
 </head>
-<body>
-  <h1>Data: {{.Slug}}</h1>
-  <div class="nav"><a href="/edit/{{.Slug}}">Edit site</a> | <a href="/settings/{{.Slug}}">Settings</a> | <a href="/files/{{.Slug}}">Files</a> | <a href="/history/{{.Slug}}">History</a> | <a href="/apps">All apps</a></div>
+<body class="fullscreen">
+{{ template "brand" . }}
+{{ template "site_subnav" . }}
+<main>
+  <h1>Data</h1>
   <p class="desc">Captured submissions for this site. Stored in the per-site KV store.</p>
-  {{if .Rows}}
-  <div class="toolbar">
-    <a href="{{.CSVURL}}">Download CSV</a>
-    <span class="muted">&mdash; {{len .Rows}} {{if eq (len .Rows) 1}}row{{else}}rows{{end}}</span>
-  </div>
-  <table class="data">
+  {{ if .Rows }}
+  <p class="muted">
+    <a href="{{ .CSVURL }}">Download CSV</a>
+    &middot; {{ len .Rows }} {{ if eq (len .Rows) 1 }}row{{ else }}rows{{ end }}
+  </p>
+  <table class="grid">
     <thead>
       <tr>
         <th>key</th>
-        {{range .Columns}}<th>{{.}}</th>{{end}}
+        {{ range .Columns }}<th>{{ . }}</th>{{ end }}
       </tr>
     </thead>
     <tbody>
-      {{range .Rows}}
+      {{ range .Rows }}
       <tr>
-        <td class="key">{{.Key}}</td>
-        {{range .Values}}<td>{{.}}</td>{{end}}
+        <td class="key">{{ .Key }}</td>
+        {{ range .Values }}<td>{{ . }}</td>{{ end }}
       </tr>
-      {{end}}
+      {{ end }}
     </tbody>
   </table>
-  {{else}}
+  {{ else }}
   <p class="muted">No submissions yet. As visitors submit the form, their entries will appear here.</p>
-  {{end}}
+  {{ end }}
+</main>
+{{ template "footer" . }}
 </body>
 </html>

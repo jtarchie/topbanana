@@ -1,188 +1,180 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Building App...</title>
+<title>Building...</title>
 {{ template "head" . }}
 </head>
-<body class="narrow">
-	<h1>Building Your App</h1>
-	<p id="status" class="muted">Initializing...</p>
-	<ul id="log" class="log"></ul>
-	<div id="error" class="error" style="display:none;"></div>
+<body class="narrow fullscreen">
+{{ template "brand" . }}
+<main>
+  <h1>Building your app</h1>
+  <p id="status" class="muted">Initializing...</p>
+  <ul id="log" class="event-log"></ul>
+  <div id="error" class="error" style="display:none;"></div>
+</main>
+{{ template "footer" . }}
 
-	<style>
-		.log { list-style: none; padding: 0; margin: 1rem 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9rem; }
-		.log li { padding: 0.25rem 0; border-bottom: 1px solid #f0f0f0; color: #444; }
-		.log li.tool { color: #555; }
-		.log li.tool.pending { color: #888; }
-		.log li.tool.done { color: #444; }
-		.log li.tool.error { color: #c00; }
-		.log li.status { color: #111; font-weight: 600; }
-		.log .ts { color: #999; margin-right: 0.5rem; }
-		.log .icon { margin-right: 0.3rem; }
-	</style>
+<script>
+  const slug = '{{ .Slug }}';
+  const siteURL = '{{ .SiteURL }}';
+  const statusEl = document.getElementById('status');
+  const logEl = document.getElementById('log');
+  const errorEl = document.getElementById('error');
 
-	<script>
-		const slug = '{{.Slug}}';
-		const siteURL = '{{.SiteURL}}';
-		const statusEl = document.getElementById('status');
-		const logEl = document.getElementById('log');
-		const errorEl = document.getElementById('error');
+  // Tracks in-flight tool <li> elements by "tool:path" key so we can update them on completion.
+  const pendingItems = new Map();
 
-		// Tracks in-flight tool <li> elements by "tool:path" key so we can update them on completion.
-		const pendingItems = new Map();
+  function fmtTime(iso) {
+    try { return new Date(iso).toLocaleTimeString(); } catch (_) { return ''; }
+  }
 
-		function fmtTime(iso) {
-			try { return new Date(iso).toLocaleTimeString(); } catch (_) { return ''; }
-		}
+  function toolKey(ev) {
+    return ev.tool + ':' + (ev.path || '');
+  }
 
-		function toolKey(ev) {
-			return ev.tool + ':' + (ev.path || '');
-		}
+  function describeStatus(ev) {
+    switch (ev.status) {
+      case 'building': return 'Build started';
+      case 'linting': return 'Validating HTML and links...';
+      case 'retry': return 'Fixing issues: ' + (ev.message || '');
+      case 'completed': return 'Build complete!';
+      case 'failed': return 'Build failed: ' + (ev.message || 'unknown error');
+      case 'unknown': return 'No build in progress.';
+      default: return 'Status: ' + ev.status;
+    }
+  }
 
-		function describeStatus(ev) {
-			switch (ev.status) {
-				case 'building': return 'Build started';
-				case 'linting': return 'Validating HTML and links...';
-				case 'retry': return 'Fixing issues: ' + (ev.message || '');
-				case 'completed': return 'Build complete!';
-				case 'failed': return 'Build failed: ' + (ev.message || 'unknown error');
-				case 'unknown': return 'No build in progress.';
-				default: return 'Status: ' + ev.status;
-			}
-		}
+  function describeToolStart(ev) {
+    switch (ev.tool) {
+      case 'write_file': return '→ Writing ' + ev.path + '...';
+      case 'read_file': return '→ Reading ' + ev.path + '...';
+      case 'list_files': return '→ Listing files...';
+      case 'list_assets': return '→ Checking assets...';
+      default: return '→ ' + ev.tool + '...';
+    }
+  }
 
-		function describeToolStart(ev) {
-			switch (ev.tool) {
-				case 'write_file': return '→ Writing ' + ev.path + '...';
-				case 'read_file': return '→ Reading ' + ev.path + '...';
-				case 'list_files': return '→ Listing files...';
-				case 'list_assets': return '→ Checking assets...';
-				default: return '→ ' + ev.tool + '...';
-			}
-		}
+  function describeToolDone(ev) {
+    switch (ev.tool) {
+      case 'write_file': return '✓ Wrote ' + ev.path;
+      case 'read_file': return '✓ Read ' + ev.path;
+      case 'list_files': return '✓ Listed files';
+      case 'list_assets': return '✓ Checked assets';
+      default: return '✓ ' + ev.tool;
+    }
+  }
 
-		function describeToolDone(ev) {
-			switch (ev.tool) {
-				case 'write_file': return '✓ Wrote ' + ev.path;
-				case 'read_file': return '✓ Read ' + ev.path;
-				case 'list_files': return '✓ Listed files';
-				case 'list_assets': return '✓ Checked assets';
-				default: return '✓ ' + ev.tool;
-			}
-		}
+  function describeToolError(ev) {
+    switch (ev.tool) {
+      case 'write_file': return '✗ Failed to write ' + ev.path + ': ' + (ev.message || '');
+      case 'read_file': return '✗ Failed to read ' + ev.path + ': ' + (ev.message || '');
+      case 'list_files': return '✗ Failed to list files: ' + (ev.message || '');
+      case 'list_assets': return '✗ Failed to check assets: ' + (ev.message || '');
+      default: return '✗ ' + ev.tool + ': ' + (ev.message || '');
+    }
+  }
 
-		function describeToolError(ev) {
-			switch (ev.tool) {
-				case 'write_file': return '✗ Failed to write ' + ev.path + ': ' + (ev.message || '');
-				case 'read_file': return '✗ Failed to read ' + ev.path + ': ' + (ev.message || '');
-				case 'list_files': return '✗ Failed to list files: ' + (ev.message || '');
-				case 'list_assets': return '✗ Failed to check assets: ' + (ev.message || '');
-				default: return '✗ ' + ev.tool + ': ' + (ev.message || '');
-			}
-		}
+  function describe(ev) {
+    if (ev.type === 'status') return describeStatus(ev);
+    if (ev.type === 'tool') {
+      if (ev.phase === 'done') return describeToolDone(ev);
+      if (ev.phase === 'error') return describeToolError(ev);
+      return describeToolStart(ev); // 'start' or legacy (no phase)
+    }
+    return '';
+  }
 
-		function describe(ev) {
-			if (ev.type === 'status') return describeStatus(ev);
-			if (ev.type === 'tool') {
-				if (ev.phase === 'done') return describeToolDone(ev);
-				if (ev.phase === 'error') return describeToolError(ev);
-				return describeToolStart(ev); // 'start' or legacy (no phase)
-			}
-			return '';
-		}
+  function append(ev) {
+    if (ev.type !== 'tool') {
+      const li = document.createElement('li');
+      li.className = ev.type;
+      const ts = document.createElement('span');
+      ts.className = 'ts';
+      ts.textContent = fmtTime(ev.time);
+      const msg = document.createElement('span');
+      msg.textContent = describe(ev);
+      li.appendChild(ts);
+      li.appendChild(msg);
+      logEl.appendChild(li);
+      return;
+    }
 
-		function append(ev) {
-			if (ev.type !== 'tool') {
-				const li = document.createElement('li');
-				li.className = ev.type;
-				const ts = document.createElement('span');
-				ts.className = 'ts';
-				ts.textContent = fmtTime(ev.time);
-				const msg = document.createElement('span');
-				msg.textContent = describe(ev);
-				li.appendChild(ts);
-				li.appendChild(msg);
-				logEl.appendChild(li);
-				return;
-			}
+    const key = toolKey(ev);
+    if (ev.phase === 'start') {
+      const li = document.createElement('li');
+      li.className = 'tool pending';
+      const ts = document.createElement('span');
+      ts.className = 'ts';
+      ts.textContent = fmtTime(ev.time);
+      const msg = document.createElement('span');
+      msg.textContent = describe(ev);
+      li.appendChild(ts);
+      li.appendChild(msg);
+      logEl.appendChild(li);
+      pendingItems.set(key, { li, msg });
+    } else if (ev.phase === 'done' || ev.phase === 'error') {
+      const pending = pendingItems.get(key);
+      if (pending) {
+        pending.li.className = 'tool ' + ev.phase;
+        pending.msg.textContent = describe(ev);
+        pendingItems.delete(key);
+      } else {
+        // Replayed completion without a prior start (e.g. late connect) — just append.
+        const li = document.createElement('li');
+        li.className = 'tool ' + ev.phase;
+        const ts = document.createElement('span');
+        ts.className = 'ts';
+        ts.textContent = fmtTime(ev.time);
+        const msg = document.createElement('span');
+        msg.textContent = describe(ev);
+        li.appendChild(ts);
+        li.appendChild(msg);
+        logEl.appendChild(li);
+      }
+    } else {
+      // Legacy event with no phase — append as-is.
+      const li = document.createElement('li');
+      li.className = 'tool done';
+      const ts = document.createElement('span');
+      ts.className = 'ts';
+      ts.textContent = fmtTime(ev.time);
+      const msg = document.createElement('span');
+      msg.textContent = describe(ev);
+      li.appendChild(ts);
+      li.appendChild(msg);
+      logEl.appendChild(li);
+    }
+  }
 
-			const key = toolKey(ev);
-			if (ev.phase === 'start') {
-				const li = document.createElement('li');
-				li.className = 'tool pending';
-				const ts = document.createElement('span');
-				ts.className = 'ts';
-				ts.textContent = fmtTime(ev.time);
-				const msg = document.createElement('span');
-				msg.textContent = describe(ev);
-				li.appendChild(ts);
-				li.appendChild(msg);
-				logEl.appendChild(li);
-				pendingItems.set(key, { li, msg });
-			} else if (ev.phase === 'done' || ev.phase === 'error') {
-				const pending = pendingItems.get(key);
-				if (pending) {
-					pending.li.className = 'tool ' + ev.phase;
-					pending.msg.textContent = describe(ev);
-					pendingItems.delete(key);
-				} else {
-					// Replayed completion without a prior start (e.g. late connect) — just append.
-					const li = document.createElement('li');
-					li.className = 'tool ' + ev.phase;
-					const ts = document.createElement('span');
-					ts.className = 'ts';
-					ts.textContent = fmtTime(ev.time);
-					const msg = document.createElement('span');
-					msg.textContent = describe(ev);
-					li.appendChild(ts);
-					li.appendChild(msg);
-					logEl.appendChild(li);
-				}
-			} else {
-				// Legacy event with no phase — append as-is.
-				const li = document.createElement('li');
-				li.className = 'tool done';
-				const ts = document.createElement('span');
-				ts.className = 'ts';
-				ts.textContent = fmtTime(ev.time);
-				const msg = document.createElement('span');
-				msg.textContent = describe(ev);
-				li.appendChild(ts);
-				li.appendChild(msg);
-				logEl.appendChild(li);
-			}
-		}
+  function done(ev) {
+    if (ev.status === 'completed') {
+      statusEl.textContent = 'Build complete! Redirecting...';
+      setTimeout(function () {
+        window.location.href = siteURL;
+      }, 1000);
+    } else if (ev.status === 'failed') {
+      statusEl.textContent = 'Build failed.';
+      errorEl.textContent = ev.message || 'Unknown error';
+      errorEl.style.display = 'block';
+    } else if (ev.status === 'unknown') {
+      statusEl.textContent = 'No build in progress.';
+    }
+  }
 
-		function done(ev) {
-			if (ev.status === 'completed') {
-				statusEl.textContent = 'Build complete! Redirecting...';
-				setTimeout(function () {
-					window.location.href = siteURL;
-				}, 1000);
-			} else if (ev.status === 'failed') {
-				statusEl.textContent = 'Build failed.';
-				errorEl.textContent = ev.message || 'Unknown error';
-				errorEl.style.display = 'block';
-			} else if (ev.status === 'unknown') {
-				statusEl.textContent = 'No build in progress.';
-			}
-		}
-
-		const es = new EventSource('/events/' + slug);
-		es.onmessage = function (e) {
-			let ev;
-			try { ev = JSON.parse(e.data); } catch (_) { return; }
-			append(ev);
-			statusEl.textContent = describe(ev);
-			if (ev.type === 'status' && (ev.status === 'completed' || ev.status === 'failed' || ev.status === 'unknown')) {
-				done(ev);
-				es.close();
-			}
-		};
-		es.onerror = function () {
-			// Browser will auto-reconnect; nothing to do.
-		};
-	</script>
+  const es = new EventSource('/events/' + slug);
+  es.onmessage = function (e) {
+    let ev;
+    try { ev = JSON.parse(e.data); } catch (_) { return; }
+    append(ev);
+    statusEl.textContent = describe(ev);
+    if (ev.type === 'status' && (ev.status === 'completed' || ev.status === 'failed' || ev.status === 'unknown')) {
+      done(ev);
+      es.close();
+    }
+  };
+  es.onerror = function () {
+    // Browser will auto-reconnect; nothing to do.
+  };
+</script>
 </body>
 </html>

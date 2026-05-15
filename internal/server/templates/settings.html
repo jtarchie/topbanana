@@ -1,36 +1,40 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Settings: {{.Slug}}</title>
+<title>Settings: {{ .Slug }}</title>
 {{ template "head" . }}
 </head>
-<body>
-  <h1>Settings: {{.Slug}}</h1>
-  <div class="nav"><a href="{{.SiteURL}}" target="_blank">View live site</a> | <a href="/edit/{{.Slug}}">Edit site</a> | <a href="/data/{{.Slug}}">Data</a> | <a href="/files/{{.Slug}}">Files</a> | <a href="/history/{{.Slug}}">History</a> | <a href="/apps">All apps</a></div>
+<body class="fullscreen">
+{{ template "brand" . }}
+{{ template "site_subnav" . }}
+<main>
+  <h1>Settings</h1>
 
-  <form method="POST" action="/settings/{{.Slug}}">
+  <form method="POST" action="/settings/{{ .Slug }}">
     <h2>Custom domains</h2>
     <p>One hostname per line. Point each domain at this server with a CNAME/A record. <span class="hint">Static HTML is cached at the edge for 5&nbsp;minutes; <code>/api/*</code> calls bypass the cache so any KV state stays live.</span></p>
     <div class="row">
       <label for="domains">Domains</label>
-      <textarea name="domains" id="domains" rows="4" placeholder="example.com&#10;www.example.com">{{.Domains}}</textarea>
+      <textarea name="domains" id="domains" rows="4" placeholder="example.com&#10;www.example.com">{{ .Domains }}</textarea>
     </div>
 
     <h2>Dynamic features</h2>
-    {{if .FunctionsByTmpl}}
+    {{ if .FunctionsByTmpl }}
       <p>This site was built from a template that already includes server-side handlers. Dynamic features are always on. <span class="hint">(/api/* routes through the sandbox; the agent can author functions.)</span></p>
       <input type="hidden" name="enable_functions" value="on">
-    {{else}}
-      <p>Server-side handlers let the agent build forms with persistence, counters, RSVPs, tiny shops — anything that needs state. Turning this on gives the agent the function-authoring tools on the next edit; turning it off makes /api/* return 404 but keeps any existing handler files.</p>
+    {{ else }}
+      <p>Server-side handlers let the agent build forms with persistence, counters, RSVPs, tiny shops &mdash; anything that needs state. Turning this on gives the agent the function-authoring tools on the next edit; turning it off makes /api/* return 404 but keeps any existing handler files.</p>
       <div class="row">
         <label>
-          <input type="checkbox" name="enable_functions" {{if .FunctionsEnabled}}checked{{end}}>
+          <input type="checkbox" name="enable_functions" {{ if .FunctionsEnabled }}checked{{ end }}>
           Enable server-side handlers for this site
         </label>
       </div>
-    {{end}}
+    {{ end }}
 
     <button type="submit">Save settings</button>
   </form>
+</main>
+{{ template "footer" . }}
 </body>
 </html>

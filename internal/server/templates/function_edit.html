@@ -1,92 +1,95 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Function: {{.Name}} ({{.Slug}})</title>
+<title>Function: {{ .Name }} ({{ .Slug }})</title>
 {{ template "head" . }}
+<style>
+  pre.src { background: var(--bg-soft); border: 1px solid #ddd; padding: 1rem; border-radius: 6px; overflow: auto; max-height: 24rem; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.85rem; }
+  pre.result { background: #fff; border: 1px solid #ccc; padding: 0.75rem; border-radius: 6px; min-height: 4rem; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.85rem; }
+  pre.logs { background: #111; color: #c0e7ff; padding: 0.75rem; border-radius: 6px; min-height: 6rem; max-height: 16rem; overflow: auto; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.8rem; }
+</style>
 </head>
-<body>
-	<h1>functions/{{.Name}}.js</h1>
-	<p><a href="/edit/{{.Slug}}">← back to {{.Slug}}</a> · maps to <code>{{.APIURL}}</code></p>
+<body class="fullscreen">
+{{ template "brand" . }}
+{{ template "site_subnav" . }}
+<main>
+  <h1>functions/{{ .Name }}.js</h1>
+  <p class="muted"><a href="/edit/{{ .Slug }}">&larr; back to editor</a> &middot; maps to <code>{{ .APIURL }}</code></p>
 
-	<div class="row">
-		<label>Source</label>
-		<pre class="src">{{.Source}}</pre>
-	</div>
+  <div class="row">
+    <label>Source</label>
+    <pre class="src">{{ .Source }}</pre>
+  </div>
 
-	<div class="row">
-		<label>Test invocation</label>
-		<p class="desc">Run the function against a custom request without touching the live site. Persistent state is shared with production — runs <em>can</em> mutate kv state.</p>
-		<form id="test-form">
-			<label for="method">Method</label>
-			<select id="method" name="method">
-				<option>GET</option>
-				<option selected>POST</option>
-				<option>PUT</option>
-				<option>DELETE</option>
-			</select>
-			<label for="content_type">Content-Type</label>
-			<input id="content_type" name="content_type" value="application/x-www-form-urlencoded">
-			<label for="body">Body</label>
-			<textarea id="body" name="body" rows="4" placeholder="key=value&amp;other=value"></textarea>
-			<button type="submit">Run</button>
-		</form>
-	</div>
+  <div class="row">
+    <label>Test invocation</label>
+    <p class="desc">Run the function against a custom request without touching the live site. Persistent state is shared with production &mdash; runs <em>can</em> mutate kv state.</p>
+    <form id="test-form">
+      <label for="method">Method</label>
+      <select id="method" name="method">
+        <option>GET</option>
+        <option selected>POST</option>
+        <option>PUT</option>
+        <option>DELETE</option>
+      </select>
+      <label for="content_type">Content-Type</label>
+      <input id="content_type" name="content_type" value="application/x-www-form-urlencoded">
+      <label for="body">Body</label>
+      <textarea id="body" name="body" rows="4" placeholder="key=value&amp;other=value"></textarea>
+      <button type="submit">Run</button>
+    </form>
+  </div>
 
-	<div class="row">
-		<label>Result</label>
-		<pre id="result" class="result">(no run yet)</pre>
-	</div>
+  <div class="row">
+    <label>Result</label>
+    <pre id="result" class="result">(no run yet)</pre>
+  </div>
 
-	<div class="row">
-		<label>Live logs</label>
-		<pre id="logs" class="logs"></pre>
-		<p class="desc">Streams every <code>console.log</code> from this site's functions, plus invocation markers. Stays open until you leave the page.</p>
-	</div>
+  <div class="row">
+    <label>Live logs</label>
+    <pre id="logs" class="logs"></pre>
+    <p class="desc">Streams every <code>console.log</code> from this site's functions, plus invocation markers. Stays open until you leave the page.</p>
+  </div>
+</main>
+{{ template "footer" . }}
 
-	<style>
-		pre.src { background: #f6f6f6; border: 1px solid #ddd; padding: 1rem; border-radius: 6px; overflow: auto; max-height: 24rem; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.85rem; }
-		pre.result { background: #fff; border: 1px solid #ccc; padding: 0.75rem; border-radius: 6px; min-height: 4rem; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.85rem; }
-		pre.logs { background: #111; color: #c0e7ff; padding: 0.75rem; border-radius: 6px; min-height: 6rem; max-height: 16rem; overflow: auto; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 0.8rem; }
-		select, input, textarea { font-family: inherit; }
-	</style>
+<script>
+  (function () {
+    var form = document.getElementById('test-form');
+    var result = document.getElementById('result');
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      result.textContent = '…';
+      var method = document.getElementById('method').value;
+      var ct = document.getElementById('content_type').value;
+      var body = document.getElementById('body').value;
+      var payload = JSON.stringify({ method: method, content_type: ct, body: body });
+      fetch('/test/{{ .Slug }}/api/{{ .Name }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload
+      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+        .then(function (res) {
+          result.textContent = JSON.stringify(res.body, null, 2);
+        })
+        .catch(function (err) { result.textContent = 'Error: ' + err; });
+    });
+  })();
 
-	<script>
-		(function () {
-			var form = document.getElementById('test-form');
-			var result = document.getElementById('result');
-			form.addEventListener('submit', function (e) {
-				e.preventDefault();
-				result.textContent = '…';
-				var method = document.getElementById('method').value;
-				var ct = document.getElementById('content_type').value;
-				var body = document.getElementById('body').value;
-				var payload = JSON.stringify({ method: method, content_type: ct, body: body });
-				fetch('/test/{{.Slug}}/api/{{.Name}}', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: payload
-				}).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
-					.then(function (res) {
-						result.textContent = JSON.stringify(res.body, null, 2);
-					})
-					.catch(function (err) { result.textContent = 'Error: ' + err; });
-			});
-		})();
-
-		(function () {
-			var logs = document.getElementById('logs');
-			var es = new EventSource('/events/{{.Slug}}');
-			es.onmessage = function (e) {
-				try {
-					var ev = JSON.parse(e.data);
-					if (ev.type !== 'function') return;
-					var line = '[' + new Date(ev.time).toLocaleTimeString() + '] ' + ev.tool + ' ' + ev.phase;
-					if (ev.message) line += ' — ' + ev.message;
-					logs.textContent += line + '\n';
-					logs.scrollTop = logs.scrollHeight;
-				} catch (_) {}
-			};
-		})();
-	</script>
+  (function () {
+    var logs = document.getElementById('logs');
+    var es = new EventSource('/events/{{ .Slug }}');
+    es.onmessage = function (e) {
+      try {
+        var ev = JSON.parse(e.data);
+        if (ev.type !== 'function') return;
+        var line = '[' + new Date(ev.time).toLocaleTimeString() + '] ' + ev.tool + ' ' + ev.phase;
+        if (ev.message) line += ' — ' + ev.message;
+        logs.textContent += line + '\n';
+        logs.scrollTop = logs.scrollHeight;
+      } catch (_) {}
+    };
+  })();
+</script>
 </body>
 </html>

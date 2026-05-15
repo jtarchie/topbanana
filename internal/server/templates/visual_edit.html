@@ -5,12 +5,17 @@
 <meta charset="utf-8">
 <link rel="stylesheet" href="https://unpkg.com/grapesjs/dist/css/grapes.min.css">
 <style>
+:root{--accent:#2563eb;--accent-hover:#1d4ed8}
 html,body{margin:0;padding:0;height:100%;font-family:system-ui,sans-serif}
 #topbar{display:flex;align-items:center;gap:.5rem;padding:.5rem .75rem;border-bottom:1px solid #ddd;background:#fafafa;height:42px;box-sizing:border-box}
+#topbar .wordmark{font-weight:700;font-size:13px;color:#111;text-decoration:none;letter-spacing:-0.01em}
+#topbar .wordmark:hover{color:var(--accent)}
+#topbar .sep{color:#ccc;margin:0 .25rem}
 #topbar h1{font-size:14px;margin:0;flex:1;font-weight:600}
 #topbar h1 .muted{color:#888;font-weight:normal}
 #topbar button,#topbar a.btn{font:inherit;padding:.35rem .75rem;border:1px solid #ccc;background:#fff;border-radius:4px;cursor:pointer;text-decoration:none;color:inherit}
-#topbar button.primary{background:#111;color:#fff;border-color:#111}
+#topbar button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+#topbar button.primary:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
 #topbar button:disabled{opacity:.5;cursor:not-allowed}
 #status{font-size:12px;color:#666;margin-right:.5rem}
 #status.ok{color:#0a7d33}
@@ -41,11 +46,13 @@ html,body{margin:0;padding:0;height:100%;font-family:system-ui,sans-serif}
 </head>
 <body>
 <div id="topbar">
+  <a href="/" class="wordmark">BuildABear</a>
+  <span class="sep">/</span>
   <h1>Visual edit <span class="muted">— {{.Slug}} / {{.Page}}</span></h1>
   <span id="status"></span>
   <button id="refine-btn" type="button">Refine with AI</button>
   <button id="save-btn" type="button" class="primary">Save</button>
-  <a class="btn" href="/edit/{{.Slug}}?page={{.Page}}">Back</a>
+  <a class="btn" href="/edit/{{.Slug}}?page={{.Page}}">Back to editor</a>
 </div>
 <div id="editor-wrap">
   <div id="gjs"></div>

@@ -1,47 +1,51 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>History: {{.Slug}}</title>
+<title>History: {{ .Slug }}</title>
 {{ template "head" . }}
 </head>
-<body>
-	<h1>History: {{.Slug}}</h1>
-	<div class="nav"><a href="{{.SiteURL}}" target="_blank">View live site</a> | <a href="/edit/{{.Slug}}">Edit site</a> | <a href="/settings/{{.Slug}}">Settings</a> | <a href="/data/{{.Slug}}">Data</a> | <a href="/files/{{.Slug}}">Files</a> | <a href="/apps">All apps</a></div>
+<body class="fullscreen">
+{{ template "brand" . }}
+{{ template "site_subnav" . }}
+<main>
+  <h1>History</h1>
 
-	<p class="muted">Snapshots are taken before every build, edit, visual save, settings change, and asset upload. Restoring a snapshot wipes the current site and brings back that version &mdash; the current state is auto-snapshotted as <code>pre-restore</code> first, so restores are reversible too.</p>
+  <p class="muted">Snapshots are taken before every build, edit, visual save, settings change, and asset upload. Restoring a snapshot wipes the current site and brings back that version &mdash; the current state is auto-snapshotted as <code>pre-restore</code> first, so restores are reversible too.</p>
 
-	{{if .Flash}}
-		<p class="row" style="background:#e0f5e0;padding:0.5em 1em;border-radius:4px;">{{.Flash}}</p>
-	{{end}}
+  {{ if .Flash }}
+    <div class="flash flash-ok" role="status">{{ .Flash }}</div>
+  {{ end }}
 
-	{{if not .Snapshots}}
-		<p class="muted">No snapshots yet. The first one will appear after your next build or edit.</p>
-	{{else}}
-		<table>
-			<thead>
-				<tr><th>When</th><th>Reason</th><th>Files</th><th>Size</th><th></th></tr>
-			</thead>
-			<tbody>
-				{{range .Snapshots}}
-				<tr>
-					<td>{{.WhenLabel}}<br><span class="muted">{{.WhenISO}}</span></td>
-					<td><code>{{.Reason}}</code></td>
-					<td>{{.FileCount}}</td>
-					<td>{{.SizeLabel}}</td>
-					<td>
-						<form method="POST" action="/history/{{$.Slug}}/restore" style="display:inline" onsubmit="return confirm('Wipe the current site and restore this snapshot? Current state will be auto-snapshotted first.');">
-							<input type="hidden" name="key" value="{{.Key}}">
-							<button type="submit">Restore</button>
-						</form>
-						<form method="POST" action="/history/{{$.Slug}}/delete" style="display:inline" onsubmit="return confirm('Permanently delete this snapshot?');">
-							<input type="hidden" name="key" value="{{.Key}}">
-							<button type="submit">Delete</button>
-						</form>
-					</td>
-				</tr>
-				{{end}}
-			</tbody>
-		</table>
-	{{end}}
+  {{ if not .Snapshots }}
+    <p class="muted">No snapshots yet. The first one will appear after your next build or edit.</p>
+  {{ else }}
+    <table class="grid">
+      <thead>
+        <tr><th>When</th><th>Reason</th><th>Files</th><th>Size</th><th></th></tr>
+      </thead>
+      <tbody>
+        {{ range .Snapshots }}
+        <tr>
+          <td>{{ .WhenLabel }}<br><span class="muted">{{ .WhenISO }}</span></td>
+          <td><code>{{ .Reason }}</code></td>
+          <td>{{ .FileCount }}</td>
+          <td>{{ .SizeLabel }}</td>
+          <td class="action">
+            <form method="POST" action="/history/{{ $.Slug }}/restore" style="display:inline" onsubmit="return confirm('Wipe the current site and restore this snapshot? Current state will be auto-snapshotted first.');">
+              <input type="hidden" name="key" value="{{ .Key }}">
+              <button type="submit" class="secondary">Restore</button>
+            </form>
+            <form method="POST" action="/history/{{ $.Slug }}/delete" style="display:inline" onsubmit="return confirm('Permanently delete this snapshot?');">
+              <input type="hidden" name="key" value="{{ .Key }}">
+              <button type="submit" class="secondary">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  {{ end }}
+</main>
+{{ template "footer" . }}
 </body>
 </html>

@@ -19,6 +19,8 @@ import (
 // cell for Columns[i].
 type dataView struct {
 	Slug    string
+	SiteURL string
+	Active  string
 	Columns []string
 	Rows    []dataRow
 	CSVURL  string
@@ -51,6 +53,8 @@ func (s *Server) dataHandler(c *echo.Context) error {
 
 	return s.render(c, "data", dataView{
 		Slug:    slug,
+		SiteURL: s.siteURL(c, slug, "/"),
+		Active:  "data",
 		Columns: cols,
 		Rows:    rows,
 		CSVURL:  "/data/" + slug + "?format=csv",
