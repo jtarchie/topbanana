@@ -32,6 +32,15 @@
       </div>
     {{ end }}
 
+    <h2>Public API</h2>
+    <p>By default, <code>/api/*</code> POSTs only accept requests whose <code>Origin</code> or <code>Referer</code> matches this site &mdash; the Rails-style supplemental check that blocks cross-origin form spam. Turn this on if you want other sites (webhooks, public JSON endpoints, third-party integrations) to be able to POST to your handlers.</p>
+    <div class="row">
+      <label>
+        <input type="checkbox" name="enable_public_api" {{ if .PublicAPIEnabled }}checked{{ end }}>
+        Allow cross-origin /api/* requests
+      </label>
+    </div>
+
     <button type="submit">Save settings</button>
   </form>
 </main>

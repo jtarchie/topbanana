@@ -806,6 +806,7 @@ type settingsData struct {
 	DomainsError     string
 	FunctionsEnabled bool
 	FunctionsByTmpl  bool // the template already enables functions — checkbox is locked-on
+	PublicAPIEnabled bool
 }
 
 func (s *Server) settingsHandler(c *echo.Context) error {
@@ -824,6 +825,7 @@ func (s *Server) settingsHandler(c *echo.Context) error {
 		Domains:          strings.Join(meta.Domains, "\n"),
 		FunctionsEnabled: tmpl != nil && tmpl.EnablesFunctions,
 		FunctionsByTmpl:  byTmpl,
+		PublicAPIEnabled: meta.EnablesPublicAPI,
 	})
 }
 
@@ -850,6 +852,8 @@ func (s *Server) settingsSubmitHandler(c *echo.Context) error {
 	if base := templates.Get(meta.Template); base == nil || !base.EnablesFunctions {
 		meta.EnablesFunctions = c.FormValue("enable_functions") == "on"
 	}
+
+	meta.EnablesPublicAPI = c.FormValue("enable_public_api") == "on"
 
 	s.snapshotBefore(ctx, slug, snapshot.ReasonSettings)
 

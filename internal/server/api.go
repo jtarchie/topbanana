@@ -77,7 +77,12 @@ func (s *Server) apiHandler(c *echo.Context, slug, name string) error {
 		return notFound()
 	}
 
-	err := validateFunctionPathName(name)
+	err := checkAPIOrigin(c.Request(), meta)
+	if err != nil {
+		return err
+	}
+
+	err = validateFunctionPathName(name)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
@@ -170,6 +175,59 @@ func (s *Server) loadFunctionSource(ctx context.Context, slug, name string) (str
 		return "", errFunctionNotFound
 	}
 	return obj.Content, nil
+}
+
+// checkAPIOrigin rejects state-changing /api/* requests whose Origin/Referer
+// header doesn't match the request Host. Mirrors the Rails-style supplemental
+// CSRF check — hosted sites have no per-user session so token-based CSRF
+// doesn't apply, but an origin check still cuts drive-by cross-origin
+// submission spam.
+//
+// Idempotent methods (GET, HEAD, OPTIONS) bypass the check so pages can fetch
+// their own JSON endpoints normally. Sites that genuinely want a public API
+// (webhooks, public JSON endpoints) opt out via SiteMeta.EnablesPublicAPI on
+// the settings page.
+//
+// Fails closed when both Origin and Referer are missing: modern browsers
+// always send at least one on POSTs, so the absence usually means a scripted
+// client. EnablesPublicAPI is the escape hatch for those.
+func checkAPIOrigin(r *http.Request, meta build.SiteMeta) error {
+	if meta.EnablesPublicAPI {
+		return nil
+	}
+	if isAPISafeMethod(r.Method) {
+		return nil
+	}
+	origin := r.Header.Get("Origin")
+	referer := r.Header.Get("Referer")
+	host := r.Host
+	if apiOriginMatches(origin, host) || apiOriginMatches(referer, host) {
+		return nil
+	}
+	return echo.NewHTTPError(http.StatusForbidden,
+		"cross-origin /api/* requests are blocked by default; enable public API in settings to allow")
+}
+
+func isAPISafeMethod(method string) bool {
+	switch strings.ToUpper(method) {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	return false
+}
+
+// apiOriginMatches reports whether the Origin or Referer header value names
+// the same host (port-insensitive) as the request Host. Empty header always
+// fails — the caller treats absent Origin AND absent Referer as a rejection.
+func apiOriginMatches(headerVal, host string) bool {
+	if headerVal == "" || host == "" {
+		return false
+	}
+	u, err := url.Parse(headerVal)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return stripPort(u.Host) == stripPort(host)
 }
 
 // validateFunctionPathName matches the agent-side validateFunctionName so the

@@ -53,8 +53,13 @@ type SiteMeta struct {
 	Created          time.Time `json:"created"`
 	Domains          []string  `json:"domains,omitempty"`
 	EnablesFunctions bool      `json:"enables_functions,omitempty"`
-	Title            string    `json:"title,omitempty"`
-	Description      string    `json:"description,omitempty"`
+	// EnablesPublicAPI opts the site's /api/* routes out of the same-origin
+	// check applied to state-changing requests. Off by default so a freshly
+	// built site can't be drive-by-spammed from another origin. Turn on for
+	// genuine public APIs (webhooks, public JSON endpoints).
+	EnablesPublicAPI bool   `json:"enables_public_api,omitempty"`
+	Title            string `json:"title,omitempty"`
+	Description      string `json:"description,omitempty"`
 }
 
 // EffectiveTemplate returns the template a build/edit/route lookup should use,
