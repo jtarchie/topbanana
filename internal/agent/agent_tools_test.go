@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -302,6 +303,68 @@ func TestValidateHTMLPath(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestToolGuard(t *testing.T) {
+	t.Run("first call allowed", func(t *testing.T) {
+		g := &toolGuard{}
+		err := g.Allow(toolSignature("write_file", "index.html", "hello"))
+		if err != nil {
+			t.Fatalf("first call should be allowed, got %v", err)
+		}
+	})
+
+	t.Run("immediate repeat rejected", func(t *testing.T) {
+		g := &toolGuard{}
+		sig := toolSignature("write_file", "index.html", "hello")
+		err := g.Allow(sig)
+		if err != nil {
+			t.Fatalf("seed call: %v", err)
+		}
+		err = g.Allow(sig)
+		if err == nil {
+			t.Fatal("expected repeat to be rejected")
+		}
+		if !strings.Contains(err.Error(), "write_file") {
+			t.Fatalf("error should name the tool, got %q", err.Error())
+		}
+	})
+
+	t.Run("rolls over after ring length", func(t *testing.T) {
+		g := &toolGuard{}
+		sig := toolSignature("write_file", "index.html", "hello")
+		err := g.Allow(sig)
+		if err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		// Fill the ring with distinct sigs so the seeded one rolls out.
+		for i := 0; i < toolGuardRingLen; i++ {
+			distinct := toolSignature("write_file", "index.html", fmt.Sprintf("filler-%d", i))
+			err = g.Allow(distinct)
+			if err != nil {
+				t.Fatalf("filler %d: %v", i, err)
+			}
+		}
+		err = g.Allow(sig)
+		if err != nil {
+			t.Fatalf("seeded sig should be allowed after %d distinct intervening calls, got %v",
+				toolGuardRingLen, err)
+		}
+	})
+
+	t.Run("different paths are independent", func(t *testing.T) {
+		g := &toolGuard{}
+		a := toolSignature("write_file", "a.html", "hello")
+		b := toolSignature("write_file", "b.html", "hello")
+		err := g.Allow(a)
+		if err != nil {
+			t.Fatalf("a: %v", err)
+		}
+		err = g.Allow(b)
+		if err != nil {
+			t.Fatalf("b: %v", err)
+		}
+	})
 }
 
 func TestTruncateSnippet(t *testing.T) {

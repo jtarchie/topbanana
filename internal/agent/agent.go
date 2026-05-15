@@ -5,12 +5,17 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "embed"
@@ -58,6 +63,7 @@ type writeFileArgs struct {
 type writeFileResult struct {
 	OK    bool   `json:"ok"`
 	Error string `json:"error,omitempty"`
+	Hints string `json:"hints,omitempty"`
 }
 
 type readFileArgs struct {
@@ -88,6 +94,7 @@ type editFileResult struct {
 	Replacements int    `json:"replacements,omitempty"`
 	Note         string `json:"note,omitempty"`
 	Error        string `json:"error,omitempty"`
+	Hints        string `json:"hints,omitempty"`
 }
 
 type replaceLinesArgs struct {
@@ -193,9 +200,11 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 		emit = func(events.Event) {}
 	}
 
+	state := newBuildState()
+
 	// contextcheck flags this because Run has a ctx, but the tools fire later
 	// under per-invocation contexts from the runner; passing ctx would be wrong.
-	tools, err := buildAgentTools(s, slug, tmpl, emit)
+	tools, err := buildAgentTools(s, slug, tmpl, emit, state)
 	if err != nil {
 		return err
 	}
@@ -236,8 +245,13 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 		if err != nil {
 			return fmt.Errorf("agent error: %w", err)
 		}
+		iters := state.iters.Add(1)
+		if iters > maxAgentIterations {
+			slog.Warn("agent.iteration_cap", "slug", slug, "iterations", iters, "max", maxAgentIterations)
+			return fmt.Errorf("agent exceeded %d iterations without finalizing", maxAgentIterations)
+		}
 		if event != nil && event.IsFinalResponse() {
-			slog.Info("agent.done", "slug", slug)
+			slog.Info("agent.done", "slug", slug, "iterations", iters)
 			break
 		}
 	}
@@ -321,38 +335,56 @@ func (e emitter) fail(path string, err error) {
 // The function-authoring tools (write_function, read_function, list_functions)
 // are only registered when the template opts in via EnablesFunctions. Older
 // brochure templates see no behavioural change.
-func buildAgentTools(s *store.Store, slug string, tmpl *templates.SiteTemplate, emit func(events.Event)) ([]tool.Tool, error) {
-	builders := []func(*store.Store, string, func(events.Event)) (tool.Tool, error){
+func buildAgentTools(s *store.Store, slug string, tmpl *templates.SiteTemplate, emit func(events.Event), state *buildState) ([]tool.Tool, error) {
+	// guardedBuilders read/update buildState (anti-loop ring + iteration
+	// counter for the budget hint); plain builders don't need it.
+	guardedBuilders := []func(*store.Store, string, func(events.Event), *buildState) (tool.Tool, error){
 		newWriteFileTool,
-		newReadFileTool,
 		newEditFileTool,
 		newReplaceLinesTool,
 		newInsertAtLineTool,
+	}
+	plainBuilders := []func(*store.Store, string, func(events.Event)) (tool.Tool, error){
+		newReadFileTool,
 		newListFilesTool,
 		newGrepFilesTool,
 		newListAssetsTool,
 	}
-	if tmpl != nil && tmpl.EnablesFunctions {
-		builders = append(builders,
-			newWriteFunctionTool,
-			newReadFunctionTool,
-			newEditFunctionTool,
-			newDeleteFunctionTool,
-			newListFunctionsTool,
-		)
+	tools := make([]tool.Tool, 0, len(guardedBuilders)+len(plainBuilders)+5)
+	for _, b := range guardedBuilders {
+		t, err := b(s, slug, emit, state)
+		if err != nil {
+			return nil, err
+		}
+		tools = append(tools, t)
 	}
-	tools := make([]tool.Tool, 0, len(builders))
-	for _, b := range builders {
+	for _, b := range plainBuilders {
 		t, err := b(s, slug, emit)
 		if err != nil {
 			return nil, err
 		}
 		tools = append(tools, t)
 	}
+	if tmpl != nil && tmpl.EnablesFunctions {
+		fnBuilders := []func(*store.Store, string, func(events.Event)) (tool.Tool, error){
+			newWriteFunctionTool,
+			newReadFunctionTool,
+			newEditFunctionTool,
+			newDeleteFunctionTool,
+			newListFunctionsTool,
+		}
+		for _, b := range fnBuilders {
+			t, err := b(s, slug, emit)
+			if err != nil {
+				return nil, err
+			}
+			tools = append(tools, t)
+		}
+	}
 	return tools, nil
 }
 
-func newWriteFileTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
+func newWriteFileTool(s *store.Store, slug string, emit func(events.Event), state *buildState) (tool.Tool, error) {
 	em := emitter{emit: emit, tool: "write_file"}
 	t, err := functiontool.New(
 		functiontool.Config{Name: "write_file", Description: "Write content to an HTML file"},
@@ -374,8 +406,9 @@ func newWriteFileTool(s *store.Store, slug string, emit func(events.Event)) (too
 			// rather risk an extra file than fail a legitimate edit because
 			// of a transient S3 hiccup.
 			files, listErr := s.List(tctx, slug)
+			htmlCount, exists := -1, false
 			if listErr == nil {
-				htmlCount, exists := 0, false
+				htmlCount = 0
 				for _, f := range files {
 					if f == args.Path {
 						exists = true
@@ -385,12 +418,17 @@ func newWriteFileTool(s *store.Store, slug string, emit func(events.Event)) (too
 					}
 				}
 				if !exists && htmlCount >= maxHTMLFiles {
-					err := fmt.Errorf("site has reached the %d HTML file limit", maxHTMLFiles)
+					err = fmt.Errorf("site has reached the %d HTML file limit", maxHTMLFiles)
 					em.fail(args.Path, err)
-					return writeFileResult{Error: err.Error()}, nil
+					return writeFileResult{Error: err.Error(), Hints: budgetHint(htmlCount, state)}, nil
 				}
 			} else {
 				slog.Warn("agent.write_file.list", "slug", slug, "err", listErr)
+			}
+			err = state.guard.Allow(toolSignature("write_file", args.Path, args.Content))
+			if err != nil {
+				em.fail(args.Path, err)
+				return writeFileResult{Error: err.Error()}, nil
 			}
 			err = s.Write(tctx, slug, args.Path, args.Content, "text/html; charset=utf-8", nil)
 			if err != nil {
@@ -400,7 +438,11 @@ func newWriteFileTool(s *store.Store, slug string, emit func(events.Event)) (too
 			}
 			slog.Info("agent.write_file", "slug", slug, "path", args.Path, "length", len(args.Content))
 			em.done(args.Path)
-			return writeFileResult{OK: true}, nil
+			postCount := htmlCount
+			if postCount >= 0 && !exists {
+				postCount++
+			}
+			return writeFileResult{OK: true, Hints: budgetHint(postCount, state)}, nil
 		},
 	)
 	if err != nil {
@@ -478,7 +520,7 @@ func sliceLines(content string, start, end int) (string, int, error) {
 	return strings.Join(lines[start-1:end], "\n"), total, nil
 }
 
-func newEditFileTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
+func newEditFileTool(s *store.Store, slug string, emit func(events.Event), state *buildState) (tool.Tool, error) {
 	em := emitter{emit: emit, tool: "edit_file"}
 	t, err := functiontool.New(
 		functiontool.Config{
@@ -523,9 +565,14 @@ func newEditFileTool(s *store.Store, slug string, emit func(events.Event)) (tool
 				return editFileResult{Error: applyErr.Error()}, nil
 			}
 			if len(updated) > maxHTMLFileBytes {
-				err := fmt.Errorf("content too large after edit: %d bytes (max %d)", len(updated), maxHTMLFileBytes)
-				em.fail(args.Path, err)
-				return editFileResult{Error: err.Error()}, nil
+				sizeErr := fmt.Errorf("content too large after edit: %d bytes (max %d)", len(updated), maxHTMLFileBytes)
+				em.fail(args.Path, sizeErr)
+				return editFileResult{Error: sizeErr.Error()}, nil
+			}
+			guardErr := state.guard.Allow(toolSignature("edit_file", args.Path, args.OldText, args.NewText))
+			if guardErr != nil {
+				em.fail(args.Path, guardErr)
+				return editFileResult{Error: guardErr.Error()}, nil
 			}
 			contentType := obj.ContentType
 			if contentType == "" {
@@ -540,7 +587,7 @@ func newEditFileTool(s *store.Store, slug string, emit func(events.Event)) (tool
 			slog.Info("agent.edit_file", "slug", slug, "path", args.Path,
 				"old_len", len(args.OldText), "new_len", len(args.NewText), "replacements", count)
 			em.done(args.Path)
-			return editFileResult{OK: true, Replacements: count, Note: note}, nil
+			return editFileResult{OK: true, Replacements: count, Note: note, Hints: budgetHint(-1, state)}, nil
 		},
 	)
 	if err != nil {
@@ -553,7 +600,7 @@ func newEditFileTool(s *store.Store, slug string, emit func(events.Event)) (tool
 // line range with new_text. Pairs with read_file's line-numbered output so
 // the agent can sidestep whitespace-matching entirely when it already knows
 // the exact lines to swap. Pass empty new_text to delete the range.
-func newReplaceLinesTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
+func newReplaceLinesTool(s *store.Store, slug string, emit func(events.Event), state *buildState) (tool.Tool, error) {
 	em := emitter{emit: emit, tool: "replace_lines"}
 	t, err := functiontool.New(
 		functiontool.Config{
@@ -583,9 +630,15 @@ func newReplaceLinesTool(s *store.Store, slug string, emit func(events.Event)) (
 				return editFileResult{Error: err.Error()}, nil
 			}
 			if len(updated) > maxHTMLFileBytes {
-				err := fmt.Errorf("content too large after replace_lines: %d bytes (max %d)", len(updated), maxHTMLFileBytes)
-				em.fail(args.Path, err)
-				return editFileResult{Error: err.Error()}, nil
+				sizeErr := fmt.Errorf("content too large after replace_lines: %d bytes (max %d)", len(updated), maxHTMLFileBytes)
+				em.fail(args.Path, sizeErr)
+				return editFileResult{Error: sizeErr.Error()}, nil
+			}
+			guardErr := state.guard.Allow(toolSignature("replace_lines", args.Path,
+				fmt.Sprintf("%d-%d", args.StartLine, args.EndLine), args.NewText))
+			if guardErr != nil {
+				em.fail(args.Path, guardErr)
+				return editFileResult{Error: guardErr.Error()}, nil
 			}
 			contentType := obj.ContentType
 			if contentType == "" {
@@ -600,7 +653,7 @@ func newReplaceLinesTool(s *store.Store, slug string, emit func(events.Event)) (
 			slog.Info("agent.replace_lines", "slug", slug, "path", args.Path,
 				"start_line", args.StartLine, "end_line", args.EndLine, "new_len", len(args.NewText))
 			em.done(args.Path)
-			return editFileResult{OK: true, Replacements: args.EndLine - args.StartLine + 1}, nil
+			return editFileResult{OK: true, Replacements: args.EndLine - args.StartLine + 1, Hints: budgetHint(-1, state)}, nil
 		},
 	)
 	if err != nil {
@@ -613,7 +666,7 @@ func newReplaceLinesTool(s *store.Store, slug string, emit func(events.Event)) (
 // without replacing anything. after_line=0 prepends; after_line=total_lines
 // appends. Mirrors the well-trodden semantics of Anthropic's text_editor
 // `insert` command so models that know that interface get it for free.
-func newInsertAtLineTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
+func newInsertAtLineTool(s *store.Store, slug string, emit func(events.Event), state *buildState) (tool.Tool, error) {
 	em := emitter{emit: emit, tool: "insert_at_line"}
 	t, err := functiontool.New(
 		functiontool.Config{
@@ -643,9 +696,15 @@ func newInsertAtLineTool(s *store.Store, slug string, emit func(events.Event)) (
 				return editFileResult{Error: err.Error()}, nil
 			}
 			if len(updated) > maxHTMLFileBytes {
-				err := fmt.Errorf("content too large after insert_at_line: %d bytes (max %d)", len(updated), maxHTMLFileBytes)
-				em.fail(args.Path, err)
-				return editFileResult{Error: err.Error()}, nil
+				sizeErr := fmt.Errorf("content too large after insert_at_line: %d bytes (max %d)", len(updated), maxHTMLFileBytes)
+				em.fail(args.Path, sizeErr)
+				return editFileResult{Error: sizeErr.Error()}, nil
+			}
+			guardErr := state.guard.Allow(toolSignature("insert_at_line", args.Path,
+				strconv.Itoa(args.AfterLine), args.Content))
+			if guardErr != nil {
+				em.fail(args.Path, guardErr)
+				return editFileResult{Error: guardErr.Error()}, nil
 			}
 			contentType := obj.ContentType
 			if contentType == "" {
@@ -660,7 +719,7 @@ func newInsertAtLineTool(s *store.Store, slug string, emit func(events.Event)) (
 			slog.Info("agent.insert_at_line", "slug", slug, "path", args.Path,
 				"after_line", args.AfterLine, "inserted_len", len(args.Content))
 			em.done(args.Path)
-			return editFileResult{OK: true, Replacements: 1}, nil
+			return editFileResult{OK: true, Replacements: 1, Hints: budgetHint(-1, state)}, nil
 		},
 	)
 	if err != nil {
@@ -1038,10 +1097,84 @@ const (
 )
 
 const (
-	maxHTMLFileBytes = 256 * 1024
-	maxHTMLFiles     = 25
-	maxHTMLPathLen   = 200
+	maxHTMLFileBytes   = 256 * 1024
+	maxHTMLFiles       = 25
+	maxHTMLPathLen     = 200
+	maxAgentIterations = 60
+	toolGuardRingLen   = 3
 )
+
+// buildState bundles per-run state that the runner loop and tool closures
+// both touch. iters is incremented from the ADK event loop in Run; tool
+// closures read it via Load() to surface a "iterations remaining" hint to
+// the model so it can self-pace.
+type buildState struct {
+	guard *toolGuard
+	iters atomic.Int64
+}
+
+func newBuildState() *buildState {
+	return &buildState{guard: &toolGuard{}}
+}
+
+// toolGuard rejects the same write/edit being issued twice in a short
+// window. Catches the most common failure mode beyond ADK's iteration cap:
+// the model loops on the same fix idea, burning iterations without making
+// progress. The existing OldText == NewText no-op short-circuit in edit_file
+// fires before the guard, so the loop doesn't waste a slot on a legitimate
+// reasoning artefact.
+type toolGuard struct {
+	mu     sync.Mutex
+	recent [toolGuardRingLen]string
+	next   int
+}
+
+// Allow returns nil when signature is new; otherwise an error naming the
+// tool the model just repeated. Signatures are opaque to Allow — the caller
+// builds them with toolSignature so the encoding stays consistent.
+func (g *toolGuard) Allow(signature string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for _, r := range g.recent {
+		if r != "" && r == signature {
+			toolName, _, _ := strings.Cut(signature, "|")
+			return fmt.Errorf("identical %s call repeated — read the current file and pick a different change", toolName)
+		}
+	}
+	g.recent[g.next] = signature
+	g.next = (g.next + 1) % len(g.recent)
+	return nil
+}
+
+// toolSignature builds a stable key for the anti-loop guard. The tool name
+// lives in the leading segment so Allow can surface it in the error;
+// remaining parts get sha256'd to keep memory bounded regardless of payload
+// size.
+func toolSignature(toolName string, parts ...string) string {
+	h := sha256.New()
+	for i, p := range parts {
+		if i > 0 {
+			h.Write([]byte{0})
+		}
+		h.Write([]byte(p))
+	}
+	return toolName + "|" + hex.EncodeToString(h.Sum(nil))
+}
+
+// budgetHint composes the "X of Y HTML files used; ~N iterations remaining"
+// string that goes back to the model in tool results. htmlCount < 0 omits
+// the file-count clause (callers that don't already have a List in hand
+// can pass -1 to avoid an extra round-trip).
+func budgetHint(htmlCount int, state *buildState) string {
+	remaining := maxAgentIterations - int(state.iters.Load())
+	if remaining < 0 {
+		remaining = 0
+	}
+	if htmlCount < 0 {
+		return fmt.Sprintf("~%d iterations remaining", remaining)
+	}
+	return fmt.Sprintf("%d of %d HTML files used; ~%d iterations remaining", htmlCount, maxHTMLFiles, remaining)
+}
 
 // reservedWritePrefixes are paths managed by other tools (functions/, assets/)
 // that the HTML write tools must not clobber.
