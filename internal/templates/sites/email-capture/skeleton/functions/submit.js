@@ -1,11 +1,13 @@
 module.exports = function (request) {
-  var form = request.form || {};
-  if (!form.email) {
-    return response.status(400, "email is required");
+  var result = validate(request.form, {
+    email: { type: "email", required: true, maxLen: 200, trim: true },
+  });
+  if (!result.ok) {
+    return response.json({ errors: result.errors }, 400);
   }
   var seq = kv.incr("submission_seq");
   kv.put("submission:" + String(seq).padStart(8, "0"), {
-    email: String(form.email).slice(0, 200),
+    email: result.data.email,
     ts: Date.now()
   });
   return response.redirect("/thanks.html");

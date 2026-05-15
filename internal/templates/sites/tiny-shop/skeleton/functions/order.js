@@ -6,27 +6,28 @@ var PRODUCTS = [
 ];
 
 module.exports = function (request) {
-  var form = request.form || {};
-  var product = PRODUCTS.find(function (p) { return p.id === form.product; });
+  var result = validate(request.form, {
+    product: { type: "string",  required: true, maxLen: 40, trim: true },
+    qty:     { type: "integer", required: true, min: 1, max: 99 },
+    name:    { type: "string",  required: true, maxLen: 80,  trim: true },
+    email:   { type: "email",   required: true, maxLen: 120, trim: true },
+  });
+  if (!result.ok) {
+    return response.json({ errors: result.errors }, 400);
+  }
+  var product = PRODUCTS.find(function (p) { return p.id === result.data.product; });
   if (!product) {
-    return response.status(400, "unknown product");
-  }
-  var qty = parseInt(form.qty || "1", 10);
-  if (!qty || qty < 1 || qty > 99) {
-    return response.status(400, "qty must be 1-99");
-  }
-  if (!form.name || !form.email) {
-    return response.status(400, "name and email are required");
+    return response.json({ errors: [{ field: "product", message: "unknown product" }] }, 400);
   }
   var seq = kv.incr("order_seq");
   kv.put("order:" + String(seq).padStart(8, "0"), {
     product: product.id,
     product_name: product.name,
-    qty: qty,
-    name: String(form.name).slice(0, 80),
-    email: String(form.email).slice(0, 120),
+    qty: result.data.qty,
+    name: result.data.name,
+    email: result.data.email,
     ts: Date.now()
   });
-  console.log("order", seq, product.id, qty);
+  console.log("order", seq, product.id, result.data.qty);
   return response.redirect("/thanks.html");
 };
