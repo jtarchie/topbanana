@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
@@ -144,11 +145,15 @@ func New(d Deps) *echo.Echo {
 	// runaway hidden field or selection can't sneak past the per-field caps in
 	// the handlers. Leaves /upload/:slug alone — image uploads need 5 MiB.
 	promptBodyCap := middleware.BodyLimit(maxPromptBodyBytes)
+	// promptWithAttachmentsBodyCap is the larger envelope on routes that also
+	// accept multipart markdown attachments; per-attachment caps still gate
+	// the actual content.
+	promptWithAttachmentsBodyCap := middleware.BodyLimit(maxPromptBodyWithAttachmentsBytes)
 	admin.GET("/", s.landingHandler)
-	admin.POST("/build", s.buildHandler, promptBodyCap)
+	admin.POST("/build", s.buildHandler, promptWithAttachmentsBodyCap)
 	admin.GET("/apps", s.appsHandler)
 	admin.GET("/edit/:slug", s.editHandler)
-	admin.POST("/edit/:slug", s.editSubmitHandler, promptBodyCap)
+	admin.POST("/edit/:slug", s.editSubmitHandler, promptWithAttachmentsBodyCap)
 	admin.POST("/relint/:slug", s.relintHandler)
 	admin.GET("/edit/:slug/visual", s.visualEditHandler)
 	admin.POST("/edit/:slug/visual", s.visualEditSaveHandler, promptBodyCap)
@@ -394,6 +399,142 @@ const maxPromptBytes = 4 * 1024
 // can't blow past a sane budget.
 const maxPromptBodyBytes = 32 * 1024
 
+// maxPromptBodyWithAttachmentsBytes is the outer envelope on /build and
+// /edit/:slug where users can attach markdown files alongside the prompt:
+// 4 KiB prompt + 512 KiB total attachments + multipart overhead headroom. The
+// per-field and per-attachment caps below still gate the actual content.
+const maxPromptBodyWithAttachmentsBytes = 768 * 1024
+
+const (
+	// maxAttachmentBytes caps each individual markdown attachment. Picked to
+	// keep the model's context window manageable when several files are
+	// inlined at once.
+	maxAttachmentBytes = 64 * 1024
+	// maxAttachments caps how many markdown files can ride a single request.
+	maxAttachments = 10
+	// maxAttachmentsTotalBytes caps the combined size; pairs with the per-file
+	// cap so the worst case stays bounded for a small file count too.
+	maxAttachmentsTotalBytes = 512 * 1024
+)
+
+// parseMarkdownAttachments pulls user-uploaded markdown files out of a
+// multipart form on /build and /edit/:slug. Returns nil for "no files
+// attached" (which is the common case — the input is optional). Validation
+// failures surface as 400s with a readable message; nothing is silently
+// dropped.
+func parseMarkdownAttachments(c *echo.Context) ([]agent.MarkdownAttachment, error) {
+	form, err := c.MultipartForm()
+	if err != nil {
+		// Not a multipart submission (URL-encoded form): treat as "no attachments".
+		if errors.Is(err, http.ErrNotMultipart) {
+			return nil, nil
+		}
+		return nil, echo.NewHTTPError(http.StatusBadRequest, "could not parse upload: "+err.Error())
+	}
+	if form == nil {
+		return nil, nil
+	}
+	files := form.File["markdown"]
+	if len(files) == 0 {
+		return nil, nil
+	}
+	if len(files) > maxAttachments {
+		return nil, echo.NewHTTPError(http.StatusBadRequest,
+			fmt.Sprintf("too many markdown attachments (max %d)", maxAttachments))
+	}
+
+	out := make([]agent.MarkdownAttachment, 0, len(files))
+	seen := make(map[string]int, len(files))
+	total := 0
+	for _, fh := range files {
+		if fh.Size > maxAttachmentBytes {
+			return nil, echo.NewHTTPError(http.StatusBadRequest,
+				fmt.Sprintf("attachment %q is too large (max %d bytes)", fh.Filename, maxAttachmentBytes))
+		}
+		name, err := sanitizeMarkdownName(fh.Filename)
+		if err != nil {
+			return nil, echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
+		f, err := fh.Open()
+		if err != nil {
+			return nil, echo.NewHTTPError(http.StatusBadRequest,
+				fmt.Sprintf("open attachment %q: %s", fh.Filename, err.Error()))
+		}
+		body, readErr := io.ReadAll(io.LimitReader(f, maxAttachmentBytes+1))
+		_ = f.Close()
+		if readErr != nil {
+			return nil, echo.NewHTTPError(http.StatusBadRequest,
+				fmt.Sprintf("read attachment %q: %s", fh.Filename, readErr.Error()))
+		}
+		if len(body) > maxAttachmentBytes {
+			return nil, echo.NewHTTPError(http.StatusBadRequest,
+				fmt.Sprintf("attachment %q is too large (max %d bytes)", fh.Filename, maxAttachmentBytes))
+		}
+		if !utf8.Valid(body) {
+			return nil, echo.NewHTTPError(http.StatusBadRequest,
+				fmt.Sprintf("attachment %q is not valid UTF-8 text", fh.Filename))
+		}
+		total += len(body)
+		if total > maxAttachmentsTotalBytes {
+			return nil, echo.NewHTTPError(http.StatusBadRequest,
+				fmt.Sprintf("attachments exceed combined size limit (%d bytes)", maxAttachmentsTotalBytes))
+		}
+		// On duplicate basenames, suffix -2, -3, ... so the agent's seed loop
+		// still gets distinct lookup keys.
+		uniq := name
+		if n := seen[name]; n > 0 {
+			ext := path.Ext(name)
+			stem := strings.TrimSuffix(name, ext)
+			uniq = fmt.Sprintf("%s-%d%s", stem, n+1, ext)
+		}
+		seen[name]++
+		out = append(out, agent.MarkdownAttachment{Name: uniq, Content: string(body)})
+	}
+	return out, nil
+}
+
+// sanitizeMarkdownName returns a safe basename for an uploaded markdown file.
+// Rejects empty, path-bearing, non-markdown, or syntactically suspicious
+// names. The result is always lowercase and limited to [a-z0-9._-].
+func sanitizeMarkdownName(raw string) (string, error) {
+	base := path.Base(strings.TrimSpace(raw))
+	if base == "" || base == "." || base == "/" {
+		return "", errors.New("attachment filename is empty")
+	}
+	lower := strings.ToLower(base)
+	if !strings.HasSuffix(lower, ".md") && !strings.HasSuffix(lower, ".markdown") {
+		return "", fmt.Errorf("attachment %q must end in .md or .markdown", raw)
+	}
+	if len(lower) > 80 {
+		return "", fmt.Errorf("attachment name %q is too long (max 80 chars)", raw)
+	}
+	if bad, ok := firstDisallowedRune(lower); ok {
+		return "", fmt.Errorf("attachment name %q contains unsupported character %q (allowed: a-z, 0-9, . _ -)", raw, bad)
+	}
+	return lower, nil
+}
+
+func firstDisallowedRune(name string) (rune, bool) {
+	for _, r := range name {
+		if !markdownNameRuneAllowed(r) {
+			return r, true
+		}
+	}
+	return 0, false
+}
+
+func markdownNameRuneAllowed(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z':
+		return true
+	case r >= '0' && r <= '9':
+		return true
+	case r == '.' || r == '_' || r == '-':
+		return true
+	}
+	return false
+}
+
 func (s *Server) buildHandler(c *echo.Context) error {
 	prompt := strings.TrimSpace(c.FormValue("prompt"))
 	if prompt == "" {
@@ -404,6 +545,11 @@ func (s *Server) buildHandler(c *echo.Context) error {
 			fmt.Sprintf("prompt is too long (max %d bytes)", maxPromptBytes))
 	}
 
+	attachments, err := parseMarkdownAttachments(c)
+	if err != nil {
+		return err
+	}
+
 	requested := strings.TrimSpace(c.FormValue("slug"))
 	slug, err := s.resolveSlug(c.Request().Context(), requested)
 	if err != nil {
@@ -411,13 +557,14 @@ func (s *Server) buildHandler(c *echo.Context) error {
 	}
 
 	tmpl := templates.Get(c.FormValue("template"))
-	slog.Info("build.start", "slug", slug, "template", tmpl.ID)
+	slog.Info("build.start", "slug", slug, "template", tmpl.ID, "attachments", len(attachments))
 	return s.startBuild(c, build.Params{
 		Slug:         slug,
 		Prompt:       prompt,
 		LogKey:       "build",
 		Template:     tmpl,
 		SeedSkeleton: true,
+		Attachments:  attachments,
 	})
 }
 
@@ -756,6 +903,11 @@ func (s *Server) editSubmitHandler(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
+	attachments, err := parseMarkdownAttachments(c)
+	if err != nil {
+		return err
+	}
+
 	if existing := s.events.Get(slug); existing != nil && existing.Status == events.StatusBuilding {
 		return echo.NewHTTPError(http.StatusConflict, "edit already in progress for this site")
 	}
@@ -764,13 +916,14 @@ func (s *Server) editSubmitHandler(c *echo.Context) error {
 	meta := s.build.ReadMeta(ctx, slug)
 	tmpl := build.EffectiveTemplate(meta)
 	seeds := s.build.EditSeeds(ctx, slug, prompt)
-	slog.Info("edit.start", "slug", slug, "page", page, "selection_len", len(selection), "template", tmpl.ID, "seeds", len(seeds))
+	slog.Info("edit.start", "slug", slug, "page", page, "selection_len", len(selection), "template", tmpl.ID, "seeds", len(seeds), "attachments", len(attachments))
 	return s.startBuild(c, build.Params{
-		Slug:     slug,
-		Prompt:   build.EditPrompt(prompt, page, selection),
-		LogKey:   "edit",
-		Template: tmpl,
-		Seeds:    seeds,
+		Slug:        slug,
+		Prompt:      build.EditPrompt(prompt, page, selection),
+		LogKey:      "edit",
+		Template:    tmpl,
+		Seeds:       seeds,
+		Attachments: attachments,
 	})
 }
 

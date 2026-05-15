@@ -51,6 +51,25 @@ type SeedToolCall struct {
 	Response map[string]any
 }
 
+// MarkdownAttachment is a reference markdown file the user attached to a build
+// or edit submission. Lifetime is the single agent run: each attachment becomes
+// a seeded read_attached_markdown(name) call/response so the model sees the
+// content in history without spending a turn on it. Name is the sanitized
+// basename; Content is the raw markdown text.
+type MarkdownAttachment struct {
+	Name    string
+	Content string
+}
+
+type readAttachedMarkdownArgs struct {
+	Name string `json:"name"`
+}
+
+type readAttachedMarkdownResult struct {
+	Content string `json:"content"`
+	Error   string `json:"error,omitempty"`
+}
+
 // Tool results surface errors as data (Error field) rather than as a Go
 // error: this lets the model see the failure in the tool response and recover
 // (e.g. retry with a different path) instead of aborting the run.
@@ -194,8 +213,10 @@ type deleteFunctionResult struct {
 	Error string `json:"error,omitempty"`
 }
 
-// Run invokes the agent against the given slug. emit may be nil.
-func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, seeds []SeedToolCall, emit func(events.Event)) error {
+// Run invokes the agent against the given slug. emit may be nil. attachments
+// are inlined into the session as seeded read_attached_markdown(name)
+// call/response pairs ahead of the caller-supplied seeds.
+func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []MarkdownAttachment, seeds []SeedToolCall, emit func(events.Event)) error {
 	if emit == nil {
 		emit = func(events.Event) {}
 	}
@@ -204,7 +225,7 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 
 	// contextcheck flags this because Run has a ctx, but the tools fire later
 	// under per-invocation contexts from the runner; passing ctx would be wrong.
-	tools, err := buildAgentTools(s, slug, tmpl, emit, state)
+	tools, err := buildAgentTools(s, slug, tmpl, attachments, emit, state)
 	if err != nil {
 		return err
 	}
@@ -212,7 +233,7 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 	a, err := llmagent.New(llmagent.Config{
 		Name:        "html-builder",
 		Description: "Builds static HTML apps from a prompt",
-		Instruction: buildInstruction(tmpl),
+		Instruction: buildInstruction(tmpl, attachments),
 		Model:       llm,
 		Tools:       tools,
 	})
@@ -220,8 +241,10 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 		return fmt.Errorf("create agent: %w", err)
 	}
 
+	allSeeds := append(AttachmentSeeds(attachments), seeds...)
+
 	sessSvc := session.InMemoryService()
-	sess, err := seedSession(ctx, sessSvc, slug, seeds)
+	sess, err := seedSession(ctx, sessSvc, slug, allSeeds)
 	if err != nil {
 		return err
 	}
@@ -335,7 +358,7 @@ func (e emitter) fail(path string, err error) {
 // The function-authoring tools (write_function, read_function, list_functions)
 // are only registered when the template opts in via EnablesFunctions. Older
 // brochure templates see no behavioural change.
-func buildAgentTools(s *store.Store, slug string, tmpl *templates.SiteTemplate, emit func(events.Event), state *buildState) ([]tool.Tool, error) {
+func buildAgentTools(s *store.Store, slug string, tmpl *templates.SiteTemplate, attachments []MarkdownAttachment, emit func(events.Event), state *buildState) ([]tool.Tool, error) {
 	// guardedBuilders read/update buildState (anti-loop ring + iteration
 	// counter for the budget hint); plain builders don't need it.
 	guardedBuilders := []func(*store.Store, string, func(events.Event), *buildState) (tool.Tool, error){
@@ -350,7 +373,7 @@ func buildAgentTools(s *store.Store, slug string, tmpl *templates.SiteTemplate, 
 		newGrepFilesTool,
 		newListAssetsTool,
 	}
-	tools := make([]tool.Tool, 0, len(guardedBuilders)+len(plainBuilders)+5)
+	tools := make([]tool.Tool, 0, len(guardedBuilders)+len(plainBuilders)+6)
 	for _, b := range guardedBuilders {
 		t, err := b(s, slug, emit, state)
 		if err != nil {
@@ -365,6 +388,11 @@ func buildAgentTools(s *store.Store, slug string, tmpl *templates.SiteTemplate, 
 		}
 		tools = append(tools, t)
 	}
+	mdTool, err := newReadAttachedMarkdownTool(attachments, emit)
+	if err != nil {
+		return nil, err
+	}
+	tools = append(tools, mdTool)
 	if tmpl != nil && tmpl.EnablesFunctions {
 		fnBuilders := []func(*store.Store, string, func(events.Event)) (tool.Tool, error){
 			newWriteFunctionTool,
@@ -382,6 +410,70 @@ func buildAgentTools(s *store.Store, slug string, tmpl *templates.SiteTemplate, 
 		}
 	}
 	return tools, nil
+}
+
+// newReadAttachedMarkdownTool exposes user-attached markdown files to the
+// agent. Attachments are passed in by value (already snapshotted at request
+// time) so the tool closure is safe for concurrent reads across runs. Always
+// registered — when no files are attached the tool reports an error in the
+// result rather than going missing, which keeps the tool surface uniform
+// regardless of how the run was invoked.
+func newReadAttachedMarkdownTool(attachments []MarkdownAttachment, emit func(events.Event)) (tool.Tool, error) {
+	em := emitter{emit: emit, tool: "read_attached_markdown"}
+	index := make(map[string]string, len(attachments))
+	names := make([]string, 0, len(attachments))
+	for _, a := range attachments {
+		if _, dup := index[a.Name]; dup {
+			continue
+		}
+		index[a.Name] = a.Content
+		names = append(names, a.Name)
+	}
+	available := strings.Join(names, ", ")
+	t, err := functiontool.New(
+		functiontool.Config{
+			Name:        "read_attached_markdown",
+			Description: "Read a markdown file the user attached to this build/edit submission. Each returned line is prefixed with its 1-indexed line number and a tab, same convention as read_file. Use these attachments as authoritative source for page copy. The full set of names was pre-loaded into your conversation history; call this tool only if you need to re-read.",
+		},
+		func(_ tool.Context, args readAttachedMarkdownArgs) (readAttachedMarkdownResult, error) {
+			em.start(args.Name)
+			content, ok := index[args.Name]
+			if !ok {
+				msg := "no markdown attached on this run"
+				if available != "" {
+					msg = fmt.Sprintf("no attachment named %q (available: %s)", args.Name, available)
+				}
+				err := errors.New(msg)
+				em.fail(args.Name, err)
+				return readAttachedMarkdownResult{Error: err.Error()}, nil
+			}
+			slog.Info("agent.read_attached_markdown", "name", args.Name, "length", len(content))
+			em.done(args.Name)
+			return readAttachedMarkdownResult{Content: NumberLines(content, 1)}, nil
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create read_attached_markdown tool: %w", err)
+	}
+	return t, nil
+}
+
+// AttachmentSeeds returns one synthetic read_attached_markdown(name)
+// call/response per attachment. Prepended to caller-supplied seeds so the
+// model sees reference material before any per-page reads.
+func AttachmentSeeds(attachments []MarkdownAttachment) []SeedToolCall {
+	if len(attachments) == 0 {
+		return nil
+	}
+	seeds := make([]SeedToolCall, 0, len(attachments))
+	for _, a := range attachments {
+		seeds = append(seeds, SeedToolCall{
+			Name:     "read_attached_markdown",
+			Args:     map[string]any{"name": a.Name},
+			Response: map[string]any{"content": NumberLines(a.Content, 1)},
+		})
+	}
+	return seeds
 }
 
 func newWriteFileTool(s *store.Store, slug string, emit func(events.Event), state *buildState) (tool.Tool, error) {
@@ -1102,19 +1194,25 @@ func collectAssetEntries(ctx context.Context, s *store.Store, slug string, files
 // buildInstruction layers the per-template addendum on top of the base system
 // prompt and adds a one-liner whenever the template ships skeleton files, so
 // the agent knows to inspect the existing filesystem before writing.
-func buildInstruction(tmpl *templates.SiteTemplate) string {
-	if tmpl == nil {
-		return systemPrompt
-	}
+func buildInstruction(tmpl *templates.SiteTemplate, attachments []MarkdownAttachment) string {
 	parts := []string{systemPrompt}
-	if tmpl.PromptAddendum != "" {
-		parts = append(parts, tmpl.PromptAddendum)
+	if tmpl != nil {
+		if tmpl.PromptAddendum != "" {
+			parts = append(parts, tmpl.PromptAddendum)
+		}
+		if tmpl.EnablesFunctions {
+			parts = append(parts, functionsPrompt)
+		}
+		if len(tmpl.Skeleton) > 0 {
+			parts = append(parts, "A starter skeleton has already been written for this site. Call list_files and read_file before deciding what to write — extend or refine the existing files rather than starting from scratch.")
+		}
 	}
-	if tmpl.EnablesFunctions {
-		parts = append(parts, functionsPrompt)
-	}
-	if len(tmpl.Skeleton) > 0 {
-		parts = append(parts, "A starter skeleton has already been written for this site. Call list_files and read_file before deciding what to write — extend or refine the existing files rather than starting from scratch.")
+	if len(attachments) > 0 {
+		names := make([]string, 0, len(attachments))
+		for _, a := range attachments {
+			names = append(names, a.Name)
+		}
+		parts = append(parts, fmt.Sprintf("The user attached the following markdown files as reference content: %s. Their contents were pre-loaded into your conversation history via read_attached_markdown calls. Treat them as authoritative source for page copy unless the user's prompt says otherwise.", strings.Join(names, ", ")))
 	}
 	return strings.Join(parts, "\n\n")
 }

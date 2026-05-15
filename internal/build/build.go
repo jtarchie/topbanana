@@ -94,6 +94,8 @@ func New(s *store.Store, llm adkmodel.LLM, t *events.Tracker, snap *snapshot.Ser
 // Params describes one invocation of Start. LogKey distinguishes build vs.
 // edit in slog output. SeedSkeleton (initial builds only) writes the
 // template's skeleton files and metadata sidecar before the agent runs.
+// Attachments are user-uploaded markdown files surfaced to the agent as
+// pre-seeded read_attached_markdown calls; one-shot per invocation.
 type Params struct {
 	Slug         string
 	Prompt       string
@@ -101,6 +103,7 @@ type Params struct {
 	Template     *templates.SiteTemplate
 	SeedSkeleton bool
 	Seeds        []agent.SeedToolCall
+	Attachments  []agent.MarkdownAttachment
 }
 
 // Start records the build as in-flight and runs it asynchronously. The
@@ -130,7 +133,7 @@ func (svc *Service) Start(p Params) {
 				slog.Warn(p.LogKey+".snapshot_failed", "slug", p.Slug, "err", err)
 			}
 		}
-		err := svc.buildAndLint(ctx, p.Slug, p.Prompt, p.Template, p.Seeds)
+		err := svc.buildAndLint(ctx, p.Slug, p.Prompt, p.Template, p.Attachments, p.Seeds)
 		if err != nil {
 			slog.Error(p.LogKey+".failed", "slug", p.Slug, "err", err)
 			svc.events.Fail(p.Slug, err)
@@ -162,13 +165,13 @@ func LintFixPrompt(errs []lint.Error) string {
 
 // buildAndLint runs the agent then lints with up to maxLintRetries fix-up
 // passes when issues are found.
-func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl *templates.SiteTemplate, seeds []agent.SeedToolCall) error {
+func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.MarkdownAttachment, seeds []agent.SeedToolCall) error {
 	ctx, cancel := context.WithTimeout(ctx, buildTimeout)
 	defer cancel()
 
 	emit := func(e events.Event) { svc.events.Emit(slug, e) }
 
-	err := agent.Run(ctx, svc.llm, svc.store, slug, prompt, tmpl, seeds, emit)
+	err := agent.Run(ctx, svc.llm, svc.store, slug, prompt, tmpl, attachments, seeds, emit)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("build timed out after %s", buildTimeout)
@@ -193,7 +196,7 @@ func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl 
 
 		slog.Info("build.lint_retry", "slug", slug, "attempt", attempt+1, "issues", len(lintErrs))
 		emit(events.Event{Type: events.TypeStatus, Status: events.StatusRetry, Message: fmt.Sprintf("fixing %d issue(s)", len(lintErrs))})
-		err := agent.Run(ctx, svc.llm, svc.store, slug, LintFixPrompt(lintErrs), tmpl, nil, emit)
+		err := agent.Run(ctx, svc.llm, svc.store, slug, LintFixPrompt(lintErrs), tmpl, attachments, nil, emit)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				return fmt.Errorf("build timed out after %s", buildTimeout)
