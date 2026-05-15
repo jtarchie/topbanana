@@ -25,6 +25,12 @@ import (
 const (
 	maxLintRetries = 3
 
+	// buildTimeout caps total wall-clock for the initial agent.Run plus any
+	// lint-retry passes plus the lint passes themselves. The ADK runner has
+	// no built-in deadline; without this a stuck LLM call or a stalled
+	// network ties up a goroutine and token budget indefinitely.
+	buildTimeout = 5 * time.Minute
+
 	// MetaFile holds the per-site sidecar (template id, creation time, custom
 	// domains). Stored alongside the HTML files in the same S3 prefix so it
 	// travels with the site.
@@ -152,10 +158,16 @@ func LintFixPrompt(errs []lint.Error) string {
 // buildAndLint runs the agent then lints with up to maxLintRetries fix-up
 // passes when issues are found.
 func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl *templates.SiteTemplate, seeds []agent.SeedToolCall) error {
+	ctx, cancel := context.WithTimeout(ctx, buildTimeout)
+	defer cancel()
+
 	emit := func(e events.Event) { svc.events.Emit(slug, e) }
 
 	err := agent.Run(ctx, svc.llm, svc.store, slug, prompt, tmpl, seeds, emit)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("build timed out after %s", buildTimeout)
+		}
 		return fmt.Errorf("agent run: %w", err)
 	}
 
@@ -178,6 +190,9 @@ func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl 
 		emit(events.Event{Type: events.TypeStatus, Status: events.StatusRetry, Message: fmt.Sprintf("fixing %d issue(s)", len(lintErrs))})
 		err := agent.Run(ctx, svc.llm, svc.store, slug, LintFixPrompt(lintErrs), tmpl, nil, emit)
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				return fmt.Errorf("build timed out after %s", buildTimeout)
+			}
 			return fmt.Errorf("agent retry: %w", err)
 		}
 	}
