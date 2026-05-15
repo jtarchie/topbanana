@@ -258,6 +258,52 @@ func TestGrepEligible(t *testing.T) {
 	}
 }
 
+func TestValidateHTMLPath(t *testing.T) {
+	cases := []struct {
+		name    string
+		path    string
+		wantErr string // substring; empty = expect no error
+	}{
+		{name: "simple ok", path: "index.html"},
+		{name: "nested ok", path: "blog/post.html"},
+		{name: "dotted ok", path: "v2.about.html"},
+		{name: "underscore ok", path: "about_us.html"},
+		{name: "empty", path: "", wantErr: "required"},
+		{name: "wrong ext", path: "index.htm", wantErr: "must end with .html"},
+		{name: "css ext", path: "style.css", wantErr: "must end with .html"},
+		{name: "uppercase", path: "INDEX.HTML", wantErr: "[a-z0-9_/.-]"},
+		{name: "trailing slash", path: "index.html/", wantErr: "empty or relative"},
+		{name: "traversal leading", path: "../escape.html", wantErr: "relative segment"},
+		{name: "traversal middle", path: "foo/../bar.html", wantErr: "relative segment"},
+		{name: "leading slash", path: "/abs.html", wantErr: "leading /"},
+		{name: "double slash", path: "foo//bar.html", wantErr: "empty or relative"},
+		{name: "backslash", path: `foo\bar.html`, wantErr: "forward slashes"},
+		{name: "space", path: "bad name.html", wantErr: "[a-z0-9_/.-]"},
+		{name: "control char", path: "x\nhtml.html", wantErr: "[a-z0-9_/.-]"},
+		{name: "reserved functions", path: "functions/x.html", wantErr: "reserved prefix"},
+		{name: "reserved assets", path: "assets/x.html", wantErr: "reserved prefix"},
+		{name: "reserved meta", path: ".buildabear.json", wantErr: "must end with .html"},
+		{name: "too long", path: strings.Repeat("a", maxHTMLPathLen-4) + "x.html", wantErr: "too long"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateHTMLPath(tc.path)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error %q does not contain %q", err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestTruncateSnippet(t *testing.T) {
 	short := "hello"
 	if truncateSnippet(short) != short {

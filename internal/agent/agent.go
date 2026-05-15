@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -357,7 +358,41 @@ func newWriteFileTool(s *store.Store, slug string, emit func(events.Event)) (too
 		functiontool.Config{Name: "write_file", Description: "Write content to an HTML file"},
 		func(tctx tool.Context, args writeFileArgs) (writeFileResult, error) {
 			em.start(args.Path)
-			err := s.Write(tctx, slug, args.Path, args.Content, "text/html; charset=utf-8", nil)
+			err := validateHTMLPath(args.Path)
+			if err != nil {
+				em.fail(args.Path, err)
+				return writeFileResult{Error: err.Error()}, nil
+			}
+			if len(args.Content) > maxHTMLFileBytes {
+				err = fmt.Errorf("content too large: %d bytes (max %d)", len(args.Content), maxHTMLFileBytes)
+				em.fail(args.Path, err)
+				return writeFileResult{Error: err.Error()}, nil
+			}
+			// File-count cap: only block when this path would create a *new*
+			// HTML file beyond the limit. Overwrites of existing files are
+			// always allowed. List failures don't block the write — we'd
+			// rather risk an extra file than fail a legitimate edit because
+			// of a transient S3 hiccup.
+			files, listErr := s.List(tctx, slug)
+			if listErr == nil {
+				htmlCount, exists := 0, false
+				for _, f := range files {
+					if f == args.Path {
+						exists = true
+					}
+					if strings.HasSuffix(f, ".html") {
+						htmlCount++
+					}
+				}
+				if !exists && htmlCount >= maxHTMLFiles {
+					err := fmt.Errorf("site has reached the %d HTML file limit", maxHTMLFiles)
+					em.fail(args.Path, err)
+					return writeFileResult{Error: err.Error()}, nil
+				}
+			} else {
+				slog.Warn("agent.write_file.list", "slug", slug, "err", listErr)
+			}
+			err = s.Write(tctx, slug, args.Path, args.Content, "text/html; charset=utf-8", nil)
 			if err != nil {
 				slog.Warn("agent.write_file", "slug", slug, "path", args.Path, "err", err)
 				em.fail(args.Path, err)
@@ -383,6 +418,11 @@ func newReadFileTool(s *store.Store, slug string, emit func(events.Event)) (tool
 		},
 		func(tctx tool.Context, args readFileArgs) (readFileResult, error) {
 			em.start(args.Path)
+			err := validateHTMLPath(args.Path)
+			if err != nil {
+				em.fail(args.Path, err)
+				return readFileResult{Error: err.Error()}, nil
+			}
 			obj, err := s.Read(tctx, slug, args.Path)
 			if err != nil {
 				slog.Warn("agent.read_file", "slug", slug, "path", args.Path, "err", err)
@@ -447,6 +487,11 @@ func newEditFileTool(s *store.Store, slug string, emit func(events.Event)) (tool
 		},
 		func(tctx tool.Context, args editFileArgs) (editFileResult, error) {
 			em.start(args.Path)
+			pathErr := validateHTMLPath(args.Path)
+			if pathErr != nil {
+				em.fail(args.Path, pathErr)
+				return editFileResult{Error: pathErr.Error()}, nil
+			}
 			if args.OldText == "" {
 				em.fail(args.Path, errors.New("old_text required"))
 				return editFileResult{Error: "old_text is required"}, nil
@@ -476,6 +521,11 @@ func newEditFileTool(s *store.Store, slug string, emit func(events.Event)) (tool
 			if applyErr != nil {
 				em.fail(args.Path, applyErr)
 				return editFileResult{Error: applyErr.Error()}, nil
+			}
+			if len(updated) > maxHTMLFileBytes {
+				err := fmt.Errorf("content too large after edit: %d bytes (max %d)", len(updated), maxHTMLFileBytes)
+				em.fail(args.Path, err)
+				return editFileResult{Error: err.Error()}, nil
 			}
 			contentType := obj.ContentType
 			if contentType == "" {
@@ -512,6 +562,11 @@ func newReplaceLinesTool(s *store.Store, slug string, emit func(events.Event)) (
 		},
 		func(tctx tool.Context, args replaceLinesArgs) (editFileResult, error) {
 			em.start(args.Path)
+			pathErr := validateHTMLPath(args.Path)
+			if pathErr != nil {
+				em.fail(args.Path, pathErr)
+				return editFileResult{Error: pathErr.Error()}, nil
+			}
 			obj, err := s.Read(tctx, slug, args.Path)
 			if err != nil {
 				slog.Warn("agent.replace_lines", "slug", slug, "path", args.Path, "err", err)
@@ -524,6 +579,11 @@ func newReplaceLinesTool(s *store.Store, slug string, emit func(events.Event)) (
 			}
 			updated, err := spliceLines(obj.Content, args.StartLine, args.EndLine, args.NewText)
 			if err != nil {
+				em.fail(args.Path, err)
+				return editFileResult{Error: err.Error()}, nil
+			}
+			if len(updated) > maxHTMLFileBytes {
+				err := fmt.Errorf("content too large after replace_lines: %d bytes (max %d)", len(updated), maxHTMLFileBytes)
 				em.fail(args.Path, err)
 				return editFileResult{Error: err.Error()}, nil
 			}
@@ -562,6 +622,11 @@ func newInsertAtLineTool(s *store.Store, slug string, emit func(events.Event)) (
 		},
 		func(tctx tool.Context, args insertAtLineArgs) (editFileResult, error) {
 			em.start(args.Path)
+			pathErr := validateHTMLPath(args.Path)
+			if pathErr != nil {
+				em.fail(args.Path, pathErr)
+				return editFileResult{Error: pathErr.Error()}, nil
+			}
 			obj, err := s.Read(tctx, slug, args.Path)
 			if err != nil {
 				slog.Warn("agent.insert_at_line", "slug", slug, "path", args.Path, "err", err)
@@ -574,6 +639,11 @@ func newInsertAtLineTool(s *store.Store, slug string, emit func(events.Event)) (
 			}
 			updated, err := insertAfterLine(obj.Content, args.AfterLine, args.Content)
 			if err != nil {
+				em.fail(args.Path, err)
+				return editFileResult{Error: err.Error()}, nil
+			}
+			if len(updated) > maxHTMLFileBytes {
+				err := fmt.Errorf("content too large after insert_at_line: %d bytes (max %d)", len(updated), maxHTMLFileBytes)
 				em.fail(args.Path, err)
 				return editFileResult{Error: err.Error()}, nil
 			}
@@ -966,6 +1036,99 @@ const (
 	functionsDir = "functions/"
 	jsExt        = ".js"
 )
+
+const (
+	maxHTMLFileBytes = 256 * 1024
+	maxHTMLFiles     = 25
+	maxHTMLPathLen   = 200
+)
+
+// reservedWritePrefixes are paths managed by other tools (functions/, assets/)
+// that the HTML write tools must not clobber.
+var reservedWritePrefixes = []string{"functions/", "assets/"}
+
+// reservedWritePaths are exact paths the HTML write tools must not touch
+// (e.g. the per-site sidecar persisted by the build service).
+var reservedWritePaths = map[string]bool{".buildabear.json": true}
+
+// validateHTMLPath gates every tool that writes/edits HTML. Mirrors
+// validateFunctionName's posture: reject anything that could escape the slug,
+// smuggle non-HTML into HTML paths, or clobber files managed by other tools.
+func validateHTMLPath(p string) error {
+	for _, check := range htmlPathChecks {
+		err := check(p)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+var htmlPathChecks = []func(string) error{
+	checkHTMLPathShape,
+	checkHTMLPathCharset,
+	checkHTMLPathSegments,
+	checkHTMLPathExtension,
+	checkHTMLPathReserved,
+}
+
+func checkHTMLPathShape(p string) error {
+	switch {
+	case p == "":
+		return errors.New("path is required")
+	case len(p) > maxHTMLPathLen:
+		return fmt.Errorf("path too long (max %d chars)", maxHTMLPathLen)
+	case strings.HasPrefix(p, "/"):
+		return errors.New("path must be relative (no leading /)")
+	case strings.Contains(p, `\`):
+		return errors.New("path must use forward slashes")
+	}
+	return nil
+}
+
+func checkHTMLPathCharset(p string) error {
+	for _, r := range p {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= '0' && r <= '9':
+		case r == '-' || r == '_' || r == '/' || r == '.':
+		default:
+			return fmt.Errorf("path must match [a-z0-9_/.-] (got %q)", p)
+		}
+	}
+	return nil
+}
+
+func checkHTMLPathSegments(p string) error {
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return fmt.Errorf("path %q contains an empty or relative segment", p)
+		}
+	}
+	if path.Clean(p) != p {
+		return fmt.Errorf("path %q is not canonical", p)
+	}
+	return nil
+}
+
+func checkHTMLPathExtension(p string) error {
+	if !strings.HasSuffix(p, ".html") {
+		return fmt.Errorf("path %q must end with .html", p)
+	}
+	return nil
+}
+
+func checkHTMLPathReserved(p string) error {
+	if reservedWritePaths[p] {
+		return fmt.Errorf("path %q is reserved", p)
+	}
+	for _, pfx := range reservedWritePrefixes {
+		if strings.HasPrefix(p, pfx) {
+			return fmt.Errorf("path %q is under reserved prefix %q", p, pfx)
+		}
+	}
+	return nil
+}
 
 // validateFunctionName accepts the bare handler name (no path, no extension)
 // the agent supplies to write_function/read_function. We reject anything that
