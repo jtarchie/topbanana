@@ -162,6 +162,22 @@ func (t *Tracker) Subscribe(slug string) (history []Event, ch chan Event, termin
 	return history, ch, terminal
 }
 
+// Forget drops a slug's Status and closes any live subscriber channels. Used
+// when an app is deleted so /status/:slug stops reporting on a ghost and
+// goroutines waiting on Subscribe can exit.
+func (t *Tracker) Forget(slug string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	s, ok := t.m[slug]
+	if !ok {
+		return
+	}
+	for ch := range s.subs {
+		close(ch)
+	}
+	delete(t.m, slug)
+}
+
 func (t *Tracker) Unsubscribe(slug string, ch chan Event) {
 	t.mu.Lock()
 	defer t.mu.Unlock()

@@ -157,6 +157,7 @@ func New(d Deps) *echo.Echo {
 	admin.POST("/upload/:slug", s.uploadHandler)
 	admin.GET("/settings/:slug", s.settingsHandler)
 	admin.POST("/settings/:slug", s.settingsSubmitHandler)
+	admin.POST("/settings/:slug/delete", s.settingsDeleteHandler)
 	admin.GET("/history/:slug", s.historyHandler)
 	admin.POST("/history/:slug/restore", s.historyRestoreHandler)
 	admin.POST("/history/:slug/delete", s.historyDeleteHandler)
@@ -340,6 +341,11 @@ type appLink struct {
 	URL         string
 }
 
+type appsData struct {
+	Apps  []appLink
+	Flash string
+}
+
 func (s *Server) appsHandler(c *echo.Context) error {
 	ctx := c.Request().Context()
 	apps, err := s.store.ListApps(ctx)
@@ -361,7 +367,10 @@ func (s *Server) appsHandler(c *echo.Context) error {
 		return appLinkKey(links[i]) < appLinkKey(links[j])
 	})
 
-	return s.render(c, "apps", links)
+	return s.render(c, "apps", appsData{
+		Apps:  links,
+		Flash: c.QueryParam("flash"),
+	})
 }
 
 // appLinkKey orders apps by Title when present, otherwise by slug — keeps
@@ -863,6 +872,55 @@ func (s *Server) settingsSubmitHandler(c *echo.Context) error {
 	}
 	s.rebuildDomainIndex(ctx)
 	return c.Redirect(http.StatusSeeOther, "/settings/"+slug) //nolint:wrapcheck
+}
+
+// settingsDeleteHandler permanently removes an app: all site files, all
+// snapshots, the in-memory build status, and any custom-domain mapping. The
+// caller must POST `confirm` equal to the slug — the typed-slug guard is the
+// only safety check.
+func (s *Server) settingsDeleteHandler(c *echo.Context) error {
+	slug := c.Param("slug")
+	err := validateSlug(slug)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	if c.FormValue("confirm") != slug {
+		return echo.NewHTTPError(http.StatusBadRequest, "confirmation does not match slug")
+	}
+
+	ctx := c.Request().Context()
+
+	files, err := s.store.List(ctx, slug)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "list files", err)
+	}
+	for _, p := range files {
+		err = s.store.Delete(ctx, slug, p)
+		if err != nil {
+			return httpErr(http.StatusInternalServerError, "delete file", err)
+		}
+	}
+
+	snapCount := 0
+	if s.snapshot != nil {
+		snaps, err := s.snapshot.List(ctx, slug)
+		if err != nil {
+			return httpErr(http.StatusInternalServerError, "list snapshots", err)
+		}
+		for _, sn := range snaps {
+			err = s.snapshot.Delete(ctx, slug, sn.Key)
+			if err != nil {
+				return httpErr(http.StatusInternalServerError, "delete snapshot", err)
+			}
+		}
+		snapCount = len(snaps)
+	}
+
+	s.events.Forget(slug)
+	s.rebuildDomainIndex(ctx)
+
+	slog.Info("app.delete", "slug", slug, "files", len(files), "snapshots", snapCount)
+	return c.Redirect(http.StatusSeeOther, "/apps?flash="+urlEscape("Deleted "+slug)) //nolint:wrapcheck
 }
 
 // parseDomains splits the settings-form textarea into a deduped, normalized

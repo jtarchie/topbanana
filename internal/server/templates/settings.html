@@ -43,6 +43,18 @@
 
     <button type="submit">Save settings</button>
   </form>
+
+  <section class="danger-zone">
+    <h2>Danger zone</h2>
+    <p>Deletes all files, snapshots, and stored data for this app. Cannot be undone.</p>
+    <form method="POST" action="/settings/{{ .Slug }}/delete">
+      <div class="row">
+        <label for="confirm">Type <code>{{ .Slug }}</code> to confirm</label>
+        <input type="text" name="confirm" id="confirm" autocomplete="off" required placeholder="{{ .Slug }}">
+      </div>
+      <button type="submit">Delete this app</button>
+    </form>
+  </section>
 </main>
 {{ template "footer" . }}
 </body>

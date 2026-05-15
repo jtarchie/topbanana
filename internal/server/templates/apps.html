@@ -8,13 +8,16 @@
 {{ template "brand" . }}
 <main>
   <h1>Apps</h1>
-  {{ if . }}
+  {{ if .Flash }}
+    <div class="flash flash-ok" role="status">{{ .Flash }}</div>
+  {{ end }}
+  {{ if .Apps }}
   <ul class="list">
-    {{ range . }}
+    {{ range .Apps }}
     <li>
       <a href="{{ .URL }}">{{ if .Title }}{{ .Title }}{{ else }}{{ .Name }}{{ end }}</a>
       {{ if .Description }}<p class="desc">{{ .Description }}</p>{{ end }}
-      <p class="desc muted"><code>{{ .Name }}</code> &middot; <a href="/edit/{{ .Name }}">Edit</a> &middot; <a href="/data/{{ .Name }}">Data</a></p>
+      <p class="desc muted"><code>{{ .Name }}</code> &middot; <a href="/edit/{{ .Name }}">Edit</a> &middot; <a href="/data/{{ .Name }}">Data</a> &middot; <a href="/settings/{{ .Name }}">Settings</a></p>
     </li>
     {{ end }}
   </ul>
