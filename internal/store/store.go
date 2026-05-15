@@ -351,6 +351,9 @@ func (s *Store) ListPrefix(ctx context.Context, prefix string) ([]string, error)
 	return keys, nil
 }
 
+// ListApps returns the slugs of every site in the bucket. Top-level prefixes
+// that start with "_" are reserved (e.g. _snapshots/) and excluded — slugs
+// are restricted to [a-z0-9-] so this can never hide a real app.
 func (s *Store) ListApps(ctx context.Context) ([]string, error) {
 	out, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 		Bucket:    aws.String(s.bucket),
@@ -363,9 +366,10 @@ func (s *Store) ListApps(ctx context.Context) ([]string, error) {
 	for _, cp := range out.CommonPrefixes {
 		prefix := aws.ToString(cp.Prefix)
 		app := strings.TrimSuffix(prefix, "/")
-		if app != "" {
-			apps = append(apps, app)
+		if app == "" || strings.HasPrefix(app, "_") {
+			continue
 		}
+		apps = append(apps, app)
 	}
 	return apps, nil
 }
