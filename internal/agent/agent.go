@@ -456,7 +456,7 @@ func newReadFileTool(s *store.Store, slug string, emit func(events.Event)) (tool
 	t, err := functiontool.New(
 		functiontool.Config{
 			Name:        "read_file",
-			Description: "Read content from an HTML file. Optionally pass start_line and end_line (1-indexed, inclusive) to read only a slice; total_lines is always returned so you can plan a follow-up read.",
+			Description: "Read content from an HTML file. Each returned line is prefixed with its 1-indexed line number and a tab (`   42\\t<section>`), so the number you pass to replace_lines/insert_at_line is the number you see — no counting newlines. Optionally pass start_line and end_line (1-indexed, inclusive) to read only a slice; line numbers in the slice still refer to the original file. total_lines is always returned. The leading `<number>\\t` is annotation, not file content — strip it before passing text back to write_file/edit_file/replace_lines/insert_at_line.",
 		},
 		func(tctx tool.Context, args readFileArgs) (readFileResult, error) {
 			em.start(args.Path)
@@ -476,17 +476,45 @@ func newReadFileTool(s *store.Store, slug string, emit func(events.Event)) (tool
 				em.fail(args.Path, sliceErr)
 				return readFileResult{Error: sliceErr.Error(), TotalLines: total}, nil
 			}
+			numbered := NumberLines(content, max(args.StartLine, 1))
 			slog.Info("agent.read_file", "slug", slug, "path", args.Path,
 				"length", len(content), "total_lines", total,
 				"start_line", args.StartLine, "end_line", args.EndLine)
 			em.done(args.Path)
-			return readFileResult{Content: content, TotalLines: total}, nil
+			return readFileResult{Content: numbered, TotalLines: total}, nil
 		},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create read_file tool: %w", err)
 	}
 	return t, nil
+}
+
+// NumberLines prefixes every line in content with its 1-indexed line number
+// (right-aligned to 6 columns, followed by a tab), matching the cat -n
+// convention LLMs recognize from training. startOffset is the number to
+// assign to the first line — pass 1 for a full-file read or the requested
+// start_line for a slice, so numbers always refer to positions in the
+// original file rather than the slice's local index. The empty string
+// returns the empty string. Exported so internal/build can apply the same
+// transformation to seeded read_file responses.
+func NumberLines(content string, startOffset int) string {
+	if content == "" {
+		return ""
+	}
+	if startOffset < 1 {
+		startOffset = 1
+	}
+	lines := strings.Split(content, "\n")
+	var out strings.Builder
+	out.Grow(len(content) + len(lines)*8)
+	for i, line := range lines {
+		if i > 0 {
+			out.WriteByte('\n')
+		}
+		fmt.Fprintf(&out, "%6d\t%s", startOffset+i, line)
+	}
+	return out.String()
 }
 
 // sliceLines returns a 1-indexed-inclusive slice of content delimited by \n,

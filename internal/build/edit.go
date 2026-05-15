@@ -70,10 +70,17 @@ func (svc *Service) EditSeeds(ctx context.Context, slug, prompt string) []agent.
 			break
 		}
 		total += len(obj.Content)
+		totalLines := 0
+		if obj.Content != "" {
+			totalLines = strings.Count(obj.Content, "\n") + 1
+		}
 		seeds = append(seeds, agent.SeedToolCall{
-			Name:     "read_file",
-			Args:     map[string]any{"path": page},
-			Response: map[string]any{"content": obj.Content},
+			Name: "read_file",
+			Args: map[string]any{"path": page},
+			Response: map[string]any{
+				"content":     agent.NumberLines(obj.Content, 1),
+				"total_lines": totalLines,
+			},
 		})
 	}
 

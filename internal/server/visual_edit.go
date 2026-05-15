@@ -243,6 +243,11 @@ func assemblePage(original, newHTML, newCSS string) (string, error) {
 		}
 	}
 
+	// DocumentNode itself isn't formatted (its children — doctype, html —
+	// sit at column 0), so start the depth counter at -1 so <html> lands at
+	// depth 0.
+	prettyPrintBlockElements(doc, -1)
+
 	var out bytes.Buffer
 	err = html.Render(&out, doc)
 	if err != nil {
@@ -268,4 +273,136 @@ func findHeadBody(n *html.Node) (head, body *html.Node) {
 	}
 	walk(n)
 	return head, body
+}
+
+// blockContainers are HTML elements whose children are conventionally
+// laid out on separate lines. We only inject indentation when every
+// direct child is itself a block element or comment — mixed inline/text
+// children would render with extra visible spaces if we touched them.
+var blockContainers = map[string]bool{
+	"html": true, "head": true, "body": true,
+	"main": true, "header": true, "footer": true, "nav": true,
+	"section": true, "article": true, "aside": true,
+	"div": true, "ul": true, "ol": true, "dl": true,
+	"table": true, "thead": true, "tbody": true, "tfoot": true, "tr": true,
+	"figure": true, "form": true, "fieldset": true, "details": true,
+}
+
+// blockChildren are element names that may appear as direct children of a
+// block container without forcing us to leave the container's formatting
+// alone. Inline elements and text deliberately aren't here.
+var blockChildren = map[string]bool{
+	"html": true, "head": true, "body": true,
+	"main": true, "header": true, "footer": true, "nav": true,
+	"section": true, "article": true, "aside": true,
+	"div": true, "ul": true, "ol": true, "dl": true, "dt": true, "dd": true,
+	"li": true, "p": true,
+	"h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
+	"table": true, "thead": true, "tbody": true, "tfoot": true, "tr": true,
+	"th": true, "td": true, "caption": true, "colgroup": true, "col": true,
+	"figure": true, "figcaption": true,
+	"form": true, "fieldset": true, "legend": true, "details": true, "summary": true,
+	"blockquote": true, "hr": true, "address": true,
+	"link": true, "meta": true, "title": true, "style": true, "script": true,
+	"base": true, "noscript": true,
+}
+
+// whitespaceSensitive marks elements whose descendants must be left
+// byte-identical: their text content is rendered verbatim (pre, textarea)
+// or visible whitespace would change visual output (code, kbd, samp).
+var whitespaceSensitive = map[string]bool{
+	"pre": true, "textarea": true, "script": true,
+	"code": true, "kbd": true, "samp": true, "title": true,
+}
+
+// prettyPrintBlockElements walks the html.Node tree and injects newline +
+// indentation TextNode children between block-level siblings, so that
+// html.Render emits one block element per line. This restores stable line
+// numbering after the visual editor saves a document whose body fragment
+// came from GrapesJS without inter-tag whitespace.
+//
+// Containers whose direct children mix in text or inline elements are left
+// untouched (otherwise we'd introduce visible whitespace between, e.g.,
+// adjacent <span>s inside a <button>). Whitespace-sensitive subtrees are
+// skipped entirely. Existing pure-whitespace TextNodes are stripped before
+// injection so repeated saves stay idempotent.
+func prettyPrintBlockElements(n *html.Node, depth int) {
+	if n == nil {
+		return
+	}
+	if n.Type == html.ElementNode && whitespaceSensitive[n.Data] {
+		return
+	}
+	if n.Type == html.ElementNode && blockContainers[n.Data] && allChildrenAreBlock(n) {
+		stripWhitespaceTextChildren(n)
+		injectIndentation(n, depth)
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		prettyPrintBlockElements(c, depth+1)
+	}
+}
+
+// allChildrenAreBlock reports whether every non-whitespace child of n is
+// either a block-level element or a comment. Returns false for an empty
+// container — there's nothing to format and we don't want <div></div> to
+// expand to <div>\n</div>.
+func allChildrenAreBlock(n *html.Node) bool {
+	hasChild := false
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		switch c.Type {
+		case html.ElementNode:
+			if !blockChildren[c.Data] {
+				return false
+			}
+			hasChild = true
+		case html.CommentNode, html.DoctypeNode:
+			hasChild = true
+		case html.TextNode:
+			if strings.TrimSpace(c.Data) != "" {
+				return false
+			}
+		case html.ErrorNode, html.DocumentNode, html.RawNode:
+			// These shouldn't appear as direct children of a parsed
+			// element subtree; if they do, bail rather than guess.
+			return false
+		}
+	}
+	return hasChild
+}
+
+// stripWhitespaceTextChildren removes pure-whitespace TextNode children of
+// n. Called before injectIndentation so repeated formatting passes don't
+// stack newlines.
+func stripWhitespaceTextChildren(n *html.Node) {
+	c := n.FirstChild
+	for c != nil {
+		next := c.NextSibling
+		if c.Type == html.TextNode && strings.TrimSpace(c.Data) == "" {
+			n.RemoveChild(c)
+		}
+		c = next
+	}
+}
+
+// injectIndentation inserts TextNode children carrying "\n" plus depth*2
+// spaces of indentation: one before each existing child, and one final
+// "\n" + (depth-1)*2 spaces before the closing tag so the close lines up
+// with the opening one. Assumes pure-whitespace TextNodes have already
+// been stripped.
+func injectIndentation(n *html.Node, depth int) {
+	if n.FirstChild == nil {
+		return
+	}
+	childIndent := "\n" + strings.Repeat("  ", depth+1)
+	closeIndent := "\n" + strings.Repeat("  ", depth)
+	// Snapshot children before mutating; otherwise we walk the freshly-
+	// inserted whitespace nodes too.
+	var children []*html.Node
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		children = append(children, c)
+	}
+	for _, c := range children {
+		n.InsertBefore(&html.Node{Type: html.TextNode, Data: childIndent}, c)
+	}
+	n.AppendChild(&html.Node{Type: html.TextNode, Data: closeIndent})
 }

@@ -241,6 +241,63 @@ func TestSliceLines(t *testing.T) {
 	}
 }
 
+func TestNumberLines(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		content     string
+		startOffset int
+		want        string
+	}{
+		{
+			name:        "empty stays empty",
+			content:     "",
+			startOffset: 1,
+			want:        "",
+		},
+		{
+			name:        "single line",
+			content:     "hello",
+			startOffset: 1,
+			want:        "     1\thello",
+		},
+		{
+			name:        "three lines starting at 1",
+			content:     "a\nb\nc",
+			startOffset: 1,
+			want:        "     1\ta\n     2\tb\n     3\tc",
+		},
+		{
+			name:        "offset shifts numbers but preserves separators",
+			content:     "x\ny",
+			startOffset: 42,
+			want:        "    42\tx\n    43\ty",
+		},
+		{
+			name:        "zero/negative offset clamps to 1",
+			content:     "x\ny",
+			startOffset: 0,
+			want:        "     1\tx\n     2\ty",
+		},
+		{
+			name:        "trailing newline numbers empty final entry",
+			content:     "a\nb\n",
+			startOffset: 1,
+			want:        "     1\ta\n     2\tb\n     3\t",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := NumberLines(tc.content, tc.startOffset)
+			if got != tc.want {
+				t.Errorf("NumberLines(%q, %d):\n got  %q\n want %q",
+					tc.content, tc.startOffset, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestGrepEligible(t *testing.T) {
 	cases := map[string]bool{
 		"index.html":             true,
