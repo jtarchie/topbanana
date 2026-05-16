@@ -25,6 +25,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	slogecho "github.com/samber/slog-echo"
+	"github.com/tdewolff/minify/v2"
 
 	adkmodel "google.golang.org/adk/model"
 
@@ -72,6 +73,11 @@ type Server struct {
 	tpl               *template.Template
 	adminUsername     string
 	adminPasswordHash string
+
+	// htmlMinifier strips whitespace + comments from HTML on the serve
+	// path. Constructed once at startup so we don't re-allocate the
+	// internal mimetype table per request.
+	htmlMinifier *minify.M
 
 	// domainIndex maps lowercased custom hostnames to the slug that owns
 	// them. Rebuilt at startup and after any settings save that touches
@@ -126,6 +132,7 @@ func New(d Deps) *echo.Echo {
 		tpl:               tpl,
 		adminUsername:     d.AdminUsername,
 		adminPasswordHash: d.AdminPasswordHash,
+		htmlMinifier:      newHTMLMinifier(),
 		domainIndex:       map[string]string{},
 	}
 	s.rebuildDomainIndex(context.Background())
@@ -742,7 +749,12 @@ func (s *Server) proxyHandler(c *echo.Context, slug string) error {
 
 		ct := resolveContentType(obj.ContentType, candidate)
 		if strings.HasPrefix(ct, "text/html") {
-			return c.HTML(http.StatusOK, s.injectEditToolbar(c, obj.Content, slug, candidate)) //nolint:wrapcheck
+			body := s.injectEditToolbar(c, obj.Content, slug, candidate)
+			minified, mErr := minifyHTMLBody(s.htmlMinifier, body)
+			if mErr != nil {
+				slog.Warn("serve.minify_failed", "slug", slug, "path", candidate, "err", mErr)
+			}
+			return c.HTML(http.StatusOK, minified) //nolint:wrapcheck
 		}
 		return c.Blob(http.StatusOK, ct, []byte(obj.Content)) //nolint:wrapcheck
 	}
