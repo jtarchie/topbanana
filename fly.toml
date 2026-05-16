@@ -13,4 +13,6 @@ primary_region = "sjc"
 
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "512mb"
+  memory = "1gb"
+  # Headless chromium (used by fetch_reference) needs headroom on top of the
+  # Go binary; 512mb OOMs reliably during page renders.

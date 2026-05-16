@@ -225,7 +225,7 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 
 	// contextcheck flags this because Run has a ctx, but the tools fire later
 	// under per-invocation contexts from the runner; passing ctx would be wrong.
-	tools, err := buildAgentTools(s, slug, tmpl, attachments, emit, state)
+	tools, err := buildAgentTools(s, slug, tmpl, attachments, emit, state) //nolint:contextcheck
 	if err != nil {
 		return err
 	}
@@ -393,6 +393,11 @@ func buildAgentTools(s *store.Store, slug string, tmpl *templates.SiteTemplate, 
 		return nil, err
 	}
 	tools = append(tools, attTool)
+	refTool, err := newFetchReferenceTool(emit)
+	if err != nil {
+		return nil, err
+	}
+	tools = append(tools, refTool)
 	if tmpl != nil && tmpl.EnablesFunctions {
 		fnBuilders := []func(*store.Store, string, func(events.Event)) (tool.Tool, error){
 			newWriteFunctionTool,
