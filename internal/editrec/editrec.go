@@ -62,18 +62,25 @@ var mutators = map[string]bool{
 
 // Transcript is the on-disk JSON shape. Versioned implicitly by additive,
 // optional fields — older transcripts deserialize fine.
+//
+// Model + ReasoningEffort capture which LLM config produced this run.
+// Useful when comparing two transcripts for "why did this build come out
+// different from the last one?" — was it the model, the reasoning level,
+// or something else entirely?
 type Transcript struct {
-	Slug         string       `json:"slug"`
-	LogKey       string       `json:"log_key"`
-	StartedAt    time.Time    `json:"started_at"`
-	FinishedAt   time.Time    `json:"finished_at,omitempty"`
-	UserPrompt   string       `json:"user_prompt,omitempty"`
-	Page         string       `json:"page,omitempty"`
-	SelectionLen int          `json:"selection_len,omitempty"`
-	FinalStatus  string       `json:"final_status,omitempty"`
-	Error        string       `json:"error,omitempty"`
-	ToolCalls    []ToolCall   `json:"tool_calls"`
-	FileChanges  []FileChange `json:"file_changes"`
+	Slug            string       `json:"slug"`
+	LogKey          string       `json:"log_key"`
+	StartedAt       time.Time    `json:"started_at"`
+	FinishedAt      time.Time    `json:"finished_at,omitempty"`
+	Model           string       `json:"model,omitempty"`
+	ReasoningEffort string       `json:"reasoning_effort,omitempty"`
+	UserPrompt      string       `json:"user_prompt,omitempty"`
+	Page            string       `json:"page,omitempty"`
+	SelectionLen    int          `json:"selection_len,omitempty"`
+	FinalStatus     string       `json:"final_status,omitempty"`
+	Error           string       `json:"error,omitempty"`
+	ToolCalls       []ToolCall   `json:"tool_calls"`
+	FileChanges     []FileChange `json:"file_changes"`
 }
 
 // ToolCall is one start/done/error event in the agent run.
@@ -137,6 +144,21 @@ func New(slug, logKey, userPrompt, page string, selectionLen int) *Recorder {
 		},
 		pendingIdx: map[string]int{},
 	}
+}
+
+// SetModel stamps the recorder with the LLM model string and reasoning
+// effort the run used. Separate from New so existing call sites (and the
+// tests that don't care about the model) keep their current signature,
+// and so the caller can attach the model info even when it isn't known
+// at construction time.
+func (r *Recorder) SetModel(model, reasoningEffort string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.transcript.Model = model
+	r.transcript.ReasoningEffort = reasoningEffort
 }
 
 // Wrap returns an emit callback that records each event into the transcript

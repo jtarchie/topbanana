@@ -41,6 +41,8 @@
       <div class="k">Started</div><div class="v">{{ .StartedAt }}</div>
       <div class="k">Finished</div><div class="v">{{ .FinishedAt }}</div>
       {{ if .Duration }}<div class="k">Duration</div><div class="v">{{ .Duration }}</div>{{ end }}
+      {{ if .Model }}<div class="k">Model</div><div class="v">{{ .Model }}</div>{{ end }}
+      {{ if .ReasoningEffort }}<div class="k">Reasoning</div><div class="v">{{ .ReasoningEffort }}</div>{{ end }}
       {{ if .Page }}<div class="k">Page</div><div class="v">{{ .Page }}</div>{{ end }}
       {{ if .SelectionLen }}<div class="k">Selection</div><div class="v">{{ .SelectionLen }} bytes</div>{{ end }}
       {{ if .UserPrompt }}<div class="k">Prompt</div><div class="v">{{ .UserPrompt }}</div>{{ end }}

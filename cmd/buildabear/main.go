@@ -99,6 +99,7 @@ func main() {
 	buildSvc := build.NewWithConfig(build.Config{
 		Store:           s,
 		LLM:             llm,
+		Model:           cli.LLMModel,
 		Events:          tracker,
 		Snapshot:        snapshotSvc,
 		EditsKeep:       cli.EditsKeep,

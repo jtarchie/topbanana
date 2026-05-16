@@ -91,9 +91,13 @@ func EffectiveTemplate(meta SiteMeta) *templates.SiteTemplate {
 // buildTimeout caps wall-clock per build; zero falls back to DefaultBuildTimeout.
 // reasoningEffort is the genai.ThinkingLevel passed to every agent.Run; the
 // zero value means no thinking, which is the cheap/fast default.
+// model is the human-readable LLM identifier (provider/model-name as the
+// user typed it) stamped into each transcript so the debug viewer can show
+// which model actually ran.
 type Service struct {
 	store           *store.Store
 	llm             adkmodel.LLM
+	model           string
 	events          *events.Tracker
 	snapshot        *snapshot.Service
 	editsKeep       int
@@ -107,9 +111,12 @@ type Service struct {
 // opt out to avoid extra S3 writes). BuildTimeout, when zero, falls back to
 // DefaultBuildTimeout. ReasoningEffort, when non-empty, asks the model to
 // reason before responding — only useful on reasoning-capable models.
+// Model is the provider/model string the operator configured; recorded in
+// each transcript for debug, never used for routing (LLM does that).
 type Config struct {
 	Store           *store.Store
 	LLM             adkmodel.LLM
+	Model           string
 	Events          *events.Tracker
 	Snapshot        *snapshot.Service
 	EditsKeep       int
@@ -132,6 +139,7 @@ func NewWithConfig(cfg Config) *Service {
 	return &Service{
 		store:           cfg.Store,
 		llm:             cfg.LLM,
+		model:           cfg.Model,
 		events:          cfg.Events,
 		snapshot:        cfg.Snapshot,
 		editsKeep:       cfg.EditsKeep,
@@ -198,6 +206,7 @@ func (svc *Service) Start(p Params) {
 				userPrompt = p.Prompt
 			}
 			rec = editrec.New(p.Slug, p.LogKey, userPrompt, p.Page, p.SelectionLen)
+			rec.SetModel(svc.model, string(svc.reasoningEffort))
 		}
 		err := svc.buildAndLint(ctx, p.Slug, p.Prompt, p.Template, p.Attachments, p.Seeds, rec)
 		if err != nil {

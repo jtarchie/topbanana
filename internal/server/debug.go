@@ -58,22 +58,24 @@ type debugFileRow struct {
 }
 
 type debugDetailData struct {
-	Slug         string
-	SiteURL      string
-	Active       string
-	Key          string
-	LogKey       string
-	StartedAt    string
-	FinishedAt   string
-	Duration     string
-	UserPrompt   string
-	Page         string
-	SelectionLen int
-	FinalStatus  string
-	Error        string
-	ToolCalls    []debugToolRow
-	FileChanges  []debugFileRow
-	Empty        bool
+	Slug            string
+	SiteURL         string
+	Active          string
+	Key             string
+	LogKey          string
+	StartedAt       string
+	FinishedAt      string
+	Duration        string
+	Model           string
+	ReasoningEffort string
+	UserPrompt      string
+	Page            string
+	SelectionLen    int
+	FinalStatus     string
+	Error           string
+	ToolCalls       []debugToolRow
+	FileChanges     []debugFileRow
+	Empty           bool
 }
 
 func (s *Server) debugHandler(c *echo.Context) error {
@@ -125,16 +127,18 @@ func (s *Server) debugDetailHandler(c *echo.Context) error {
 	}
 
 	data := debugDetailData{
-		Slug:         slug,
-		SiteURL:      s.siteURL(c, slug, "/"),
-		Active:       "debug",
-		Key:          key,
-		LogKey:       t.LogKey,
-		UserPrompt:   t.UserPrompt,
-		Page:         t.Page,
-		SelectionLen: t.SelectionLen,
-		FinalStatus:  t.FinalStatus,
-		Error:        t.Error,
+		Slug:            slug,
+		SiteURL:         s.siteURL(c, slug, "/"),
+		Active:          "debug",
+		Key:             key,
+		LogKey:          t.LogKey,
+		Model:           t.Model,
+		ReasoningEffort: t.ReasoningEffort,
+		UserPrompt:      t.UserPrompt,
+		Page:            t.Page,
+		SelectionLen:    t.SelectionLen,
+		FinalStatus:     t.FinalStatus,
+		Error:           t.Error,
 	}
 	if t.StartedAt.IsZero() && len(t.ToolCalls) == 0 && len(t.FileChanges) == 0 {
 		data.Empty = true
