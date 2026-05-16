@@ -24,6 +24,15 @@
   // Tracks in-flight tool <li> elements by "tool:path" key so we can update them on completion.
   const pendingItems = new Map();
 
+  // Defense-in-depth dedupe: even with Last-Event-ID on the server, a
+  // misbehaving proxy or older deployment can replay frames. Stable key
+  // from the event's content + timestamp so the renderer skips repeats.
+  const seenEvents = new Set();
+  function eventKey(ev) {
+    return [ev.type || '', ev.status || '', ev.tool || '', ev.phase || '',
+            ev.path || '', ev.time || '', ev.message || ''].join('|');
+  }
+
   function fmtTime(iso) {
     try { return new Date(iso).toLocaleTimeString(); } catch (_) { return ''; }
   }
@@ -165,6 +174,9 @@
   es.onmessage = function (e) {
     let ev;
     try { ev = JSON.parse(e.data); } catch (_) { return; }
+    const key = eventKey(ev);
+    if (seenEvents.has(key)) return;
+    seenEvents.add(key);
     append(ev);
     statusEl.textContent = describe(ev);
     if (ev.type === 'status' && (ev.status === 'completed' || ev.status === 'failed' || ev.status === 'unknown')) {
