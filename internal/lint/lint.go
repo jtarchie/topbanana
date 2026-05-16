@@ -55,7 +55,8 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 			}
 			errs = append(errs, checkHTMLLinks(file, doc, fileSet, tmpl != nil && tmpl.EnablesFunctions)...)
 			errs = append(errs, checkInlineJS(file, doc)...)
-			errs = append(errs, checkDesignSubstrate(file, obj.Content)...)
+			errs = append(errs, suspiciousAttrValues(file, doc)...)
+			errs = append(errs, checkDesignSubstrate(file, doc)...)
 		case strings.HasSuffix(file, ".js"):
 			// JS files are allowed under functions/ only — JSFile rejects
 			// .js files anywhere else. The agent's path validation also
@@ -95,23 +96,131 @@ const (
 )
 
 // checkDesignSubstrate verifies a page links both halves of the design
-// substrate. Returns one error per missing piece so the agent gets a
-// specific fix prompt rather than a generic "substrate missing".
-func checkDesignSubstrate(file, content string) []Error {
+// substrate as well-formed DOM elements — not just bytes that appear
+// somewhere in the file. Substring matching missed the failure where a
+// previous attribute (typically a <meta> viewport whose content="" lost
+// its closing quote) swallows the next tag during parser recovery: the
+// substrate URL still appears in the file but no <link>/<script> exists
+// in the DOM and the page renders without DaisyUI.
+func checkDesignSubstrate(file string, doc *html.Node) []Error {
+	var hasDaisy, hasTailwind bool
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "link":
+				for _, a := range n.Attr {
+					if a.Key == "href" && strings.Contains(a.Val, daisyHost) {
+						hasDaisy = true
+					}
+				}
+			case "script":
+				for _, a := range n.Attr {
+					if a.Key == "src" && strings.Contains(a.Val, tailwindHost) {
+						hasTailwind = true
+					}
+				}
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+
 	var errs []Error
-	if !strings.Contains(content, daisyHost) {
+	if !hasDaisy {
 		errs = append(errs, Error{
 			File:    file,
-			Message: "missing DaisyUI stylesheet — every page must include `<link href=\"https://cdn.jsdelivr.net/npm/daisyui@5\" rel=\"stylesheet\" type=\"text/css\" />` in <head>",
+			Message: "missing DaisyUI stylesheet — every page must include `<link href=\"https://cdn.jsdelivr.net/npm/daisyui@5\" rel=\"stylesheet\" type=\"text/css\" />` in <head> as a well-formed element. If the URL appears in the file but this check still fires, an earlier attribute (often a <meta> viewport) is missing a closing quote and is consuming the <link> tag.",
 		})
 	}
-	if !strings.Contains(content, tailwindHost) {
+	if !hasTailwind {
 		errs = append(errs, Error{
 			File:    file,
-			Message: "missing Tailwind browser script — every page must include `<script src=\"https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4\"></script>` in <head>",
+			Message: "missing Tailwind browser script — every page must include `<script src=\"https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4\"></script>` in <head> as a well-formed element.",
 		})
 	}
 	return errs
+}
+
+// suspiciousAttrValues flags an attribute value that contains an embedded
+// "<tagname" sequence where tagname matches a known HTML element. This is
+// the smoking-gun signature of an unclosed quoted attribute that swallowed
+// a following sibling tag during HTML5 parser recovery — golang.org/x/net/html
+// (and every browser) silently absorbs the swallowed tag's bytes into the
+// preceding attribute, so html.Parse returns no error, the file "renders,"
+// and the swallowed element is just gone from the DOM. The model's resume
+// build hit this with a viewport <meta content="..."> consuming the next
+// <link href="...daisyui..."> on the same line.
+func suspiciousAttrValues(file string, doc *html.Node) []Error {
+	var errs []Error
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			for _, attr := range n.Attr {
+				name := findEmbeddedTagName(attr.Val)
+				if name == "" {
+					continue
+				}
+				errs = append(errs, Error{
+					File:    file,
+					Message: fmt.Sprintf("<%s> attribute %q has a value containing an embedded <%s> tag — the value is missing a closing quote and is swallowing the following element. Re-read the file, then rewrite the broken attribute so its quoted value ends before the next tag begins.", n.Data, attr.Key, name),
+				})
+				// One error per element is plenty; the agent will re-read
+				// the whole file to fix it.
+				break
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+	return errs
+}
+
+// findEmbeddedTagName returns the first known HTML tag name found after a
+// "<" inside v, or "" when none. Match is case-insensitive on the tag name.
+func findEmbeddedTagName(v string) string {
+	for i := 0; i < len(v); i++ {
+		if v[i] != '<' {
+			continue
+		}
+		end := i + 1
+		for end < len(v) && isASCIILetter(v[end]) {
+			end++
+		}
+		if end == i+1 {
+			continue
+		}
+		name := strings.ToLower(v[i+1 : end])
+		if knownHTMLTags[name] {
+			return name
+		}
+	}
+	return ""
+}
+
+func isASCIILetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+// knownHTMLTags is the allowlist suspiciousAttrValues checks against. Keep
+// it to elements the agent actually emits — too broad triggers false
+// positives on legitimate "<" characters in onclick handlers and JS-ish
+// attribute values; too narrow misses real bugs.
+var knownHTMLTags = map[string]bool{
+	"a": true, "article": true, "aside": true, "body": true, "br": true,
+	"button": true, "div": true, "footer": true, "form": true, "h1": true,
+	"h2": true, "h3": true, "h4": true, "h5": true, "h6": true, "head": true,
+	"header": true, "hr": true, "html": true, "iframe": true, "img": true,
+	"input": true, "label": true, "li": true, "link": true, "main": true,
+	"menu": true, "meta": true, "nav": true, "ol": true, "option": true,
+	"p": true, "script": true, "section": true, "select": true, "span": true,
+	"strong": true, "style": true, "svg": true, "table": true, "tbody": true,
+	"td": true, "textarea": true, "th": true, "title": true, "tr": true,
+	"ul": true,
 }
 
 // checkTemplateInvariants runs declarative must_contain checks for the chosen

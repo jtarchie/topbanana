@@ -1,6 +1,11 @@
 package lint
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"golang.org/x/net/html"
+)
 
 func TestCheckLinkAPIRoutes(t *testing.T) {
 	t.Parallel()
@@ -40,5 +45,129 @@ func TestCheckLinkAPIRoutes(t *testing.T) {
 				t.Fatalf("checkLink(%q, enablesFns=%v) = %v, want nil", tc.raw, tc.enablesFns, got)
 			}
 		})
+	}
+}
+
+// TestSuspiciousAttrValues_SwallowedLink pins the exact failure pattern
+// that shipped a broken DaisyUI page: a viewport <meta> whose content="..."
+// is missing a closing quote, so the parser absorbs the following <link>
+// into the meta tag's attribute value. golang.org/x/net/html recovers
+// silently — html.Parse returns no error — so the bug is only visible via
+// the attribute-value contents, never via parse error.
+func TestSuspiciousAttrValues_SwallowedLink(t *testing.T) {
+	t.Parallel()
+
+	// Note the missing closing quote after "initial-scale".
+	src := `<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale        <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<title>x</title>
+</head><body></body></html>`
+
+	doc, err := html.Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+
+	errs := suspiciousAttrValues("index.html", doc)
+	if len(errs) == 0 {
+		t.Fatal("suspiciousAttrValues found no issues; expected to flag the swallowed <link>")
+	}
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Message, "<link>") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("none of the errors mention the swallowed <link>: %+v", errs)
+	}
+}
+
+// TestSuspiciousAttrValues_LegitContent confirms we don't false-positive
+// on attribute values that legitimately contain "<" or ">" — onclick
+// handlers, title text with comparisons, etc.
+func TestSuspiciousAttrValues_LegitContent(t *testing.T) {
+	t.Parallel()
+
+	cases := []string{
+		`<html><body><button onclick="if (x < 5) doThing()">hi</button></body></html>`,
+		`<html><body><a title="A > B comparison">link</a></body></html>`,
+		`<html><body><input value="x<y, but ok"></body></html>`,
+	}
+
+	for _, src := range cases {
+		doc, err := html.Parse(strings.NewReader(src))
+		if err != nil {
+			t.Fatalf("html.Parse(%q): %v", src, err)
+		}
+		errs := suspiciousAttrValues("index.html", doc)
+		if len(errs) != 0 {
+			t.Fatalf("suspiciousAttrValues(%q) = %+v, want no errors", src, errs)
+		}
+	}
+}
+
+// TestCheckDesignSubstrate_SwallowedTagsFailLint complements the parser
+// fix: when DaisyUI's bytes appear inside a malformed meta's attribute
+// value (no real <link> element in the DOM), checkDesignSubstrate must
+// still flag the page as missing the substrate.
+func TestCheckDesignSubstrate_SwallowedTagsFailLint(t *testing.T) {
+	t.Parallel()
+
+	// DaisyUI URL is present as text but the link tag is swallowed by the
+	// broken meta. Tailwind script is well-formed (separate line, intact).
+	src := `<!DOCTYPE html>
+<html><head>
+<meta name="viewport" content="width=device-width, initial-scale        <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<title>x</title>
+</head><body></body></html>`
+
+	doc, err := html.Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+
+	errs := checkDesignSubstrate("index.html", doc)
+	if len(errs) == 0 {
+		t.Fatal("checkDesignSubstrate passed when DaisyUI <link> was swallowed by malformed meta")
+	}
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Message, "DaisyUI") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected a DaisyUI-specific error, got: %+v", errs)
+	}
+}
+
+// TestCheckDesignSubstrate_WellFormedPasses confirms a correctly authored
+// page with both substrate tags as real elements passes lint.
+func TestCheckDesignSubstrate_WellFormedPasses(t *testing.T) {
+	t.Parallel()
+
+	src := `<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<title>x</title>
+</head><body><h1>hi</h1></body></html>`
+
+	doc, err := html.Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+
+	errs := checkDesignSubstrate("index.html", doc)
+	if len(errs) != 0 {
+		t.Fatalf("checkDesignSubstrate flagged a well-formed page: %+v", errs)
 	}
 }
