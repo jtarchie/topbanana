@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -21,7 +20,6 @@ import (
 
 type debugRow struct {
 	Key       string
-	KeyParam  string
 	LogKey    string
 	WhenLabel string
 	WhenISO   string
@@ -94,7 +92,6 @@ func (s *Server) debugHandler(c *echo.Context) error {
 	for _, r := range rows {
 		out = append(out, debugRow{
 			Key:       r.Key,
-			KeyParam:  url.QueryEscape(r.Key),
 			LogKey:    r.LogKey,
 			WhenLabel: humanizeAge(r.Timestamp),
 			WhenISO:   r.Timestamp.Format(time.RFC3339),
