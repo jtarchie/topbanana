@@ -37,3 +37,9 @@ var dataTemplate string
 
 //go:embed templates/files.html
 var filesTemplate string
+
+//go:embed templates/debug.html
+var debugTemplate string
+
+//go:embed templates/debug_edit.html
+var debugEditTemplate string

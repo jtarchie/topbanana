@@ -35,6 +35,9 @@ var cli struct {
 
 	SnapshotKeep int `default:"100" env:"SNAPSHOT_KEEP" help:"Max snapshot archives to retain per site (0 disables retention)." name:"snapshot-keep"`
 
+	EditsKeep   int  `default:"50"   env:"EDITS_KEEP"   help:"Max per-edit transcripts to retain per site (0 disables retention; transcripts are still written)." name:"edits-keep"`
+	RecordEdits bool `default:"true" env:"RECORD_EDITS" help:"Capture per-edit transcripts to _edits/{slug}/."                                                    name:"record-edits"`
+
 	LLMModel   string `default:"lmstudio/google/gemma-4-26b-a4b" env:"LLM_MODEL"                                help:"LLM model as provider/model-name." name:"llm-model"`
 	LLMAPIKey  string `env:"LLM_API_KEY"                         help:"API key for the LLM provider."           name:"llm-api-key"`
 	LLMBaseURL string `env:"LLM_BASE_URL"                        help:"Override base URL for the LLM provider." name:"llm-base-url"`
@@ -83,7 +86,14 @@ func main() {
 
 	tracker := events.NewTracker()
 	snapshotSvc := snapshot.New(s, cli.SnapshotKeep)
-	buildSvc := build.New(s, llm, tracker, snapshotSvc)
+	buildSvc := build.NewWithConfig(build.Config{
+		Store:      s,
+		LLM:        llm,
+		Events:     tracker,
+		Snapshot:   snapshotSvc,
+		EditsKeep:  cli.EditsKeep,
+		RecordEdit: cli.RecordEdits,
+	})
 	sb := sandbox.New(sandbox.Config{})
 	stateStore := state.NewS3(s3Client, cli.S3Bucket)
 

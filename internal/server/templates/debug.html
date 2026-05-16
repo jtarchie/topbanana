@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Debug: {{ .Slug }}</title>
+{{ template "head" . }}
+</head>
+<body class="fullscreen">
+{{ template "brand" . }}
+{{ template "site_subnav" . }}
+<main>
+  <h1>Debug</h1>
+
+  <p class="muted">Every build and edit run is captured here: every agent tool call the LLM made, and the before/after content of every file the agent touched. Use this when a site doesn&rsquo;t update the way you expected &mdash; you&rsquo;ll see whether the agent called <code>write_file</code> at all, what content it sent, and what storage has now. Transcripts live under <code>_edits/{slug}/</code> in S3.</p>
+
+  {{ if not .Rows }}
+    <p class="muted">No transcripts yet. The first one will appear after your next build or edit.</p>
+  {{ else }}
+    <table class="grid">
+      <thead>
+        <tr><th>When</th><th>Kind</th><th></th></tr>
+      </thead>
+      <tbody>
+        {{ range .Rows }}
+        <tr>
+          <td>{{ .WhenLabel }}<br><span class="muted">{{ .WhenISO }}</span></td>
+          <td><code>{{ .LogKey }}</code></td>
+          <td class="action"><a class="btn secondary" href="/debug/{{ $.Slug }}/edit?key={{ .KeyParam }}">View</a></td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  {{ end }}
+</main>
+{{ template "footer" . }}
+</body>
+</html>

@@ -15,6 +15,7 @@ import (
 	adkmodel "google.golang.org/adk/model"
 
 	"github.com/jtarchie/buildabear/internal/agent"
+	"github.com/jtarchie/buildabear/internal/editrec"
 	"github.com/jtarchie/buildabear/internal/events"
 	"github.com/jtarchie/buildabear/internal/lint"
 	"github.com/jtarchie/buildabear/internal/snapshot"
@@ -79,16 +80,44 @@ func EffectiveTemplate(meta SiteMeta) *templates.SiteTemplate {
 // Service runs builds against a Store using a configured LLM, reporting
 // progress through an events Tracker. Snapshots (when configured) capture
 // the site state right before the agent runs so each build/edit is
-// reversible from the History UI.
+// reversible from the History UI. editsKeep caps how many transcripts to
+// retain per slug (0 disables trimming, but transcripts are still written).
 type Service struct {
-	store    *store.Store
-	llm      adkmodel.LLM
-	events   *events.Tracker
-	snapshot *snapshot.Service
+	store      *store.Store
+	llm        adkmodel.LLM
+	events     *events.Tracker
+	snapshot   *snapshot.Service
+	editsKeep  int
+	recordEdit bool
+}
+
+// Config bundles dependencies for the build service. RecordEdit toggles the
+// per-edit transcript capture (enabled by default in production; tests can
+// opt out to avoid extra S3 writes).
+type Config struct {
+	Store      *store.Store
+	LLM        adkmodel.LLM
+	Events     *events.Tracker
+	Snapshot   *snapshot.Service
+	EditsKeep  int
+	RecordEdit bool
 }
 
 func New(s *store.Store, llm adkmodel.LLM, t *events.Tracker, snap *snapshot.Service) *Service {
-	return &Service{store: s, llm: llm, events: t, snapshot: snap}
+	return &Service{store: s, llm: llm, events: t, snapshot: snap, recordEdit: true}
+}
+
+// NewWithConfig is the configurable constructor used by cmd/buildabear; New
+// stays around for tests and callers that don't care about retention.
+func NewWithConfig(cfg Config) *Service {
+	return &Service{
+		store:      cfg.Store,
+		llm:        cfg.LLM,
+		events:     cfg.Events,
+		snapshot:   cfg.Snapshot,
+		editsKeep:  cfg.EditsKeep,
+		recordEdit: cfg.RecordEdit,
+	}
 }
 
 // Params describes one invocation of Start. LogKey distinguishes build vs.
@@ -96,6 +125,11 @@ func New(s *store.Store, llm adkmodel.LLM, t *events.Tracker, snap *snapshot.Ser
 // template's skeleton files and metadata sidecar before the agent runs.
 // Attachments are user-uploaded reference files (markdown or HTML) surfaced
 // to the agent as pre-seeded read_attachment calls; one-shot per invocation.
+//
+// UserPrompt, Page, SelectionLen are forensic context for the edit
+// transcript: UserPrompt is the raw user input (Prompt may have been wrapped
+// with EditPrompt); Page is the file the visual editor was on; SelectionLen
+// is the byte length of the selected HTML fragment. All three are optional.
 type Params struct {
 	Slug         string
 	Prompt       string
@@ -104,6 +138,9 @@ type Params struct {
 	SeedSkeleton bool
 	Seeds        []agent.SeedToolCall
 	Attachments  []agent.Attachment
+	UserPrompt   string
+	Page         string
+	SelectionLen int
 }
 
 // Start records the build as in-flight and runs it asynchronously. The
@@ -133,15 +170,35 @@ func (svc *Service) Start(p Params) {
 				slog.Warn(p.LogKey+".snapshot_failed", "slug", p.Slug, "err", err)
 			}
 		}
-		err := svc.buildAndLint(ctx, p.Slug, p.Prompt, p.Template, p.Attachments, p.Seeds)
+		var rec *editrec.Recorder
+		if svc.recordEdit {
+			userPrompt := p.UserPrompt
+			if userPrompt == "" {
+				userPrompt = p.Prompt
+			}
+			rec = editrec.New(p.Slug, p.LogKey, userPrompt, p.Page, p.SelectionLen)
+		}
+		err := svc.buildAndLint(ctx, p.Slug, p.Prompt, p.Template, p.Attachments, p.Seeds, rec)
 		if err != nil {
 			slog.Error(p.LogKey+".failed", "slug", p.Slug, "err", err)
 			svc.events.Fail(p.Slug, err)
+			if rec != nil {
+				rec.Finish(ctx, svc.store, events.StatusFailed, err)
+				if svc.editsKeep > 0 {
+					editrec.Trim(ctx, svc.store, p.Slug, svc.editsKeep)
+				}
+			}
 			return
 		}
 		svc.refreshDescription(ctx, p.Slug, p.Prompt)
 		slog.Info(p.LogKey+".done", "slug", p.Slug)
 		svc.events.Complete(p.Slug)
+		if rec != nil {
+			rec.Finish(ctx, svc.store, events.StatusCompleted, nil)
+			if svc.editsKeep > 0 {
+				editrec.Trim(ctx, svc.store, p.Slug, svc.editsKeep)
+			}
+		}
 	}()
 }
 
@@ -165,11 +222,14 @@ func LintFixPrompt(errs []lint.Error) string {
 
 // buildAndLint runs the agent then lints with up to maxLintRetries fix-up
 // passes when issues are found.
-func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall) error {
+func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, rec *editrec.Recorder) error {
 	ctx, cancel := context.WithTimeout(ctx, buildTimeout)
 	defer cancel()
 
 	emit := func(e events.Event) { svc.events.Emit(slug, e) }
+	if rec != nil {
+		emit = rec.Wrap(ctx, svc.store, slug, emit)
+	}
 
 	err := agent.Run(ctx, svc.llm, svc.store, slug, prompt, tmpl, attachments, seeds, emit)
 	if err != nil {

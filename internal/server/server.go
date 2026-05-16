@@ -107,6 +107,8 @@ func New(d Deps) *echo.Echo {
 		{"history", historyTemplate},
 		{"data", dataTemplate},
 		{"files", filesTemplate},
+		{"debug", debugTemplate},
+		{"debug_edit", debugEditTemplate},
 	} {
 		template.Must(tpl.New(t.name).Parse(t.body))
 	}
@@ -168,6 +170,9 @@ func New(d Deps) *echo.Echo {
 	admin.POST("/history/:slug/delete", s.historyDeleteHandler)
 	admin.GET("/data/:slug", s.dataHandler)
 	admin.GET("/files/:slug", s.filesHandler)
+	admin.GET("/debug/:slug", s.debugHandler)
+	admin.GET("/debug/:slug/edit", s.debugDetailHandler)
+	admin.GET("/debug/:slug/cache-check", s.debugCacheCheckHandler)
 
 	return e
 }
@@ -684,12 +689,31 @@ func writeSSE(w io.Writer, event events.Event) error {
 	return nil
 }
 
+// reservedProxyPrefixes are bucket paths the static proxy must never serve.
+// Slugs themselves can't start with "_" (validateSlug), so these only apply
+// to paths *within* a real slug — e.g. blocking GET /_state/data.json from
+// leaking persisted form data on a site at slug.example.com.
+var reservedProxyPrefixes = []string{"_state/", ".buildabear/"}
+
+// reservedProxyPaths are exact bucket paths the static proxy must never
+// serve. `.buildabear.json` is the per-site metadata sidecar.
+var reservedProxyPaths = map[string]bool{".buildabear.json": true}
+
 func (s *Server) proxyHandler(c *echo.Context, slug string) error {
 	ctx := c.Request().Context()
 
 	reqPath := strings.TrimPrefix(c.Request().URL.Path, "/")
 	if reqPath == "" {
 		reqPath = "index.html"
+	}
+
+	if reservedProxyPaths[reqPath] {
+		return notFound()
+	}
+	for _, pfx := range reservedProxyPrefixes {
+		if strings.HasPrefix(reqPath, pfx) {
+			return notFound()
+		}
 	}
 
 	candidates := []string{reqPath}
@@ -932,12 +956,15 @@ func (s *Server) editSubmitHandler(c *echo.Context) error {
 	seeds := s.build.EditSeeds(ctx, slug, prompt)
 	slog.Info("edit.start", "slug", slug, "page", page, "selection_len", len(selection), "template", tmpl.ID, "seeds", len(seeds), "attachments", len(attachments))
 	return s.startBuild(c, build.Params{
-		Slug:        slug,
-		Prompt:      build.EditPrompt(prompt, page, selection),
-		LogKey:      "edit",
-		Template:    tmpl,
-		Seeds:       seeds,
-		Attachments: attachments,
+		Slug:         slug,
+		Prompt:       build.EditPrompt(prompt, page, selection),
+		LogKey:       "edit",
+		Template:     tmpl,
+		Seeds:        seeds,
+		Attachments:  attachments,
+		UserPrompt:   prompt,
+		Page:         page,
+		SelectionLen: len(selection),
 	})
 }
 
