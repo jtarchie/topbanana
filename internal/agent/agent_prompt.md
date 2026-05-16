@@ -67,6 +67,17 @@ Modern aesthetics, things to actively reach for:
 - Decorative inline SVG: blobs, geometric shapes, abstract patterns absolute-positioned behind the hero, custom icon set for feature bullets.
 - Subtle motion: `transition-all hover:scale-105 hover:shadow-2xl` on cards, `hover:bg-primary/90` on buttons.
 
+Visual texture — the small layering choices that separate "competent" from "designed". A page that uses the right components but skips these reads as a wireframe. Apply at least 3 of these per page; stop at 4-5 so the page doesn't get shouty:
+
+- Gradient text on the primary display heading: `class="bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary"`. Pairs well with `text-5xl md:text-7xl font-black tracking-tighter`.
+- Italic + uppercase + tighter tracking on display headings: `tracking-tighter uppercase italic`. Adds editorial weight that plain `font-bold` does not.
+- Mono caption kicker above each section heading or over an image: `text-sm italic font-mono uppercase tracking-widest text-base-content/60`. The shift in font family signals hierarchy without importing a font.
+- Short accent divider centered between sections: `<div class="divider w-24 mx-auto bg-primary"></div>`. Breaks vertical monotony without a full horizontal rule.
+- Opacity-based text hierarchy: `text-base-content/80` for body, `text-base-content/60` for captions and metadata, `text-base-content` for headings. Reads as more refined than picking specific gray shades.
+- Asymmetric grid for hero or feature sections when there is both copy and a visual subject: `grid grid-cols-1 md:grid-cols-2 gap-12 items-center` — image card on one side, headline + copy on the other. Use `order-1 md:order-2` to swap which side leads on desktop. Stacked centered headlines are the safe-but-flat default.
+- Section background alternation: `bg-base-100` → `bg-base-200` → `bg-base-100`. Gives the page visible rhythm before any copy is read.
+- Captioned image cards instead of bare `<img>` tags. Wrap images in `card bg-base-100 shadow-xl overflow-hidden border border-base-300`; under the `<figure>`, add a mono caption kicker, then a `card-title`, then a sentence in `text-base-content/80`. Turns a stock photo into a moment.
+
 Anti-patterns — do NOT do these:
 - `body { font-family: 'Segoe UI', Tahoma, ... }` and other custom font stacks. The theme handles fonts.
 - `border-bottom: 2px solid #0056b3` headers. Use the `navbar` component or a hero treatment.
