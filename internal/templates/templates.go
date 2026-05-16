@@ -26,6 +26,7 @@ type SiteTemplate struct {
 	Description      string
 	PromptAddendum   string
 	Skeleton         map[string]string
+	Examples         map[string]string
 	Checks           []Check
 	EnablesFunctions bool
 }
@@ -138,25 +139,47 @@ func loadOne(id string) (*SiteTemplate, error) {
 		return nil, fmt.Errorf("load skeleton: %w", err)
 	}
 
+	examples, err := loadExamples(id)
+	if err != nil {
+		return nil, fmt.Errorf("load examples: %w", err)
+	}
+
 	return &SiteTemplate{
 		ID:               id,
 		Label:            meta.Label,
 		Description:      meta.Description,
 		PromptAddendum:   strings.TrimSpace(body),
 		Skeleton:         skeleton,
+		Examples:         examples,
 		Checks:           meta.Checks,
 		EnablesFunctions: meta.EnablesFunctions,
 	}, nil
 }
 
 func loadSkeleton(id string) (map[string]string, error) {
-	base := path.Join(root, id, "skeleton")
-	skeleton := make(map[string]string)
+	return loadDir(id, "skeleton")
+}
+
+// loadExamples reads aspirational reference HTML pages from
+// sites/{id}/examples. Unlike skeletons (which are seeded onto the
+// filesystem before the agent runs), examples are surfaced to the model
+// through synthetic read_example tool calls so they act as few-shot
+// "what good looks like" references without being written to the site.
+func loadExamples(id string) (map[string]string, error) {
+	return loadDir(id, "examples")
+}
+
+// loadDir reads every file under sites/{id}/{sub} into a map keyed by the
+// path relative to that subdirectory. Missing directory returns an empty
+// map (templates aren't required to ship skeletons or examples).
+func loadDir(id, sub string) (map[string]string, error) {
+	base := path.Join(root, id, sub)
+	out := make(map[string]string)
 
 	_, err := fs.Stat(templatesFS, base)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return skeleton, nil
+			return out, nil
 		}
 		return nil, fmt.Errorf("stat %s: %w", base, err)
 	}
@@ -173,13 +196,13 @@ func loadSkeleton(id string) (map[string]string, error) {
 		if err != nil {
 			return fmt.Errorf("read %s: %w", p, err)
 		}
-		skeleton[rel] = string(b)
+		out[rel] = string(b)
 		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("walk %s: %w", base, err)
 	}
-	return skeleton, nil
+	return out, nil
 }
 
 // parseFrontmatter reads a `---\n{json}\n---\n` header followed by a markdown

@@ -1,97 +1,93 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="autumn">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Restaurant</title>
-<style>
-  body { font-family: Georgia, serif; margin: 0; color: #2c1810; background: #fdfaf3; line-height: 1.6; }
-  .hero { background: #2c1810; color: #fdfaf3; padding: 5rem 1.5rem; text-align: center; }
-  .hero h1 { margin: 0 0 0.5rem; font-size: 3rem; font-weight: 400; letter-spacing: 0.02em; }
-  .hero p { margin: 0; font-style: italic; color: #d4b896; }
-  main { max-width: 50rem; margin: 0 auto; padding: 0 1.5rem; }
-  section { padding: 3rem 0; border-bottom: 1px solid #e7dec9; }
-  section:last-child { border-bottom: 0; }
-  h2 { font-size: 0.9rem; letter-spacing: 0.25em; text-transform: uppercase; color: #8b6f3a; margin: 0 0 1.5rem; text-align: center; }
-  .hours p { display: flex; justify-content: space-between; max-width: 22rem; margin: 0.4rem auto; padding: 0.3rem 0; border-bottom: 1px dashed #d4c4a0; }
-  .menu-group { margin-bottom: 2rem; }
-  .menu-group h3 { font-family: Georgia, serif; font-size: 1.4rem; margin: 0 0 0.75rem; }
-  .item { display: flex; justify-content: space-between; gap: 1rem; padding: 0.75rem 0; border-bottom: 1px dotted #c8b88a; }
-  .item-name { font-weight: 600; }
-  .item-desc { color: #6b5a3f; font-style: italic; font-size: 0.95rem; margin: 0.15rem 0 0; }
-  .price { font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .contact { text-align: center; }
-  .contact p { margin: 0.5rem 0; }
-</style>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 </head>
-<body>
+<body class="bg-base-100 text-base-content">
 
-<header class="hero">
-  <h1>Replace with restaurant name</h1>
-  <p>Replace with a short tagline — the cuisine or vibe in five words.</p>
+<header class="hero bg-neutral text-neutral-content py-16 md:py-24">
+  <div class="hero-content text-center">
+    <div>
+      <h1 class="text-5xl md:text-6xl font-bold tracking-tight">Replace with restaurant name</h1>
+      <p class="mt-4 italic text-neutral-content/70">Replace with a short tagline — the cuisine or vibe in five words.</p>
+    </div>
+  </div>
 </header>
 
-<main>
-  <section class="hours">
-    <h2>Hours</h2>
-    <p><span>Mon — Thu</span><span>5pm — 10pm</span></p>
-    <p><span>Fri — Sat</span><span>5pm — 11pm</span></p>
-    <p><span>Sunday</span><span>Closed</span></p>
+<main class="max-w-3xl mx-auto px-6 py-12 space-y-16">
+
+  <section>
+    <h2 class="text-xs uppercase tracking-widest text-primary text-center mb-6">Hours</h2>
+    <div class="max-w-md mx-auto space-y-2">
+      <p class="flex justify-between border-b border-dashed border-base-300 py-1"><span>Mon — Thu</span><span>5pm — 10pm</span></p>
+      <p class="flex justify-between border-b border-dashed border-base-300 py-1"><span>Fri — Sat</span><span>5pm — 11pm</span></p>
+      <p class="flex justify-between border-b border-dashed border-base-300 py-1"><span>Sunday</span><span>Closed</span></p>
+    </div>
   </section>
 
   <section>
-    <h2>Menu</h2>
+    <h2 class="text-xs uppercase tracking-widest text-primary text-center mb-6">Menu</h2>
 
-    <div class="menu-group">
-      <h3>Starters</h3>
-      <div class="item">
-        <div>
-          <div class="item-name">Replace with dish name</div>
-          <p class="item-desc">Replace with one-line description.</p>
+    <div class="mb-8">
+      <h3 class="text-2xl font-bold mb-3">Starters</h3>
+      <div class="space-y-3">
+        <div class="flex justify-between gap-4 border-b border-dotted border-base-300 pb-3">
+          <div>
+            <div class="font-semibold">Replace with dish name</div>
+            <p class="italic text-base-content/60 text-sm mt-1">Replace with one-line description.</p>
+          </div>
+          <span class="whitespace-nowrap font-semibold">$00</span>
         </div>
-        <span class="price">$00</span>
-      </div>
-      <div class="item">
-        <div>
-          <div class="item-name">Replace with dish name</div>
-          <p class="item-desc">Replace with one-line description.</p>
+        <div class="flex justify-between gap-4 border-b border-dotted border-base-300 pb-3">
+          <div>
+            <div class="font-semibold">Replace with dish name</div>
+            <p class="italic text-base-content/60 text-sm mt-1">Replace with one-line description.</p>
+          </div>
+          <span class="whitespace-nowrap font-semibold">$00</span>
         </div>
-        <span class="price">$00</span>
       </div>
     </div>
 
-    <div class="menu-group">
-      <h3>Mains</h3>
-      <div class="item">
-        <div>
-          <div class="item-name">Replace with dish name</div>
-          <p class="item-desc">Replace with one-line description.</p>
+    <div class="mb-8">
+      <h3 class="text-2xl font-bold mb-3">Mains</h3>
+      <div class="space-y-3">
+        <div class="flex justify-between gap-4 border-b border-dotted border-base-300 pb-3">
+          <div>
+            <div class="font-semibold">Replace with dish name</div>
+            <p class="italic text-base-content/60 text-sm mt-1">Replace with one-line description.</p>
+          </div>
+          <span class="whitespace-nowrap font-semibold">$00</span>
         </div>
-        <span class="price">$00</span>
-      </div>
-      <div class="item">
-        <div>
-          <div class="item-name">Replace with dish name</div>
-          <p class="item-desc">Replace with one-line description.</p>
+        <div class="flex justify-between gap-4 border-b border-dotted border-base-300 pb-3">
+          <div>
+            <div class="font-semibold">Replace with dish name</div>
+            <p class="italic text-base-content/60 text-sm mt-1">Replace with one-line description.</p>
+          </div>
+          <span class="whitespace-nowrap font-semibold">$00</span>
         </div>
-        <span class="price">$00</span>
       </div>
     </div>
 
-    <div class="menu-group">
-      <h3>Desserts</h3>
-      <div class="item">
-        <div>
-          <div class="item-name">Replace with dish name</div>
-          <p class="item-desc">Replace with one-line description.</p>
+    <div>
+      <h3 class="text-2xl font-bold mb-3">Desserts</h3>
+      <div class="space-y-3">
+        <div class="flex justify-between gap-4 border-b border-dotted border-base-300 pb-3">
+          <div>
+            <div class="font-semibold">Replace with dish name</div>
+            <p class="italic text-base-content/60 text-sm mt-1">Replace with one-line description.</p>
+          </div>
+          <span class="whitespace-nowrap font-semibold">$00</span>
         </div>
-        <span class="price">$00</span>
       </div>
     </div>
   </section>
 
-  <section class="contact">
-    <h2>Find us</h2>
+  <section class="text-center">
+    <h2 class="text-xs uppercase tracking-widest text-primary mb-6">Find us</h2>
     <p>Replace with street address</p>
     <p>City, State ZIP</p>
     <p>(555) 555-5555</p>

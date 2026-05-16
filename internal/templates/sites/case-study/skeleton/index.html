@@ -1,43 +1,38 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="winter">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Case study</title>
-<style>
-  body { font-family: Georgia, serif; margin: 0; color: #1a1a1a; background: #fff; line-height: 1.7; }
-  .container { max-width: 36rem; margin: 0 auto; padding: 4rem 1.5rem; }
-  .wide { max-width: 56rem; margin: 0 auto; padding: 0 1.5rem; }
-  .kicker { font-family: system-ui, sans-serif; font-size: 0.75rem; letter-spacing: 0.25em; text-transform: uppercase; color: #6b7280; margin: 0; }
-  h1 { font-family: Georgia, serif; font-size: 2.75rem; margin: 0.5rem 0 1rem; letter-spacing: -0.01em; line-height: 1.15; }
-  .summary { font-size: 1.25rem; color: #555; margin: 0 0 2.5rem; font-style: italic; }
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin: 0 auto 4rem; }
-  .stat { text-align: center; padding: 1.5rem 1rem; background: #f7f5ef; border-radius: 8px; }
-  .stat .num { font-size: 2.25rem; font-weight: 700; font-family: Georgia, serif; color: #1a1a1a; line-height: 1; }
-  .stat .lbl { font-family: system-ui, sans-serif; font-size: 0.85rem; color: #6b7280; margin-top: 0.4rem; text-transform: uppercase; letter-spacing: 0.08em; }
-  h2 { font-size: 1.4rem; font-family: system-ui, sans-serif; margin: 2.5rem 0 0.75rem; letter-spacing: 0.02em; }
-  p { margin: 0.75rem 0; }
-  blockquote { border-left: 4px solid #1a1a1a; margin: 3rem 0; padding: 0.5rem 0 0.5rem 1.5rem; font-size: 1.35rem; font-style: italic; color: #333; }
-  cite { display: block; margin-top: 0.75rem; font-style: normal; font-size: 0.95rem; color: #6b7280; font-family: system-ui, sans-serif; }
-</style>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 </head>
-<body>
+<body class="bg-base-100 text-base-content">
 
-<header class="container">
-  <p class="kicker">Case study</p>
-  <h1>Replace with customer name and a striking outcome</h1>
-  <p class="summary">Replace with a one-sentence summary of who they are and what changed.</p>
+<header class="max-w-2xl mx-auto px-6 pt-20 pb-8">
+  <p class="text-xs uppercase tracking-widest text-primary">Case study</p>
+  <h1 class="mt-3 text-4xl md:text-5xl font-bold tracking-tight leading-tight">Replace with customer name and a striking outcome</h1>
+  <p class="mt-5 text-xl text-base-content/70 italic">Replace with a one-sentence summary of who they are and what changed.</p>
 </header>
 
-<section class="wide">
-  <div class="stats">
-    <div class="stat"><div class="num">3×</div><div class="lbl">Faster onboarding</div></div>
-    <div class="stat"><div class="num">50%</div><div class="lbl">Lower cost</div></div>
-    <div class="stat"><div class="num">12k</div><div class="lbl">Active users</div></div>
+<section class="max-w-4xl mx-auto px-6 pb-12">
+  <div class="stats stats-vertical md:stats-horizontal shadow-xl bg-base-200 w-full">
+    <div class="stat">
+      <div class="stat-value text-primary">3×</div>
+      <div class="stat-title">Faster onboarding</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value text-primary">50%</div>
+      <div class="stat-title">Lower cost</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value text-primary">12k</div>
+      <div class="stat-title">Active users</div>
+    </div>
   </div>
 </section>
 
-<article class="container">
+<article class="max-w-2xl mx-auto px-6 pb-20 prose prose-lg">
   <h2>The problem</h2>
   <p>Replace with a paragraph describing the situation before — what wasn't working, what it was costing them, why the status quo was untenable.</p>
 
@@ -47,9 +42,9 @@
   <h2>The results</h2>
   <p>Replace with the measurable outcomes. Tie back to the stats above — what those numbers mean for the business in concrete terms.</p>
 
-  <blockquote>
+  <blockquote class="border-l-4 border-primary pl-6 my-8 italic text-xl">
     "Replace with a punchy customer quote that captures the value in their own words."
-    <cite>— Replace with name, role at company</cite>
+    <cite class="block mt-3 not-italic text-base text-base-content/60">— Replace with name, role at company</cite>
   </blockquote>
 </article>
 

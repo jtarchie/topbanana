@@ -1,30 +1,86 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="corporate">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Landing page</title>
-<style>
-  body { font-family: system-ui, sans-serif; margin: 0; color: #111; line-height: 1.5; }
-  .hero { padding: 6rem 1.5rem; text-align: center; background: #f7f7f8; }
-  .hero h1 { font-size: 2.75rem; margin: 0 0 1rem; }
-  .hero p { font-size: 1.25rem; max-width: 40rem; margin: 0 auto 2rem; color: #444; }
-  .cta { display: inline-block; padding: 0.9rem 1.6rem; background: #111; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600; }
-  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 2rem; max-width: 60rem; margin: 4rem auto; padding: 0 1.5rem; }
-  .features h2 { margin-top: 0; font-size: 1.25rem; }
-  footer { padding: 2rem; text-align: center; color: #888; font-size: 0.9rem; }
-</style>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 </head>
-<body>
-  <section class="hero">
-    <h1>Replace this with the product name</h1>
-    <p>Replace this with a one-line value proposition that tells visitors why they should care.</p>
-    <a class="cta" href="#features">Primary call to action</a>
-  </section>
-  <section class="features" id="features">
-    <div><h2>Feature one</h2><p>What it does and why it matters.</p></div>
-    <div><h2>Feature two</h2><p>What it does and why it matters.</p></div>
-    <div><h2>Feature three</h2><p>What it does and why it matters.</p></div>
-  </section>
-  <footer>Replace this footer with whatever fits.</footer>
+<body class="bg-base-100 text-base-content">
+
+<div class="navbar bg-base-100/80 backdrop-blur sticky top-0 z-10 border-b border-base-300">
+  <div class="max-w-6xl mx-auto w-full px-6">
+    <div class="navbar-start">
+      <a class="text-xl font-bold tracking-tight" href="#top">Product</a>
+    </div>
+    <div class="navbar-end">
+      <a class="btn btn-primary btn-sm md:btn-md" href="#cta">Get started</a>
+    </div>
+  </div>
+</div>
+
+<section id="top" class="bg-gradient-to-br from-primary/15 via-base-100 to-secondary/15">
+  <div class="max-w-5xl mx-auto px-6 py-24 md:py-32 text-center">
+    <span class="badge badge-primary badge-outline mb-6">Replace with a category tag</span>
+    <h1 class="text-5xl md:text-7xl font-bold tracking-tight">Replace this with the product name</h1>
+    <p class="mt-6 text-xl md:text-2xl text-base-content/70 max-w-2xl mx-auto">Replace this with a one-line value proposition that tells visitors why they should care.</p>
+    <div class="mt-10 flex flex-wrap justify-center gap-4">
+      <a class="btn btn-primary btn-lg" href="#cta">Primary call to action</a>
+      <a class="btn btn-ghost btn-lg" href="#features">Learn more</a>
+    </div>
+  </div>
+</section>
+
+<section id="features" class="py-20 md:py-28">
+  <div class="max-w-6xl mx-auto px-6">
+    <div class="text-center mb-12">
+      <h2 class="text-4xl md:text-5xl font-bold tracking-tight">What it does</h2>
+      <p class="mt-4 text-lg text-base-content/70 max-w-2xl mx-auto">Replace with a one-line section subhead.</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="card bg-base-100 border border-base-300 shadow-xl">
+        <div class="card-body">
+          <div class="w-12 h-12 rounded-lg bg-primary/10 text-primary grid place-items-center mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <h3 class="card-title">Feature one</h3>
+          <p class="text-base-content/70">Replace with what it does and why it matters.</p>
+        </div>
+      </div>
+      <div class="card bg-base-100 border border-base-300 shadow-xl">
+        <div class="card-body">
+          <div class="w-12 h-12 rounded-lg bg-accent/10 text-accent grid place-items-center mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          </div>
+          <h3 class="card-title">Feature two</h3>
+          <p class="text-base-content/70">Replace with what it does and why it matters.</p>
+        </div>
+      </div>
+      <div class="card bg-base-100 border border-base-300 shadow-xl">
+        <div class="card-body">
+          <div class="w-12 h-12 rounded-lg bg-secondary/10 text-secondary grid place-items-center mb-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <h3 class="card-title">Feature three</h3>
+          <p class="text-base-content/70">Replace with what it does and why it matters.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="cta" class="bg-base-200 py-20 md:py-28">
+  <div class="max-w-3xl mx-auto px-6 text-center">
+    <h2 class="text-4xl md:text-5xl font-bold tracking-tight">Replace with a closing line</h2>
+    <p class="mt-4 text-lg text-base-content/70">Replace with a one-line nudge.</p>
+    <a class="btn btn-primary btn-lg mt-8" href="#top">Primary call to action</a>
+  </div>
+</section>
+
+<footer class="footer footer-center p-8 bg-base-300 text-base-content/70">
+  <p>Replace this footer with whatever fits.</p>
+</footer>
+
 </body>
 </html>

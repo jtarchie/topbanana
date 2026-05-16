@@ -26,11 +26,16 @@ import (
 const (
 	maxLintRetries = 3
 
-	// buildTimeout caps total wall-clock for the initial agent.Run plus any
-	// lint-retry passes plus the lint passes themselves. The ADK runner has
-	// no built-in deadline; without this a stuck LLM call or a stalled
-	// network ties up a goroutine and token budget indefinitely.
-	buildTimeout = 5 * time.Minute
+	// DefaultBuildTimeout caps total wall-clock for the initial agent.Run
+	// plus any lint-retry passes plus the lint passes themselves. The ADK
+	// runner has no built-in deadline; without this a stuck LLM call or a
+	// stalled network ties up a goroutine and token budget indefinitely.
+	//
+	// 15 minutes by default because the design-substrate prompt + DaisyUI
+	// example pages produce richer HTML files (5–15 KB each), and a local
+	// 26B model generating 5 KB of HTML at ~30 tok/s already takes 2-3
+	// minutes per turn. Cloud-only deployments can lower this via the CLI.
+	DefaultBuildTimeout = 15 * time.Minute
 
 	// MetaFile holds the per-site sidecar (template id, creation time, custom
 	// domains). Stored alongside the HTML files in the same S3 prefix so it
@@ -82,41 +87,50 @@ func EffectiveTemplate(meta SiteMeta) *templates.SiteTemplate {
 // the site state right before the agent runs so each build/edit is
 // reversible from the History UI. editsKeep caps how many transcripts to
 // retain per slug (0 disables trimming, but transcripts are still written).
+// buildTimeout caps wall-clock per build; zero falls back to DefaultBuildTimeout.
 type Service struct {
-	store      *store.Store
-	llm        adkmodel.LLM
-	events     *events.Tracker
-	snapshot   *snapshot.Service
-	editsKeep  int
-	recordEdit bool
+	store        *store.Store
+	llm          adkmodel.LLM
+	events       *events.Tracker
+	snapshot     *snapshot.Service
+	editsKeep    int
+	recordEdit   bool
+	buildTimeout time.Duration
 }
 
 // Config bundles dependencies for the build service. RecordEdit toggles the
 // per-edit transcript capture (enabled by default in production; tests can
-// opt out to avoid extra S3 writes).
+// opt out to avoid extra S3 writes). BuildTimeout, when zero, falls back to
+// DefaultBuildTimeout.
 type Config struct {
-	Store      *store.Store
-	LLM        adkmodel.LLM
-	Events     *events.Tracker
-	Snapshot   *snapshot.Service
-	EditsKeep  int
-	RecordEdit bool
+	Store        *store.Store
+	LLM          adkmodel.LLM
+	Events       *events.Tracker
+	Snapshot     *snapshot.Service
+	EditsKeep    int
+	RecordEdit   bool
+	BuildTimeout time.Duration
 }
 
 func New(s *store.Store, llm adkmodel.LLM, t *events.Tracker, snap *snapshot.Service) *Service {
-	return &Service{store: s, llm: llm, events: t, snapshot: snap, recordEdit: true}
+	return &Service{store: s, llm: llm, events: t, snapshot: snap, recordEdit: true, buildTimeout: DefaultBuildTimeout}
 }
 
 // NewWithConfig is the configurable constructor used by cmd/buildabear; New
 // stays around for tests and callers that don't care about retention.
 func NewWithConfig(cfg Config) *Service {
+	timeout := cfg.BuildTimeout
+	if timeout <= 0 {
+		timeout = DefaultBuildTimeout
+	}
 	return &Service{
-		store:      cfg.Store,
-		llm:        cfg.LLM,
-		events:     cfg.Events,
-		snapshot:   cfg.Snapshot,
-		editsKeep:  cfg.EditsKeep,
-		recordEdit: cfg.RecordEdit,
+		store:        cfg.Store,
+		llm:          cfg.LLM,
+		events:       cfg.Events,
+		snapshot:     cfg.Snapshot,
+		editsKeep:    cfg.EditsKeep,
+		recordEdit:   cfg.RecordEdit,
+		buildTimeout: timeout,
 	}
 }
 
@@ -223,7 +237,7 @@ func LintFixPrompt(errs []lint.Error) string {
 // buildAndLint runs the agent then lints with up to maxLintRetries fix-up
 // passes when issues are found.
 func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, rec *editrec.Recorder) error {
-	ctx, cancel := context.WithTimeout(ctx, buildTimeout)
+	ctx, cancel := context.WithTimeout(ctx, svc.buildTimeout)
 	defer cancel()
 
 	emit := func(e events.Event) { svc.events.Emit(slug, e) }
@@ -234,7 +248,7 @@ func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl 
 	err := agent.Run(ctx, svc.llm, svc.store, slug, prompt, tmpl, attachments, seeds, emit)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("build timed out after %s", buildTimeout)
+			return fmt.Errorf("build timed out after %s", svc.buildTimeout)
 		}
 		return fmt.Errorf("agent run: %w", err)
 	}
@@ -259,7 +273,7 @@ func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl 
 		err := agent.Run(ctx, svc.llm, svc.store, slug, LintFixPrompt(lintErrs), tmpl, attachments, nil, emit)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
-				return fmt.Errorf("build timed out after %s", buildTimeout)
+				return fmt.Errorf("build timed out after %s", svc.buildTimeout)
 			}
 			return fmt.Errorf("agent retry: %w", err)
 		}

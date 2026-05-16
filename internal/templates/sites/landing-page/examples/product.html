@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="bumblebee">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Boldwell — a kettle that gets out of the way</title>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+<body class="bg-base-100 text-base-content">
+
+<div class="navbar bg-base-100 border-b border-base-300">
+  <div class="max-w-6xl mx-auto w-full px-6">
+    <div class="navbar-start">
+      <a class="text-2xl font-bold tracking-tighter" href="#top">Boldwell</a>
+    </div>
+    <div class="navbar-end">
+      <a class="btn btn-primary" href="#buy">Order — $189</a>
+    </div>
+  </div>
+</div>
+
+<section id="top" class="py-16 md:py-24 relative overflow-hidden">
+  <div class="absolute inset-0 grid place-items-center pointer-events-none">
+    <div class="w-[60rem] h-[60rem] rounded-full bg-primary/10 blur-3xl"></div>
+  </div>
+  <div class="max-w-6xl mx-auto px-6 relative grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+    <div>
+      <span class="badge badge-primary badge-outline mb-6">Shipping in 3 weeks</span>
+      <h1 class="text-5xl md:text-7xl font-bold tracking-tight leading-none">A kettle that<br/>gets out of the way.</h1>
+      <p class="mt-6 text-xl text-base-content/70 max-w-lg">No app. No timer. No fifteen temperature presets. One dial, one spout, three switch positions. Quiet, fast, intentionally simple.</p>
+      <div class="mt-8 flex flex-wrap gap-4">
+        <a class="btn btn-primary btn-lg" href="#buy">Order — $189</a>
+        <a class="btn btn-ghost btn-lg" href="#specs">Specifications</a>
+      </div>
+      <p class="mt-3 text-sm text-base-content/60">Free shipping in the US · 5-year warranty</p>
+    </div>
+    <div class="relative">
+      <div class="aspect-square bg-gradient-to-br from-base-200 to-base-300 rounded-3xl shadow-2xl grid place-items-center">
+        <svg viewBox="0 0 200 200" class="w-3/4 h-3/4 text-base-content/80" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M60 80 L60 140 Q60 160 80 160 L120 160 Q140 160 140 140 L140 80 Z"/>
+          <path d="M140 100 Q170 100 170 130"/>
+          <path d="M85 80 L85 60 Q85 50 100 50 Q115 50 115 60 L115 80"/>
+          <circle cx="100" cy="125" r="5" fill="currentColor"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="bg-base-200 py-20">
+  <div class="max-w-5xl mx-auto px-6">
+    <div class="text-center mb-12">
+      <h2 class="text-4xl md:text-5xl font-bold tracking-tight">Three positions. That's it.</h2>
+      <p class="mt-3 text-base-content/70 max-w-xl mx-auto">Off, warm, boil. The dial clicks, the kettle does the rest.</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="card bg-base-100 shadow-xl">
+        <div class="card-body items-center text-center">
+          <div class="text-5xl font-bold text-primary">1.</div>
+          <h3 class="card-title">Off</h3>
+          <p class="text-base-content/70">Cold. Quiet. Asleep.</p>
+        </div>
+      </div>
+      <div class="card bg-base-100 shadow-xl">
+        <div class="card-body items-center text-center">
+          <div class="text-5xl font-bold text-primary">2.</div>
+          <h3 class="card-title">Warm — 65 °C</h3>
+          <p class="text-base-content/70">For tea, for coffee blooms, for soft-boiled patience.</p>
+        </div>
+      </div>
+      <div class="card bg-base-100 shadow-xl">
+        <div class="card-body items-center text-center">
+          <div class="text-5xl font-bold text-primary">3.</div>
+          <h3 class="card-title">Boil — 100 °C</h3>
+          <p class="text-base-content/70">Full steam. Done in 90 seconds.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="specs" class="py-20">
+  <div class="max-w-5xl mx-auto px-6">
+    <h2 class="text-4xl md:text-5xl font-bold tracking-tight mb-10">Specifications</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-4 text-lg">
+      <p class="flex justify-between border-b border-base-300 py-2"><span class="text-base-content/60">Capacity</span><span class="font-semibold">1.2 L</span></p>
+      <p class="flex justify-between border-b border-base-300 py-2"><span class="text-base-content/60">Power</span><span class="font-semibold">1500 W</span></p>
+      <p class="flex justify-between border-b border-base-300 py-2"><span class="text-base-content/60">Boil time</span><span class="font-semibold">90 s for 1 L</span></p>
+      <p class="flex justify-between border-b border-base-300 py-2"><span class="text-base-content/60">Body</span><span class="font-semibold">Brushed steel · cork base</span></p>
+      <p class="flex justify-between border-b border-base-300 py-2"><span class="text-base-content/60">Spout</span><span class="font-semibold">Gooseneck, 8 mm</span></p>
+      <p class="flex justify-between border-b border-base-300 py-2"><span class="text-base-content/60">Warranty</span><span class="font-semibold">5 years parts & labour</span></p>
+    </div>
+  </div>
+</section>
+
+<section id="buy" class="bg-primary text-primary-content py-20">
+  <div class="max-w-3xl mx-auto px-6 text-center">
+    <h2 class="text-4xl md:text-5xl font-bold tracking-tight">Boldwell — $189</h2>
+    <p class="mt-4 text-lg text-primary-content/80">Ships from a small factory in Portugal. Free returns for 60 days, no questions, no email gauntlet.</p>
+    <a class="btn btn-neutral btn-lg mt-8" href="#">Order — $189</a>
+  </div>
+</section>
+
+<footer class="footer footer-center p-10 bg-base-200 text-base-content/70">
+  <p>Boldwell · designed in Lisbon · <a class="link link-hover" href="#">Press</a> · <a class="link link-hover" href="#">Support</a></p>
+</footer>
+
+</body>
+</html>

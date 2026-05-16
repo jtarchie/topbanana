@@ -1,64 +1,80 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Resume</title>
-<style>
-  body { font-family: Georgia, "Times New Roman", serif; max-width: 44rem; margin: 3rem auto; padding: 0 1.25rem; color: #1a1a1a; line-height: 1.6; background: #fbfaf7; }
-  header { border-bottom: 2px solid #1a1a1a; padding-bottom: 1rem; margin-bottom: 2rem; }
-  h1 { font-size: 2.25rem; margin: 0 0 0.25rem; letter-spacing: -0.01em; }
-  .tagline { color: #555; font-style: italic; margin: 0; }
-  h2 { font-size: 1.1rem; text-transform: uppercase; letter-spacing: 0.08em; margin: 2rem 0 0.5rem; color: #1a1a1a; }
-  .role { display: flex; justify-content: space-between; align-items: baseline; margin-top: 1rem; flex-wrap: wrap; gap: 0.5rem; }
-  .role strong { font-size: 1.05rem; }
-  .role .dates { color: #777; font-size: 0.95rem; }
-  ul { padding-left: 1.25rem; margin: 0.5rem 0; }
-  li { margin: 0.25rem 0; }
-  .skills { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-  .skills span { background: #ece8df; padding: 0.3rem 0.7rem; border-radius: 4px; font-family: system-ui, sans-serif; font-size: 0.9rem; }
-  footer { margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid #ddd; color: #555; font-family: system-ui, sans-serif; font-size: 0.95rem; }
-</style>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 </head>
-<body>
-<header>
-  <h1>Replace with your name</h1>
-  <p class="tagline">Replace with a one-line professional tagline</p>
-</header>
+<body class="bg-base-100 text-base-content">
 
-<section>
-  <h2>About</h2>
-  <p>Replace this with a short introduction — two or three sentences about who you are and what you do.</p>
+<div class="hero min-h-[60vh] bg-gradient-to-br from-primary/20 via-base-100 to-secondary/20">
+  <div class="hero-content text-center px-6 py-16">
+    <div class="max-w-3xl">
+      <div class="avatar avatar-placeholder mb-6">
+        <div class="bg-primary text-primary-content rounded-full w-24">
+          <span class="text-3xl font-bold">A</span>
+        </div>
+      </div>
+      <h1 class="text-5xl md:text-7xl font-bold tracking-tight">Replace with your name</h1>
+      <p class="mt-4 text-xl text-base-content/70">Replace with a one-line professional tagline.</p>
+    </div>
+  </div>
+</div>
+
+<section class="max-w-4xl mx-auto px-6 py-16">
+  <h2 class="text-3xl font-bold mb-4">About</h2>
+  <p class="text-lg text-base-content/80 leading-relaxed">Replace this with a short introduction — two or three sentences about who you are and what you do.</p>
 </section>
 
-<section>
-  <h2>Experience</h2>
-  <div class="role">
-    <strong>Role title — Company</strong>
-    <span class="dates">2022 — present</span>
+<section class="bg-base-200 py-16">
+  <div class="max-w-4xl mx-auto px-6">
+    <h2 class="text-3xl font-bold mb-8">Experience</h2>
+    <div class="space-y-6">
+      <div class="card bg-base-100 shadow-xl">
+        <div class="card-body">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 class="card-title text-xl">Role title — Company</h3>
+            <span class="text-sm text-base-content/60">2022 — present</span>
+          </div>
+          <ul class="list-disc list-inside mt-2 space-y-1 text-base-content/80">
+            <li>Replace with a concrete accomplishment (numbers help).</li>
+            <li>Replace with another bullet point.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="card bg-base-100 shadow-xl">
+        <div class="card-body">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 class="card-title text-xl">Previous role — Company</h3>
+            <span class="text-sm text-base-content/60">2019 — 2022</span>
+          </div>
+          <ul class="list-disc list-inside mt-2 space-y-1 text-base-content/80">
+            <li>Replace with what you did and the impact.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
   </div>
-  <ul>
-    <li>Replace with a concrete accomplishment (numbers help).</li>
-    <li>Replace with another bullet point.</li>
-  </ul>
-
-  <div class="role">
-    <strong>Previous role — Company</strong>
-    <span class="dates">2019 — 2022</span>
-  </div>
-  <ul>
-    <li>Replace with what you did and the impact.</li>
-  </ul>
 </section>
 
-<section>
-  <h2>Skills</h2>
-  <div class="skills">
-    <span>Skill one</span><span>Skill two</span><span>Skill three</span><span>Skill four</span>
+<section class="max-w-4xl mx-auto px-6 py-16">
+  <h2 class="text-3xl font-bold mb-6">Skills</h2>
+  <div class="flex flex-wrap gap-2">
+    <span class="badge badge-primary badge-lg">Skill one</span>
+    <span class="badge badge-primary badge-lg">Skill two</span>
+    <span class="badge badge-primary badge-lg">Skill three</span>
+    <span class="badge badge-primary badge-lg">Skill four</span>
   </div>
 </section>
 
-<footer>
-  Replace this footer with your contact info — email, phone, links.
+<footer class="bg-base-200 py-12">
+  <div class="max-w-4xl mx-auto px-6 text-center">
+    <h2 class="text-2xl font-bold mb-2">Get in touch</h2>
+    <p class="text-base-content/70">Replace with your email, phone, or social links.</p>
+  </div>
 </footer>
+
 </body>
 </html>

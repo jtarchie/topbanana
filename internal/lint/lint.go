@@ -55,6 +55,7 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 			}
 			errs = append(errs, checkHTMLLinks(file, doc, fileSet, tmpl != nil && tmpl.EnablesFunctions)...)
 			errs = append(errs, checkInlineJS(file, doc)...)
+			errs = append(errs, checkDesignSubstrate(file, obj.Content)...)
 		case strings.HasSuffix(file, ".js"):
 			// JS files are allowed under functions/ only — JSFile rejects
 			// .js files anywhere else. The agent's path validation also
@@ -80,6 +81,36 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 		slog.Info("lint.app.ok", "slug", slug)
 	}
 
+	return errs
+}
+
+// The DaisyUI + Tailwind JIT pair is the design substrate every generated
+// page must load — without them DaisyUI components render as bare elements
+// and pages drift back to the dated default the system prompt is trying to
+// kill. Match the host (not the full URL) so version bumps in the agent's
+// output don't make the lint flake.
+const (
+	daisyHost    = "cdn.jsdelivr.net/npm/daisyui"
+	tailwindHost = "cdn.jsdelivr.net/npm/@tailwindcss/browser"
+)
+
+// checkDesignSubstrate verifies a page links both halves of the design
+// substrate. Returns one error per missing piece so the agent gets a
+// specific fix prompt rather than a generic "substrate missing".
+func checkDesignSubstrate(file, content string) []Error {
+	var errs []Error
+	if !strings.Contains(content, daisyHost) {
+		errs = append(errs, Error{
+			File:    file,
+			Message: "missing DaisyUI stylesheet — every page must include `<link href=\"https://cdn.jsdelivr.net/npm/daisyui@5\" rel=\"stylesheet\" type=\"text/css\" />` in <head>",
+		})
+	}
+	if !strings.Contains(content, tailwindHost) {
+		errs = append(errs, Error{
+			File:    file,
+			Message: "missing Tailwind browser script — every page must include `<script src=\"https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4\"></script>` in <head>",
+		})
+	}
 	return errs
 }
 

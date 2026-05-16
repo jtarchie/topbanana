@@ -70,6 +70,15 @@ type readAttachmentResult struct {
 	Error   string `json:"error,omitempty"`
 }
 
+type readExampleArgs struct {
+	Name string `json:"name"`
+}
+
+type readExampleResult struct {
+	Content string `json:"content"`
+	Error   string `json:"error,omitempty"`
+}
+
 // Tool results surface errors as data (Error field) rather than as a Go
 // error: this lets the model see the failure in the tool response and recover
 // (e.g. retry with a different path) instead of aborting the run.
@@ -241,7 +250,11 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 		return fmt.Errorf("create agent: %w", err)
 	}
 
-	allSeeds := append(AttachmentSeeds(attachments), seeds...)
+	// Examples first (aspirational references the model should see before
+	// anything else), then attachments (the user's authoritative content),
+	// then caller-supplied seeds (per-page reads, list_files, etc).
+	allSeeds := append(ExampleSeeds(tmpl), AttachmentSeeds(attachments)...)
+	allSeeds = append(allSeeds, seeds...)
 
 	sessSvc := session.InMemoryService()
 	sess, err := seedSession(ctx, sessSvc, slug, allSeeds)
@@ -393,6 +406,11 @@ func buildAgentTools(s *store.Store, slug string, tmpl *templates.SiteTemplate, 
 		return nil, err
 	}
 	tools = append(tools, attTool)
+	exTool, err := newReadExampleTool(tmpl, emit)
+	if err != nil {
+		return nil, err
+	}
+	tools = append(tools, exTool)
 	refTool, err := newFetchReferenceTool(emit)
 	if err != nil {
 		return nil, err
@@ -476,6 +494,78 @@ func AttachmentSeeds(attachments []Attachment) []SeedToolCall {
 			Name:     "read_attachment",
 			Args:     map[string]any{"name": a.Name},
 			Response: map[string]any{"content": NumberLines(a.Content, 1)},
+		})
+	}
+	return seeds
+}
+
+// newReadExampleTool exposes the template's aspirational exemplar HTML files
+// (under sites/{id}/examples/) to the agent. Same shape as read_attachment but
+// the content comes from the embedded template registry — these aren't the
+// user's authoritative copy, they're "what good looks like" references the
+// model should imitate aesthetically. Always registered: when a template
+// ships no examples the tool reports an error in the result rather than
+// disappearing.
+func newReadExampleTool(tmpl *templates.SiteTemplate, emit func(events.Event)) (tool.Tool, error) {
+	em := emitter{emit: emit, tool: "read_example"}
+	index := map[string]string{}
+	names := []string{}
+	if tmpl != nil {
+		for n, c := range tmpl.Examples {
+			index[n] = c
+			names = append(names, n)
+		}
+		sort.Strings(names)
+	}
+	available := strings.Join(names, ", ")
+	t, err := functiontool.New(
+		functiontool.Config{
+			Name:        "read_example",
+			Description: "Read an aspirational reference HTML page for this template. Examples are not the user's content — they are hand-crafted demonstrations of layout, type hierarchy, DaisyUI component usage, and visual rhythm. Use them as inspiration, never copy markup verbatim. The full set was pre-loaded into your conversation history via seeded read_example calls; call this tool only if you need to re-read.",
+		},
+		func(_ tool.Context, args readExampleArgs) (readExampleResult, error) {
+			em.start(args.Name)
+			content, ok := index[args.Name]
+			if !ok {
+				msg := "no examples available for this template"
+				if available != "" {
+					msg = fmt.Sprintf("no example named %q (available: %s)", args.Name, available)
+				}
+				err := errors.New(msg)
+				em.fail(args.Name, err)
+				return readExampleResult{Error: err.Error()}, nil
+			}
+			slog.Info("agent.read_example", "name", args.Name, "length", len(content))
+			em.done(args.Name)
+			return readExampleResult{Content: NumberLines(content, 1)}, nil
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create read_example tool: %w", err)
+	}
+	return t, nil
+}
+
+// ExampleSeeds returns one synthetic read_example(name) call/response per
+// example file shipped by the template. Prepended to attachments and other
+// seeds so the model sees aesthetic references first — this is the "few-shot
+// what good looks like" path. Returns nil when the template has no examples,
+// so older brochure templates pay no token cost.
+func ExampleSeeds(tmpl *templates.SiteTemplate) []SeedToolCall {
+	if tmpl == nil || len(tmpl.Examples) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(tmpl.Examples))
+	for n := range tmpl.Examples {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	seeds := make([]SeedToolCall, 0, len(names))
+	for _, n := range names {
+		seeds = append(seeds, SeedToolCall{
+			Name:     "read_example",
+			Args:     map[string]any{"name": n},
+			Response: map[string]any{"content": NumberLines(tmpl.Examples[n], 1)},
 		})
 	}
 	return seeds
@@ -1210,6 +1300,14 @@ func buildInstruction(tmpl *templates.SiteTemplate, attachments []Attachment) st
 		}
 		if len(tmpl.Skeleton) > 0 {
 			parts = append(parts, "A starter skeleton has already been written for this site. Call list_files and read_file before deciding what to write — extend or refine the existing files rather than starting from scratch.")
+		}
+		if len(tmpl.Examples) > 0 {
+			names := make([]string, 0, len(tmpl.Examples))
+			for n := range tmpl.Examples {
+				names = append(names, n)
+			}
+			sort.Strings(names)
+			parts = append(parts, fmt.Sprintf("Reference exemplars for this template were pre-loaded via read_example calls: %s. Use them as inspiration for layout, type hierarchy, and DaisyUI component composition — do not copy markup verbatim. The user's content comes from the prompt and any attachments, not from these examples.", strings.Join(names, ", ")))
 		}
 	}
 	if len(attachments) > 0 {

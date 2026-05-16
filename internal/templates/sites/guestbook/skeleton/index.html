@@ -1,38 +1,33 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="cupcake">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Guestbook</title>
-<style>
-  body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh; background: #fafafa; color: #111; padding: 2rem; }
-  .wrap { max-width: 36rem; margin: 0 auto; }
-  h1 { margin: 0 0 0.5rem; font-size: 1.75rem; }
-  p.intro { color: #555; margin: 0 0 2rem; }
-  form { background: #fff; padding: 1.5rem; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.06); margin-bottom: 2rem; }
-  label { display: block; font-weight: 600; margin: 0.75rem 0 0.25rem; }
-  input, textarea { width: 100%; padding: 0.65rem; border: 1px solid #ccc; border-radius: 6px; font-size: 1rem; box-sizing: border-box; font-family: inherit; }
-  textarea { min-height: 4rem; resize: vertical; }
-  button { margin-top: 1rem; padding: 0.75rem 1.25rem; background: #111; color: #fff; border: 0; border-radius: 6px; font-size: 1rem; cursor: pointer; }
-  .entry { background: #fff; padding: 1rem 1.25rem; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.04); margin-bottom: 0.75rem; }
-  .entry .name { font-weight: 700; }
-  .entry .ts { color: #888; font-size: 0.85rem; margin-left: 0.5rem; }
-  .entry .msg { margin-top: 0.4rem; white-space: pre-wrap; }
-  .empty { color: #888; font-style: italic; }
-</style>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 </head>
-<body>
-  <div class="wrap">
-    <h1>Guestbook</h1>
-    <p class="intro">Sign in if you stopped by. The wall below is everyone who has.</p>
-    <form method="POST" action="/api/sign">
-      <label for="name">Your name</label>
-      <input id="name" name="name" type="text" required>
-      <label for="message">Message</label>
-      <textarea id="message" name="message" required></textarea>
-      <button type="submit">Sign</button>
+<body class="bg-base-200 min-h-screen text-base-content">
+  <div class="max-w-2xl mx-auto px-6 py-12">
+    <h1 class="text-4xl font-bold tracking-tight">Guestbook</h1>
+    <p class="text-base-content/70 mt-2 mb-8">Sign in if you stopped by. The wall below is everyone who has.</p>
+
+    <form method="POST" action="/api/sign" class="card bg-base-100 shadow-xl mb-8">
+      <div class="card-body space-y-3">
+        <div class="form-control">
+          <label class="label" for="name"><span class="label-text font-semibold">Your name</span></label>
+          <input id="name" name="name" type="text" required class="input input-bordered w-full">
+        </div>
+        <div class="form-control">
+          <label class="label" for="message"><span class="label-text font-semibold">Message</span></label>
+          <textarea id="message" name="message" required class="textarea textarea-bordered w-full min-h-24"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary mt-2">Sign</button>
+      </div>
     </form>
-    <div id="wall">
-      <p class="empty">Loading…</p>
+
+    <div id="wall" class="space-y-3">
+      <p class="text-base-content/60 italic">Loading…</p>
     </div>
   </div>
   <script>
@@ -42,14 +37,14 @@
         var wall = document.getElementById('wall');
         wall.innerHTML = '';
         if (!entries.length) {
-          wall.innerHTML = '<p class="empty">Be the first to sign.</p>';
+          wall.innerHTML = '<p class="text-base-content/60 italic">Be the first to sign.</p>';
           return;
         }
         entries.reverse().forEach(function (e) {
           var div = document.createElement('div');
-          div.className = 'entry';
+          div.className = 'card bg-base-100 shadow';
           var when = e.ts ? new Date(e.ts).toLocaleString() : '';
-          div.innerHTML = '<span class="name"></span><span class="ts"></span><div class="msg"></div>';
+          div.innerHTML = '<div class="card-body py-4 px-5"><div class="flex items-baseline gap-2"><span class="font-bold name"></span><span class="text-xs text-base-content/60 ts"></span></div><div class="mt-1 msg whitespace-pre-wrap"></div></div>';
           div.querySelector('.name').textContent = e.name || 'anon';
           div.querySelector('.ts').textContent = when;
           div.querySelector('.msg').textContent = e.message || '';
@@ -57,7 +52,7 @@
         });
       })
       .catch(function () {
-        document.getElementById('wall').innerHTML = '<p class="empty">Could not load entries.</p>';
+        document.getElementById('wall').innerHTML = '<p class="text-base-content/60 italic">Could not load entries.</p>';
       });
   </script>
 </body>

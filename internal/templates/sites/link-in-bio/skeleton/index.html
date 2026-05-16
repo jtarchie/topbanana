@@ -1,32 +1,44 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="valentine">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>@yourhandle</title>
-<style>
-  body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh; background: linear-gradient(160deg, #fde6f0 0%, #e3e6ff 100%); color: #1a1a2e; display: flex; justify-content: center; padding: 3rem 1rem; box-sizing: border-box; }
-  .wrap { width: 100%; max-width: 26rem; text-align: center; }
-  .avatar { width: 96px; height: 96px; border-radius: 50%; margin: 0 auto 1rem; background: #1a1a2e; color: #fff; display: grid; place-items: center; font-size: 2.25rem; font-weight: 700; }
-  h1 { margin: 0 0 0.25rem; font-size: 1.5rem; }
-  .bio { margin: 0 0 1.75rem; color: #444; }
-  a.link { display: block; padding: 0.95rem; margin: 0.6rem 0; background: #fff; border: 1px solid rgba(0,0,0,0.08); border-radius: 12px; color: #1a1a2e; text-decoration: none; font-weight: 600; transition: transform 0.1s ease; }
-  a.link:hover { transform: translateY(-2px); }
-  footer { margin-top: 2rem; font-size: 0.85rem; color: #555; }
-</style>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 </head>
-<body>
-<div class="wrap">
-  <div class="avatar">A</div>
-  <h1>@yourhandle</h1>
-  <p class="bio">Replace with a one-line bio about you.</p>
+<body class="min-h-screen bg-gradient-to-br from-primary/20 via-base-100 to-accent/20 text-base-content flex items-center justify-center px-4 py-8">
 
-  <a class="link" href="#">Replace with first link</a>
-  <a class="link" href="#">Replace with second link</a>
-  <a class="link" href="#">Replace with third link</a>
-  <a class="link" href="#">Replace with fourth link</a>
+<div class="w-full max-w-md mx-auto text-center">
+  <div class="avatar avatar-placeholder mb-4 flex justify-center">
+    <div class="bg-primary text-primary-content rounded-full w-24">
+      <span class="text-3xl font-bold">A</span>
+    </div>
+  </div>
+  <h1 class="text-3xl font-bold tracking-tight">@yourhandle</h1>
+  <p class="mt-2 text-base-content/70">Replace with a one-line bio about you.</p>
 
-  <footer>Replace footer or remove.</footer>
+  <div class="mt-8 space-y-3">
+    <a class="btn btn-block btn-lg bg-base-100 border border-base-300 hover:bg-base-200 normal-case" href="#">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-primary"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+      Replace with first link
+    </a>
+    <a class="btn btn-block btn-lg bg-base-100 border border-base-300 hover:bg-base-200 normal-case" href="#">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-accent"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+      Replace with second link
+    </a>
+    <a class="btn btn-block btn-lg bg-base-100 border border-base-300 hover:bg-base-200 normal-case" href="#">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-secondary"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      Replace with third link
+    </a>
+    <a class="btn btn-block btn-lg bg-base-100 border border-base-300 hover:bg-base-200 normal-case" href="#">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-info"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+      Replace with fourth link
+    </a>
+  </div>
+
+  <footer class="mt-10 text-sm text-base-content/60">Replace footer or remove.</footer>
 </div>
+
 </body>
 </html>

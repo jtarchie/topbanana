@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/alecthomas/kong"
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -37,6 +38,8 @@ var cli struct {
 
 	EditsKeep   int  `default:"50"   env:"EDITS_KEEP"   help:"Max per-edit transcripts to retain per site (0 disables retention; transcripts are still written)." name:"edits-keep"`
 	RecordEdits bool `default:"true" env:"RECORD_EDITS" help:"Capture per-edit transcripts to _edits/{slug}/."                                                    name:"record-edits"`
+
+	BuildTimeout time.Duration `default:"15m" env:"BUILD_TIMEOUT" help:"Wall-clock cap per build (initial agent run plus any lint retries). Bump for slower local models; lower for cloud-only deployments." name:"build-timeout"`
 
 	LLMModel   string `default:"lmstudio/google/gemma-4-26b-a4b" env:"LLM_MODEL"                                help:"LLM model as provider/model-name." name:"llm-model"`
 	LLMAPIKey  string `env:"LLM_API_KEY"                         help:"API key for the LLM provider."           name:"llm-api-key"`
@@ -87,12 +90,13 @@ func main() {
 	tracker := events.NewTracker()
 	snapshotSvc := snapshot.New(s, cli.SnapshotKeep)
 	buildSvc := build.NewWithConfig(build.Config{
-		Store:      s,
-		LLM:        llm,
-		Events:     tracker,
-		Snapshot:   snapshotSvc,
-		EditsKeep:  cli.EditsKeep,
-		RecordEdit: cli.RecordEdits,
+		Store:        s,
+		LLM:          llm,
+		Events:       tracker,
+		Snapshot:     snapshotSvc,
+		EditsKeep:    cli.EditsKeep,
+		RecordEdit:   cli.RecordEdits,
+		BuildTimeout: cli.BuildTimeout,
 	})
 	sb := sandbox.New(sandbox.Config{})
 	stateStore := state.NewS3(s3Client, cli.S3Bucket)

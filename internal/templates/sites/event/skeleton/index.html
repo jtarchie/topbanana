@@ -1,33 +1,36 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="autumn">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>You're invited</title>
-<style>
-  body { font-family: "Helvetica Neue", system-ui, sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 2rem 1rem; background: #f1ece2; color: #2a1f14; box-sizing: border-box; }
-  .invite { background: #fff; max-width: 36rem; width: 100%; padding: 3rem 2.5rem; border-radius: 4px; box-shadow: 0 8px 30px rgba(0,0,0,0.08); text-align: center; border: 1px solid rgba(0,0,0,0.05); }
-  .kicker { letter-spacing: 0.25em; text-transform: uppercase; font-size: 0.8rem; color: #8a6f4a; margin: 0 0 1rem; }
-  h1 { font-family: Georgia, serif; font-size: 2.5rem; margin: 0 0 0.5rem; font-weight: 400; }
-  .tagline { font-style: italic; color: #555; margin: 0 0 2rem; }
-  .when, .where { margin: 0.5rem 0; font-size: 1.1rem; }
-  .when strong, .where strong { display: block; font-size: 0.75rem; letter-spacing: 0.15em; text-transform: uppercase; color: #8a6f4a; margin-bottom: 0.15rem; font-weight: 600; }
-  .desc { margin: 2rem 0; line-height: 1.7; color: #444; }
-  .rsvp { display: inline-block; padding: 0.85rem 2rem; background: #2a1f14; color: #fff; text-decoration: none; border-radius: 2px; letter-spacing: 0.1em; text-transform: uppercase; font-size: 0.85rem; }
-</style>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 </head>
-<body>
-<div class="invite">
-  <p class="kicker">You're invited</p>
-  <h1>Replace with the event title</h1>
-  <p class="tagline">Replace with a short theme line</p>
+<body class="min-h-screen grid place-items-center bg-base-200 px-4 py-12">
+  <div class="card bg-base-100 shadow-2xl max-w-xl w-full">
+    <div class="card-body text-center px-8 py-12">
+      <p class="text-xs uppercase tracking-widest text-primary">You're invited</p>
+      <h1 class="mt-3 text-4xl md:text-5xl font-bold tracking-tight">Replace with the event title</h1>
+      <p class="mt-2 italic text-base-content/70">Replace with a short theme line</p>
 
-  <p class="when"><strong>When</strong>Replace with the date and time</p>
-  <p class="where"><strong>Where</strong>Replace with the venue or address</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-8 text-left">
+        <div>
+          <p class="text-xs uppercase tracking-widest text-primary font-semibold">When</p>
+          <p class="mt-1 text-lg">Replace with the date and time</p>
+        </div>
+        <div>
+          <p class="text-xs uppercase tracking-widest text-primary font-semibold">Where</p>
+          <p class="mt-1 text-lg">Replace with the venue or address</p>
+        </div>
+      </div>
 
-  <p class="desc">Replace with a short description of the event — what to expect, who should come, what to bring.</p>
+      <p class="mt-8 text-base-content/80 leading-relaxed">Replace with a short description of the event — what to expect, who should come, what to bring.</p>
 
-  <a class="rsvp" href="mailto:replace@example.com?subject=RSVP">RSVP</a>
-</div>
+      <div class="card-actions justify-center mt-8">
+        <a class="btn btn-primary btn-lg" href="mailto:replace@example.com?subject=RSVP">RSVP</a>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

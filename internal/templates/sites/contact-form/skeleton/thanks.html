@@ -1,20 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="corporate">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Thanks</title>
-<style>
-  body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; background: #fafafa; color: #111; }
-  .card { max-width: 32rem; padding: 2.5rem; background: #fff; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.06); text-align: center; }
-  h1 { margin: 0 0 0.75rem; font-size: 1.75rem; }
-  p { color: #555; margin: 0 0 1.5rem; }
-  a { color: #111; }
-</style>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 </head>
-<body>
-  <div class="card">
-    <h1>Thanks!</h1>
-    <p>We got it. <a href="/">Back home</a></p>
+<body class="min-h-screen grid place-items-center bg-base-200 px-4">
+  <div class="card bg-base-100 shadow-xl max-w-lg w-full">
+    <div class="card-body text-center">
+      <h1 class="card-title text-3xl justify-center">Thanks!</h1>
+      <p class="text-base-content/70">We got it. <a class="link link-primary" href="/">Back home</a></p>
+    </div>
   </div>
 </body>
 </html>

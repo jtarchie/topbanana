@@ -1,33 +1,34 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="winter">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Orders</title>
-<style>
-  body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh; background: #fafafa; color: #111; padding: 2rem; }
-  .wrap { max-width: 56rem; margin: 0 auto; }
-  h1 { margin: 0 0 1.5rem; font-size: 1.75rem; }
-  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.05); }
-  th, td { padding: 0.65rem 0.85rem; text-align: left; border-bottom: 1px solid #eee; font-size: 0.95rem; }
-  th { background: #f4f4f4; font-weight: 700; }
-  tr:last-child td { border-bottom: 0; }
-  .empty { color: #888; font-style: italic; padding: 2rem; text-align: center; }
-</style>
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 </head>
-<body>
-  <div class="wrap">
-    <h1>Orders</h1>
-    <p><a href="/">← back to shop</a></p>
-    <div id="orders"><p class="empty">Loading…</p></div>
+<body class="bg-base-200 min-h-screen text-base-content">
+  <div class="max-w-4xl mx-auto px-6 py-12">
+    <h1 class="text-3xl font-bold tracking-tight mb-2">Orders</h1>
+    <p class="mb-6"><a class="link link-primary" href="/">← back to shop</a></p>
+    <div id="orders" class="card bg-base-100 shadow-xl">
+      <div class="card-body">
+        <p class="text-base-content/60 italic text-center py-4">Loading…</p>
+      </div>
+    </div>
   </div>
   <script>
     fetch('/api/orders')
       .then(function (r) { return r.json(); })
       .then(function (orders) {
         var root = document.getElementById('orders');
-        if (!orders.length) { root.innerHTML = '<p class="empty">No orders yet.</p>'; return; }
-        var table = document.createElement('table');
-        table.innerHTML = '<tr><th>When</th><th>Product</th><th>Qty</th><th>Name</th><th>Email</th></tr>';
+        if (!orders.length) {
+          root.innerHTML = '<div class="card-body"><p class="text-base-content/60 italic text-center py-4">No orders yet.</p></div>';
+          return;
+        }
+        var html = '<div class="overflow-x-auto"><table class="table"><thead><tr><th>When</th><th>Product</th><th>Qty</th><th>Name</th><th>Email</th></tr></thead><tbody></tbody></table></div>';
+        root.innerHTML = html;
+        var tbody = root.querySelector('tbody');
         orders.slice().reverse().forEach(function (o) {
           var tr = document.createElement('tr');
           tr.innerHTML = '<td></td><td></td><td></td><td></td><td></td>';
@@ -37,12 +38,10 @@
           cells[2].textContent = o.qty;
           cells[3].textContent = o.name;
           cells[4].textContent = o.email;
-          table.appendChild(tr);
+          tbody.appendChild(tr);
         });
-        root.innerHTML = '';
-        root.appendChild(table);
       })
-      .catch(function () { document.getElementById('orders').innerHTML = '<p class="empty">Could not load orders.</p>'; });
+      .catch(function () { document.getElementById('orders').innerHTML = '<div class="card-body"><p class="text-base-content/60 italic text-center py-4">Could not load orders.</p></div>'; });
   </script>
 </body>
 </html>
