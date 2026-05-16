@@ -41,9 +41,10 @@ var cli struct {
 
 	BuildTimeout time.Duration `default:"15m" env:"BUILD_TIMEOUT" help:"Wall-clock cap per build (initial agent run plus any lint retries). Bump for slower local models; lower for cloud-only deployments." name:"build-timeout"`
 
-	LLMModel   string `default:"lmstudio/google/gemma-4-26b-a4b" env:"LLM_MODEL"                                help:"LLM model as provider/model-name." name:"llm-model"`
-	LLMAPIKey  string `env:"LLM_API_KEY"                         help:"API key for the LLM provider."           name:"llm-api-key"`
-	LLMBaseURL string `env:"LLM_BASE_URL"                        help:"Override base URL for the LLM provider." name:"llm-base-url"`
+	LLMModel        string `default:"lmstudio/google/gemma-4-26b-a4b" env:"LLM_MODEL"                                help:"LLM model as provider/model-name."                                                                                                                  name:"llm-model"`
+	LLMAPIKey       string `env:"LLM_API_KEY"                         help:"API key for the LLM provider."           name:"llm-api-key"`
+	LLMBaseURL      string `env:"LLM_BASE_URL"                        help:"Override base URL for the LLM provider." name:"llm-base-url"`
+	ReasoningEffort string `default:""                                env:"REASONING_EFFORT"                         help:"Ask the model to reason before responding. One of: none|minimal|low|medium|high. Empty / 'none' disables. Only useful on reasoning-capable models." name:"reasoning-effort"`
 }
 
 func main() {
@@ -59,6 +60,12 @@ func main() {
 	llm, err := model.Resolve(provider, name, cli.LLMAPIKey, cli.LLMBaseURL)
 	if err != nil {
 		slog.Error("model resolve failed", "err", err)
+		os.Exit(1)
+	}
+
+	reasoningEffort, err := model.ParseReasoningEffort(cli.ReasoningEffort)
+	if err != nil {
+		slog.Error("reasoning effort invalid", "err", err)
 		os.Exit(1)
 	}
 
@@ -90,13 +97,14 @@ func main() {
 	tracker := events.NewTracker()
 	snapshotSvc := snapshot.New(s, cli.SnapshotKeep)
 	buildSvc := build.NewWithConfig(build.Config{
-		Store:        s,
-		LLM:          llm,
-		Events:       tracker,
-		Snapshot:     snapshotSvc,
-		EditsKeep:    cli.EditsKeep,
-		RecordEdit:   cli.RecordEdits,
-		BuildTimeout: cli.BuildTimeout,
+		Store:           s,
+		LLM:             llm,
+		Events:          tracker,
+		Snapshot:        snapshotSvc,
+		EditsKeep:       cli.EditsKeep,
+		RecordEdit:      cli.RecordEdits,
+		BuildTimeout:    cli.BuildTimeout,
+		ReasoningEffort: reasoningEffort,
 	})
 	sb := sandbox.New(sandbox.Config{})
 	stateStore := state.NewS3(s3Client, cli.S3Bucket)

@@ -8,6 +8,7 @@ import (
 	genaianthropic "github.com/achetronic/adk-utils-go/genai/anthropic"
 	genaiopenai "github.com/achetronic/adk-utils-go/genai/openai"
 	adkmodel "google.golang.org/adk/model"
+	"google.golang.org/genai"
 )
 
 // DefaultBaseURLs maps OpenAI-compatible provider names to their API endpoints.
@@ -26,6 +27,32 @@ func SplitModel(s string) (provider, name string) {
 		return s, s
 	}
 	return s[:idx], s[idx+1:]
+}
+
+// ParseReasoningEffort converts a CLI string into a genai.ThinkingLevel.
+// Empty input + "none" both map to the unspecified zero value (no thinking).
+// Returned errors are user-facing — wire them straight to a startup failure
+// so a typo never silently disables reasoning.
+//
+// On OpenRouter, the adk-utils-go OpenAI adapter passes ThinkingLevel through
+// as the request's reasoning effort, which OpenRouter then maps to whichever
+// per-model API expects it (Google's thinkingLevel for Gemini 3, thinkingBudget
+// for Gemini 2.5, Anthropic's thinking blocks, Qwen's enable_thinking, etc).
+func ParseReasoningEffort(s string) (genai.ThinkingLevel, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "none":
+		return "", nil
+	case "minimal":
+		return genai.ThinkingLevelMinimal, nil
+	case "low":
+		return genai.ThinkingLevelLow, nil
+	case "medium":
+		return genai.ThinkingLevelMedium, nil
+	case "high":
+		return genai.ThinkingLevelHigh, nil
+	default:
+		return "", fmt.Errorf("unknown reasoning effort %q (use minimal|low|medium|high or none)", s)
+	}
 }
 
 // Resolve constructs an ADK LLM for the given provider + model + API key.

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	adkmodel "google.golang.org/adk/model"
+	"google.golang.org/genai"
 
 	"github.com/jtarchie/buildabear/internal/agent"
 	"github.com/jtarchie/buildabear/internal/editrec"
@@ -88,28 +89,33 @@ func EffectiveTemplate(meta SiteMeta) *templates.SiteTemplate {
 // reversible from the History UI. editsKeep caps how many transcripts to
 // retain per slug (0 disables trimming, but transcripts are still written).
 // buildTimeout caps wall-clock per build; zero falls back to DefaultBuildTimeout.
+// reasoningEffort is the genai.ThinkingLevel passed to every agent.Run; the
+// zero value means no thinking, which is the cheap/fast default.
 type Service struct {
-	store        *store.Store
-	llm          adkmodel.LLM
-	events       *events.Tracker
-	snapshot     *snapshot.Service
-	editsKeep    int
-	recordEdit   bool
-	buildTimeout time.Duration
+	store           *store.Store
+	llm             adkmodel.LLM
+	events          *events.Tracker
+	snapshot        *snapshot.Service
+	editsKeep       int
+	recordEdit      bool
+	buildTimeout    time.Duration
+	reasoningEffort genai.ThinkingLevel
 }
 
 // Config bundles dependencies for the build service. RecordEdit toggles the
 // per-edit transcript capture (enabled by default in production; tests can
 // opt out to avoid extra S3 writes). BuildTimeout, when zero, falls back to
-// DefaultBuildTimeout.
+// DefaultBuildTimeout. ReasoningEffort, when non-empty, asks the model to
+// reason before responding — only useful on reasoning-capable models.
 type Config struct {
-	Store        *store.Store
-	LLM          adkmodel.LLM
-	Events       *events.Tracker
-	Snapshot     *snapshot.Service
-	EditsKeep    int
-	RecordEdit   bool
-	BuildTimeout time.Duration
+	Store           *store.Store
+	LLM             adkmodel.LLM
+	Events          *events.Tracker
+	Snapshot        *snapshot.Service
+	EditsKeep       int
+	RecordEdit      bool
+	BuildTimeout    time.Duration
+	ReasoningEffort genai.ThinkingLevel
 }
 
 func New(s *store.Store, llm adkmodel.LLM, t *events.Tracker, snap *snapshot.Service) *Service {
@@ -124,13 +130,14 @@ func NewWithConfig(cfg Config) *Service {
 		timeout = DefaultBuildTimeout
 	}
 	return &Service{
-		store:        cfg.Store,
-		llm:          cfg.LLM,
-		events:       cfg.Events,
-		snapshot:     cfg.Snapshot,
-		editsKeep:    cfg.EditsKeep,
-		recordEdit:   cfg.RecordEdit,
-		buildTimeout: timeout,
+		store:           cfg.Store,
+		llm:             cfg.LLM,
+		events:          cfg.Events,
+		snapshot:        cfg.Snapshot,
+		editsKeep:       cfg.EditsKeep,
+		recordEdit:      cfg.RecordEdit,
+		buildTimeout:    timeout,
+		reasoningEffort: cfg.ReasoningEffort,
 	}
 }
 
@@ -245,7 +252,7 @@ func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl 
 		emit = rec.Wrap(ctx, svc.store, slug, emit)
 	}
 
-	err := agent.Run(ctx, svc.llm, svc.store, slug, prompt, tmpl, attachments, seeds, emit)
+	err := agent.Run(ctx, svc.llm, svc.store, slug, prompt, tmpl, attachments, seeds, svc.reasoningEffort, emit)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("build timed out after %s", svc.buildTimeout)
@@ -270,7 +277,7 @@ func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl 
 
 		slog.Info("build.lint_retry", "slug", slug, "attempt", attempt+1, "issues", len(lintErrs))
 		emit(events.Event{Type: events.TypeStatus, Status: events.StatusRetry, Message: fmt.Sprintf("fixing %d issue(s)", len(lintErrs))})
-		err := agent.Run(ctx, svc.llm, svc.store, slug, LintFixPrompt(lintErrs), tmpl, attachments, nil, emit)
+		err := agent.Run(ctx, svc.llm, svc.store, slug, LintFixPrompt(lintErrs), tmpl, attachments, nil, svc.reasoningEffort, emit)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				return fmt.Errorf("build timed out after %s", svc.buildTimeout)

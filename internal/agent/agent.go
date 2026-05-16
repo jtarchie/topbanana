@@ -224,8 +224,11 @@ type deleteFunctionResult struct {
 
 // Run invokes the agent against the given slug. emit may be nil. attachments
 // are inlined into the session as seeded read_attachment(name) call/response
-// pairs ahead of the caller-supplied seeds.
-func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []Attachment, seeds []SeedToolCall, emit func(events.Event)) error {
+// pairs ahead of the caller-supplied seeds. reasoningEffort, when non-empty,
+// asks the model to spend reasoning tokens before each response — supported
+// by Gemini 2.5/3 Flash + Pro, Claude Sonnet/Opus/Haiku, Qwen Plus, GPT-5,
+// DeepSeek V3.1+ and other reasoning-capable models on OpenRouter.
+func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []Attachment, seeds []SeedToolCall, reasoningEffort genai.ThinkingLevel, emit func(events.Event)) error {
 	if emit == nil {
 		emit = func(events.Event) {}
 	}
@@ -239,13 +242,20 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 		return err
 	}
 
-	a, err := llmagent.New(llmagent.Config{
+	cfg := llmagent.Config{
 		Name:        "html-builder",
 		Description: "Builds static HTML apps from a prompt",
 		Instruction: buildInstruction(tmpl, attachments),
 		Model:       llm,
 		Tools:       tools,
-	})
+	}
+	if reasoningEffort != "" {
+		cfg.GenerateContentConfig = &genai.GenerateContentConfig{
+			ThinkingConfig: &genai.ThinkingConfig{ThinkingLevel: reasoningEffort},
+		}
+	}
+
+	a, err := llmagent.New(cfg)
 	if err != nil {
 		return fmt.Errorf("create agent: %w", err)
 	}
