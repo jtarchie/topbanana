@@ -58,6 +58,11 @@ type Deps struct {
 	Port              string
 	AdminUsername     string
 	AdminPasswordHash string
+	// PreWarmCert, when non-nil, is invoked in a goroutine for each newly-saved
+	// custom domain so the autocert manager can issue a Let's Encrypt cert
+	// before the first visitor arrives. Set by main when --acme-email is on;
+	// left nil in plain-HTTP / dev mode.
+	PreWarmCert func(host string)
 }
 
 // Server is the wired-up state shared across handlers.
@@ -85,6 +90,10 @@ type Server struct {
 	// Domains. Lookups dominate writes, so a single RWMutex is enough.
 	domainMu    sync.RWMutex
 	domainIndex map[string]string
+
+	// preWarmCert is the deps callback, captured here so settingsSubmitHandler
+	// can fire it without threading the function through every signature.
+	preWarmCert func(host string)
 }
 
 // fallThroughHosts are hosts that should bypass subdomain proxying and hit
@@ -95,8 +104,11 @@ var fallThroughHosts = map[string]bool{
 	"0.0.0.0":   true,
 }
 
-// New constructs the Echo server with all routes mounted.
-func New(d Deps) *echo.Echo {
+// New constructs the Echo server with all routes mounted. Returns both the
+// Echo instance (for serving) and the underlying *Server (so the autocert
+// HostPolicy in main can reach HostAllowed without duplicating the dispatch
+// logic from subdomainMiddleware).
+func New(d Deps) (*echo.Echo, *Server) {
 	tpl := template.New("")
 	// layout.html defines shared partials (e.g. "head") used by the platform
 	// pages below. It must be parsed first so the others can reference its
@@ -136,12 +148,14 @@ func New(d Deps) *echo.Echo {
 		adminPasswordHash: d.AdminPasswordHash,
 		htmlMinifier:      newHTMLMinifier(),
 		domainIndex:       map[string]string{},
+		preWarmCert:       d.PreWarmCert,
 	}
-	s.rebuildDomainIndex(context.Background())
+	s.initialRebuildDomainIndex(context.Background())
 
 	e := echo.New()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	e.Use(slogecho.New(logger))
+	e.Use(hstsMiddleware())
 	e.Use(s.subdomainMiddleware())
 
 	// /status and /events are reachable unauthed: they're polled by the
@@ -185,7 +199,7 @@ func New(d Deps) *echo.Echo {
 	admin.GET("/debug/:slug/edit", s.debugDetailHandler)
 	admin.GET("/debug/:slug/cache-check", s.debugCacheCheckHandler)
 
-	return e
+	return e, s
 }
 
 // subdomainMiddleware dispatches by Host:
@@ -235,14 +249,13 @@ func (s *Server) dispatchSite(c *echo.Context, slug string) error {
 }
 
 // rebuildDomainIndex scans all sites and rebuilds the host → slug map. Called
-// at startup and after any settings save that changes Domains. Errors are
-// logged but don't block startup — a partial index just means the affected
-// custom domains 404 until the next rebuild.
-func (s *Server) rebuildDomainIndex(ctx context.Context) {
+// after any settings save that changes Domains. Returns an error so the
+// initial startup rebuild can retry; runtime callers (settings handlers) just
+// log and continue — a stale index there only delays the next refresh.
+func (s *Server) rebuildDomainIndex(ctx context.Context) error {
 	apps, err := s.store.ListApps(ctx)
 	if err != nil {
-		slog.Warn("domain_index.list_apps_failed", "err", err)
-		return
+		return fmt.Errorf("list apps: %w", err)
 	}
 	idx := make(map[string]string, len(apps))
 	for _, slug := range apps {
@@ -259,6 +272,37 @@ func (s *Server) rebuildDomainIndex(ctx context.Context) {
 	s.domainIndex = idx
 	s.domainMu.Unlock()
 	slog.Info("domain_index.rebuilt", "count", len(idx))
+	return nil
+}
+
+// initialRebuildDomainIndex retries the first rebuild a few times. If S3 is
+// briefly unreachable at boot and we silently start with an empty index, every
+// custom-domain ACME validation fails closed (HostPolicy denies unknown hosts)
+// until somebody saves settings — that's a long, silent outage. Keep retrying
+// for ~10s; if the bucket genuinely is dead, panic so the platform restarts us.
+func (s *Server) initialRebuildDomainIndex(ctx context.Context) {
+	var lastErr error
+	for i := range 5 {
+		if i > 0 {
+			time.Sleep(2 * time.Second)
+		}
+		err := s.rebuildDomainIndex(ctx)
+		if err == nil {
+			return
+		}
+		lastErr = err
+		slog.Warn("domain_index.startup_retry", "attempt", i+1, "err", err)
+	}
+	panic(fmt.Errorf("initial domain index rebuild failed after retries: %w", lastErr))
+}
+
+// rebuildDomainIndexLogging is the post-startup callsite: rebuild, log on
+// failure, keep serving. The old index stays in place if the rebuild errored.
+func (s *Server) rebuildDomainIndexLogging(ctx context.Context) {
+	err := s.rebuildDomainIndex(ctx)
+	if err != nil {
+		slog.Warn("domain_index.refresh_failed", "err", err)
+	}
 }
 
 // lookupCustomDomain returns the slug that owns host, if any.
@@ -267,6 +311,41 @@ func (s *Server) lookupCustomDomain(host string) (string, bool) {
 	defer s.domainMu.RUnlock()
 	slug, ok := s.domainIndex[host]
 	return slug, ok
+}
+
+// hstsMiddleware advertises HSTS only when the request actually arrived over
+// TLS (c.Request().TLS != nil — true on the autocert HTTPS listener, false
+// on `task local` plain HTTP). Two years is the long-standing recommendation;
+// includeSubDomains covers per-slug subdomains. Preload is intentionally off
+// — wait for a few weeks of clean issuance before opting in (it's irrevocable
+// for ~12 months).
+func hstsMiddleware() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if c.Request().TLS != nil {
+				c.Response().Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+			}
+			return next(c)
+		}
+	}
+}
+
+// HostAllowed mirrors subdomainMiddleware's dispatch table: the host is
+// recognised if it's the main domain (or a loopback fall-through), a slug
+// subdomain, or a registered custom domain. Exported so the autocert
+// HostPolicy can reuse the same source of truth instead of duplicating the
+// logic — and so a hostile request to random.com:443 fails closed before LE
+// ever sees it.
+func (s *Server) HostAllowed(host string) bool {
+	host = strings.ToLower(stripPort(host))
+	if host == s.domain || fallThroughHosts[host] {
+		return true
+	}
+	if strings.HasSuffix(host, "."+s.domain) {
+		return true
+	}
+	_, ok := s.lookupCustomDomain(host)
+	return ok
 }
 
 // publicPort extracts the port the visitor used from the request's Host
@@ -1114,6 +1193,7 @@ func (s *Server) settingsSubmitHandler(c *echo.Context) error {
 	if derr != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, derr.Error())
 	}
+	added := newlyAddedDomains(meta.Domains, domains)
 	meta.Domains = domains
 
 	// Only honour the override when the template doesn't already enable
@@ -1132,8 +1212,29 @@ func (s *Server) settingsSubmitHandler(c *echo.Context) error {
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "save settings", err)
 	}
-	s.rebuildDomainIndex(ctx)
+	s.rebuildDomainIndexLogging(ctx)
+	if s.preWarmCert != nil {
+		for _, host := range added {
+			go s.preWarmCert(host)
+		}
+	}
 	return c.Redirect(http.StatusSeeOther, "/settings/"+slug) //nolint:wrapcheck
+}
+
+// newlyAddedDomains returns the hosts in next that weren't in prev. Both
+// lists come from parseDomains so they're already normalized + lowercased.
+func newlyAddedDomains(prev, next []string) []string {
+	seen := make(map[string]bool, len(prev))
+	for _, h := range prev {
+		seen[h] = true
+	}
+	added := make([]string, 0, len(next))
+	for _, h := range next {
+		if !seen[h] {
+			added = append(added, h)
+		}
+	}
+	return added
 }
 
 // settingsDeleteHandler permanently removes an app: all site files, all
@@ -1179,7 +1280,7 @@ func (s *Server) settingsDeleteHandler(c *echo.Context) error {
 	}
 
 	s.events.Forget(slug)
-	s.rebuildDomainIndex(ctx)
+	s.rebuildDomainIndexLogging(ctx)
 
 	slog.Info("app.delete", "slug", slug, "files", len(files), "snapshots", snapCount)
 	return c.Redirect(http.StatusSeeOther, "/apps?flash="+urlEscape("Deleted "+slug)) //nolint:wrapcheck

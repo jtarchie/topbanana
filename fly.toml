@@ -4,12 +4,28 @@ primary_region = "sjc"
 [build]
   dockerfile = "Dockerfile"
 
-[http_service]
-  internal_port = 8080
-  force_https = true
-  auto_stop_machines = "stop"
-  auto_start_machines = true
-  min_machines_running = 0
+# Raw TCP pass-through on 80/443 — TLS is terminated inside the binary by
+# autocert (golang.org/x/crypto/acme/autocert), with certs persisted in S3
+# under _acme/. Fly's edge no longer does TLS or force_https; the app's
+# HTTP-80 listener (autocert.Manager.HTTPHandler) serves ACME challenges and
+# 301s everything else.
+#
+# Operator note: [[services]] doesn't support auto_stop / min_machines like
+# [http_service] does. Run `fly scale count 1` after first deploy so a machine
+# is always up — required for LE validations to land on a live process.
+[[services]]
+  protocol = "tcp"
+  internal_port = 443
+  [[services.ports]]
+    port = 443
+    handlers = ["proxy_proto"]
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 80
+  [[services.ports]]
+    port = 80
+    handlers = ["proxy_proto"]
 
 [[vm]]
   size = "shared-cpu-1x"

@@ -104,7 +104,7 @@ func buildServer(t *testing.T, st *store.Store, snapSvc *snapshot.Service) http.
 	if err != nil {
 		t.Fatalf("bcrypt: %v", err)
 	}
-	return server.New(server.Deps{
+	e, _ := server.New(server.Deps{
 		Store:             st,
 		Build:             build.New(st, nil, events.NewTracker(), snapSvc),
 		Events:            events.NewTracker(),
@@ -115,6 +115,7 @@ func buildServer(t *testing.T, st *store.Store, snapSvc *snapshot.Service) http.
 		AdminUsername:     testAdminUser,
 		AdminPasswordHash: string(hash),
 	})
+	return e
 }
 
 // TestHistoryRestoreHandler_EndToEnd drives POST /history/:slug/restore through

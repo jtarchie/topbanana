@@ -22,5 +22,8 @@ ENV CHROMEDP_EXEC_PATH=/usr/bin/chromium-browser \
 COPY --from=builder /out/buildabear /usr/local/bin/buildabear
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
-EXPOSE 8080
+# Allow the non-root binary to bind 80/443 for autocert without running as
+# root. Required on Fly machines, which drop to an unprivileged user.
+RUN apk add --no-cache libcap && setcap 'cap_net_bind_service=+ep' /usr/local/bin/buildabear
+EXPOSE 80 443
 ENTRYPOINT ["/entrypoint.sh"]

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"time"
@@ -45,6 +46,16 @@ var cli struct {
 	LLMAPIKey       string `env:"LLM_API_KEY"                         help:"API key for the LLM provider."           name:"llm-api-key"`
 	LLMBaseURL      string `env:"LLM_BASE_URL"                        help:"Override base URL for the LLM provider." name:"llm-base-url"`
 	ReasoningEffort string `default:""                                env:"REASONING_EFFORT"                         help:"Ask the model to reason before responding. One of: none|minimal|low|medium|high. Empty / 'none' disables. Only useful on reasoning-capable models." name:"reasoning-effort"`
+
+	// ACME / Let's Encrypt. ACMEEmail is the toggle: empty = plain HTTP on
+	// --port (dev), non-empty = bind 80+443 and serve TLS via autocert with
+	// certs persisted in S3 under ACMECachePrefix.
+	ACMEEmail       string `env:"ACME_EMAIL"     help:"Contact email for Let's Encrypt. When set, enables TLS via autocert on --http-port and --tls-port."                                                                                             name:"acme-email"`
+	ACMECachePrefix string `default:"_acme/"     env:"ACME_CACHE_PREFIX"                                                                                                                                                                               help:"S3 key prefix for ACME account key + cert cache."                                               name:"acme-cache-prefix"`
+	ACMEDirectory   string `env:"ACME_DIRECTORY" help:"Override the ACME directory URL (e.g. LE staging during cutover). Empty uses Let's Encrypt production."                                                                                         name:"acme-directory"`
+	TLSPort         string `default:"443"        env:"TLS_PORT"                                                                                                                                                                                        help:"Port for the HTTPS listener (when --acme-email is set)."                                        name:"tls-port"`
+	HTTPPort        string `default:"80"         env:"HTTP_PORT"                                                                                                                                                                                       help:"Port for the HTTP listener that serves ACME challenges + redirects (when --acme-email is set)." name:"http-port"`
+	ProxyProtocol   bool   `env:"PROXY_PROTOCOL" help:"Parse PROXY protocol v1/v2 headers on incoming connections. Required on Fly Machines services declared with handlers=[\"proxy_proto\"] (the only way to get raw-TCP pass-through on port 443)." name:"proxy-protocol"`
 }
 
 func main() {
@@ -116,7 +127,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	e := server.New(server.Deps{
+	deps := server.Deps{
 		Store:             s,
 		Build:             buildSvc,
 		Events:            tracker,
@@ -128,10 +139,46 @@ func main() {
 		Port:              cli.Port,
 		AdminUsername:     cli.AdminUsername,
 		AdminPasswordHash: string(adminHash),
-	})
+	}
 
-	slog.Info("app.started", "port", cli.Port, "domain", cli.Domain, "model", cli.LLMModel)
-	err = e.Start(":" + cli.Port)
+	// Plain-HTTP path (dev / no ACME). echo.Start blocks until shutdown.
+	if cli.ACMEEmail == "" {
+		e, _ := server.New(deps)
+		slog.Info("app.started", "port", cli.Port, "domain", cli.Domain, "model", cli.LLMModel, "tls", false)
+		err = e.Start(":" + cli.Port)
+		if err != nil {
+			slog.Error("server error", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// TLS path. Order matters: build the autocert manager first so we can
+	// wire its pre-warm callback into Deps; the manager's HostPolicy needs
+	// the *Server, so patch it after construction.
+	tlsOpts := server.TLSOpts{
+		Cache:         store.NewACMECache(s, cli.ACMECachePrefix),
+		Email:         cli.ACMEEmail,
+		HTTPPort:      cli.HTTPPort,
+		TLSPort:       cli.TLSPort,
+		Directory:     cli.ACMEDirectory,
+		ProxyProtocol: cli.ProxyProtocol,
+	}
+	mgr := server.NewAutocertManager(tlsOpts)
+	deps.PreWarmCert = func(host string) { server.PreWarm(mgr, host) }
+
+	e, srv := server.New(deps)
+	mgr.HostPolicy = func(_ context.Context, host string) error {
+		if srv.HostAllowed(host) {
+			return nil
+		}
+		return fmt.Errorf("acme: host %q not configured", host)
+	}
+
+	slog.Info("app.started", "tls_port", cli.TLSPort, "http_port", cli.HTTPPort,
+		"domain", cli.Domain, "model", cli.LLMModel, "tls", true,
+		"acme_directory", cli.ACMEDirectory)
+	err = server.RunWithTLS(ctx, e, mgr, tlsOpts)
 	if err != nil {
 		slog.Error("server error", "err", err)
 		os.Exit(1)

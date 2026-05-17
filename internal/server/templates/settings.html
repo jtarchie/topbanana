@@ -12,7 +12,7 @@
 
   <form method="POST" action="/settings/{{ .Slug }}">
     <h2>Custom domains</h2>
-    <p>One hostname per line. Point each domain at this server with a CNAME/A record. <span class="hint">Static HTML is cached at the edge for 5&nbsp;minutes; <code>/api/*</code> calls bypass the cache so any KV state stays live.</span></p>
+    <p>One hostname per line. Add a <code>CNAME</code> at your DNS provider pointing the hostname at this server, then save &mdash; we'll issue a TLS certificate automatically on the first request. <span class="hint"><strong>Do not proxy through Cloudflare or another CDN</strong> (use "DNS&nbsp;only" / grey-cloud); the orange-cloud proxy intercepts our Let's Encrypt validation. Static HTML is cached at the edge for 5&nbsp;minutes; <code>/api/*</code> calls bypass the cache so any KV state stays live.</span></p>
     <div class="row">
       <label for="domains">Domains</label>
       <textarea name="domains" id="domains" rows="4" placeholder="example.com&#10;www.example.com">{{ .Domains }}</textarea>
