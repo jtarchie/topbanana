@@ -68,10 +68,12 @@
   button.secondary:hover { background: var(--bg-soft); color: var(--ink); }
   button.link-button { margin: 0; padding: 0; background: none; color: var(--accent); text-decoration: underline; border-radius: 0; font: inherit; }
   button.link-button:hover { background: none; color: var(--accent-hover); }
+  button.link-button.danger { color: #c00; }
+  button.link-button.danger:hover { color: #900; }
 
   /* Page-action row beneath the H1: small actions like Re-lint. */
   .page-actions { margin: -0.25rem 0 1rem; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
-  .page-actions .nav-form { display: inline; margin: 0; }
+  .nav-form { display: inline; margin: 0; }
 
   /* Flash banners. */
   .flash { margin: 1rem 0; padding: 0.6rem 0.9rem; border-radius: 6px; border: 1px solid transparent; font-size: 0.95rem; }

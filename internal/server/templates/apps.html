@@ -17,7 +17,7 @@
     <li>
       <a href="{{ .URL }}">{{ if .Title }}{{ .Title }}{{ else }}{{ .Name }}{{ end }}</a>
       {{ if .Description }}<p class="desc">{{ .Description }}</p>{{ end }}
-      <p class="desc muted"><code>{{ .Name }}</code> &middot; <a href="/edit/{{ .Name }}">Edit</a> &middot; <a href="/data/{{ .Name }}">Data</a> &middot; <a href="/settings/{{ .Name }}">Settings</a></p>
+      <div class="desc muted"><code>{{ .Name }}</code> &middot; <a href="/edit/{{ .Name }}">Edit</a> &middot; <a href="/data/{{ .Name }}">Data</a> &middot; <a href="/settings/{{ .Name }}">Settings</a> &middot; <form method="POST" action="/settings/{{ .Name }}/delete" class="nav-form js-confirm" data-confirm="Delete {{ .Name }}? This permanently removes all files and snapshots and cannot be undone."><input type="hidden" name="confirm" value="{{ .Name }}"><button type="submit" class="link-button danger">Delete</button></form></div>
     </li>
     {{ end }}
   </ul>
@@ -26,5 +26,13 @@
   {{ end }}
 </main>
 {{ template "footer" . }}
+<script>
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (!(f instanceof HTMLFormElement) || !f.classList.contains('js-confirm')) return;
+    var msg = f.dataset.confirm || 'Are you sure?';
+    if (!window.confirm(msg)) e.preventDefault();
+  });
+</script>
 </body>
 </html>
