@@ -110,6 +110,7 @@ func New(d Deps) *echo.Echo {
 		{"settings", settingsTemplate},
 		{"toolbar", editToolbarTemplate},
 		{"visual_edit", visualEditTemplate},
+		{"theme_studio", themeStudioTemplate},
 		{"function_edit", functionEditTemplate},
 		{"history", historyTemplate},
 		{"data", dataTemplate},
@@ -167,6 +168,8 @@ func New(d Deps) *echo.Echo {
 	admin.POST("/relint/:slug", s.relintHandler)
 	admin.GET("/edit/:slug/visual", s.visualEditHandler)
 	admin.POST("/edit/:slug/visual", s.visualEditSaveHandler, promptBodyCap)
+	admin.GET("/edit/:slug/theme", s.themeStudioHandler)
+	admin.POST("/edit/:slug/theme", s.themeStudioApplyHandler)
 	admin.GET("/edit/:slug/function/:name", s.functionEditHandler)
 	admin.POST("/test/:slug/api/:name", s.functionTestHandler)
 	admin.POST("/upload/:slug", s.uploadHandler)

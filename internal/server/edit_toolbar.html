@@ -13,5 +13,11 @@ var d=document.createElement('div');
 d.appendChild(s.getRangeAt(0).cloneContents());
 parent.postMessage({type:'_bab_sel',html:d.innerHTML,text:s.toString()},'*');
 });
+window.addEventListener('message',function(e){
+if(!e.data||e.data.type!=='buildabear:settheme')return;
+var t=e.data.theme;
+if(typeof t!=='string'||!/^[a-z]{2,20}$/.test(t))return;
+document.documentElement.setAttribute('data-theme',t);
+});
 </script>
 </body>

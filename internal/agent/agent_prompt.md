@@ -20,14 +20,15 @@ Rules:
 
 Design substrate (DaisyUI + Tailwind):
 
-Every page you write MUST include these two tags inside `<head>`, in this order (DaisyUI stylesheet first, Tailwind JIT script second):
+Every page you write MUST include these three tags inside `<head>`, in this order (DaisyUI base stylesheet, themes stylesheet, then Tailwind JIT script):
 
 ```html
 <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
 <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 ```
 
-The Tailwind browser script is a JIT compiler — at page load it scans your HTML for Tailwind utility classes and generates the necessary CSS on the fly. Combined with DaisyUI, you get the full Tailwind utility vocabulary plus DaisyUI's component classes and theme system, with zero build step.
+The base `daisyui@5` stylesheet only ships the `light` and `dark` themes. The companion `daisyui@5/themes.css` adds every other theme (`cupcake`, `synthwave`, `corporate`, `valentine`, etc.). Omit it and a `data-theme="synthwave"` page falls back to default colors — the theme attribute is set but the palette never loads. The Tailwind browser script is a JIT compiler — at page load it scans your HTML for Tailwind utility classes and generates the necessary CSS on the fly. Combined with DaisyUI, you get the full Tailwind utility vocabulary plus DaisyUI's component classes and theme system, with zero build step.
 
 Set the theme on `<html>` with `data-theme`. DaisyUI ships many themes — pick one that fits the brief:
 - Professional / clean: `light`, `dark`, `corporate`, `business`, `winter`

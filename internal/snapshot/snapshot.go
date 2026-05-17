@@ -39,6 +39,7 @@ const (
 	ReasonBuild      = "build"
 	ReasonEdit       = "edit"
 	ReasonVisualSave = "visual-save"
+	ReasonThemeApply = "theme-apply"
 	ReasonSettings   = "settings"
 	ReasonUpload     = "upload"
 	ReasonPreRestore = "pre-restore"

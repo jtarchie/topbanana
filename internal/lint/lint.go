@@ -90,12 +90,51 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 // and pages drift back to the dated default the system prompt is trying to
 // kill. Match the host (not the full URL) so version bumps in the agent's
 // output don't make the lint flake.
+//
+// daisyHost matches the base stylesheet OR the themes companion via
+// substring; daisyThemesPath is the suffix that distinguishes "all themes
+// loaded" from "only light + dark loaded." Without the themes link, every
+// `data-theme="synthwave"` (and the other 20+ stock themes) renders as the
+// default palette — the attribute is set but the variables are absent.
 const (
-	daisyHost    = "cdn.jsdelivr.net/npm/daisyui"
-	tailwindHost = "cdn.jsdelivr.net/npm/@tailwindcss/browser"
+	daisyHost       = "cdn.jsdelivr.net/npm/daisyui"
+	daisyThemesPath = "daisyui@5/themes.css"
+	tailwindHost    = "cdn.jsdelivr.net/npm/@tailwindcss/browser"
 )
 
-// checkDesignSubstrate verifies a page links both halves of the design
+// substratePresence tracks which design-substrate elements the walker found
+// as well-formed DOM nodes during one pass over a document.
+type substratePresence struct {
+	daisy, daisyThemes, tailwind bool
+}
+
+func (p *substratePresence) inspect(n *html.Node) {
+	if n.Type != html.ElementNode {
+		return
+	}
+	switch n.Data {
+	case "link":
+		for _, a := range n.Attr {
+			if a.Key != "href" {
+				continue
+			}
+			switch {
+			case strings.Contains(a.Val, daisyThemesPath):
+				p.daisyThemes = true
+			case strings.Contains(a.Val, daisyHost):
+				p.daisy = true
+			}
+		}
+	case "script":
+		for _, a := range n.Attr {
+			if a.Key == "src" && strings.Contains(a.Val, tailwindHost) {
+				p.tailwind = true
+			}
+		}
+	}
+}
+
+// checkDesignSubstrate verifies a page links every part of the design
 // substrate as well-formed DOM elements — not just bytes that appear
 // somewhere in the file. Substring matching missed the failure where a
 // previous attribute (typically a <meta> viewport whose content="" lost
@@ -103,25 +142,10 @@ const (
 // substrate URL still appears in the file but no <link>/<script> exists
 // in the DOM and the page renders without DaisyUI.
 func checkDesignSubstrate(file string, doc *html.Node) []Error {
-	var hasDaisy, hasTailwind bool
+	var p substratePresence
 	var walk func(*html.Node)
 	walk = func(n *html.Node) {
-		if n.Type == html.ElementNode {
-			switch n.Data {
-			case "link":
-				for _, a := range n.Attr {
-					if a.Key == "href" && strings.Contains(a.Val, daisyHost) {
-						hasDaisy = true
-					}
-				}
-			case "script":
-				for _, a := range n.Attr {
-					if a.Key == "src" && strings.Contains(a.Val, tailwindHost) {
-						hasTailwind = true
-					}
-				}
-			}
-		}
+		p.inspect(n)
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			walk(c)
 		}
@@ -129,13 +153,19 @@ func checkDesignSubstrate(file string, doc *html.Node) []Error {
 	walk(doc)
 
 	var errs []Error
-	if !hasDaisy {
+	if !p.daisy {
 		errs = append(errs, Error{
 			File:    file,
 			Message: "missing DaisyUI stylesheet — every page must include `<link href=\"https://cdn.jsdelivr.net/npm/daisyui@5\" rel=\"stylesheet\" type=\"text/css\" />` in <head> as a well-formed element. If the URL appears in the file but this check still fires, an earlier attribute (often a <meta> viewport) is missing a closing quote and is consuming the <link> tag.",
 		})
 	}
-	if !hasTailwind {
+	if !p.daisyThemes {
+		errs = append(errs, Error{
+			File:    file,
+			Message: "missing DaisyUI themes stylesheet — every page must also include `<link href=\"https://cdn.jsdelivr.net/npm/daisyui@5/themes.css\" rel=\"stylesheet\" type=\"text/css\" />` in <head> directly after the base daisyui link. Without it the base stylesheet only ships `light` and `dark`, so a `data-theme` value like `synthwave` falls back to the default palette.",
+		})
+	}
+	if !p.tailwind {
 		errs = append(errs, Error{
 			File:    file,
 			Message: "missing Tailwind browser script — every page must include `<script src=\"https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4\"></script>` in <head> as a well-formed element.",

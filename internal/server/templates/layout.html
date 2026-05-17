@@ -128,6 +128,7 @@
     </div>
     <div class="tabs">
       <a href="/edit/{{ .Slug }}" class="{{ if eq .Active `edit` }}active{{ end }}">Edit</a>
+      <a href="/edit/{{ .Slug }}/theme" class="{{ if eq .Active `theme` }}active{{ end }}">Theme</a>
       <a href="/files/{{ .Slug }}" class="{{ if eq .Active `files` }}active{{ end }}">Files</a>
       <a href="/data/{{ .Slug }}" class="{{ if eq .Active `data` }}active{{ end }}">Data</a>
       <a href="/history/{{ .Slug }}" class="{{ if eq .Active `history` }}active{{ end }}">History</a>

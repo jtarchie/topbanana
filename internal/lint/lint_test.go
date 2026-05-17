@@ -157,6 +157,7 @@ func TestCheckDesignSubstrate_WellFormedPasses(t *testing.T) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
 <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 <title>x</title>
 </head><body><h1>hi</h1></body></html>`
@@ -169,5 +170,38 @@ func TestCheckDesignSubstrate_WellFormedPasses(t *testing.T) {
 	errs := checkDesignSubstrate("index.html", doc)
 	if len(errs) != 0 {
 		t.Fatalf("checkDesignSubstrate flagged a well-formed page: %+v", errs)
+	}
+}
+
+// TestCheckDesignSubstrate_MissingThemesFailsLint locks in the themes.css
+// requirement: a page that only loads the base daisyui@5 stylesheet is
+// missing 20+ themes' palettes, so any data-theme beyond light/dark renders
+// flat. The lint must call this out so the agent (or Theme Studio) fixes it.
+func TestCheckDesignSubstrate_MissingThemesFailsLint(t *testing.T) {
+	t.Parallel()
+
+	src := `<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<title>x</title>
+</head><body></body></html>`
+
+	doc, err := html.Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+
+	errs := checkDesignSubstrate("index.html", doc)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Message, "themes stylesheet") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected a themes-stylesheet error, got: %+v", errs)
 	}
 }
