@@ -86,10 +86,15 @@ type Server struct {
 	htmlMinifier *minify.M
 
 	// domainIndex maps lowercased custom hostnames to the slug that owns
-	// them. Rebuilt at startup and after any settings save that touches
-	// Domains. Lookups dominate writes, so a single RWMutex is enough.
+	// them. slugIndex is the set of real slugs in the bucket, used by
+	// HostAllowed so autocert won't ask Let's Encrypt for a cert for a
+	// scanner-invented hostname like "whm.apps.jtarchie.com" — every miss
+	// would otherwise burn a slot in the 50/week per-registered-domain rate
+	// limit. Both are rebuilt from one ListApps call; the same mutex guards
+	// both.
 	domainMu    sync.RWMutex
 	domainIndex map[string]string
+	slugIndex   map[string]bool
 
 	// preWarmCert is the deps callback, captured here so settingsSubmitHandler
 	// can fire it without threading the function through every signature.
@@ -148,6 +153,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		adminPasswordHash: d.AdminPasswordHash,
 		htmlMinifier:      newHTMLMinifier(),
 		domainIndex:       map[string]string{},
+		slugIndex:         map[string]bool{},
 		preWarmCert:       d.PreWarmCert,
 	}
 	s.initialRebuildDomainIndex(context.Background())
@@ -225,11 +231,12 @@ func (s *Server) subdomainMiddleware() echo.MiddlewareFunc {
 			}
 
 			if slug, ok := strings.CutSuffix(host, "."+s.domain); ok {
-				// Same slug-shape check as HostAllowed: reject nested
-				// subdomains and anything that fails validateSlug. Keeps
-				// scanner traffic from generating per-request log noise and
-				// from waking up the S3 lookup path.
-				if strings.Contains(slug, ".") || validateSlug(slug) != nil {
+				// Same three-gate check as HostAllowed: reject nested
+				// subdomains, invalid slug shape, and slugs that don't
+				// correspond to a real app. Stops scanner traffic from
+				// generating per-request log noise and from waking up the S3
+				// lookup path.
+				if strings.Contains(slug, ".") || validateSlug(slug) != nil || !s.slugExists(slug) {
 					return notFound()
 				}
 				return s.dispatchSite(c, slug)
@@ -265,7 +272,9 @@ func (s *Server) rebuildDomainIndex(ctx context.Context) error {
 		return fmt.Errorf("list apps: %w", err)
 	}
 	idx := make(map[string]string, len(apps))
+	slugs := make(map[string]bool, len(apps))
 	for _, slug := range apps {
+		slugs[slug] = true
 		meta := s.build.ReadMeta(ctx, slug)
 		for _, d := range meta.Domains {
 			if existing, dup := idx[d]; dup && existing != slug {
@@ -277,9 +286,32 @@ func (s *Server) rebuildDomainIndex(ctx context.Context) error {
 	}
 	s.domainMu.Lock()
 	s.domainIndex = idx
+	s.slugIndex = slugs
 	s.domainMu.Unlock()
-	slog.Info("domain_index.rebuilt", "count", len(idx))
+	slog.Info("domain_index.rebuilt", "domains", len(idx), "slugs", len(slugs))
 	return nil
+}
+
+// markSlug records a freshly-created slug so HostAllowed accepts it
+// immediately, without waiting for the next ListApps rebuild. Called from
+// buildHandler the moment a build is kicked off — the slug folder may not
+// exist in S3 yet, but the user is already redirected to its URL and we want
+// the first TLS handshake to succeed.
+func (s *Server) markSlug(slug string) {
+	s.domainMu.Lock()
+	if s.slugIndex == nil {
+		s.slugIndex = map[string]bool{}
+	}
+	s.slugIndex[slug] = true
+	s.domainMu.Unlock()
+}
+
+// slugExists reports whether slug names a real app in our index. Used by
+// HostAllowed to refuse ACME issuance for scanner-invented hostnames.
+func (s *Server) slugExists(slug string) bool {
+	s.domainMu.RLock()
+	defer s.domainMu.RUnlock()
+	return s.slugIndex[slug]
 }
 
 // initialRebuildDomainIndex retries the first rebuild a few times. If S3 is
@@ -350,14 +382,20 @@ func (s *Server) HostAllowed(host string) bool {
 		return true
 	}
 	if prefix, ok := strings.CutSuffix(host, "."+s.domain); ok {
-		// Only accept single-label prefixes that look like real slugs.
-		// Multi-label prefixes (containing ".") are nested subdomains we
-		// never serve; rejecting them here means autocert never asks LE for
-		// a cert that's only useful to a scanner.
+		// Three gates in order of cost: cheap shape check first (rejects
+		// nested subdomains), then validateSlug (cheap), then the slug
+		// existence check (in-memory map lookup) — anything past the shape
+		// gate that doesn't name a real app gets refused before autocert
+		// ever calls Let's Encrypt. Without this last gate, a scanner
+		// hitting "foo.apps.jtarchie.com" triggers a real LE issuance and
+		// burns a slot in the 50/week per-registered-domain rate limit.
 		if strings.Contains(prefix, ".") {
 			return false
 		}
-		return validateSlug(prefix) == nil
+		if validateSlug(prefix) != nil {
+			return false
+		}
+		return s.slugExists(prefix)
 	}
 	_, ok := s.lookupCustomDomain(host)
 	return ok
@@ -682,6 +720,10 @@ func (s *Server) buildHandler(c *echo.Context) error {
 
 	tmpl := templates.Get(c.FormValue("template"))
 	slog.Info("build.start", "slug", slug, "template", tmpl.ID, "attachments", len(attachments))
+	// Register the slug before the build kicks off so the very first TLS
+	// handshake to <slug>.<domain> (the progress page that's about to load)
+	// passes HostAllowed and triggers an LE issuance for a real app.
+	s.markSlug(slug)
 	return s.startBuild(c, build.Params{
 		Slug:         slug,
 		Prompt:       prompt,
