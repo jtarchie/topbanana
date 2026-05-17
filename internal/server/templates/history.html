@@ -1,51 +1,68 @@
 <!DOCTYPE html>
-<html>
+<html lang="en" data-theme="cupcake">
 <head>
-<title>History: {{ .Slug }}</title>
+<title>Version history: {{ .Slug }} — BuildABear</title>
 {{ template "head" . }}
 </head>
-<body class="fullscreen">
+<body class="min-h-screen flex flex-col bg-base-100">
 {{ template "brand" . }}
 {{ template "site_subnav" . }}
-<main>
-  <h1>History</h1>
-
-  <p class="muted">Snapshots are taken before every build, edit, visual save, settings change, and asset upload. Restoring a snapshot wipes the current site and brings back that version &mdash; the current state is auto-snapshotted as <code>pre-restore</code> first, so restores are reversible too.</p>
+<main class="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-6">
+  <h1 class="text-3xl font-bold mb-2">Version history</h1>
+  <p class="text-base-content/70 mb-6">I save your site automatically before every change, so you can always go back. Restoring a version also saves the current state first, so you can come back from a restore too.</p>
 
   {{ if .Flash }}
-    <div class="flash flash-ok" role="status">{{ .Flash }}</div>
+    <div class="alert alert-success mb-4" role="status"><span>{{ .Flash }}</span></div>
   {{ end }}
 
   {{ if not .Snapshots }}
-    <p class="muted">No snapshots yet. The first one will appear after your next build or edit.</p>
+    <div class="card bg-base-200">
+      <div class="card-body items-center text-center">
+        <h2 class="card-title">No versions saved yet</h2>
+        <p class="text-base-content/70">The first version will appear after your next build or edit.</p>
+      </div>
+    </div>
   {{ else }}
-    <table class="grid">
-      <thead>
-        <tr><th>When</th><th>Reason</th><th>Files</th><th>Size</th><th></th></tr>
-      </thead>
-      <tbody>
-        {{ range .Snapshots }}
-        <tr>
-          <td>{{ .WhenLabel }}<br><span class="muted">{{ .WhenISO }}</span></td>
-          <td><code>{{ .Reason }}</code></td>
-          <td>{{ .FileCount }}</td>
-          <td>{{ .SizeLabel }}</td>
-          <td class="action">
-            <form method="POST" action="/history/{{ $.Slug }}/restore" style="display:inline" onsubmit="return confirm('Wipe the current site and restore this snapshot? Current state will be auto-snapshotted first.');">
-              <input type="hidden" name="key" value="{{ .Key }}">
-              <button type="submit" class="secondary">Restore</button>
-            </form>
-            <form method="POST" action="/history/{{ $.Slug }}/delete" style="display:inline" onsubmit="return confirm('Permanently delete this snapshot?');">
-              <input type="hidden" name="key" value="{{ .Key }}">
-              <button type="submit" class="secondary">Delete</button>
-            </form>
-          </td>
-        </tr>
-        {{ end }}
-      </tbody>
-    </table>
+    <ul class="timeline timeline-vertical timeline-compact">
+      {{ range $i, $s := .Snapshots }}
+      <li>
+        {{ if $i }}<hr/>{{ end }}
+        <div class="timeline-middle">
+          <span class="badge badge-primary badge-xs"></span>
+        </div>
+        <div class="timeline-end timeline-box w-full">
+          <div class="flex flex-wrap gap-2 items-start justify-between">
+            <div>
+              <div class="font-semibold">{{ $s.WhenLabel }}</div>
+              <div class="text-xs text-base-content/60">{{ $s.WhenISO }} · {{ $s.FileCount }} files · {{ $s.SizeLabel }} · <code>{{ $s.Reason }}</code></div>
+            </div>
+            <div class="flex gap-2">
+              <form method="POST" action="/history/{{ $.Slug }}/restore"
+                    class="js-confirm"
+                    data-confirm-title="Restore this version?"
+                    data-confirm="I'll save the current state first, so you can come back. Then I'll bring back the site as it was at this point."
+                    data-confirm-ok="Restore this version"
+                    data-confirm-tone="primary">
+                <input type="hidden" name="key" value="{{ $s.Key }}">
+                <button type="submit" class="btn btn-ghost btn-sm">Restore</button>
+              </form>
+              <form method="POST" action="/history/{{ $.Slug }}/delete"
+                    class="js-confirm"
+                    data-confirm-title="Delete this version?"
+                    data-confirm="Permanently remove this saved version. The current site is not affected."
+                    data-confirm-ok="Delete">
+                <input type="hidden" name="key" value="{{ $s.Key }}">
+                <button type="submit" class="btn btn-ghost btn-sm text-error">Delete</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </li>
+      {{ end }}
+    </ul>
   {{ end }}
 </main>
 {{ template "footer" . }}
+{{ template "confirm_dialog" . }}
 </body>
 </html>

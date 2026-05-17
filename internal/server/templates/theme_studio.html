@@ -1,59 +1,43 @@
 <!DOCTYPE html>
-<html>
+<html lang="en" data-theme="cupcake">
 <head>
-<title>Theme: {{ .Slug }}</title>
+<title>Look &amp; feel: {{ .Slug }} — BuildABear</title>
 {{ template "head" . }}
-<style>
-  .studio { display: grid; grid-template-columns: 18rem 1fr; gap: 1.25rem; margin: 1rem 0; min-height: 32rem; }
-  @media (max-width: 60rem) { .studio { grid-template-columns: 1fr; } }
-
-  .gallery { overflow-y: auto; max-height: 70vh; padding-right: 0.5rem; }
-  .gallery h2 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0.75rem 0 0.5rem; font-weight: 600; }
-  .gallery h2:first-child { margin-top: 0; }
-
-  .swatch { display: block; width: 100%; padding: 0.5rem; margin: 0 0 0.4rem; border: 1px solid var(--rule); border-radius: 6px; background: var(--bg); cursor: pointer; text-align: left; font: inherit; color: var(--ink); transition: border-color 120ms, background 120ms; }
-  .swatch:hover { border-color: var(--accent); background: var(--bg-softer); }
-  .swatch.staged { border-color: var(--accent); background: #eef2ff; }
-  .swatch.applied { border-color: #16a34a; background: #ecfdf5; }
-  .swatch .name { font-weight: 600; font-size: 0.95rem; display: flex; align-items: center; justify-content: space-between; }
-  .swatch .tag { font-size: 0.7rem; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
-  .swatch .chips { display: flex; gap: 0.25rem; margin-top: 0.4rem; }
-  .swatch .chip { flex: 1; height: 1.5rem; border-radius: 3px; border: 1px solid rgba(0,0,0,0.08); }
-
-  .preview { display: flex; flex-direction: column; gap: 0.5rem; }
-  .preview iframe { flex: 1; min-height: 32rem; }
-  .preview .bar { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; padding: 0.5rem 0.75rem; background: var(--bg-softer); border: 1px solid var(--rule); border-radius: 6px; }
-  .preview .bar .status { color: var(--muted); font-size: 0.9rem; flex: 1; }
-  .preview .bar .status strong { color: var(--ink); font-weight: 600; }
-  .preview .bar button { margin: 0; }
-  .preview .bar button:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  .warnings { margin-top: 0.75rem; padding: 0.6rem 0.9rem; border-radius: 6px; background: #fffbeb; border: 1px solid #fde68a; color: #78350f; font-size: 0.9rem; }
-  .warnings ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
-  .warnings li { margin: 0.2rem 0; }
-</style>
 </head>
-<body class="fullscreen">
+<body class="min-h-screen flex flex-col bg-base-100">
 {{ template "brand" . }}
 {{ template "site_subnav" . }}
-<main>
-  <h1>Theme</h1>
-  <p class="desc">Site-wide design. Hover a theme to preview; click <strong>Apply</strong> to rewrite <code>&lt;html data-theme=&quot;…&quot;&gt;</code> across every page. Your content is untouched.</p>
+<main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6">
+  <div class="flex items-end justify-between gap-3 flex-wrap mb-2">
+    <h1 class="text-3xl font-bold">Pick a look</h1>
+    <p class="text-base-content/70 max-w-md">Click any look to preview your site with it. When you find one you like, click <strong>Apply</strong>. Your content stays exactly the same.</p>
+  </div>
 
-  <div class="studio">
-    <div class="gallery" id="gallery">
-      <!-- populated by script -->
-    </div>
-    <div class="preview">
-      <div class="bar">
-        <div class="status" id="status">Current theme: <strong id="current">{{ .CurrentTheme }}</strong></div>
-        <button type="button" class="secondary" id="revert" disabled>Revert preview</button>
-        <button type="button" id="apply" disabled>Apply</button>
+  <div class="card bg-base-200 mt-6">
+    <div class="card-body p-4 sm:p-6">
+      <div class="flex items-center gap-3 flex-wrap mb-4">
+        <span class="text-sm text-base-content/70">Current look:</span>
+        <span id="current" class="badge badge-primary badge-lg">{{ .CurrentTheme }}</span>
+        <span id="preview-tag" class="badge badge-warning hidden">previewing</span>
+        <div class="ml-auto flex gap-2">
+          <button type="button" id="revert" class="btn btn-ghost btn-sm" disabled>Cancel preview</button>
+          <button type="button" id="apply" class="btn btn-primary" disabled>Apply this look</button>
+        </div>
       </div>
-      <iframe id="preview-frame" src="{{ .PageURL }}" title="Live preview"></iframe>
-      <div id="warnings" class="warnings" hidden>
-        <strong>Saved with lint warnings:</strong>
-        <ul id="warning-list"></ul>
+
+      <div class="grid grid-cols-1 lg:grid-cols-[20rem_1fr] gap-5">
+        <div id="gallery" class="space-y-4 max-h-[70vh] overflow-y-auto pr-1"></div>
+        <div class="flex flex-col gap-3">
+          <div class="border border-base-300 rounded-box overflow-hidden bg-base-100">
+            <iframe id="preview-frame" src="{{ .PageURL }}" title="Live preview" class="w-full h-[60vh] block"></iframe>
+          </div>
+          <div id="warnings" class="alert alert-warning hidden">
+            <div>
+              <strong>Saved with a few warnings:</strong>
+              <ul id="warning-list" class="list-disc list-inside mt-1"></ul>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -71,70 +55,71 @@
     var gallery = document.getElementById('gallery');
     var frame = document.getElementById('preview-frame');
     var statusEl = document.getElementById('current');
+    var previewTag = document.getElementById('preview-tag');
     var applyBtn = document.getElementById('apply');
     var revertBtn = document.getElementById('revert');
     var warningsBox = document.getElementById('warnings');
     var warningsList = document.getElementById('warning-list');
 
     var groups = {};
-    themes.forEach(function (t) {
-      (groups[t.category] = groups[t.category] || []).push(t);
-    });
+    themes.forEach(function (t) { (groups[t.category] = groups[t.category] || []).push(t); });
 
     Object.keys(groups).forEach(function (cat) {
+      var section = document.createElement('section');
       var h = document.createElement('h2');
+      h.className = 'text-xs uppercase tracking-wide text-base-content/60 font-bold mb-2';
       h.textContent = cat;
-      gallery.appendChild(h);
+      section.appendChild(h);
+      var grid = document.createElement('div');
+      grid.className = 'grid grid-cols-1 gap-2';
       groups[cat].forEach(function (t) {
         var btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'swatch';
+        btn.className = 'swatch text-left w-full p-3 rounded-box border border-base-300 bg-base-100 hover:border-primary cursor-pointer transition';
         btn.dataset.theme = t.name;
-
-        var name = document.createElement('div');
-        name.className = 'name';
-        var label = document.createElement('span');
-        label.textContent = t.name;
+        var top = document.createElement('div');
+        top.className = 'flex items-center justify-between mb-2';
+        var name = document.createElement('span');
+        name.className = 'font-semibold';
+        name.textContent = t.name;
         var tag = document.createElement('span');
-        tag.className = 'tag';
-        tag.textContent = '';
-        name.appendChild(label);
-        name.appendChild(tag);
-        btn.appendChild(name);
-
+        tag.className = 'tag text-xs text-base-content/60';
+        top.appendChild(name);
+        top.appendChild(tag);
+        btn.appendChild(top);
         var chips = document.createElement('div');
-        chips.className = 'chips';
+        chips.className = 'flex gap-1';
         ['primary', 'secondary', 'accent', 'base'].forEach(function (key) {
           var chip = document.createElement('div');
-          chip.className = 'chip';
+          chip.className = 'flex-1 h-6 rounded';
           chip.style.background = t[key];
+          chip.style.border = '1px solid rgba(0,0,0,0.08)';
           chips.appendChild(chip);
         });
         btn.appendChild(chips);
-
         btn.addEventListener('click', function () { stage(t.name); });
-        gallery.appendChild(btn);
+        grid.appendChild(btn);
       });
+      section.appendChild(grid);
+      gallery.appendChild(section);
     });
 
     function paintCards() {
       Array.prototype.forEach.call(gallery.querySelectorAll('.swatch'), function (el) {
         var t = el.dataset.theme;
-        el.classList.toggle('applied', t === appliedTheme);
-        el.classList.toggle('staged', t === stagedTheme && t !== appliedTheme);
+        el.classList.toggle('border-success', t === appliedTheme);
+        el.classList.toggle('bg-success/10', t === appliedTheme);
+        el.classList.toggle('border-primary', t === stagedTheme && t !== appliedTheme);
+        el.classList.toggle('bg-primary/10', t === stagedTheme && t !== appliedTheme);
         var tag = el.querySelector('.tag');
         if (t === appliedTheme) tag.textContent = 'current';
-        else if (t === stagedTheme) tag.textContent = 'preview';
+        else if (t === stagedTheme) tag.textContent = 'previewing';
         else tag.textContent = '';
       });
     }
 
     function postTheme(theme) {
-      try {
-        frame.contentWindow.postMessage({ type: 'buildabear:settheme', theme: theme }, '*');
-      } catch (e) {
-        /* iframe not ready yet — will sync on load */
-      }
+      try { frame.contentWindow.postMessage({ type: 'buildabear:settheme', theme: theme }, '*'); } catch (_) {}
     }
 
     function stage(theme) {
@@ -143,13 +128,13 @@
       var dirty = stagedTheme !== appliedTheme;
       applyBtn.disabled = !dirty;
       revertBtn.disabled = !dirty;
-      statusEl.textContent = dirty ? (appliedTheme + ' (previewing: ' + theme + ')') : appliedTheme;
+      statusEl.textContent = appliedTheme;
+      previewTag.classList.toggle('hidden', !dirty);
+      previewTag.textContent = dirty ? 'previewing ' + theme : 'previewing';
       paintCards();
     }
 
-    function revert() {
-      stage(appliedTheme);
-    }
+    function revert() { stage(appliedTheme); }
 
     function apply() {
       applyBtn.disabled = true;
@@ -161,9 +146,9 @@
       })
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
         .then(function (res) {
-          applyBtn.textContent = 'Apply';
+          applyBtn.textContent = 'Apply this look';
           if (!res.ok) {
-            alert('Apply failed: ' + (res.body && res.body.message ? res.body.message : 'unknown error'));
+            statusEl.textContent = 'Apply failed: ' + ((res.body && res.body.message) || 'unknown');
             applyBtn.disabled = false;
             return;
           }
@@ -171,34 +156,26 @@
           applyBtn.disabled = true;
           revertBtn.disabled = true;
           statusEl.textContent = appliedTheme;
+          previewTag.classList.add('hidden');
           paintCards();
           if (res.body.warnings && res.body.warnings.length) {
             warningsList.innerHTML = '';
-            res.body.warnings.forEach(function (w) {
-              var li = document.createElement('li');
-              li.textContent = w;
-              warningsList.appendChild(li);
-            });
-            warningsBox.hidden = false;
+            res.body.warnings.forEach(function (w) { var li = document.createElement('li'); li.textContent = w; warningsList.appendChild(li); });
+            warningsBox.classList.remove('hidden');
           } else {
-            warningsBox.hidden = true;
+            warningsBox.classList.add('hidden');
           }
         })
         .catch(function (err) {
-          applyBtn.textContent = 'Apply';
+          applyBtn.textContent = 'Apply this look';
           applyBtn.disabled = false;
-          alert('Apply failed: ' + err);
+          statusEl.textContent = 'Apply failed: ' + err;
         });
     }
 
     applyBtn.addEventListener('click', apply);
     revertBtn.addEventListener('click', revert);
-
-    // Re-post the staged theme whenever the iframe loads (initial load,
-    // user navigation, or browser refresh) so the preview never falls back
-    // to the stored theme while a preview is in flight.
     frame.addEventListener('load', function () { postTheme(stagedTheme); });
-
     paintCards();
   })();
 </script>

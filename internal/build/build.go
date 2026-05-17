@@ -83,20 +83,54 @@ func EffectiveTemplate(meta SiteMeta) *templates.SiteTemplate {
 	return &out
 }
 
-// Service runs builds against a Store using a configured LLM, reporting
-// progress through an events Tracker. Snapshots (when configured) capture
-// the site state right before the agent runs so each build/edit is
+// Runner is the seam between the build service and the agent. The default
+// implementation calls into the real LLM via internal/agent; tests inject a
+// stub so the happy-path test can drive the build flow end-to-end without
+// touching a live model. Run is invoked on every agent turn (initial build
+// plus each lint-retry fix-up); Describe is invoked once after a successful
+// build to populate the site sidecar's title + description.
+type Runner interface {
+	Run(ctx context.Context, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, emit func(events.Event)) error
+	Describe(ctx context.Context, s *store.Store, slug, userPrompt string) (agent.SiteDescription, error)
+}
+
+// agentRunner is the production Runner — a thin shim over package agent that
+// carries the configured ThinkingLevel into every Run call.
+type agentRunner struct {
+	llm             adkmodel.LLM
+	reasoningEffort genai.ThinkingLevel
+}
+
+func (r agentRunner) Run(ctx context.Context, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, emit func(events.Event)) error {
+	err := agent.Run(ctx, r.llm, s, slug, prompt, tmpl, attachments, seeds, r.reasoningEffort, emit)
+	if err != nil {
+		return fmt.Errorf("agent run: %w", err)
+	}
+	return nil
+}
+
+func (r agentRunner) Describe(ctx context.Context, s *store.Store, slug, userPrompt string) (agent.SiteDescription, error) {
+	desc, err := agent.DescribeSite(ctx, r.llm, s, slug, userPrompt)
+	if err != nil {
+		return desc, fmt.Errorf("agent describe: %w", err)
+	}
+	return desc, nil
+}
+
+// Service runs builds against a Store, reporting progress through an events
+// Tracker and delegating agent work to a Runner. Snapshots (when configured)
+// capture the site state right before the agent runs so each build/edit is
 // reversible from the History UI. editsKeep caps how many transcripts to
 // retain per slug (0 disables trimming, but transcripts are still written).
 // buildTimeout caps wall-clock per build; zero falls back to DefaultBuildTimeout.
-// reasoningEffort is the genai.ThinkingLevel passed to every agent.Run; the
-// zero value means no thinking, which is the cheap/fast default.
+// reasoningEffort is recorded in each transcript so the debug viewer can show
+// which reasoning level the operator was running at the time.
 // model is the human-readable LLM identifier (provider/model-name as the
 // user typed it) stamped into each transcript so the debug viewer can show
 // which model actually ran.
 type Service struct {
 	store           *store.Store
-	llm             adkmodel.LLM
+	runner          Runner
 	model           string
 	events          *events.Tracker
 	snapshot        *snapshot.Service
@@ -113,6 +147,8 @@ type Service struct {
 // reason before responding — only useful on reasoning-capable models.
 // Model is the provider/model string the operator configured; recorded in
 // each transcript for debug, never used for routing (LLM does that).
+// Runner, when set, overrides the default LLM-backed agent runner — used by
+// tests to inject a stub.
 type Config struct {
 	Store           *store.Store
 	LLM             adkmodel.LLM
@@ -123,10 +159,18 @@ type Config struct {
 	RecordEdit      bool
 	BuildTimeout    time.Duration
 	ReasoningEffort genai.ThinkingLevel
+	Runner          Runner
 }
 
 func New(s *store.Store, llm adkmodel.LLM, t *events.Tracker, snap *snapshot.Service) *Service {
-	return &Service{store: s, llm: llm, events: t, snapshot: snap, recordEdit: true, buildTimeout: DefaultBuildTimeout}
+	return &Service{
+		store:        s,
+		runner:       agentRunner{llm: llm},
+		events:       t,
+		snapshot:     snap,
+		recordEdit:   true,
+		buildTimeout: DefaultBuildTimeout,
+	}
 }
 
 // NewWithConfig is the configurable constructor used by cmd/buildabear; New
@@ -136,9 +180,13 @@ func NewWithConfig(cfg Config) *Service {
 	if timeout <= 0 {
 		timeout = DefaultBuildTimeout
 	}
+	runner := cfg.Runner
+	if runner == nil {
+		runner = agentRunner{llm: cfg.LLM, reasoningEffort: cfg.ReasoningEffort}
+	}
 	return &Service{
 		store:           cfg.Store,
-		llm:             cfg.LLM,
+		runner:          runner,
 		model:           cfg.Model,
 		events:          cfg.Events,
 		snapshot:        cfg.Snapshot,
@@ -261,12 +309,12 @@ func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl 
 		emit = rec.Wrap(ctx, svc.store, slug, emit)
 	}
 
-	err := agent.Run(ctx, svc.llm, svc.store, slug, prompt, tmpl, attachments, seeds, svc.reasoningEffort, emit)
+	err := svc.runner.Run(ctx, svc.store, slug, prompt, tmpl, attachments, seeds, emit)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("build timed out after %s", svc.buildTimeout)
 		}
-		return fmt.Errorf("agent run: %w", err)
+		return err //nolint:wrapcheck // already wrapped at agentRunner boundary
 	}
 
 	for attempt := 0; attempt <= maxLintRetries; attempt++ {
@@ -286,12 +334,12 @@ func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl 
 
 		slog.Info("build.lint_retry", "slug", slug, "attempt", attempt+1, "issues", len(lintErrs))
 		emit(events.Event{Type: events.TypeStatus, Status: events.StatusRetry, Message: fmt.Sprintf("fixing %d issue(s)", len(lintErrs))})
-		err := agent.Run(ctx, svc.llm, svc.store, slug, LintFixPrompt(lintErrs), tmpl, attachments, nil, svc.reasoningEffort, emit)
+		err := svc.runner.Run(ctx, svc.store, slug, LintFixPrompt(lintErrs), tmpl, attachments, nil, emit)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				return fmt.Errorf("build timed out after %s", svc.buildTimeout)
 			}
-			return fmt.Errorf("agent retry: %w", err)
+			return fmt.Errorf("retry: %w", err)
 		}
 	}
 
@@ -328,7 +376,7 @@ func (svc *Service) seedTemplate(ctx context.Context, slug string, tmpl *templat
 // is logged and swallowed so the build still completes — the Available Apps
 // page just falls back to showing the slug.
 func (svc *Service) refreshDescription(ctx context.Context, slug, userPrompt string) {
-	desc, err := agent.DescribeSite(ctx, svc.llm, svc.store, slug, userPrompt)
+	desc, err := svc.runner.Describe(ctx, svc.store, slug, userPrompt)
 	if err != nil {
 		slog.Warn("describe.failed", "slug", slug, "err", err)
 		return

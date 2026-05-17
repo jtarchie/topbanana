@@ -1,34 +1,38 @@
 <!DOCTYPE html>
-<html>
+<html lang="en" data-theme="cupcake">
 <head>
-<title>Debug: {{ .Slug }}</title>
+<title>Build transcripts: {{ .Slug }} — BuildABear</title>
 {{ template "head" . }}
 </head>
-<body class="fullscreen">
+<body class="min-h-screen flex flex-col bg-base-100">
 {{ template "brand" . }}
 {{ template "site_subnav" . }}
-<main>
-  <h1>Debug</h1>
-
-  <p class="muted">Every build and edit run is captured here: every agent tool call the LLM made, and the before/after content of every file the agent touched. Use this when a site doesn&rsquo;t update the way you expected &mdash; you&rsquo;ll see whether the agent called <code>write_file</code> at all, what content it sent, and what storage has now. Transcripts live under <code>_edits/{slug}/</code> in S3.</p>
+<main class="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-6">
+  <h1 class="text-3xl font-bold mb-2">Build transcripts</h1>
+  <p class="text-base-content/70 mb-4">Every build and edit run is captured here — every step the AI took, plus before/after for every file it changed. Useful when something didn't update the way you expected.</p>
 
   {{ if not .Rows }}
-    <p class="muted">No transcripts yet. The first one will appear after your next build or edit.</p>
+    <div class="card bg-base-200">
+      <div class="card-body items-center text-center">
+        <h2 class="card-title">No transcripts yet</h2>
+        <p class="text-base-content/70">The first one will appear after your next build or edit.</p>
+      </div>
+    </div>
   {{ else }}
-    <table class="grid">
-      <thead>
-        <tr><th>When</th><th>Kind</th><th></th></tr>
-      </thead>
-      <tbody>
-        {{ range .Rows }}
-        <tr>
-          <td>{{ .WhenLabel }}<br><span class="muted">{{ .WhenISO }}</span></td>
-          <td><code>{{ .LogKey }}</code></td>
-          <td class="action"><a class="btn secondary" href="/debug/{{ $.Slug }}/edit?key={{ .Key }}">View</a></td>
-        </tr>
-        {{ end }}
-      </tbody>
-    </table>
+    <div class="grid grid-cols-1 gap-2">
+      {{ range .Rows }}
+      <a href="/debug/{{ $.Slug }}/edit?key={{ .Key }}" class="card bg-base-200 hover:bg-base-300 transition">
+        <div class="card-body p-4 flex-row items-center gap-4">
+          <div class="flex-1">
+            <div class="font-semibold">{{ .WhenLabel }}</div>
+            <div class="text-xs text-base-content/60">{{ .WhenISO }}</div>
+          </div>
+          <span class="badge badge-ghost"><code>{{ .LogKey }}</code></span>
+          <span class="text-primary">View →</span>
+        </div>
+      </a>
+      {{ end }}
+    </div>
   {{ end }}
 </main>
 {{ template "footer" . }}

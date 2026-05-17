@@ -1,116 +1,109 @@
 <!DOCTYPE html>
-<html>
+<html lang="en" data-theme="cupcake">
 <head>
-<title>Debug edit: {{ .Slug }}</title>
+<title>Transcript: {{ .Slug }} — BuildABear</title>
 {{ template "head" . }}
-<style>
-  .meta-grid { display: grid; grid-template-columns: 8rem 1fr; gap: 0.25rem 1rem; margin: 1rem 0; font-size: 0.95rem; }
-  .meta-grid .k { color: var(--muted); }
-  .meta-grid .v { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-word; }
-  .badge { display: inline-block; padding: 0.1rem 0.45rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
-  .badge.completed { background: #ecfdf5; color: #065f46; }
-  .badge.failed { background: #fef2f2; color: #991b1b; }
-  .badge.created { background: #ecfdf5; color: #065f46; }
-  .badge.deleted { background: #fef2f2; color: #991b1b; }
-  .badge.changed { background: #fef9c3; color: #854d0e; }
-  .badge.same    { background: #f5f5f5; color: var(--muted); }
-  details.file-change { margin: 0.5rem 0; padding: 0.5rem 0.75rem; background: var(--bg-softer); border: 1px solid var(--rule); border-radius: 6px; }
-  details.file-change > summary { cursor: pointer; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-  details.file-change pre { background: #fff; border: 1px solid var(--rule-soft); border-radius: 4px; padding: 0.5rem; overflow: auto; max-height: 24rem; font-size: 0.82rem; }
-  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem; }
-  .pair h4 { margin: 0 0 0.25rem; font-size: 0.85rem; color: var(--muted); }
-  .cache-check { margin-left: 0.5rem; font-size: 0.85rem; }
-  .cache-check pre { white-space: pre-wrap; background: var(--bg-soft); padding: 0.5rem; border-radius: 4px; max-height: 18rem; overflow: auto; }
-</style>
 </head>
-<body class="fullscreen">
+<body class="min-h-screen flex flex-col bg-base-100">
 {{ template "brand" . }}
 {{ template "site_subnav" . }}
-<main>
-  <h1>Debug edit</h1>
-  <p class="muted"><a href="/debug/{{ .Slug }}">&larr; All transcripts</a></p>
+<main class="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-6">
+  <h1 class="text-3xl font-bold mb-1">Transcript</h1>
+  <p class="text-base-content/70 mb-6"><a href="/debug/{{ .Slug }}" class="link link-primary">← all transcripts</a></p>
 
   {{ if .Empty }}
-    <p class="error">Transcript not found or empty.</p>
+    <div class="alert alert-warning"><span>Transcript not found or empty.</span></div>
   {{ else }}
-    <div class="meta-grid">
-      <div class="k">Kind</div><div class="v">{{ .LogKey }}</div>
-      <div class="k">Status</div><div class="v">
-        {{ if eq .FinalStatus "completed" }}<span class="badge completed">{{ .FinalStatus }}</span>{{ else if eq .FinalStatus "failed" }}<span class="badge failed">{{ .FinalStatus }}</span>{{ else }}{{ .FinalStatus }}{{ end }}
+    <section class="card bg-base-200 mb-6">
+      <div class="card-body">
+        <h2 class="card-title text-base">Run details</h2>
+        <dl class="grid grid-cols-[8rem_1fr] gap-y-1 gap-x-4 text-sm">
+          <dt class="text-base-content/60">Kind</dt><dd class="font-mono">{{ .LogKey }}</dd>
+          <dt class="text-base-content/60">Status</dt><dd>
+            {{ if eq .FinalStatus "completed" }}<span class="badge badge-success">{{ .FinalStatus }}</span>
+            {{ else if eq .FinalStatus "failed" }}<span class="badge badge-error">{{ .FinalStatus }}</span>
+            {{ else }}<span class="badge">{{ .FinalStatus }}</span>{{ end }}
+          </dd>
+          <dt class="text-base-content/60">Started</dt><dd class="font-mono">{{ .StartedAt }}</dd>
+          <dt class="text-base-content/60">Finished</dt><dd class="font-mono">{{ .FinishedAt }}</dd>
+          {{ if .Duration }}<dt class="text-base-content/60">Duration</dt><dd class="font-mono">{{ .Duration }}</dd>{{ end }}
+          {{ if .Model }}<dt class="text-base-content/60">Model</dt><dd class="font-mono">{{ .Model }}</dd>{{ end }}
+          {{ if .ReasoningEffort }}<dt class="text-base-content/60">Reasoning</dt><dd class="font-mono">{{ .ReasoningEffort }}</dd>{{ end }}
+          {{ if .Page }}<dt class="text-base-content/60">Page</dt><dd class="font-mono">{{ .Page }}</dd>{{ end }}
+          {{ if .SelectionLen }}<dt class="text-base-content/60">Selection</dt><dd>{{ .SelectionLen }} bytes</dd>{{ end }}
+          {{ if .UserPrompt }}<dt class="text-base-content/60">Prompt</dt><dd class="break-words">{{ .UserPrompt }}</dd>{{ end }}
+          {{ if .Error }}<dt class="text-base-content/60">Error</dt><dd class="text-error">{{ .Error }}</dd>{{ end }}
+        </dl>
       </div>
-      <div class="k">Started</div><div class="v">{{ .StartedAt }}</div>
-      <div class="k">Finished</div><div class="v">{{ .FinishedAt }}</div>
-      {{ if .Duration }}<div class="k">Duration</div><div class="v">{{ .Duration }}</div>{{ end }}
-      {{ if .Model }}<div class="k">Model</div><div class="v">{{ .Model }}</div>{{ end }}
-      {{ if .ReasoningEffort }}<div class="k">Reasoning</div><div class="v">{{ .ReasoningEffort }}</div>{{ end }}
-      {{ if .Page }}<div class="k">Page</div><div class="v">{{ .Page }}</div>{{ end }}
-      {{ if .SelectionLen }}<div class="k">Selection</div><div class="v">{{ .SelectionLen }} bytes</div>{{ end }}
-      {{ if .UserPrompt }}<div class="k">Prompt</div><div class="v">{{ .UserPrompt }}</div>{{ end }}
-      {{ if .Error }}<div class="k">Error</div><div class="v error">{{ .Error }}</div>{{ end }}
-    </div>
+    </section>
 
-    <h2>Tool calls ({{ len .ToolCalls }})</h2>
-    {{ if not .ToolCalls }}
-      <p class="muted">No tool calls were recorded. The agent finished without invoking any tools &mdash; this almost always means it returned a chat response instead of writing files.</p>
-    {{ else }}
-      <ul class="event-log">
-        {{ range .ToolCalls }}
-          <li class="tool {{ if eq .Phase "error" }}error{{ else if eq .Phase "done" }}done{{ else }}pending{{ end }}">
-            <span class="ts">{{ .WhenISO }}</span>
-            <strong>#{{ .IndexLabel }}</strong>
-            <code>{{ .Tool }}</code>
-            <code>{{ .Phase }}</code>
-            {{ if .Path }}<code>{{ .Path }}</code>{{ end }}
-            {{ if .Message }}&mdash; {{ .Message }}{{ end }}
+    <section class="mb-6">
+      <h2 class="text-xl font-bold mb-3">Tool calls ({{ len .ToolCalls }})</h2>
+      {{ if not .ToolCalls }}
+        <p class="text-base-content/70">No tool calls were recorded. The agent finished without invoking any tools — this almost always means it returned a chat response instead of writing files.</p>
+      {{ else }}
+        <ul class="space-y-1 text-sm">
+          {{ range .ToolCalls }}
+          <li class="flex items-center gap-2 py-1 px-2 rounded bg-base-200">
+            <span class="badge badge-sm {{ if eq .Phase "error" }}badge-error{{ else if eq .Phase "done" }}badge-success{{ else }}badge-ghost{{ end }}">{{ .Phase }}</span>
+            <span class="text-xs text-base-content/60 font-mono">{{ .WhenISO }}</span>
+            <span class="font-mono">#{{ .IndexLabel }}</span>
+            <code class="font-mono">{{ .Tool }}</code>
+            {{ if .Path }}<code class="font-mono text-base-content/70">{{ .Path }}</code>{{ end }}
+            {{ if .Message }}<span class="text-base-content/70">— {{ .Message }}</span>{{ end }}
           </li>
-        {{ end }}
-      </ul>
-    {{ end }}
-
-    <h2>File changes ({{ len .FileChanges }})</h2>
-    {{ if not .FileChanges }}
-      <p class="muted">No file mutations were recorded. If the agent reported success but nothing changed, this is the smoking gun: <code>write_file</code> was never called, or every call failed validation.</p>
-    {{ else }}
-      {{ range .FileChanges }}
-        <details class="file-change">
-          <summary>
-            <strong>{{ .Path }}</strong>
-            via <code>{{ .Tool }}</code>
-            &mdash;
-            {{ if .Created }}<span class="badge created">created</span>
-            {{ else if .Deleted }}<span class="badge deleted">deleted</span>
-            {{ else if .Changed }}<span class="badge changed">changed</span>
-            {{ else }}<span class="badge same">unchanged (write same content)</span>{{ end }}
-            <span class="muted"> &nbsp; {{ .BeforeSize }} &rarr; {{ .AfterSize }} bytes</span>
-            <button class="link-button cache-check" type="button" onclick="checkCache('{{ $.Slug }}', '{{ .Path }}', this)">Check cache</button>
-          </summary>
-          <div class="cache-check-result"></div>
-          <div class="pair">
-            <div>
-              <h4>Before (sha {{ .BeforeSHA }}{{ if .BeforeTruncated }}, truncated{{ end }})</h4>
-              <pre>{{ .BeforeContent }}</pre>
-            </div>
-            <div>
-              <h4>After (sha {{ .AfterSHA }}{{ if .AfterTruncated }}, truncated{{ end }})</h4>
-              <pre>{{ .AfterContent }}</pre>
-            </div>
-          </div>
-        </details>
+          {{ end }}
+        </ul>
       {{ end }}
-    {{ end }}
+    </section>
+
+    <section>
+      <h2 class="text-xl font-bold mb-3">File changes ({{ len .FileChanges }})</h2>
+      {{ if not .FileChanges }}
+        <p class="text-base-content/70">No file mutations were recorded. If the agent reported success but nothing changed, this is the smoking gun.</p>
+      {{ else }}
+        {{ range .FileChanges }}
+          <details class="collapse collapse-arrow bg-base-200 mt-2">
+            <summary class="collapse-title text-sm font-mono flex items-center gap-2 flex-wrap">
+              <strong>{{ .Path }}</strong>
+              <span class="text-base-content/60">via <code>{{ .Tool }}</code></span>
+              {{ if .Created }}<span class="badge badge-success badge-sm">created</span>
+              {{ else if .Deleted }}<span class="badge badge-error badge-sm">deleted</span>
+              {{ else if .Changed }}<span class="badge badge-warning badge-sm">changed</span>
+              {{ else }}<span class="badge badge-sm">unchanged</span>{{ end }}
+              <span class="text-base-content/60">{{ .BeforeSize }} → {{ .AfterSize }} bytes</span>
+              <button class="ml-auto link link-primary cache-check-btn" type="button" onclick="event.preventDefault(); event.stopPropagation(); checkCache('{{ $.Slug }}', '{{ .Path }}', this)">Check cache</button>
+            </summary>
+            <div class="collapse-content">
+              <div class="cache-check-result text-xs"></div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+                <div>
+                  <h4 class="text-xs text-base-content/60 font-bold mb-1">Before (sha {{ .BeforeSHA }}{{ if .BeforeTruncated }}, truncated{{ end }})</h4>
+                  <pre class="bg-base-100 rounded p-2 text-xs max-h-80 overflow-auto whitespace-pre-wrap">{{ .BeforeContent }}</pre>
+                </div>
+                <div>
+                  <h4 class="text-xs text-base-content/60 font-bold mb-1">After (sha {{ .AfterSHA }}{{ if .AfterTruncated }}, truncated{{ end }})</h4>
+                  <pre class="bg-base-100 rounded p-2 text-xs max-h-80 overflow-auto whitespace-pre-wrap">{{ .AfterContent }}</pre>
+                </div>
+              </div>
+            </div>
+          </details>
+        {{ end }}
+      {{ end }}
+    </section>
   {{ end }}
 </main>
 <script>
 async function checkCache(slug, path, btn) {
   const result = btn.closest('details').querySelector('.cache-check-result');
-  result.innerHTML = '<pre>checking&hellip;</pre>';
+  result.innerHTML = '<pre class="bg-base-100 rounded p-2">checking…</pre>';
   try {
     const url = '/debug/' + encodeURIComponent(slug) + '/cache-check?path=' + encodeURIComponent(path);
     const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
     const data = await resp.json();
-    result.innerHTML = '<pre>' + escapeHTML(JSON.stringify(data, null, 2)) + '</pre>';
+    result.innerHTML = '<pre class="bg-base-100 rounded p-2 whitespace-pre-wrap">' + escapeHTML(JSON.stringify(data, null, 2)) + '</pre>';
   } catch (e) {
-    result.innerHTML = '<pre class="error">' + escapeHTML(String(e)) + '</pre>';
+    result.innerHTML = '<pre class="text-error">' + escapeHTML(String(e)) + '</pre>';
   }
 }
 function escapeHTML(s) {

@@ -1,38 +1,46 @@
 <!DOCTYPE html>
-<html>
+<html lang="en" data-theme="cupcake">
 <head>
-<title>Data: {{ .Slug }}</title>
+<title>Form submissions: {{ .Slug }} — BuildABear</title>
 {{ template "head" . }}
 </head>
-<body class="fullscreen">
+<body class="min-h-screen flex flex-col bg-base-100">
 {{ template "brand" . }}
 {{ template "site_subnav" . }}
-<main>
-  <h1>Data</h1>
-  <p class="desc">Captured submissions for this site. Stored in the per-site KV store.</p>
+<main class="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-6">
+  <div class="flex items-end justify-between gap-3 flex-wrap mb-3">
+    <h1 class="text-3xl font-bold">Form submissions</h1>
+    {{ if .Rows }}<a href="{{ .CSVURL }}" class="btn btn-primary btn-sm">Download as spreadsheet (CSV)</a>{{ end }}
+  </div>
+  <p class="text-base-content/70 mb-4">Everything visitors have sent through forms on this site.</p>
+
   {{ if .Rows }}
-  <p class="muted">
-    <a href="{{ .CSVURL }}">Download CSV</a>
-    &middot; {{ len .Rows }} {{ if eq (len .Rows) 1 }}row{{ else }}rows{{ end }}
-  </p>
-  <table class="grid">
-    <thead>
-      <tr>
-        <th>key</th>
-        {{ range .Columns }}<th>{{ . }}</th>{{ end }}
-      </tr>
-    </thead>
-    <tbody>
-      {{ range .Rows }}
-      <tr>
-        <td class="key">{{ .Key }}</td>
-        {{ range .Values }}<td>{{ . }}</td>{{ end }}
-      </tr>
-      {{ end }}
-    </tbody>
-  </table>
+  <p class="text-sm text-base-content/60 mb-3">{{ len .Rows }} {{ if eq (len .Rows) 1 }}submission{{ else }}submissions{{ end }}</p>
+  <div class="overflow-x-auto rounded-box border border-base-300">
+    <table class="table table-zebra">
+      <thead>
+        <tr>
+          <th>id</th>
+          {{ range .Columns }}<th>{{ . }}</th>{{ end }}
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .Rows }}
+        <tr>
+          <td class="font-mono text-xs">{{ .Key }}</td>
+          {{ range .Values }}<td>{{ . }}</td>{{ end }}
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </div>
   {{ else }}
-  <p class="muted">No submissions yet. As visitors submit the form, their entries will appear here.</p>
+  <div class="card bg-base-200">
+    <div class="card-body items-center text-center">
+      <h2 class="card-title">No submissions yet</h2>
+      <p class="text-base-content/70">When visitors fill out a form on your site, their answers will show up here.</p>
+    </div>
+  </div>
   {{ end }}
 </main>
 {{ template "footer" . }}

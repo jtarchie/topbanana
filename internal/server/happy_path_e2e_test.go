@@ -1,0 +1,369 @@
+package server_test
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+
+	"golang.org/x/crypto/bcrypt"
+
+	"github.com/jtarchie/buildabear/internal/agent"
+	"github.com/jtarchie/buildabear/internal/build"
+	"github.com/jtarchie/buildabear/internal/events"
+	"github.com/jtarchie/buildabear/internal/server"
+	"github.com/jtarchie/buildabear/internal/snapshot"
+	"github.com/jtarchie/buildabear/internal/state"
+	"github.com/jtarchie/buildabear/internal/store"
+	"github.com/jtarchie/buildabear/internal/templates"
+)
+
+// stubRunner is a deterministic agent.Runner used by the happy-path test. It
+// synthesises a tiny DaisyUI-enabled index.html so the lint pass that fires
+// after every Run() doesn't reject the build for missing tags, and it emits
+// the SSE events a real run would emit so the progress page's friendly-event
+// translation gets exercised end-to-end.
+type stubRunner struct {
+	title, desc string
+}
+
+const stubIndexHTML = `<!DOCTYPE html>
+<html lang="en" data-theme="cupcake">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hello from the stub agent</title>
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css">
+</head>
+<body>
+<main class="p-6"><h1 class="text-3xl">Hello, world.</h1></main>
+</body>
+</html>
+`
+
+func (r *stubRunner) Run(ctx context.Context, s *store.Store, slug, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, emit func(events.Event)) error {
+	now := time.Now().UTC()
+	emit(events.Event{Type: events.TypeTool, Tool: "write_file", Phase: events.PhaseStart, Path: "/index.html", Time: now})
+	err := s.Write(ctx, slug, "index.html", stubIndexHTML, "text/html; charset=utf-8", nil)
+	if err != nil {
+		emit(events.Event{Type: events.TypeTool, Tool: "write_file", Phase: events.PhaseError, Path: "/index.html", Message: err.Error(), Time: time.Now().UTC()})
+		return fmt.Errorf("stub write: %w", err)
+	}
+	emit(events.Event{Type: events.TypeTool, Tool: "write_file", Phase: events.PhaseDone, Path: "/index.html", Time: time.Now().UTC()})
+	return nil
+}
+
+func (r *stubRunner) Describe(_ context.Context, _ *store.Store, _ string, _ string) (agent.SiteDescription, error) {
+	return agent.SiteDescription{Title: r.title, Description: r.desc}, nil
+}
+
+// buildServerWithRunner is the happy-path counterpart to buildServer: same
+// auth + deps but threads a Runner all the way through the build service so
+// the test can drive a deterministic build without a real LLM.
+func buildServerWithRunner(t *testing.T, st *store.Store, snapSvc *snapshot.Service, runner build.Runner) http.Handler {
+	t.Helper()
+	hash, err := bcrypt.GenerateFromPassword([]byte(testAdminPassword), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("bcrypt: %v", err)
+	}
+	tracker := events.NewTracker()
+	buildSvc := build.NewWithConfig(build.Config{
+		Store:    st,
+		Events:   tracker,
+		Snapshot: snapSvc,
+		Runner:   runner,
+	})
+	e, _ := server.New(server.Deps{
+		Store:             st,
+		Build:             buildSvc,
+		Events:            tracker,
+		State:             state.NewMemory(),
+		Snapshot:          snapSvc,
+		Domain:            "localhost",
+		Port:              "8080",
+		AdminUsername:     testAdminUser,
+		AdminPasswordHash: string(hash),
+	})
+	return e
+}
+
+// TestHappyPath_EndToEnd drives a fresh user through the redesigned UI flow:
+// land on /, submit a build, watch the SSE event stream complete, see the
+// site listed on /apps, fetch the live site through the subdomain proxy,
+// open the edit page, then delete the app and confirm it vanishes from
+// /apps. The point is to catch the kinds of regressions a template-rewrite
+// can quietly introduce — broken handlers, missing partials, wrong field
+// names, dead links — without requiring a real LLM.
+//
+//nolint:gocognit,cyclop // single end-to-end script intentionally walks many steps.
+func TestHappyPath_EndToEnd(t *testing.T) {
+	st := minioStore(t)
+	if st == nil {
+		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
+	}
+
+	ctx := context.Background()
+	snapSvc := snapshot.New(st, 0)
+	runner := &stubRunner{title: "Test Site", desc: "A tiny stub-built site."}
+	handler := buildServerWithRunner(t, st, snapSvc, runner)
+	httpSrv := httptest.NewServer(handler)
+	t.Cleanup(httpSrv.Close)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	authedGET := func(path string) (*http.Response, string) {
+		req, err := http.NewRequest(http.MethodGet, httpSrv.URL+path, nil)
+		if err != nil {
+			t.Fatalf("new GET %s: %v", path, err)
+		}
+		req.Host = "localhost"
+		req.SetBasicAuth(testAdminUser, testAdminPassword)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("read body %s: %v", path, err)
+		}
+		return resp, string(body)
+	}
+
+	// 1. Landing page renders with DaisyUI cupcake chrome.
+	resp, body := authedGET("/")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /: %d", resp.StatusCode)
+	}
+	for _, want := range []string{`data-theme="cupcake"`, "BuildABear", "What would you like to build today?", "daisyui@5"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("landing missing %q", want)
+		}
+	}
+
+	// 2. POST /build kicks off a build and renders the progress page.
+	slug := "happy-" + freshSlug(t)
+	cleanupSlug(t, ctx, st, snapSvc, slug)
+	form := url.Values{
+		"template": {"blank"},
+		"slug":     {slug},
+		"prompt":   {"A friendly hello page."},
+	}
+	req, err := http.NewRequest(http.MethodPost, httpSrv.URL+"/build", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("new POST /build: %v", err)
+	}
+	req.Host = "localhost"
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth(testAdminUser, testAdminPassword)
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("POST /build: %v", err)
+	}
+	progressBody, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /build: %d body=%q", resp.StatusCode, string(progressBody))
+	}
+	for _, want := range []string{"Building your app", "steps", `data-step="design"`} {
+		if !strings.Contains(string(progressBody), want) {
+			t.Errorf("progress page missing %q", want)
+		}
+	}
+
+	// 3. Consume the SSE event stream until the build reports completed/failed.
+	consumeBuild(t, httpSrv.URL, slug, 30*time.Second)
+
+	// 4. Site is listed on /apps after the build finishes.
+	resp, body = authedGET("/apps")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /apps: %d", resp.StatusCode)
+	}
+	if !strings.Contains(body, slug) {
+		t.Errorf("/apps body missing slug %q", slug)
+	}
+	if !strings.Contains(body, "card") {
+		t.Errorf("/apps body missing DaisyUI card markup")
+	}
+
+	// 5. Subdomain proxy serves the canned index.html from the stub agent.
+	siteResp, siteBody := getSite(t, client, httpSrv.URL, slug+".localhost", "/")
+	if siteResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET site: %d", siteResp.StatusCode)
+	}
+	if !strings.Contains(siteBody, "Hello, world") {
+		t.Errorf("site body missing canned content; got %q", trim(siteBody, 200))
+	}
+
+	// 6. Edit page renders with the redesigned chrome.
+	resp, body = authedGET("/edit/" + slug)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /edit/%s: %d", slug, resp.StatusCode)
+	}
+	for _, want := range []string{"Edit your site", "What would you like to change?", "Advanced"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("edit page missing %q", want)
+		}
+	}
+
+	// 7. Theme studio renders.
+	resp, body = authedGET("/edit/" + slug + "/theme")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET theme: %d", resp.StatusCode)
+	}
+	if !strings.Contains(body, "Pick a look") {
+		t.Errorf("theme page missing 'Pick a look'")
+	}
+
+	// 8. Settings page renders with friendly copy + danger zone.
+	resp, body = authedGET("/settings/" + slug)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET settings: %d", resp.StatusCode)
+	}
+	for _, want := range []string{"Use your own web address", "Delete this app", slug} {
+		if !strings.Contains(body, want) {
+			t.Errorf("settings missing %q", want)
+		}
+	}
+
+	// 9. Delete the app via the confirmation form.
+	delForm := url.Values{"confirm": {slug}}
+	delReq, err := http.NewRequest(http.MethodPost, httpSrv.URL+"/settings/"+slug+"/delete", strings.NewReader(delForm.Encode()))
+	if err != nil {
+		t.Fatalf("new POST delete: %v", err)
+	}
+	delReq.Host = "localhost"
+	delReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	delReq.SetBasicAuth(testAdminUser, testAdminPassword)
+	// Don't follow the redirect so we can assert it.
+	noRedirect := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	resp, err = noRedirect.Do(delReq)
+	if err != nil {
+		t.Fatalf("POST delete: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("delete status: %d (want 303)", resp.StatusCode)
+	}
+
+	// 10. /apps no longer lists the slug.
+	resp, body = authedGET("/apps")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /apps post-delete: %d", resp.StatusCode)
+	}
+	if strings.Contains(body, slug) {
+		t.Errorf("/apps still lists %q after delete", slug)
+	}
+}
+
+// consumeBuild streams /events/:slug until a terminal status arrives or the
+// deadline fires. Returns once `completed` is seen; t.Fatals on `failed` or
+// timeout.
+func consumeBuild(t *testing.T, base, slug string, deadline time.Duration) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, base+"/events/"+slug, nil)
+	if err != nil {
+		t.Fatalf("new GET events: %v", err)
+	}
+	req.Host = "localhost"
+	req.Header.Set("Accept", "text/event-stream")
+	// /events/:slug is intentionally unauthed (progress page polls it
+	// before the admin cookie is set), so we don't pass credentials.
+	c := &http.Client{Timeout: deadline + 5*time.Second}
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatalf("GET events: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("events status: %d", resp.StatusCode)
+	}
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	end := time.NewTimer(deadline)
+	defer end.Stop()
+	done := make(chan struct{})
+	var terminal struct {
+		status string
+		msg    string
+	}
+	var sawTool bool
+	go func() {
+		defer close(done)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			var ev struct {
+				Type    string `json:"type"`
+				Status  string `json:"status"`
+				Tool    string `json:"tool"`
+				Phase   string `json:"phase"`
+				Message string `json:"message"`
+			}
+			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			err := json.Unmarshal([]byte(payload), &ev)
+			if err != nil {
+				continue
+			}
+			if ev.Type == "tool" {
+				sawTool = true
+			}
+			if ev.Type == "status" && (ev.Status == "completed" || ev.Status == "failed") {
+				terminal.status = ev.Status
+				terminal.msg = ev.Message
+				return
+			}
+		}
+	}()
+	select {
+	case <-done:
+	case <-end.C:
+		t.Fatalf("build did not complete within %s", deadline)
+	}
+	if terminal.status != "completed" {
+		t.Fatalf("build did not complete cleanly: status=%q msg=%q", terminal.status, terminal.msg)
+	}
+	if !sawTool {
+		t.Errorf("expected to see at least one tool event in the SSE stream")
+	}
+}
+
+// getSite issues a request whose Host header makes the subdomainMiddleware
+// route it to the live-site proxy for `slug.localhost`.
+func getSite(t *testing.T, c *http.Client, base, host, path string) (*http.Response, string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, base+path, nil)
+	if err != nil {
+		t.Fatalf("new GET site: %v", err)
+	}
+	req.Host = host
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatalf("GET site: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	return resp, string(body)
+}
+
+func trim(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}

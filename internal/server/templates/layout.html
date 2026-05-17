@@ -1,141 +1,62 @@
 {{ define "head" -}}
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-  :root {
-    color-scheme: light;
-    --accent: #2563eb;
-    --accent-hover: #1d4ed8;
-    --ink: #111;
-    --muted: #666;
-    --hint: #888;
-    --rule: #e5e5e5;
-    --rule-soft: #eee;
-    --bg: #fff;
-    --bg-soft: #f5f5f5;
-    --bg-softer: #fafafa;
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css">
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<style type="text/tailwindcss">
+  @theme {
+    --font-sans: "Atkinson Hyperlegible", system-ui, sans-serif;
   }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; }
-  body { font-family: system-ui, sans-serif; color: var(--ink); line-height: 1.5; background: var(--bg); }
-  body.fullscreen { display: flex; flex-direction: column; min-height: 100vh; }
-
-  /* Layout: brand sits full-width; main is centered with a max-width. */
-  main { max-width: 60rem; margin: 0 auto; padding: 1.5rem 1.25rem 3rem; }
-  body.narrow main { max-width: 38rem; }
-
-  h1 { margin-top: 0; font-size: 1.6rem; }
-  h2 { font-size: 1.15rem; margin-top: 1.75rem; }
-  p { margin: 0.75rem 0; }
-
-  a { color: var(--accent); }
-  a:hover { color: var(--accent-hover); }
-
-  /* Brand header. */
-  .brand { display: flex; align-items: center; gap: 1rem; padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--rule); background: var(--bg); }
-  .brand .wordmark { font-weight: 700; font-size: 1rem; color: var(--ink); text-decoration: none; letter-spacing: -0.01em; }
-  .brand .wordmark:hover { color: var(--accent); }
-  .brand .spacer { flex: 1; }
-  .brand .links a { color: var(--muted); font-size: 0.9rem; text-decoration: none; }
-  .brand .links a:hover { color: var(--accent); }
-  .brand .links a + a { margin-left: 1rem; }
-
-  /* Per-site sub-nav: site context strip + tabs. */
-  .subnav { border-bottom: 1px solid var(--rule); background: var(--bg-softer); }
-  .subnav-inner { max-width: 60rem; margin: 0 auto; padding: 0 1.25rem; }
-  .subnav .ctx { display: flex; align-items: baseline; gap: 0.75rem; padding: 0.6rem 0 0.4rem; flex-wrap: wrap; }
-  .subnav .ctx .label { color: var(--muted); font-size: 0.85rem; }
-  .subnav .ctx .slug { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95rem; }
-  .subnav .ctx .live { margin-left: auto; font-size: 0.9rem; }
-  .tabs { display: flex; gap: 0; overflow-x: auto; }
-  .tabs a { display: inline-block; padding: 0.5rem 0.9rem; color: var(--muted); text-decoration: none; font-size: 0.95rem; border-bottom: 2px solid transparent; white-space: nowrap; }
-  .tabs a:hover { color: var(--ink); }
-  .tabs a.active { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
-
-  /* Footer. */
-  footer { margin-top: auto; padding: 1.25rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: 0.85rem; text-align: center; }
-  footer a { color: var(--muted); text-decoration: none; }
-  footer a:hover { color: var(--accent); }
-
-  /* Forms. */
-  label { display: block; font-weight: 600; margin: 1rem 0 0.25rem; }
-  label .hint { font-weight: 400; color: var(--hint); font-size: 0.9em; }
-  input, select, textarea { width: 100%; padding: 0.6rem; font: inherit; border: 1px solid #bbb; border-radius: 6px; background: #fff; }
-  textarea { font-family: inherit; resize: vertical; }
-  button, .btn { margin-top: 1rem; padding: 0.6rem 1.2rem; font: inherit; background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer; text-decoration: none; display: inline-block; }
-  button:hover, .btn:hover { background: var(--accent-hover); color: #fff; }
-  button.secondary { background: #fff; color: var(--ink); border: 1px solid #ccc; }
-  button.secondary:hover { background: var(--bg-soft); color: var(--ink); }
-  button.link-button { margin: 0; padding: 0; background: none; color: var(--accent); text-decoration: underline; border-radius: 0; font: inherit; }
-  button.link-button:hover { background: none; color: var(--accent-hover); }
-  button.link-button.danger { color: #c00; }
-  button.link-button.danger:hover { color: #900; }
-
-  /* Page-action row beneath the H1: small actions like Re-lint. */
-  .page-actions { margin: -0.25rem 0 1rem; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
-  .nav-form { display: inline; margin: 0; }
-
-  /* Flash banners. */
-  .flash { margin: 1rem 0; padding: 0.6rem 0.9rem; border-radius: 6px; border: 1px solid transparent; font-size: 0.95rem; }
-  .flash-ok { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
-  .flash-info { background: #eff6ff; border-color: #bfdbfe; color: #1e3a8a; }
-
-  /* Common helpers. */
-  .row { margin: 1rem 0; }
-  .desc { color: var(--muted); font-size: 0.9rem; margin-top: 0.25rem; min-height: 1.2em; }
-  .muted { color: var(--muted); }
-  .error { color: #c00; }
-
-  ul.list { list-style: none; padding: 0; margin: 0.5rem 0; }
-  ul.list li { padding: 0.5rem 0; border-bottom: 1px solid var(--rule-soft); }
-
-  /* Shared table — used by files, data, history. */
-  table.grid { border-collapse: collapse; width: 100%; margin: 1rem 0; }
-  table.grid th, table.grid td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--rule-soft); text-align: left; vertical-align: top; font-size: 0.95rem; }
-  table.grid th { background: var(--bg-soft); font-weight: 600; }
-  table.grid td.mono, table.grid td.path, table.grid td.key { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
-  table.grid td.size, table.grid td.modified, table.grid td.action { white-space: nowrap; color: var(--muted); }
-
-  /* Shared event-log — used by progress and visual_edit's AI panel. */
-  ul.event-log { list-style: none; padding: 0; margin: 1rem 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; }
-  ul.event-log li { padding: 0.25rem 0; border-bottom: 1px solid var(--rule-soft); color: #444; }
-  ul.event-log li.tool.pending { color: var(--hint); }
-  ul.event-log li.tool.done { color: #444; }
-  ul.event-log li.tool.error { color: #c00; }
-  ul.event-log li.status { color: var(--ink); font-weight: 600; }
-  ul.event-log .ts { color: #999; margin-right: 0.5rem; }
-
-  iframe { width: 100%; height: 60vh; border: 1px solid #ccc; border-radius: 6px; background: #fff; }
-
-  #sel-preview { padding: 0.5rem; background: var(--bg-soft); border-radius: 6px; min-height: 1.5em; font-style: italic; color: var(--muted); }
+  :root { font-size: 17px; }
+  body { font-family: "Atkinson Hyperlegible", system-ui, sans-serif; }
+  /* Roomier focus rings for keyboard users with reduced vision. */
+  :focus-visible { outline: 3px solid var(--color-primary); outline-offset: 2px; }
+  /* Slightly larger touch targets across the app. */
+  .btn { min-height: 2.75rem; }
 </style>
 {{- end }}
 
 {{ define "brand" -}}
-<header class="brand">
-  <a href="/" class="wordmark">BuildABear</a>
-  <span class="spacer"></span>
-  <span class="links"><a href="/apps">All apps</a></span>
+<header class="navbar bg-base-100 border-b border-base-300 px-4 sm:px-6">
+  <div class="flex-1">
+    <a href="/" class="btn btn-ghost text-xl font-bold gap-2 normal-case">
+      <span aria-hidden="true" class="text-2xl">🐻</span>
+      <span>BuildABear</span>
+    </a>
+  </div>
+  <div class="flex-none">
+    <a href="/apps" class="btn btn-ghost">Your apps</a>
+  </div>
 </header>
 {{- end }}
 
 {{ define "site_subnav" -}}
 {{ if .Slug -}}
-<nav class="subnav" aria-label="Site sections">
-  <div class="subnav-inner">
-    <div class="ctx">
-      <span class="label">Site</span>
-      <span class="slug">{{ .Slug }}</span>
-      {{ if .SiteURL }}<a class="live" href="{{ .SiteURL }}" target="_blank" rel="noopener">View live &rarr;</a>{{ end }}
+<nav class="bg-base-200 border-b border-base-300" aria-label="This site">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 pt-3 pb-2">
+    <div class="flex items-center gap-2 mb-2 flex-wrap">
+      <span class="text-sm text-base-content/70">Working on</span>
+      <span class="badge badge-primary badge-lg font-mono">{{ .Slug }}</span>
+      {{ if .SiteURL }}<a class="ml-auto link link-hover font-semibold" href="{{ .SiteURL }}" target="_blank" rel="noopener">Open my site ↗</a>{{ end }}
     </div>
-    <div class="tabs">
-      <a href="/edit/{{ .Slug }}" class="{{ if eq .Active `edit` }}active{{ end }}">Edit</a>
-      <a href="/edit/{{ .Slug }}/theme" class="{{ if eq .Active `theme` }}active{{ end }}">Theme</a>
-      <a href="/files/{{ .Slug }}" class="{{ if eq .Active `files` }}active{{ end }}">Files</a>
-      <a href="/data/{{ .Slug }}" class="{{ if eq .Active `data` }}active{{ end }}">Data</a>
-      <a href="/history/{{ .Slug }}" class="{{ if eq .Active `history` }}active{{ end }}">History</a>
-      <a href="/debug/{{ .Slug }}" class="{{ if eq .Active `debug` }}active{{ end }}">Debug</a>
-      <a href="/settings/{{ .Slug }}" class="{{ if eq .Active `settings` }}active{{ end }}">Settings</a>
+    <div role="tablist" class="tabs tabs-boxed bg-base-100 inline-flex flex-wrap">
+      <a href="/edit/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `edit` }} tab-active{{ end }}">Edit</a>
+      <a href="/edit/{{ .Slug }}/theme" role="tab" class="tab{{ if eq .Active `theme` }} tab-active{{ end }}">Look &amp; feel</a>
+      <a href="/settings/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `settings` }} tab-active{{ end }}">Settings</a>
+      <details class="dropdown ml-1">
+        <summary class="tab list-none{{ if or (eq .Active `files`) (eq .Active `data`) (eq .Active `history`) (eq .Active `debug`) (eq .Active `function`) (eq .Active `visual`) }} tab-active{{ end }}">Advanced ▾</summary>
+        <ul class="dropdown-content menu bg-base-100 rounded-box z-30 w-64 p-2 shadow-lg border border-base-300 mt-1">
+          <li class="menu-title text-xs">Power-user tools</li>
+          <li><a href="/files/{{ .Slug }}"{{ if eq .Active `files` }} class="active"{{ end }}>All files</a></li>
+          <li><a href="/data/{{ .Slug }}"{{ if eq .Active `data` }} class="active"{{ end }}>Form submissions</a></li>
+          <li><a href="/history/{{ .Slug }}"{{ if eq .Active `history` }} class="active"{{ end }}>Version history</a></li>
+          <li><a href="/debug/{{ .Slug }}"{{ if eq .Active `debug` }} class="active"{{ end }}>Build transcripts</a></li>
+        </ul>
+      </details>
     </div>
   </div>
 </nav>
@@ -143,7 +64,63 @@
 {{- end }}
 
 {{ define "footer" -}}
-<footer>
-  BuildABear &middot; <a href="/">Home</a> &middot; <a href="/apps">All apps</a>
+<footer class="footer footer-center bg-base-200 text-base-content/60 p-4 mt-auto text-sm">
+  <aside>
+    <p>BuildABear · <a class="link link-hover" href="/">Home</a> · <a class="link link-hover" href="/apps">Your apps</a></p>
+  </aside>
 </footer>
+{{- end }}
+
+{{ define "confirm_dialog" -}}
+<dialog id="confirm-modal" class="modal">
+  <div class="modal-box">
+    <h3 class="font-bold text-lg" id="confirm-modal-title">Are you sure?</h3>
+    <p class="py-4 whitespace-pre-line" id="confirm-modal-message"></p>
+    <div class="modal-action">
+      <button type="button" class="btn btn-ghost" id="confirm-modal-cancel">Cancel</button>
+      <button type="button" class="btn btn-error" id="confirm-modal-ok">Yes, do it</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button aria-label="Close">close</button></form>
+</dialog>
+<script>
+  (function () {
+    var dialog = document.getElementById('confirm-modal');
+    if (!dialog) return;
+    var msg = document.getElementById('confirm-modal-message');
+    var title = document.getElementById('confirm-modal-title');
+    var ok = document.getElementById('confirm-modal-ok');
+    var cancel = document.getElementById('confirm-modal-cancel');
+    var pending = null;
+
+    function reset() { pending = null; }
+
+    cancel.addEventListener('click', function () { dialog.close(); reset(); });
+    dialog.addEventListener('close', reset);
+    ok.addEventListener('click', function () {
+      if (pending) {
+        var f = pending;
+        f.dataset.confirmed = 'true';
+        dialog.close();
+        f.submit();
+      } else {
+        dialog.close();
+      }
+    });
+
+    document.addEventListener('submit', function (e) {
+      var f = e.target;
+      if (!(f instanceof HTMLFormElement)) return;
+      if (!f.classList.contains('js-confirm')) return;
+      if (f.dataset.confirmed === 'true') return;
+      e.preventDefault();
+      pending = f;
+      title.textContent = f.dataset.confirmTitle || 'Are you sure?';
+      msg.textContent = f.dataset.confirm || 'This cannot be undone.';
+      ok.textContent = f.dataset.confirmOk || 'Yes, do it';
+      ok.className = 'btn ' + (f.dataset.confirmTone === 'primary' ? 'btn-primary' : 'btn-error');
+      dialog.showModal();
+    });
+  })();
+</script>
 {{- end }}
