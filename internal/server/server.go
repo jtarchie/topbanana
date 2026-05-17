@@ -225,6 +225,13 @@ func (s *Server) subdomainMiddleware() echo.MiddlewareFunc {
 			}
 
 			if slug, ok := strings.CutSuffix(host, "."+s.domain); ok {
+				// Same slug-shape check as HostAllowed: reject nested
+				// subdomains and anything that fails validateSlug. Keeps
+				// scanner traffic from generating per-request log noise and
+				// from waking up the S3 lookup path.
+				if strings.Contains(slug, ".") || validateSlug(slug) != nil {
+					return notFound()
+				}
 				return s.dispatchSite(c, slug)
 			}
 
@@ -331,18 +338,26 @@ func hstsMiddleware() echo.MiddlewareFunc {
 }
 
 // HostAllowed mirrors subdomainMiddleware's dispatch table: the host is
-// recognised if it's the main domain (or a loopback fall-through), a slug
-// subdomain, or a registered custom domain. Exported so the autocert
-// HostPolicy can reuse the same source of truth instead of duplicating the
-// logic — and so a hostile request to random.com:443 fails closed before LE
-// ever sees it.
+// recognised if it's the main domain (or a loopback fall-through), a *valid*
+// slug subdomain (single label that passes validateSlug), or a registered
+// custom domain. Exported so the autocert HostPolicy can reuse the same
+// source of truth — without the validateSlug check, scanners pummeling us
+// with hosts like "whm.whm.x.apps.jtarchie.com" would each trigger a new LE
+// issuance attempt and burn the 50/week per-registered-domain rate limit.
 func (s *Server) HostAllowed(host string) bool {
 	host = strings.ToLower(stripPort(host))
 	if host == s.domain || fallThroughHosts[host] {
 		return true
 	}
-	if strings.HasSuffix(host, "."+s.domain) {
-		return true
+	if prefix, ok := strings.CutSuffix(host, "."+s.domain); ok {
+		// Only accept single-label prefixes that look like real slugs.
+		// Multi-label prefixes (containing ".") are nested subdomains we
+		// never serve; rejecting them here means autocert never asks LE for
+		// a cert that's only useful to a scanner.
+		if strings.Contains(prefix, ".") {
+			return false
+		}
+		return validateSlug(prefix) == nil
 	}
 	_, ok := s.lookupCustomDomain(host)
 	return ok
