@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="cupcake">
+<html lang="en" data-theme="corporate">
 <head>
 <title>Form submissions: {{ .Slug }} — BuildABear</title>
 {{ template "head" . }}
@@ -9,10 +9,10 @@
 {{ template "site_subnav" . }}
 <main class="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-6">
   <div class="flex items-end justify-between gap-3 flex-wrap mb-3">
-    <h1 class="text-3xl font-bold">Form submissions</h1>
-    {{ if .Rows }}<a href="{{ .CSVURL }}" class="btn btn-primary btn-sm">Download as spreadsheet (CSV)</a>{{ end }}
+    <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight">Form submissions</h1>
+    {{ if .Rows }}<a href="{{ .CSVURL }}" class="btn btn-primary btn-sm">Download CSV</a>{{ end }}
   </div>
-  <p class="text-base-content/70 mb-4">Everything visitors have sent through forms on this site.</p>
+  <p class="text-sm text-base-content/70 mb-4">All data submitted through forms on this site.</p>
 
   {{ if .Rows }}
   <p class="text-sm text-base-content/60 mb-3">{{ len .Rows }} {{ if eq (len .Rows) 1 }}submission{{ else }}submissions{{ end }}</p>
@@ -35,10 +35,10 @@
     </table>
   </div>
   {{ else }}
-  <div class="card bg-base-200">
+  <div class="card bg-base-100 border border-base-300 border-dashed">
     <div class="card-body items-center text-center">
       <h2 class="card-title">No submissions yet</h2>
-      <p class="text-base-content/70">When visitors fill out a form on your site, their answers will show up here.</p>
+      <p class="text-sm text-base-content/70">Form submissions will appear here once visitors interact with your site.</p>
     </div>
   </div>
   {{ end }}

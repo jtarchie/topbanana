@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="cupcake">
+<html lang="en" data-theme="corporate">
 <head>
 <title>Function {{ .Name }} ({{ .Slug }}) — BuildABear</title>
 {{ template "head" . }}
@@ -8,7 +8,7 @@
 {{ template "brand" . }}
 {{ template "site_subnav" . }}
 <main class="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-6">
-  <h1 class="text-3xl font-bold mb-1"><code class="font-mono">functions/{{ .Name }}.js</code></h1>
+  <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight mb-1"><code class="font-mono">functions/{{ .Name }}.js</code></h1>
   <p class="text-base-content/70 mb-6"><a href="/edit/{{ .Slug }}" class="link link-primary">← back to editor</a> · routes to <code>{{ .APIURL }}</code></p>
 
   <div role="tablist" class="tabs tabs-lifted mb-4" id="fn-tabs">

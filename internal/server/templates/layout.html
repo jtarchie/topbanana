@@ -3,55 +3,49 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css">
 <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 <style type="text/tailwindcss">
   @theme {
-    --font-sans: "Atkinson Hyperlegible", system-ui, sans-serif;
+    --font-sans: "Inter", system-ui, -apple-system, sans-serif;
   }
-  :root { font-size: 17px; }
-  body { font-family: "Atkinson Hyperlegible", system-ui, sans-serif; }
-  /* Roomier focus rings for keyboard users with reduced vision. */
-  :focus-visible { outline: 3px solid var(--color-primary); outline-offset: 2px; }
-  /* Slightly larger touch targets across the app. */
-  .btn { min-height: 2.75rem; }
+  :root { font-size: 16px; }
+  body { font-family: "Inter", system-ui, -apple-system, sans-serif; }
+  :focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+  .btn { min-height: 2.5rem; }
 </style>
 {{- end }}
 
 {{ define "brand" -}}
 <header class="navbar bg-base-100 border-b border-base-300 px-4 sm:px-6">
   <div class="flex-1">
-    <a href="/" class="btn btn-ghost text-xl font-bold gap-2 normal-case">
-      <span aria-hidden="true" class="text-2xl">🐻</span>
-      <span>BuildABear</span>
-    </a>
+    <a href="/" class="btn btn-ghost text-lg font-semibold normal-case tracking-tight">BuildABear</a>
   </div>
   <div class="flex-none">
-    <a href="/apps" class="btn btn-ghost">Your apps</a>
+    <a href="/apps" class="btn btn-ghost btn-sm">Your apps</a>
   </div>
 </header>
 {{- end }}
 
 {{ define "site_subnav" -}}
 {{ if .Slug -}}
-<nav class="bg-base-200 border-b border-base-300" aria-label="This site">
-  <div class="max-w-5xl mx-auto px-4 sm:px-6 pt-3 pb-2">
-    <div class="flex items-center gap-2 mb-2 flex-wrap">
-      <span class="text-sm text-base-content/70">Working on</span>
-      <span class="badge badge-primary badge-lg font-mono">{{ .Slug }}</span>
-      {{ if .SiteURL }}<a class="ml-auto link link-hover font-semibold" href="{{ .SiteURL }}" target="_blank" rel="noopener">Open my site ↗</a>{{ end }}
+<nav class="bg-base-100 border-b border-base-300" aria-label="This site">
+  <div class="max-w-5xl mx-auto px-4 sm:px-6 pt-3 pb-0">
+    <div class="flex items-center gap-3 mb-3 flex-wrap">
+      <span class="font-mono text-sm font-medium text-base-content/80">{{ .Slug }}</span>
+      {{ if .SiteURL }}<a class="ml-auto text-sm link link-hover font-medium" href="{{ .SiteURL }}" target="_blank" rel="noopener">View site →</a>{{ end }}
     </div>
-    <div role="tablist" class="tabs tabs-boxed bg-base-100 inline-flex flex-wrap">
+    <div role="tablist" class="tabs tabs-bordered inline-flex flex-wrap -mb-px">
       <a href="/edit/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `edit` }} tab-active{{ end }}">Edit</a>
-      <a href="/edit/{{ .Slug }}/theme" role="tab" class="tab{{ if eq .Active `theme` }} tab-active{{ end }}">Look &amp; feel</a>
+      <a href="/edit/{{ .Slug }}/theme" role="tab" class="tab{{ if eq .Active `theme` }} tab-active{{ end }}">Appearance</a>
       <a href="/settings/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `settings` }} tab-active{{ end }}">Settings</a>
       <details class="dropdown ml-1">
         <summary class="tab list-none{{ if or (eq .Active `files`) (eq .Active `data`) (eq .Active `history`) (eq .Active `debug`) (eq .Active `function`) (eq .Active `visual`) }} tab-active{{ end }}">Advanced ▾</summary>
         <ul class="dropdown-content menu bg-base-100 rounded-box z-30 w-64 p-2 shadow-lg border border-base-300 mt-1">
-          <li class="menu-title text-xs">Power-user tools</li>
-          <li><a href="/files/{{ .Slug }}"{{ if eq .Active `files` }} class="active"{{ end }}>All files</a></li>
+          <li class="menu-title text-xs">Advanced tools</li>
+          <li><a href="/files/{{ .Slug }}"{{ if eq .Active `files` }} class="active"{{ end }}>Files</a></li>
           <li><a href="/data/{{ .Slug }}"{{ if eq .Active `data` }} class="active"{{ end }}>Form submissions</a></li>
           <li><a href="/history/{{ .Slug }}"{{ if eq .Active `history` }} class="active"{{ end }}>Version history</a></li>
           <li><a href="/debug/{{ .Slug }}"{{ if eq .Active `debug` }} class="active"{{ end }}>Build transcripts</a></li>
@@ -78,7 +72,7 @@
     <p class="py-4 whitespace-pre-line" id="confirm-modal-message"></p>
     <div class="modal-action">
       <button type="button" class="btn btn-ghost" id="confirm-modal-cancel">Cancel</button>
-      <button type="button" class="btn btn-error" id="confirm-modal-ok">Yes, do it</button>
+      <button type="button" class="btn btn-error" id="confirm-modal-ok">Confirm</button>
     </div>
   </div>
   <form method="dialog" class="modal-backdrop"><button aria-label="Close">close</button></form>
@@ -117,7 +111,7 @@
       pending = f;
       title.textContent = f.dataset.confirmTitle || 'Are you sure?';
       msg.textContent = f.dataset.confirm || 'This cannot be undone.';
-      ok.textContent = f.dataset.confirmOk || 'Yes, do it';
+      ok.textContent = f.dataset.confirmOk || 'Confirm';
       ok.className = 'btn ' + (f.dataset.confirmTone === 'primary' ? 'btn-primary' : 'btn-error');
       dialog.showModal();
     });

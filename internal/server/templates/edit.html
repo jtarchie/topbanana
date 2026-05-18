@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="cupcake">
+<html lang="en" data-theme="corporate">
 <head>
 <title>Edit {{ .Slug }} — BuildABear</title>
 {{ template "head" . }}
@@ -9,15 +9,15 @@
 {{ template "site_subnav" . }}
 <main class="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-6">
   <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
-    <h1 class="text-3xl font-bold">Edit your site</h1>
+    <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight">Edit</h1>
     <form method="POST" action="/relint/{{ .Slug }}">
-      <button type="submit" class="btn btn-ghost btn-sm" title="Run checks again and fix anything that's broken.">Run checks again</button>
+      <button type="submit" class="btn btn-ghost btn-sm" title="Run validation checks again.">Re-run checks</button>
     </form>
   </div>
 
   {{ if eq .Flash "lint-clean" }}
     <div class="alert alert-success mb-4" role="status">
-      <span>Everything checks out — no issues found.</span>
+      <span>Validation passed — no issues found.</span>
     </div>
   {{ end }}
 
@@ -25,37 +25,37 @@
     <section>
       {{ if .Page }}
         <div class="form-control mb-3">
-          <label for="page-select" class="label"><span class="label-text font-semibold">Looking at</span></label>
+          <label for="page-select" class="label"><span class="label-text font-medium">Page</span></label>
           <select id="page-select" class="select select-bordered w-full" onchange="location='/edit/{{ .Slug }}?page='+encodeURIComponent(this.value)">
             {{ range .Pages }}<option value="{{ . }}" {{ if eq . $.Page }}selected{{ end }}>{{ . }}</option>{{ end }}
           </select>
           <div class="label">
-            <a href="/edit/{{ .Slug }}/visual?page={{ .Page }}" class="link link-primary text-sm">Open the visual editor →</a>
+            <a href="/edit/{{ .Slug }}/visual?page={{ .Page }}" class="link link-primary text-sm">Open visual editor →</a>
             <a href="/edit/{{ .Slug }}" class="link link-hover text-sm">Edit whole site instead</a>
           </div>
         </div>
         <div class="border border-base-300 rounded-box overflow-hidden bg-base-100">
           <iframe src="{{ .PageURL }}" id="preview" class="w-full h-[60vh] block bg-base-100"></iframe>
         </div>
-        <div class="card bg-base-200 mt-3">
+        <div class="card bg-base-100 border border-base-300 mt-3">
           <div class="card-body p-3">
-            <span class="text-sm font-semibold">Highlighted text</span>
-            <p id="sel-preview" class="text-sm text-base-content/70 italic min-h-6">Select text on the preview to focus your changes on that part.</p>
+            <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Selection</span>
+            <p id="sel-preview" class="text-sm text-base-content/70 italic min-h-6">Select text in the preview to scope changes to that fragment.</p>
           </div>
         </div>
       {{ else }}
-        <div class="card bg-base-200">
+        <div class="card bg-base-100 border border-base-300">
           <div class="card-body">
-            <h2 class="card-title">Editing the whole site</h2>
-            <p>Your prompt will be applied across every page. To target a single page, open it on your site and click <strong>Edit</strong> in the corner.</p>
+            <h2 class="card-title text-base">Editing whole site</h2>
+            <p class="text-sm text-base-content/70">Your prompt will be applied across every page. To target a single page, open it on your site and click <strong>Edit</strong> in the toolbar.</p>
           </div>
         </div>
       {{ end }}
 
       {{ if .Functions }}
-        <div class="card bg-base-200 mt-4">
+        <div class="card bg-base-100 border border-base-300 mt-4">
           <div class="card-body">
-            <h2 class="card-title text-base">Behind-the-scenes logic</h2>
+            <h2 class="card-title text-base">Server functions</h2>
             <ul class="space-y-1 text-sm">
               {{ range .Functions }}
               <li><code>functions/{{ . }}.js</code> <span class="text-base-content/60">→ /api/{{ . }}</span> · <a class="link link-primary" href="/edit/{{ $.Slug }}/function/{{ . }}">view / test</a></li>
@@ -67,48 +67,48 @@
     </section>
 
     <section>
-      <form method="POST" action="/edit/{{ .Slug }}" enctype="multipart/form-data" class="card bg-base-200">
+      <form method="POST" action="/edit/{{ .Slug }}" enctype="multipart/form-data" class="card bg-base-100 border border-base-300">
         <div class="card-body gap-4">
           <input type="hidden" name="page" value="{{ .Page }}">
           <input type="hidden" name="selection" id="selection" value="">
 
           <div>
-            <label for="prompt" class="label"><span class="label-text font-semibold text-base">What would you like to change?</span></label>
+            <label for="prompt" class="label pb-1"><span class="label-text font-medium">Describe the change</span></label>
             <textarea name="prompt" id="prompt" rows="6" maxlength="4096" required
                       class="textarea textarea-bordered w-full text-base"
-                      placeholder="Make the heading bigger and add a friendly photo at the top."></textarea>
+                      placeholder="Make the heading larger and add a hero image at the top."></textarea>
           </div>
 
           <details class="collapse collapse-arrow bg-base-100 border border-base-300">
-            <summary class="collapse-title font-medium">Add reference docs (optional)</summary>
+            <summary class="collapse-title text-sm font-medium">Reference documents (optional)</summary>
             <div class="collapse-content">
               <input type="file" name="attachment" id="attachment"
                      accept=".md,.markdown,.html,.htm,text/markdown,text/html" multiple
                      class="file-input file-input-bordered w-full">
-              <p class="text-sm text-base-content/70 mt-1">Markdown or HTML files (up to 10, 64 KB each) I can read for this edit.</p>
+              <p class="text-sm text-base-content/70 mt-1">Markdown or HTML files (up to 10, 64 KB each) used as reference for this edit.</p>
             </div>
           </details>
 
           <div class="card-actions justify-end">
-            <button type="submit" class="btn btn-primary btn-lg">Apply this change</button>
+            <button type="submit" class="btn btn-primary">Apply change</button>
           </div>
         </div>
       </form>
 
-      <div class="card bg-base-200 mt-4">
+      <div class="card bg-base-100 border border-base-300 mt-4">
         <div class="card-body">
-          <h2 class="card-title text-base">Add a photo or image</h2>
+          <h2 class="card-title text-base">Images</h2>
           <div id="drop-zone" class="border-2 border-dashed border-base-300 rounded-box p-5 text-center bg-base-100">
-            <p class="text-base-content/70 mb-2">Drag an image here, or
+            <p class="text-sm text-base-content/70 mb-2">Drag an image here, or
               <label class="link link-primary cursor-pointer" for="file-input">choose a file</label>.
             </p>
             <p class="text-xs text-base-content/60">JPG, PNG, GIF, WebP, SVG · up to 5 MB</p>
             <input type="file" id="file-input" accept="image/*" hidden>
           </div>
           <ul id="asset-list" class="mt-3 space-y-1 text-sm">
-            {{ range .Assets }}<li><code class="bg-base-100 px-1 rounded">{{ .Path }}</code>{{ if .Alt }} <span class="text-base-content/70 italic ml-1">{{ .Alt }}</span>{{ end }}</li>{{ end }}
+            {{ range .Assets }}<li><code class="bg-base-200 px-1 rounded">{{ .Path }}</code>{{ if .Alt }} <span class="text-base-content/70 italic ml-1">{{ .Alt }}</span>{{ end }}</li>{{ end }}
           </ul>
-          <p class="text-sm text-base-content/70">Once added, you can reference an image in a prompt like <em>"use assets/photo.jpg as the avatar"</em>.</p>
+          <p class="text-sm text-base-content/70">Reference an uploaded image in a prompt, e.g. <em>"use assets/photo.jpg as the hero"</em>.</p>
         </div>
       </div>
     </section>

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="cupcake">
+<html lang="en" data-theme="corporate">
 <head>
 <title>Your apps — BuildABear</title>
 {{ template "head" . }}
@@ -8,8 +8,8 @@
 {{ template "brand" . }}
 <main class="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8">
   <div class="flex items-center justify-between flex-wrap gap-3 mb-6">
-    <h1 class="text-3xl font-bold">Your apps</h1>
-    <a href="/" class="btn btn-primary">+ Build a new one</a>
+    <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight">Your apps</h1>
+    <a href="/" class="btn btn-primary btn-sm">New app</a>
   </div>
 
   {{ if .Flash }}
@@ -21,47 +21,44 @@
   {{ if .Apps }}
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {{ range .Apps }}
-      <div class="card bg-base-200 shadow-sm hover:shadow-md transition">
+      <div class="card bg-base-100 border border-base-300 hover:border-base-content/30 transition">
         <div class="card-body">
-          <h2 class="card-title text-xl">
+          <h2 class="card-title text-lg">
             {{ if .Title }}{{ .Title }}{{ else }}<span class="font-mono">{{ .Name }}</span>{{ end }}
           </h2>
-          {{ if .Description }}<p class="text-base-content/80 line-clamp-3">{{ .Description }}</p>{{ end }}
+          {{ if .Description }}<p class="text-sm text-base-content/70 line-clamp-3">{{ .Description }}</p>{{ end }}
           <p class="text-xs text-base-content/60 font-mono mt-1">{{ .Name }}</p>
           <div class="card-actions justify-end items-center mt-3">
             <div class="dropdown dropdown-end">
               <button tabindex="0" class="btn btn-ghost btn-sm btn-square" aria-label="More actions">⋮</button>
               <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-10 w-44 p-2 shadow border border-base-300">
                 <li><a href="/edit/{{ .Name }}">Edit</a></li>
-                <li><a href="/edit/{{ .Name }}/theme">Look &amp; feel</a></li>
+                <li><a href="/edit/{{ .Name }}/theme">Appearance</a></li>
                 <li><a href="/settings/{{ .Name }}">Settings</a></li>
                 <li>
                   <form method="POST" action="/settings/{{ .Name }}/delete"
                         class="js-confirm"
                         data-confirm-title="Delete this app?"
-                        data-confirm="Deleting {{ .Name }} will permanently remove all pages, files and history. This cannot be undone."
-                        data-confirm-ok="Delete forever">
+                        data-confirm="Deleting {{ .Name }} will permanently remove all pages, files, and history. This cannot be undone."
+                        data-confirm-ok="Delete">
                     <input type="hidden" name="confirm" value="{{ .Name }}">
                     <button type="submit" class="text-error w-full text-left">Delete</button>
                   </form>
                 </li>
               </ul>
             </div>
-            <a href="{{ .URL }}" class="btn btn-primary btn-sm">Open ↗</a>
+            <a href="{{ .URL }}" class="btn btn-primary btn-sm">Open</a>
           </div>
         </div>
       </div>
       {{ end }}
     </div>
   {{ else }}
-    <div class="hero bg-base-200 rounded-box py-16">
-      <div class="hero-content text-center">
-        <div class="max-w-md">
-          <div class="text-6xl mb-3" aria-hidden="true">🐻</div>
-          <h2 class="text-2xl font-bold mb-2">You haven't built anything yet</h2>
-          <p class="text-base-content/70 mb-6">Tell me what you'd like to make and I'll build it for you. It usually takes a minute or two.</p>
-          <a href="/" class="btn btn-primary btn-lg">Build your first app</a>
-        </div>
+    <div class="card bg-base-100 border border-base-300 border-dashed">
+      <div class="card-body items-center text-center py-16">
+        <h2 class="text-xl font-semibold mb-1">No apps yet</h2>
+        <p class="text-base-content/70 mb-6 max-w-md">Describe what you'd like to build and we'll generate a working site.</p>
+        <a href="/" class="btn btn-primary">Create your first app</a>
       </div>
     </div>
   {{ end }}

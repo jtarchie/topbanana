@@ -138,12 +138,12 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 		return resp, string(body)
 	}
 
-	// 1. Landing page renders with DaisyUI cupcake chrome.
+	// 1. Landing page renders with DaisyUI corporate chrome.
 	resp, body := authedGET("/")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /: %d", resp.StatusCode)
 	}
-	for _, want := range []string{`data-theme="cupcake"`, "BuildABear", "What would you like to build today?", "daisyui@5"} {
+	for _, want := range []string{`data-theme="corporate"`, "BuildABear", "Build a new app", "daisyui@5"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("landing missing %q", want)
 		}
@@ -208,7 +208,7 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /edit/%s: %d", slug, resp.StatusCode)
 	}
-	for _, want := range []string{"Edit your site", "What would you like to change?", "Advanced"} {
+	for _, want := range []string{">Edit<", "Describe the change", "Advanced"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("edit page missing %q", want)
 		}
@@ -219,16 +219,16 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET theme: %d", resp.StatusCode)
 	}
-	if !strings.Contains(body, "Pick a look") {
-		t.Errorf("theme page missing 'Pick a look'")
+	if !strings.Contains(body, "Appearance") {
+		t.Errorf("theme page missing 'Appearance'")
 	}
 
-	// 8. Settings page renders with friendly copy + danger zone.
+	// 8. Settings page renders with plain-English copy + danger zone.
 	resp, body = authedGET("/settings/" + slug)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET settings: %d", resp.StatusCode)
 	}
-	for _, want := range []string{"Use your own web address", "Delete this app", slug} {
+	for _, want := range []string{"Custom web address", "Delete this app", slug} {
 		if !strings.Contains(body, want) {
 			t.Errorf("settings missing %q", want)
 		}

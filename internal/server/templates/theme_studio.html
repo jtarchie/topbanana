@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="cupcake">
+<html lang="en" data-theme="corporate">
 <head>
-<title>Look &amp; feel: {{ .Slug }} — BuildABear</title>
+<title>Appearance: {{ .Slug }} — BuildABear</title>
 {{ template "head" . }}
 </head>
 <body class="min-h-screen flex flex-col bg-base-100">
@@ -9,19 +9,19 @@
 {{ template "site_subnav" . }}
 <main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6">
   <div class="flex items-end justify-between gap-3 flex-wrap mb-2">
-    <h1 class="text-3xl font-bold">Pick a look</h1>
-    <p class="text-base-content/70 max-w-md">Click any look to preview your site with it. When you find one you like, click <strong>Apply</strong>. Your content stays exactly the same.</p>
+    <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight">Appearance</h1>
+    <p class="text-sm text-base-content/70 max-w-md">Click any theme to preview your site with it. When you find one you like, click <strong>Apply</strong>. Your content is unchanged.</p>
   </div>
 
-  <div class="card bg-base-200 mt-6">
+  <div class="card bg-base-100 border border-base-300 mt-6">
     <div class="card-body p-4 sm:p-6">
       <div class="flex items-center gap-3 flex-wrap mb-4">
-        <span class="text-sm text-base-content/70">Current look:</span>
-        <span id="current" class="badge badge-primary badge-lg">{{ .CurrentTheme }}</span>
+        <span class="text-sm text-base-content/70">Current theme:</span>
+        <span id="current" class="badge badge-primary">{{ .CurrentTheme }}</span>
         <span id="preview-tag" class="badge badge-warning hidden">previewing</span>
         <div class="ml-auto flex gap-2">
           <button type="button" id="revert" class="btn btn-ghost btn-sm" disabled>Cancel preview</button>
-          <button type="button" id="apply" class="btn btn-primary" disabled>Apply this look</button>
+          <button type="button" id="apply" class="btn btn-primary btn-sm" disabled>Apply</button>
         </div>
       </div>
 

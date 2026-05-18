@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="cupcake">
+<html lang="en" data-theme="corporate">
 <head>
 <title>Build a new app — BuildABear</title>
 {{ template "head" . }}
@@ -7,31 +7,31 @@
 <body class="min-h-screen flex flex-col bg-base-100">
 {{ template "brand" . }}
 <main class="flex-1 max-w-3xl w-full mx-auto px-4 sm:px-6 py-10">
-  <section class="text-center mb-8">
-    <h1 class="text-4xl sm:text-5xl font-bold mb-3">What would you like to build today?</h1>
-    <p class="text-lg text-base-content/70">Describe your idea in plain words. I'll make a website for you in a minute or two.</p>
+  <section class="mb-8">
+    <h1 class="text-3xl sm:text-4xl font-semibold tracking-tight mb-2">Build a new app</h1>
+    <p class="text-base text-base-content/70">Describe what you want and we'll generate a working site in a minute or two.</p>
   </section>
 
-  <form method="POST" action="/build" enctype="multipart/form-data" class="card bg-base-200 shadow-md">
-    <div class="card-body gap-5">
+  <form method="POST" action="/build" enctype="multipart/form-data" class="card bg-base-100 border border-base-300">
+    <div class="card-body gap-6">
       <div>
-        <label for="prompt" class="label">
-          <span class="label-text text-base font-semibold">Tell me about your site</span>
+        <label for="prompt" class="label pb-1">
+          <span class="label-text font-medium">Describe your site</span>
         </label>
         <textarea name="prompt" id="prompt" rows="6" maxlength="4096" required
                   class="textarea textarea-bordered w-full text-base leading-relaxed"
-                  placeholder="A small site for my book club where we share what we're reading each month. Soft and welcoming colors. A page for upcoming books and a page for past picks."></textarea>
+                  placeholder="A small site for my book club where members share what they're reading each month. Include a page for upcoming books and a page for past picks."></textarea>
       </div>
 
       <div>
-        <span class="label-text text-base font-semibold block mb-2">Pick a starting shape</span>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" id="template-cards">
+        <span class="label-text font-medium block mb-2">Template</span>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2" id="template-cards">
           {{- range $i, $t := .Templates }}
-          <label class="card bg-base-100 border-2 border-base-300 cursor-pointer hover:border-primary transition has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+          <label class="card bg-base-100 border border-base-300 cursor-pointer hover:border-primary transition has-[:checked]:border-primary has-[:checked]:ring-1 has-[:checked]:ring-primary">
             <div class="card-body p-4 flex-row items-start gap-3">
-              <input type="radio" name="template" value="{{ $t.ID }}"{{ if eq $t.ID "blank" }} checked{{ end }} class="radio radio-primary mt-1">
+              <input type="radio" name="template" value="{{ $t.ID }}"{{ if eq $t.ID "blank" }} checked{{ end }} class="radio radio-primary radio-sm mt-1">
               <div class="flex-1">
-                <div class="font-semibold">{{ $t.Label }}</div>
+                <div class="font-medium">{{ $t.Label }}</div>
                 <div class="text-sm text-base-content/70 mt-1">{{ $t.Description }}</div>
               </div>
             </div>
@@ -41,18 +41,18 @@
       </div>
 
       <details class="collapse collapse-arrow bg-base-100 border border-base-300">
-        <summary class="collapse-title font-medium">Pick your own web address (optional)</summary>
+        <summary class="collapse-title text-sm font-medium">Custom web address (optional)</summary>
         <div class="collapse-content">
           <p class="text-sm text-base-content/70 mb-2">Lowercase letters, digits, and hyphens. 3–30 characters. Your site will live at <code class="font-mono text-sm bg-base-200 px-1 rounded">{slug}.{{ .Domain }}</code>.</p>
           <input type="text" name="slug" id="slug" pattern="[a-z0-9]([a-z0-9\-]{1,28}[a-z0-9])?" minlength="3" maxlength="30"
-                 class="input input-bordered w-full" placeholder="leave blank for a friendly random name">
+                 class="input input-bordered w-full" placeholder="auto-generated if left blank">
         </div>
       </details>
 
       <details class="collapse collapse-arrow bg-base-100 border border-base-300">
-        <summary class="collapse-title font-medium">Add reference docs (optional)</summary>
+        <summary class="collapse-title text-sm font-medium">Reference documents (optional)</summary>
         <div class="collapse-content">
-          <p class="text-sm text-base-content/70 mb-2">Markdown or HTML files I can read for content (up to 10 files, 64 KB each).</p>
+          <p class="text-sm text-base-content/70 mb-2">Markdown or HTML files used as content reference (up to 10 files, 64 KB each).</p>
           <input type="file" name="attachment" id="attachment"
                  accept=".md,.markdown,.html,.htm,text/markdown,text/html" multiple
                  class="file-input file-input-bordered w-full">
@@ -60,12 +60,12 @@
       </details>
 
       <div class="card-actions justify-end pt-2">
-        <button type="submit" class="btn btn-primary btn-lg">Build it for me</button>
+        <button type="submit" class="btn btn-primary">Create site</button>
       </div>
     </div>
   </form>
 
-  <p class="text-center text-sm text-base-content/60 mt-6">Already have some? <a class="link link-primary font-medium" href="/apps">See your apps →</a></p>
+  <p class="text-center text-sm text-base-content/60 mt-6"><a class="link link-hover font-medium" href="/apps">View existing apps →</a></p>
 </main>
 {{ template "footer" . }}
 </body>

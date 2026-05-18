@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="cupcake">
+<html lang="en" data-theme="corporate">
 <head>
 <title>Build transcripts: {{ .Slug }} — BuildABear</title>
 {{ template "head" . }}
@@ -8,7 +8,7 @@
 {{ template "brand" . }}
 {{ template "site_subnav" . }}
 <main class="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-6">
-  <h1 class="text-3xl font-bold mb-2">Build transcripts</h1>
+  <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight mb-2">Build transcripts</h1>
   <p class="text-base-content/70 mb-4">Every build and edit run is captured here — every step the AI took, plus before/after for every file it changed. Useful when something didn't update the way you expected.</p>
 
   {{ if not .Rows }}

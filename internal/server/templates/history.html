@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="cupcake">
+<html lang="en" data-theme="corporate">
 <head>
 <title>Version history: {{ .Slug }} — BuildABear</title>
 {{ template "head" . }}
@@ -8,8 +8,8 @@
 {{ template "brand" . }}
 {{ template "site_subnav" . }}
 <main class="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-6">
-  <h1 class="text-3xl font-bold mb-2">Version history</h1>
-  <p class="text-base-content/70 mb-6">I save your site automatically before every change, so you can always go back. Restoring a version also saves the current state first, so you can come back from a restore too.</p>
+  <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight mb-2">Version history</h1>
+  <p class="text-sm text-base-content/70 mb-6">The site is saved automatically before every change, so you can always go back. Restoring a version also saves the current state first.</p>
 
   {{ if .Flash }}
     <div class="alert alert-success mb-4" role="status"><span>{{ .Flash }}</span></div>
@@ -40,8 +40,8 @@
               <form method="POST" action="/history/{{ $.Slug }}/restore"
                     class="js-confirm"
                     data-confirm-title="Restore this version?"
-                    data-confirm="I'll save the current state first, so you can come back. Then I'll bring back the site as it was at this point."
-                    data-confirm-ok="Restore this version"
+                    data-confirm="The current state will be saved first, then the site will be restored to this version."
+                    data-confirm-ok="Restore"
                     data-confirm-tone="primary">
                 <input type="hidden" name="key" value="{{ $s.Key }}">
                 <button type="submit" class="btn btn-ghost btn-sm">Restore</button>

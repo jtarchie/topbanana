@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="cupcake">
+<html lang="en" data-theme="corporate">
 <head>
 <title>Building your app — BuildABear</title>
 {{ template "head" . }}
@@ -7,8 +7,8 @@
 <body class="min-h-screen flex flex-col bg-base-100">
 {{ template "brand" . }}
 <main class="flex-1 max-w-2xl w-full mx-auto px-4 sm:px-6 py-10">
-  <h1 class="text-3xl font-bold mb-2">Building your app</h1>
-  <p class="text-base-content/70 mb-6" id="status">Just getting started…</p>
+  <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight mb-2">Building your app</h1>
+  <p class="text-base-content/70 mb-6" id="status">Starting…</p>
 
   <ul class="steps steps-vertical sm:steps-horizontal w-full mb-6" id="steps">
     <li class="step step-primary" data-step="start">Starting</li>
@@ -17,17 +17,17 @@
     <li class="step" data-step="done">Ready</li>
   </ul>
 
-  <div class="card bg-base-200">
+  <div class="card bg-base-100 border border-base-300">
     <div class="card-body p-4 sm:p-6">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-base-content/60 mb-2">What I'm doing right now</h2>
-      <ul id="log" class="space-y-1 text-base"></ul>
+      <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-2">Activity</h2>
+      <ul id="log" class="space-y-1 text-sm"></ul>
       <div id="error" class="alert alert-error mt-4 hidden" role="alert">
         <span id="error-msg"></span>
       </div>
     </div>
   </div>
 
-  <p class="text-center text-sm text-base-content/60 mt-6">I'll bring you to your finished site as soon as it's ready.</p>
+  <p class="text-center text-sm text-base-content/60 mt-6">You'll be redirected to the finished site when it's ready.</p>
 </main>
 {{ template "footer" . }}
 
@@ -69,59 +69,59 @@
       var name = filenameOf(ev.path);
       switch (ev.tool) {
         case 'write_file':
-          if (ev.path === '/index.html' || ev.path === 'index.html') return 'Designing your home page…';
-          return 'Adding the ' + (name || 'page') + '…';
-        case 'edit_file':         return 'Updating ' + (name || 'the page') + '…';
+          if (ev.path === '/index.html' || ev.path === 'index.html') return 'Designing home page…';
+          return 'Adding ' + (name || 'page') + '…';
+        case 'edit_file':         return 'Updating ' + (name || 'page') + '…';
         case 'replace_lines':
-        case 'insert_at_line':    return 'Fine-tuning ' + (name || 'the page') + '…';
-        case 'write_function':    return 'Adding behind-the-scenes logic for ' + (name || 'this site') + '…';
-        case 'edit_function':     return 'Updating ' + (name || 'the logic') + '…';
-        case 'delete_function':   return 'Removing some behind-the-scenes logic…';
-        case 'fetch_reference':   return 'Reading the page you linked…';
-        case 'read_attachment':   return 'Reading your reference doc…';
-        case 'read_file':
-        case 'list_files':
-        case 'grep_files':
-        case 'list_assets':
-        case 'read_function':
-        case 'list_functions':    return null; // suppress
-        default:                  return 'Working on it…';
-      }
-    }
-    function friendlyToolDone(ev) {
-      var name = filenameOf(ev.path);
-      switch (ev.tool) {
-        case 'write_file':
-          if (ev.path === '/index.html' || ev.path === 'index.html') return '✓ Home page ready';
-          return '✓ ' + (name || 'Page') + ' ready';
-        case 'edit_file':         return '✓ Updated ' + (name || 'the page');
-        case 'replace_lines':
-        case 'insert_at_line':    return '✓ Polished ' + (name || 'the page');
-        case 'write_function':    return '✓ Added new logic';
-        case 'edit_function':     return '✓ Logic updated';
-        case 'delete_function':   return '✓ Removed';
-        case 'fetch_reference':   return '✓ Got it';
-        case 'read_attachment':   return '✓ Read it';
+        case 'insert_at_line':    return 'Refining ' + (name || 'page') + '…';
+        case 'write_function':    return 'Adding server logic for ' + (name || 'this site') + '…';
+        case 'edit_function':     return 'Updating server logic…';
+        case 'delete_function':   return 'Removing server logic…';
+        case 'fetch_reference':   return 'Reading reference link…';
+        case 'read_attachment':   return 'Reading reference document…';
         case 'read_file':
         case 'list_files':
         case 'grep_files':
         case 'list_assets':
         case 'read_function':
         case 'list_functions':    return null;
-        default:                  return '✓ Done';
+        default:                  return 'Working…';
+      }
+    }
+    function friendlyToolDone(ev) {
+      var name = filenameOf(ev.path);
+      switch (ev.tool) {
+        case 'write_file':
+          if (ev.path === '/index.html' || ev.path === 'index.html') return 'Home page ready';
+          return (name || 'Page') + ' ready';
+        case 'edit_file':         return 'Updated ' + (name || 'page');
+        case 'replace_lines':
+        case 'insert_at_line':    return 'Refined ' + (name || 'page');
+        case 'write_function':    return 'Added server logic';
+        case 'edit_function':     return 'Updated server logic';
+        case 'delete_function':   return 'Removed server logic';
+        case 'fetch_reference':   return 'Reference loaded';
+        case 'read_attachment':   return 'Reference loaded';
+        case 'read_file':
+        case 'list_files':
+        case 'grep_files':
+        case 'list_assets':
+        case 'read_function':
+        case 'list_functions':    return null;
+        default:                  return 'Done';
       }
     }
     function friendlyToolError(ev) {
       var msg = ev.message || 'something went wrong';
-      return '⚠ Hit a snag: ' + msg;
+      return 'Failed: ' + msg;
     }
     function friendlyStatus(ev) {
       switch (ev.status) {
-        case 'building':  return "I'm working on your site now…";
-        case 'linting':   return 'Checking everything works…';
-        case 'retry':     return 'Fixing a few things: ' + (ev.message || '');
-        case 'completed': return 'Your site is ready!';
-        case 'failed':    return 'I ran into a problem: ' + (ev.message || 'unknown error');
+        case 'building':  return 'Building your site…';
+        case 'linting':   return 'Validating output…';
+        case 'retry':     return 'Fixing issues: ' + (ev.message || '');
+        case 'completed': return 'Your site is ready.';
+        case 'failed':    return 'Build failed: ' + (ev.message || 'unknown error');
         case 'unknown':   return 'Nothing in progress.';
         default:          return '';
       }

@@ -38,7 +38,7 @@ func chromeExecPath() string {
 }
 
 // TestHappyPath_BrowserSmoke loads the redesigned landing page in headless
-// Chrome and asserts the DaisyUI cupcake theme + Tailwind processing landed.
+// Chrome and asserts the DaisyUI corporate theme + Tailwind processing landed.
 // This is a thin smoke test — its job is to catch the kinds of failures the
 // HTTP-level test can't see, like a missing CDN script, a CSS that fails to
 // apply, or a JavaScript error in the boot path. Skips when Chrome isn't
@@ -107,10 +107,10 @@ func TestHappyPath_BrowserSmoke(t *testing.T) {
 		}
 		t.Fatalf("chromedp run: %v", err)
 	}
-	if theme != "cupcake" {
-		t.Errorf("data-theme: got %q want %q", theme, "cupcake")
+	if theme != "corporate" {
+		t.Errorf("data-theme: got %q want %q", theme, "corporate")
 	}
-	if !strings.Contains(bodyText, "What would you like to build today?") {
+	if !strings.Contains(bodyText, "Build a new app") {
 		t.Errorf("landing h1 text: got %q", bodyText)
 	}
 	if strings.TrimSpace(primaryColor) == "" {
