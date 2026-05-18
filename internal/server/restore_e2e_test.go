@@ -160,8 +160,8 @@ func TestHistoryRestoreHandler_EndToEnd(t *testing.T) {
 		t.Fatalf("status: got %d want 303; body=%q", rec.Code, rec.Body.String())
 	}
 	loc := rec.Header().Get("Location")
-	if !strings.HasPrefix(loc, "/history/"+slug) || !strings.Contains(loc, "flash=") {
-		t.Errorf("redirect: got %q, want /history/<slug>?flash=...", loc)
+	if !strings.HasPrefix(loc, "/workspace/"+slug) || !strings.Contains(loc, "flash=") {
+		t.Errorf("redirect: got %q, want /workspace/<slug>?flash=...", loc)
 	}
 
 	if got := mustRead(t, ctx, st, slug, "index.html"); got != "<h1>v1</h1>" {

@@ -26,10 +26,11 @@ type debugRow struct {
 }
 
 type debugListData struct {
-	Slug    string
-	SiteURL string
-	Active  string
-	Rows    []debugRow
+	Slug     string
+	SiteName string // consumed by the shared brand partial's breadcrumb
+	SiteURL  string
+	Active   string
+	Rows     []debugRow
 }
 
 type debugToolRow struct {
@@ -59,6 +60,7 @@ type debugFileRow struct {
 
 type debugDetailData struct {
 	Slug            string
+	SiteName        string // consumed by the shared brand partial's breadcrumb
 	SiteURL         string
 	Active          string
 	Key             string
@@ -101,10 +103,11 @@ func (s *Server) debugHandler(c *echo.Context) error {
 	}
 
 	return s.render(c, "debug", debugListData{
-		Slug:    slug,
-		SiteURL: s.siteURL(c, slug, "/"),
-		Active:  "debug",
-		Rows:    out,
+		Slug:     slug,
+		SiteName: s.siteNameOrSlug(c.Request().Context(), slug),
+		SiteURL:  s.siteURL(c, slug, "/"),
+		Active:   "debug",
+		Rows:     out,
 	})
 }
 
@@ -128,6 +131,7 @@ func (s *Server) debugDetailHandler(c *echo.Context) error {
 
 	data := debugDetailData{
 		Slug:            slug,
+		SiteName:        s.siteNameOrSlug(c.Request().Context(), slug),
 		SiteURL:         s.siteURL(c, slug, "/"),
 		Active:          "debug",
 		Key:             key,

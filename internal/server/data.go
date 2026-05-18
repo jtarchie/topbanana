@@ -13,28 +13,16 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// dataView is what data.html renders. Columns is the union of field names
-// across all object-valued KV entries (counters and other scalars are
-// excluded). Rows is parallel to Columns — each Values[i] is the formatted
-// cell for Columns[i].
-type dataView struct {
-	Slug    string
-	SiteURL string
-	Active  string
-	Columns []string
-	Rows    []dataRow
-	CSVURL  string
-}
-
+// dataRow is one submission row in the inline table on /manage/:slug and in
+// the CSV export at /data/:slug?format=csv.
 type dataRow struct {
 	Key    string
 	Values []string
 }
 
-// dataHandler serves the per-site submissions viewer. Object-valued KV
-// entries (e.g. `submission:NNNNNNNN`, `entry:NNNNNNNN`) are rendered as a
-// table; scalar counters like `seq` are ignored. With `?format=csv`, the
-// same data is returned as a CSV download.
+// dataHandler serves the CSV download for a site's KV submissions. The HTML
+// rendering of the same data lives inline on /manage/:slug; legacy GETs to
+// /data/:slug without the format query are redirected there.
 func (s *Server) dataHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
@@ -42,23 +30,15 @@ func (s *Server) dataHandler(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
+	if c.QueryParam("format") != "csv" {
+		return c.Redirect(http.StatusFound, "/manage/"+slug) //nolint:wrapcheck
+	}
+
 	cols, rows, err := s.collectSubmissions(c.Request().Context(), slug)
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "load state", err)
 	}
-
-	if c.QueryParam("format") == "csv" {
-		return writeSubmissionsCSV(c, slug, cols, rows)
-	}
-
-	return s.render(c, "data", dataView{
-		Slug:    slug,
-		SiteURL: s.siteURL(c, slug, "/"),
-		Active:  "data",
-		Columns: cols,
-		Rows:    rows,
-		CSVURL:  "/data/" + slug + "?format=csv",
-	})
+	return writeSubmissionsCSV(c, slug, cols, rows)
 }
 
 // collectSubmissions loads the slug's KV snapshot and returns the column list

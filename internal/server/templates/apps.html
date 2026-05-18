@@ -22,33 +22,32 @@
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {{ range .Apps }}
       <div class="card bg-base-100 border border-base-300 hover:border-base-content/30 transition">
-        <div class="card-body">
+        <a href="/workspace/{{ .Name }}" class="card-body block">
           <h2 class="card-title text-lg">
             {{ if .Title }}{{ .Title }}{{ else }}<span class="font-mono">{{ .Name }}</span>{{ end }}
           </h2>
-          {{ if .Description }}<p class="text-sm text-base-content/70 line-clamp-3">{{ .Description }}</p>{{ end }}
-          <p class="text-xs text-base-content/60 font-mono mt-1">{{ .Name }}</p>
-          <div class="card-actions justify-end items-center mt-3">
-            <div class="dropdown dropdown-end">
-              <button tabindex="0" class="btn btn-ghost btn-sm btn-square" aria-label="More actions">⋮</button>
-              <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-10 w-44 p-2 shadow border border-base-300">
-                <li><a href="/edit/{{ .Name }}">Edit</a></li>
-                <li><a href="/edit/{{ .Name }}/theme">Appearance</a></li>
-                <li><a href="/settings/{{ .Name }}">Settings</a></li>
-                <li>
-                  <form method="POST" action="/settings/{{ .Name }}/delete"
-                        class="js-confirm"
-                        data-confirm-title="Delete this app?"
-                        data-confirm="Deleting {{ .Name }} will permanently remove all pages, files, and history. This cannot be undone."
-                        data-confirm-ok="Delete">
-                    <input type="hidden" name="confirm" value="{{ .Name }}">
-                    <button type="submit" class="text-error w-full text-left">Delete</button>
-                  </form>
-                </li>
-              </ul>
-            </div>
-            <a href="{{ .URL }}" class="btn btn-primary btn-sm">Open</a>
+          {{ if .Description }}<p class="text-sm text-base-content/70 line-clamp-2 mt-1">{{ .Description }}</p>{{ end }}
+          <p class="text-xs text-base-content/60 font-mono mt-2">{{ .Name }}</p>
+          {{ if .LastEdited }}<p class="text-xs text-base-content/50 mt-1">Last edited {{ .LastEdited }}</p>{{ end }}
+        </a>
+        <div class="card-actions justify-end items-center px-4 pb-4 -mt-1">
+          <div class="dropdown dropdown-end">
+            <button tabindex="0" class="btn btn-ghost btn-sm btn-square" aria-label="More actions">⋮</button>
+            <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-10 w-44 p-2 shadow border border-base-300">
+              <li><a href="/manage/{{ .Name }}">Manage</a></li>
+              <li>
+                <form method="POST" action="/settings/{{ .Name }}/delete"
+                      class="js-confirm"
+                      data-confirm-title="Delete this app?"
+                      data-confirm="Deleting {{ .Name }} will permanently remove all pages, files, and history. This cannot be undone."
+                      data-confirm-ok="Delete">
+                  <input type="hidden" name="confirm" value="{{ .Name }}">
+                  <button type="submit" class="text-error w-full text-left">Delete</button>
+                </form>
+              </li>
+            </ul>
           </div>
+          <a href="{{ .URL }}" class="btn btn-primary btn-sm" target="_blank" rel="noopener">Open</a>
         </div>
       </div>
       {{ end }}

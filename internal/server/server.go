@@ -32,17 +32,13 @@ import (
 
 	"github.com/jtarchie/buildabear/internal/agent"
 	"github.com/jtarchie/buildabear/internal/build"
+	"github.com/jtarchie/buildabear/internal/editrec"
 	"github.com/jtarchie/buildabear/internal/events"
 	"github.com/jtarchie/buildabear/internal/sandbox"
 	"github.com/jtarchie/buildabear/internal/snapshot"
 	"github.com/jtarchie/buildabear/internal/state"
 	"github.com/jtarchie/buildabear/internal/store"
 	"github.com/jtarchie/buildabear/internal/templates"
-)
-
-const (
-	progressPollIntervalMS = 2000
-	progressMaxChecks      = 180
 )
 
 // Deps holds the dependencies the server needs. Wired up in cmd/buildabear.
@@ -122,15 +118,11 @@ func New(d Deps) (*echo.Echo, *Server) {
 	for _, t := range []struct{ name, body string }{
 		{"landing", landingTemplate},
 		{"apps", appsTemplate},
-		{"progress", progressTemplate},
-		{"edit", editTemplate},
-		{"settings", settingsTemplate},
+		{"workspace", workspaceTemplate},
+		{"manage", manageTemplate},
 		{"toolbar", editToolbarTemplate},
 		{"visual_edit", visualEditTemplate},
-		{"theme_studio", themeStudioTemplate},
 		{"function_edit", functionEditTemplate},
-		{"history", historyTemplate},
-		{"data", dataTemplate},
 		{"files", filesTemplate},
 		{"debug", debugTemplate},
 		{"debug_edit", debugEditTemplate},
@@ -183,20 +175,25 @@ func New(d Deps) (*echo.Echo, *Server) {
 	admin.GET("/", s.landingHandler)
 	admin.POST("/build", s.buildHandler, promptWithAttachmentsBodyCap)
 	admin.GET("/apps", s.appsHandler)
-	admin.GET("/edit/:slug", s.editHandler)
+	// New unified per-app surfaces.
+	admin.GET("/workspace/:slug", s.workspaceHandler)
+	admin.GET("/manage/:slug", s.manageHandler)
+	// Pre-existing per-app endpoints. POSTs keep their URLs so the new templates
+	// can submit to them unchanged; the GETs redirect to /workspace or /manage.
+	admin.GET("/edit/:slug", s.redirectToWorkspace)
 	admin.POST("/edit/:slug", s.editSubmitHandler, promptWithAttachmentsBodyCap)
 	admin.POST("/relint/:slug", s.relintHandler)
 	admin.GET("/edit/:slug/visual", s.visualEditHandler)
 	admin.POST("/edit/:slug/visual", s.visualEditSaveHandler, promptBodyCap)
-	admin.GET("/edit/:slug/theme", s.themeStudioHandler)
+	admin.GET("/edit/:slug/theme", s.redirectToWorkspace)
 	admin.POST("/edit/:slug/theme", s.themeStudioApplyHandler)
 	admin.GET("/edit/:slug/function/:name", s.functionEditHandler)
 	admin.POST("/test/:slug/api/:name", s.functionTestHandler)
 	admin.POST("/upload/:slug", s.uploadHandler)
-	admin.GET("/settings/:slug", s.settingsHandler)
+	admin.GET("/settings/:slug", s.redirectToManage)
 	admin.POST("/settings/:slug", s.settingsSubmitHandler)
 	admin.POST("/settings/:slug/delete", s.settingsDeleteHandler)
-	admin.GET("/history/:slug", s.historyHandler)
+	admin.GET("/history/:slug", s.redirectToWorkspace)
 	admin.POST("/history/:slug/restore", s.historyRestoreHandler)
 	admin.POST("/history/:slug/delete", s.historyDeleteHandler)
 	admin.GET("/data/:slug", s.dataHandler)
@@ -444,17 +441,38 @@ func (s *Server) snapshotBefore(ctx context.Context, slug, reason string) {
 	}
 }
 
-// startBuild kicks off the build via the build service and renders the
-// progress page. SSE subscribers learn about the build through the events
-// tracker.
+// startBuild kicks off the build via the build service and lands the user
+// in the workspace with ?building=1, which makes the workspace render its
+// inline status strip and open the /events/:slug SSE stream. SSE subscribers
+// learn about the build through the events tracker.
 func (s *Server) startBuild(c *echo.Context, p build.Params) error {
 	s.build.Start(p)
-	return s.render(c, "progress", map[string]any{
-		"Slug":           p.Slug,
-		"SiteURL":        s.siteURL(c, p.Slug, "/"),
-		"PollIntervalMS": progressPollIntervalMS,
-		"MaxChecks":      progressMaxChecks,
-	})
+	return c.Redirect(http.StatusSeeOther, "/workspace/"+p.Slug+"?building=1") //nolint:wrapcheck
+}
+
+// redirectToWorkspace is the GET handler for legacy /edit/:slug,
+// /edit/:slug/theme, and /history/:slug paths. Their content all lives inside
+// the workspace now — as the main editor for /edit, and as side panels for
+// theme + history.
+func (s *Server) redirectToWorkspace(c *echo.Context) error {
+	slug := c.Param("slug")
+	err := validateSlug(slug)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	return c.Redirect(http.StatusFound, "/workspace/"+slug) //nolint:wrapcheck
+}
+
+// redirectToManage is the GET handler for legacy /settings/:slug. Manage
+// replaces settings and folds in the data table + advanced links + danger
+// zone.
+func (s *Server) redirectToManage(c *echo.Context) error {
+	slug := c.Param("slug")
+	err := validateSlug(slug)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	return c.Redirect(http.StatusFound, "/manage/"+slug) //nolint:wrapcheck
 }
 
 func (s *Server) render(c *echo.Context, name string, data any) error {
@@ -492,11 +510,20 @@ type appLink struct {
 	Title       string
 	Description string
 	URL         string
+	// LastEdited is a human-readable relative timestamp ("3m ago", "yesterday")
+	// derived from the most recent transcript in editrec. Empty when there's no
+	// edit history yet — the card omits the line in that case.
+	LastEdited string
 }
 
 type appsData struct {
-	Apps  []appLink
-	Flash string
+	// SiteName is unused on the apps grid — exposed here so the shared brand
+	// partial's `{{ if .SiteName }}` breadcrumb check evaluates against a real
+	// field on the struct (html/template errors on a missing field).
+	SiteName string
+	Slug     string
+	Apps     []appLink
+	Flash    string
 }
 
 func (s *Server) appsHandler(c *echo.Context) error {
@@ -514,6 +541,7 @@ func (s *Server) appsHandler(c *echo.Context) error {
 			Title:       meta.Title,
 			Description: meta.Description,
 			URL:         s.siteURL(c, app, "/"),
+			LastEdited:  lastEditedFor(ctx, s, app),
 		})
 	}
 	sort.SliceStable(links, func(i, j int) bool {
@@ -524,6 +552,29 @@ func (s *Server) appsHandler(c *echo.Context) error {
 		Apps:  links,
 		Flash: c.QueryParam("flash"),
 	})
+}
+
+// siteNameOrSlug returns the site's friendly title for the chrome breadcrumb,
+// falling back to the slug itself when no title has been generated yet. Used
+// by the per-site handlers that share layout.html's `brand` partial.
+func (s *Server) siteNameOrSlug(ctx context.Context, slug string) string {
+	meta := s.build.ReadMeta(ctx, slug)
+	if meta.Title != "" {
+		return meta.Title
+	}
+	return slug
+}
+
+// lastEditedFor returns a relative timestamp for the most recent transcript,
+// or "" when the site has no edits recorded yet (a freshly-created shell with
+// no completed build, or a pre-editrec site). The transcript list is small
+// (capped by retention in editrec.Trim), so this is O(N) per app card.
+func lastEditedFor(ctx context.Context, s *Server, slug string) string {
+	rows, err := editrec.List(ctx, s.store, slug)
+	if err != nil || len(rows) == 0 {
+		return ""
+	}
+	return humanizeAge(rows[0].Timestamp)
 }
 
 // appLinkKey orders apps by Title when present, otherwise by slug — keeps
@@ -1022,23 +1073,9 @@ func (s *Server) injectEditToolbar(c *echo.Context, htmlContent, slug, page stri
 	return strings.Replace(htmlContent, "</body>", buf.String(), 1)
 }
 
-type editData struct {
-	Slug      string
-	SiteURL   string // root of the live site (no trailing path)
-	PageURL   string // current page on the live site (for the iframe)
-	Active    string // sub-nav highlight key; always "edit" for this handler
-	Page      string
-	Pages     []string
-	Assets    []editAsset
-	Functions []string
-	// Flash is a transient banner key set via ?flash=... after a redirect.
-	// Currently only "lint-clean" is used; the template ignores unknown keys.
-	Flash string
-}
-
-// editAsset is the per-image row rendered on the edit page. Alt is shown
-// next to the path so users can see what the captioner inferred without
-// round-tripping through the agent.
+// editAsset is the per-image row rendered in the workspace's image library.
+// Alt is shown next to the path so users can see what the captioner inferred
+// without round-tripping through the agent.
 type editAsset struct {
 	Path string
 	Alt  string
@@ -1061,6 +1098,7 @@ var reservedSlugs = map[string]bool{
 	"status": true, "build": true, "events": true, "upload": true,
 	"history": true, "settings": true, "test": true, "relint": true,
 	"admin": true, "login": true, "logout": true,
+	"workspace": true, "manage": true,
 }
 
 func validateSlug(slug string) error {
@@ -1080,51 +1118,6 @@ func validateSlug(slug string) error {
 		return fmt.Errorf("slug %q is reserved", slug)
 	}
 	return nil
-}
-
-func (s *Server) editHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	page := c.QueryParam("page")
-
-	err := validatePage(page)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-
-	ctx := c.Request().Context()
-	all, err := s.store.List(ctx, slug)
-	if err != nil {
-		return httpErr(http.StatusInternalServerError, "list pages", err)
-	}
-	pages, assetPaths := build.SplitFilesByKind(all)
-
-	assets := make([]editAsset, 0, len(assetPaths))
-	for _, p := range assetPaths {
-		row := editAsset{Path: p}
-		// Reads are cached via ARC, so this is cheap on hot paths and a
-		// one-time S3 round-trip on cold ones.
-		obj, readErr := s.store.Read(ctx, slug, p)
-		if readErr == nil && obj != nil {
-			row.Alt = obj.Metadata["alt"]
-		} else if readErr != nil {
-			slog.Warn("edit.asset_meta", "slug", slug, "path", p, "err", readErr)
-		}
-		assets = append(assets, row)
-	}
-
-	functions := collectFunctionNames(all)
-
-	return s.render(c, "edit", editData{
-		Slug:      slug,
-		Functions: functions,
-		SiteURL:   s.siteURL(c, slug, "/"),
-		PageURL:   s.siteURL(c, slug, "/"+page),
-		Active:    "edit",
-		Page:      page,
-		Pages:     pages,
-		Assets:    assets,
-		Flash:     c.QueryParam("flash"),
-	})
 }
 
 func (s *Server) editSubmitHandler(c *echo.Context) error {
@@ -1193,7 +1186,7 @@ func (s *Server) relintHandler(c *echo.Context) error {
 
 	if len(lintErrs) == 0 {
 		slog.Info("relint.clean", "slug", slug)
-		return c.Redirect(http.StatusSeeOther, "/edit/"+slug+"?flash=lint-clean") //nolint:wrapcheck
+		return c.Redirect(http.StatusSeeOther, "/workspace/"+slug+"?flash=lint-clean") //nolint:wrapcheck
 	}
 
 	slog.Info("relint.start", "slug", slug, "issues", len(lintErrs), "template", tmpl.ID)
@@ -1202,37 +1195,6 @@ func (s *Server) relintHandler(c *echo.Context) error {
 		Prompt:   build.LintFixPrompt(lintErrs),
 		LogKey:   "relint",
 		Template: tmpl,
-	})
-}
-
-type settingsData struct {
-	Slug             string
-	SiteURL          string
-	Active           string
-	Domains          string
-	DomainsError     string
-	FunctionsEnabled bool
-	FunctionsByTmpl  bool // the template already enables functions — checkbox is locked-on
-	PublicAPIEnabled bool
-}
-
-func (s *Server) settingsHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-	meta := s.build.ReadMeta(c.Request().Context(), slug)
-	tmpl := build.EffectiveTemplate(meta)
-	byTmpl := tmpl != nil && templates.Get(meta.Template) != nil && templates.Get(meta.Template).EnablesFunctions
-	return s.render(c, "settings", settingsData{
-		Slug:             slug,
-		SiteURL:          s.siteURL(c, slug, "/"),
-		Active:           "settings",
-		Domains:          strings.Join(meta.Domains, "\n"),
-		FunctionsEnabled: tmpl != nil && tmpl.EnablesFunctions,
-		FunctionsByTmpl:  byTmpl,
-		PublicAPIEnabled: meta.EnablesPublicAPI,
 	})
 }
 
@@ -1275,7 +1237,7 @@ func (s *Server) settingsSubmitHandler(c *echo.Context) error {
 			go s.preWarmCert(host)
 		}
 	}
-	return c.Redirect(http.StatusSeeOther, "/settings/"+slug) //nolint:wrapcheck
+	return c.Redirect(http.StatusSeeOther, "/manage/"+slug) //nolint:wrapcheck
 }
 
 // newlyAddedDomains returns the hosts in next that weren't in prev. Both

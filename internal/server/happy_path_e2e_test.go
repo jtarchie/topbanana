@@ -149,7 +149,9 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 		}
 	}
 
-	// 2. POST /build kicks off a build and renders the progress page.
+	// 2. POST /build kicks off a build. The new flow 303s straight to the
+	//    workspace with ?building=1 — the workspace template renders the
+	//    inline status strip in that mode rather than a separate /progress.
 	slug := "happy-" + freshSlug(t)
 	cleanupSlug(t, ctx, st, snapSvc, slug)
 	form := url.Values{
@@ -168,14 +170,17 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("POST /build: %v", err)
 	}
-	progressBody, _ := io.ReadAll(resp.Body)
+	workspaceBody, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("POST /build: %d body=%q", resp.StatusCode, string(progressBody))
+		t.Fatalf("POST /build (after redirect): %d body=%q", resp.StatusCode, string(workspaceBody))
 	}
-	for _, want := range []string{"Building your app", "steps", `data-step="design"`} {
-		if !strings.Contains(string(progressBody), want) {
-			t.Errorf("progress page missing %q", want)
+	if !strings.Contains(resp.Request.URL.Path, "/workspace/"+slug) {
+		t.Errorf("expected redirect to /workspace/%s, landed at %s", slug, resp.Request.URL.Path)
+	}
+	for _, want := range []string{"status-strip", `data-step="design"`, "Designing", ">Workspace<"} {
+		if !strings.Contains(string(workspaceBody), want) {
+			t.Errorf("workspace (building) missing %q", want)
 		}
 	}
 
@@ -203,34 +208,48 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 		t.Errorf("site body missing canned content; got %q", trim(siteBody, 200))
 	}
 
-	// 6. Edit page renders with the redesigned chrome.
+	// 6. Workspace renders with the redesigned IA — left rail, prompt input,
+	//    theme picker + history side panels. The legacy /edit/:slug path now
+	//    redirects to /workspace/:slug; we follow the redirect and assert the
+	//    workspace markers land.
 	resp, body = authedGET("/edit/" + slug)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /edit/%s: %d", slug, resp.StatusCode)
+		t.Fatalf("GET /edit/%s (after redirect): %d", slug, resp.StatusCode)
 	}
-	for _, want := range []string{">Edit<", "Describe the change", "Advanced"} {
+	if !strings.Contains(resp.Request.URL.Path, "/workspace/"+slug) {
+		t.Errorf("expected /edit/%s to redirect to /workspace, landed at %s", slug, resp.Request.URL.Path)
+	}
+	for _, want := range []string{">Workspace<", ">Manage<", "Describe a change", "panel-themes", "panel-history"} {
 		if !strings.Contains(body, want) {
-			t.Errorf("edit page missing %q", want)
+			t.Errorf("workspace missing %q", want)
 		}
 	}
 
-	// 7. Theme studio renders.
+	// 7. Legacy /edit/:slug/theme redirects to workspace (theme picker is a
+	//    side panel there).
 	resp, body = authedGET("/edit/" + slug + "/theme")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET theme: %d", resp.StatusCode)
 	}
-	if !strings.Contains(body, "Appearance") {
-		t.Errorf("theme page missing 'Appearance'")
+	if !strings.Contains(resp.Request.URL.Path, "/workspace/"+slug) {
+		t.Errorf("expected /edit/%s/theme to redirect to /workspace, landed at %s", slug, resp.Request.URL.Path)
+	}
+	if !strings.Contains(body, "panel-themes") {
+		t.Errorf("workspace (theme redirect target) missing themes panel")
 	}
 
-	// 8. Settings page renders with plain-English copy + danger zone.
+	// 8. Manage page renders with the consolidated sections; legacy /settings
+	//    redirects here.
 	resp, body = authedGET("/settings/" + slug)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET settings: %d", resp.StatusCode)
 	}
-	for _, want := range []string{"Custom web address", "Delete this app", slug} {
+	if !strings.Contains(resp.Request.URL.Path, "/manage/"+slug) {
+		t.Errorf("expected /settings/%s to redirect to /manage, landed at %s", slug, resp.Request.URL.Path)
+	}
+	for _, want := range []string{"Custom web address", "Permissions", "Form submissions", "Advanced tools", "Delete this app", slug} {
 		if !strings.Contains(body, want) {
-			t.Errorf("settings missing %q", want)
+			t.Errorf("manage missing %q", want)
 		}
 	}
 

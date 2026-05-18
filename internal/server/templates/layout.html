@@ -20,8 +20,12 @@
 
 {{ define "brand" -}}
 <header class="navbar bg-base-100 border-b border-base-300 px-4 sm:px-6">
-  <div class="flex-1">
-    <a href="/" class="btn btn-ghost text-lg font-semibold normal-case tracking-tight">BuildABear</a>
+  <div class="flex-1 gap-2 items-center min-w-0">
+    <a href="/" class="btn btn-ghost btn-sm text-base font-semibold normal-case tracking-tight px-2">BuildABear</a>
+    {{ if .SiteName -}}
+    <span class="text-base-content/30" aria-hidden="true">/</span>
+    <a href="/workspace/{{ .Slug }}" class="font-mono text-sm font-medium truncate text-base-content/80 hover:text-base-content">{{ .SiteName }}</a>
+    {{- end }}
   </div>
   <div class="flex-none">
     <a href="/apps" class="btn btn-ghost btn-sm">Your apps</a>
@@ -32,25 +36,11 @@
 {{ define "site_subnav" -}}
 {{ if .Slug -}}
 <nav class="bg-base-100 border-b border-base-300" aria-label="This site">
-  <div class="max-w-5xl mx-auto px-4 sm:px-6 pt-3 pb-0">
-    <div class="flex items-center gap-3 mb-3 flex-wrap">
-      <span class="font-mono text-sm font-medium text-base-content/80">{{ .Slug }}</span>
-      {{ if .SiteURL }}<a class="ml-auto text-sm link link-hover font-medium" href="{{ .SiteURL }}" target="_blank" rel="noopener">View site →</a>{{ end }}
-    </div>
-    <div role="tablist" class="tabs tabs-bordered inline-flex flex-wrap -mb-px">
-      <a href="/edit/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `edit` }} tab-active{{ end }}">Edit</a>
-      <a href="/edit/{{ .Slug }}/theme" role="tab" class="tab{{ if eq .Active `theme` }} tab-active{{ end }}">Appearance</a>
-      <a href="/settings/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `settings` }} tab-active{{ end }}">Settings</a>
-      <details class="dropdown ml-1">
-        <summary class="tab list-none{{ if or (eq .Active `files`) (eq .Active `data`) (eq .Active `history`) (eq .Active `debug`) (eq .Active `function`) (eq .Active `visual`) }} tab-active{{ end }}">Advanced ▾</summary>
-        <ul class="dropdown-content menu bg-base-100 rounded-box z-30 w-64 p-2 shadow-lg border border-base-300 mt-1">
-          <li class="menu-title text-xs">Advanced tools</li>
-          <li><a href="/files/{{ .Slug }}"{{ if eq .Active `files` }} class="active"{{ end }}>Files</a></li>
-          <li><a href="/data/{{ .Slug }}"{{ if eq .Active `data` }} class="active"{{ end }}>Form submissions</a></li>
-          <li><a href="/history/{{ .Slug }}"{{ if eq .Active `history` }} class="active"{{ end }}>Version history</a></li>
-          <li><a href="/debug/{{ .Slug }}"{{ if eq .Active `debug` }} class="active"{{ end }}>Build transcripts</a></li>
-        </ul>
-      </details>
+  <div class="max-w-6xl mx-auto px-4 sm:px-6">
+    <div role="tablist" class="tabs tabs-bordered inline-flex flex-wrap -mb-px gap-1">
+      <a href="/workspace/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `workspace` }} tab-active{{ end }}">Workspace</a>
+      <a href="/manage/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `manage` }} tab-active{{ end }}">Manage</a>
+      {{ if .SiteURL }}<a class="tab tab-disabled-link ml-auto text-sm link link-hover font-medium" href="{{ .SiteURL }}" target="_blank" rel="noopener">View site →</a>{{ end }}
     </div>
   </div>
 </nav>

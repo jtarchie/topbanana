@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="corporate">
+<head>
+<title>Workspace: {{ .SiteName }} — BuildABear</title>
+{{ template "head" . }}
+<style type="text/tailwindcss">
+  /* Side panels slide in from the right. Use [open] selector since DaisyUI's
+     drawer component pulls in too much chrome — a plain <dialog> with a
+     fixed aside fits the workspace metaphor better. */
+  .side-panel { position: fixed; top: 0; right: 0; height: 100vh; width: min(420px, 100vw); transform: translateX(100%); transition: transform .2s ease; z-index: 50; }
+  .side-panel[data-open="true"] { transform: translateX(0); }
+  .side-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.3); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 40; }
+  .side-scrim[data-open="true"] { opacity: 1; pointer-events: auto; }
+</style>
+</head>
+<body class="min-h-screen flex flex-col bg-base-100">
+{{ template "brand" . }}
+{{ template "site_subnav" . }}
+
+{{ if .Building }}
+<div id="status-strip" class="bg-info/10 border-b border-info/30">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-4 flex-wrap">
+    <span class="loading loading-spinner loading-sm text-primary"></span>
+    <span id="status-msg" class="text-sm font-medium">Starting…</span>
+    <ul class="steps steps-horizontal flex-1" id="steps">
+      <li class="step step-primary" data-step="start">Starting</li>
+      <li class="step" data-step="design">Designing</li>
+      <li class="step" data-step="polish">Polishing</li>
+      <li class="step" data-step="done">Ready</li>
+    </ul>
+  </div>
+  <div id="status-error" class="hidden border-t border-error/30 bg-error/10">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 py-2 text-sm text-error" id="status-error-msg"></div>
+  </div>
+</div>
+{{ end }}
+
+<main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-4">
+  {{ if eq .Flash "lint-clean" }}
+  <div class="alert alert-success mb-4" role="status"><span>Validation passed — no issues found.</span></div>
+  {{ end }}
+
+  <div class="grid grid-cols-1 lg:grid-cols-[14rem_1fr] gap-4">
+    <aside class="space-y-4 text-sm" aria-label="Workspace tools">
+      <div>
+        <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-2">Pages</h2>
+        {{ if .Pages }}
+        <ul class="menu menu-sm bg-base-100 rounded-box border border-base-300 w-full p-1">
+          {{ range .Pages }}
+          <li>
+            <a href="/workspace/{{ $.Slug }}?page={{ . }}" class="font-mono text-xs{{ if eq . $.Page }} active{{ end }}">{{ . }}</a>
+          </li>
+          {{ end }}
+        </ul>
+        {{ else }}
+        <p class="text-xs text-base-content/60 italic">No pages yet.</p>
+        {{ end }}
+      </div>
+
+      {{ if .Assets }}
+      <div>
+        <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-2">Images</h2>
+        <ul class="space-y-1">
+          {{ range .Assets }}
+          <li class="text-xs"><code class="bg-base-200 px-1 rounded font-mono">{{ .Path }}</code>{{ if .Alt }} <span class="text-base-content/60 italic block ml-1">{{ .Alt }}</span>{{ end }}</li>
+          {{ end }}
+        </ul>
+      </div>
+      {{ end }}
+
+      <div>
+        <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-2">Tools</h2>
+        <div class="flex flex-col gap-1">
+          <button type="button" data-panel="themes" class="btn btn-ghost btn-sm justify-start font-normal">Themes</button>
+          <button type="button" data-panel="history" class="btn btn-ghost btn-sm justify-start font-normal">Version history</button>
+          {{ if .Page }}
+          <a href="/edit/{{ .Slug }}/visual?page={{ .Page }}" class="btn btn-ghost btn-sm justify-start font-normal">Visual editor</a>
+          {{ end }}
+          <form method="POST" action="/relint/{{ .Slug }}" class="contents">
+            <button type="submit" class="btn btn-ghost btn-sm justify-start font-normal">Re-run checks</button>
+          </form>
+        </div>
+      </div>
+
+      {{ if .Functions }}
+      <div>
+        <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-2">Server functions</h2>
+        <ul class="space-y-1">
+          {{ range .Functions }}
+          <li class="text-xs"><a class="link link-hover font-mono" href="/edit/{{ $.Slug }}/function/{{ . }}">{{ . }}</a></li>
+          {{ end }}
+        </ul>
+      </div>
+      {{ end }}
+    </aside>
+
+    <section class="space-y-4">
+      <div id="preview-wrap" class="relative border border-base-300 rounded-box overflow-hidden bg-base-100">
+        <iframe src="{{ .PageURL }}" id="preview" class="w-full h-[60vh] block bg-base-100{{ if .Building }} opacity-30 pointer-events-none{{ end }}"></iframe>
+        {{ if .Building }}
+        <div id="preview-overlay" class="absolute inset-0 flex items-center justify-center text-sm text-base-content/70 pointer-events-none">
+          <div class="bg-base-100/80 backdrop-blur-sm px-4 py-2 rounded-box border border-base-300">Preview will appear once the build finishes.</div>
+        </div>
+        {{ end }}
+      </div>
+
+      <form method="POST" action="/edit/{{ .Slug }}" enctype="multipart/form-data" class="card bg-base-100 border border-base-300" id="edit-form">
+        <div class="card-body gap-3 p-4">
+          <input type="hidden" name="page" value="{{ .Page }}">
+          <input type="hidden" name="selection" id="selection" value="">
+          <div id="selection-chip" class="hidden bg-base-200 rounded px-2 py-1 text-xs flex items-start gap-2">
+            <span class="text-base-content/60 font-medium">On:</span>
+            <span id="selection-text" class="italic flex-1 line-clamp-2 break-words"></span>
+            <button type="button" id="selection-clear" class="text-base-content/60 hover:text-base-content" aria-label="Clear selection">×</button>
+          </div>
+          <label for="prompt" class="label pb-1 px-0">
+            <span class="label-text font-medium">{{ if .Page }}Describe a change to <span class="font-mono">{{ .Page }}</span>{{ else }}Describe a change to the whole site{{ end }}</span>
+          </label>
+          <textarea name="prompt" id="prompt" rows="3" maxlength="4096" required {{ if .Building }}disabled{{ end }}
+                    class="textarea textarea-bordered w-full text-base"
+                    placeholder="Make the heading larger and add a contact section."></textarea>
+          <details class="text-sm">
+            <summary class="cursor-pointer text-base-content/70 hover:text-base-content">Attach reference documents</summary>
+            <div class="mt-2 space-y-1">
+              <input type="file" name="attachment" id="attachment" accept=".md,.markdown,.html,.htm,text/markdown,text/html" multiple class="file-input file-input-bordered file-input-sm w-full">
+              <p class="text-xs text-base-content/60">Markdown or HTML files (up to 10, 64 KB each).</p>
+            </div>
+          </details>
+          <div class="flex justify-between items-center gap-2 flex-wrap">
+            <div class="flex items-center gap-2" id="drop-zone">
+              <label for="file-input" class="btn btn-ghost btn-sm">Add image</label>
+              <input type="file" id="file-input" accept="image/*" hidden>
+              <span id="upload-status" class="text-xs text-base-content/60"></span>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm" {{ if .Building }}disabled{{ end }}>Apply change</button>
+          </div>
+        </div>
+      </form>
+    </section>
+  </div>
+</main>
+
+<!-- Themes side panel -->
+<div class="side-scrim" id="scrim-themes" data-scrim="themes"></div>
+<aside class="side-panel bg-base-100 border-l border-base-300 shadow-xl flex flex-col" id="panel-themes" aria-label="Themes" aria-hidden="true">
+  <header class="flex items-center justify-between p-4 border-b border-base-300">
+    <h2 class="font-semibold">Themes</h2>
+    <button type="button" class="btn btn-ghost btn-sm btn-square" data-close="themes" aria-label="Close themes panel">×</button>
+  </header>
+  <div class="p-4 flex items-center gap-3 flex-wrap border-b border-base-300">
+    <span class="text-xs text-base-content/60">Applied:</span>
+    <span id="theme-current" class="badge badge-primary">{{ .CurrentTheme }}</span>
+    <span id="theme-staged" class="badge badge-warning hidden">previewing</span>
+    <button type="button" id="theme-revert" class="btn btn-ghost btn-xs ml-auto" disabled>Cancel</button>
+    <button type="button" id="theme-apply" class="btn btn-primary btn-xs" disabled>Apply</button>
+  </div>
+  <div id="theme-gallery" class="overflow-y-auto p-3 space-y-3 flex-1"></div>
+  <div id="theme-warnings" class="alert alert-warning text-xs m-3 hidden">
+    <div>
+      <strong>Saved with warnings:</strong>
+      <ul id="theme-warning-list" class="list-disc list-inside mt-1"></ul>
+    </div>
+  </div>
+</aside>
+
+<!-- History side panel -->
+<div class="side-scrim" id="scrim-history" data-scrim="history"></div>
+<aside class="side-panel bg-base-100 border-l border-base-300 shadow-xl flex flex-col" id="panel-history" aria-label="Version history" aria-hidden="true">
+  <header class="flex items-center justify-between p-4 border-b border-base-300">
+    <h2 class="font-semibold">Version history</h2>
+    <button type="button" class="btn btn-ghost btn-sm btn-square" data-close="history" aria-label="Close history panel">×</button>
+  </header>
+  <div class="overflow-y-auto p-3 space-y-2 flex-1">
+    {{ if .Snapshots }}
+      <p class="text-xs text-base-content/60 px-1">A new version is saved before every change. Restore brings the site back to that state — and saves the current state first, so you can always come forward.</p>
+      <ul class="timeline timeline-vertical timeline-compact mt-2">
+        {{ range $i, $s := .Snapshots }}
+        <li>
+          {{ if $i }}<hr/>{{ end }}
+          <div class="timeline-middle"><span class="badge badge-primary badge-xs"></span></div>
+          <div class="timeline-end timeline-box w-full !p-3">
+            <div class="text-sm font-medium">{{ $s.WhenLabel }}</div>
+            <div class="text-xs text-base-content/60 mt-1">{{ $s.Reason }} · {{ $s.FileCount }} files · {{ $s.SizeLabel }}</div>
+            <div class="flex gap-2 mt-2">
+              <form method="POST" action="/history/{{ $.Slug }}/restore"
+                    class="js-confirm contents"
+                    data-confirm-title="Restore this version?"
+                    data-confirm="The current state will be saved first, then the site will be restored to this version."
+                    data-confirm-ok="Restore"
+                    data-confirm-tone="primary">
+                <input type="hidden" name="key" value="{{ $s.Key }}">
+                <button type="submit" class="btn btn-ghost btn-xs">Restore</button>
+              </form>
+              <form method="POST" action="/history/{{ $.Slug }}/delete"
+                    class="js-confirm contents"
+                    data-confirm-title="Delete this version?"
+                    data-confirm="Permanently remove this saved version. The current site is unaffected."
+                    data-confirm-ok="Delete">
+                <input type="hidden" name="key" value="{{ $s.Key }}">
+                <button type="submit" class="btn btn-ghost btn-xs text-error">Delete</button>
+              </form>
+            </div>
+          </div>
+        </li>
+        {{ end }}
+      </ul>
+    {{ else }}
+      <p class="text-sm text-base-content/70 px-1">No versions saved yet. The first one will appear after your next change.</p>
+    {{ end }}
+  </div>
+</aside>
+
+{{ template "footer" . }}
+{{ template "confirm_dialog" . }}
+<div id="toast" class="toast toast-end z-[60]"></div>
+
+<script>
+  // Bridge selection text from the live preview into the edit form.
+  window.addEventListener('message', function (e) {
+    if (!e.data || e.data.type !== '_bab_sel') return;
+    var sel = document.getElementById('selection');
+    var chip = document.getElementById('selection-chip');
+    var txt = document.getElementById('selection-text');
+    if (!sel || !chip || !txt) return;
+    sel.value = e.data.html || '';
+    var t = e.data.text || '';
+    if (t.trim()) {
+      txt.textContent = '"' + t.slice(0, 200) + (t.length > 200 ? '…' : '') + '"';
+      chip.classList.remove('hidden');
+    } else {
+      chip.classList.add('hidden');
+    }
+  });
+  (function () {
+    var clr = document.getElementById('selection-clear');
+    if (!clr) return;
+    clr.addEventListener('click', function () {
+      document.getElementById('selection').value = '';
+      document.getElementById('selection-chip').classList.add('hidden');
+    });
+  })();
+
+  // Toast helper.
+  function toast(msg, kind) {
+    var t = document.getElementById('toast');
+    if (!t) return;
+    var card = document.createElement('div');
+    card.className = 'alert ' + (kind === 'error' ? 'alert-error' : 'alert-success');
+    card.innerHTML = '<span></span>';
+    card.querySelector('span').textContent = msg;
+    t.appendChild(card);
+    setTimeout(function () { card.remove(); }, 4500);
+  }
+
+  // Side panel open/close.
+  (function () {
+    function setOpen(name, open) {
+      var panel = document.getElementById('panel-' + name);
+      var scrim = document.getElementById('scrim-' + name);
+      if (!panel) return;
+      panel.dataset.open = open ? 'true' : 'false';
+      panel.setAttribute('aria-hidden', open ? 'false' : 'true');
+      if (scrim) scrim.dataset.open = open ? 'true' : 'false';
+    }
+    document.querySelectorAll('[data-panel]').forEach(function (btn) {
+      btn.addEventListener('click', function () { setOpen(btn.dataset.panel, true); });
+    });
+    document.querySelectorAll('[data-close]').forEach(function (btn) {
+      btn.addEventListener('click', function () { setOpen(btn.dataset.close, false); });
+    });
+    document.querySelectorAll('[data-scrim]').forEach(function (s) {
+      s.addEventListener('click', function () { setOpen(s.dataset.scrim, false); });
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { setOpen('themes', false); setOpen('history', false); }
+    });
+  })();
+
+  // Image upload (drop + click).
+  (function () {
+    var input = document.getElementById('file-input');
+    var status = document.getElementById('upload-status');
+    if (!input || !status) return;
+    function upload(file) {
+      if (!file) return;
+      var fd = new FormData();
+      fd.append('file', file);
+      status.textContent = 'Uploading…';
+      fetch('/upload/{{ .Slug }}', { method: 'POST', body: fd })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+        .then(function (res) {
+          if (!res.ok) { status.textContent = ''; toast('Upload failed: ' + ((res.body && res.body.message) || 'unknown error'), 'error'); return; }
+          status.textContent = 'Image added: ' + res.body.path;
+          toast('Image added.');
+        })
+        .catch(function (err) { status.textContent = ''; toast('Upload failed: ' + err, 'error'); });
+    }
+    input.addEventListener('change', function () { upload(input.files[0]); input.value = ''; });
+  })();
+
+  // Theme picker — ported from theme_studio.html.
+  (function () {
+    var themes = {{ .ThemesJSON }};
+    var slug = {{ .SlugJSON }};
+    var initialTheme = {{ .CurrentThemeJSON }};
+    var appliedTheme = initialTheme;
+    var stagedTheme = initialTheme;
+
+    var gallery = document.getElementById('theme-gallery');
+    var frame = document.getElementById('preview');
+    var currentBadge = document.getElementById('theme-current');
+    var stagedBadge = document.getElementById('theme-staged');
+    var applyBtn = document.getElementById('theme-apply');
+    var revertBtn = document.getElementById('theme-revert');
+    var warningsBox = document.getElementById('theme-warnings');
+    var warningsList = document.getElementById('theme-warning-list');
+    if (!gallery) return;
+
+    var groups = {};
+    themes.forEach(function (t) { (groups[t.category] = groups[t.category] || []).push(t); });
+    Object.keys(groups).forEach(function (cat) {
+      var section = document.createElement('section');
+      var h = document.createElement('h3');
+      h.className = 'text-xs uppercase tracking-wide text-base-content/60 font-semibold mb-2 mt-2';
+      h.textContent = cat;
+      section.appendChild(h);
+      var grid = document.createElement('div');
+      grid.className = 'grid grid-cols-2 gap-2';
+      groups[cat].forEach(function (t) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'swatch text-left p-2 rounded-box border border-base-300 bg-base-100 hover:border-primary transition cursor-pointer';
+        btn.dataset.theme = t.name;
+        var top = document.createElement('div');
+        top.className = 'flex items-center justify-between text-xs mb-1';
+        var name = document.createElement('span');
+        name.className = 'font-medium';
+        name.textContent = t.name;
+        var tag = document.createElement('span');
+        tag.className = 'tag text-base-content/60';
+        top.appendChild(name);
+        top.appendChild(tag);
+        btn.appendChild(top);
+        var chips = document.createElement('div');
+        chips.className = 'flex gap-1';
+        ['primary', 'secondary', 'accent', 'base'].forEach(function (k) {
+          var chip = document.createElement('div');
+          chip.className = 'flex-1 h-4 rounded';
+          chip.style.background = t[k];
+          chip.style.border = '1px solid rgba(0,0,0,0.08)';
+          chips.appendChild(chip);
+        });
+        btn.appendChild(chips);
+        btn.addEventListener('click', function () { stage(t.name); });
+        grid.appendChild(btn);
+      });
+      section.appendChild(grid);
+      gallery.appendChild(section);
+    });
+
+    function postTheme(theme) {
+      try { frame.contentWindow.postMessage({ type: 'buildabear:settheme', theme: theme }, '*'); } catch (_) {}
+    }
+    function paint() {
+      Array.prototype.forEach.call(gallery.querySelectorAll('.swatch'), function (el) {
+        var t = el.dataset.theme;
+        el.classList.toggle('border-success', t === appliedTheme);
+        el.classList.toggle('bg-success/10', t === appliedTheme);
+        el.classList.toggle('border-primary', t === stagedTheme && t !== appliedTheme);
+        el.classList.toggle('bg-primary/10', t === stagedTheme && t !== appliedTheme);
+        var tag = el.querySelector('.tag');
+        if (t === appliedTheme) tag.textContent = 'applied';
+        else if (t === stagedTheme) tag.textContent = 'previewing';
+        else tag.textContent = '';
+      });
+      currentBadge.textContent = appliedTheme;
+      var dirty = stagedTheme !== appliedTheme;
+      stagedBadge.classList.toggle('hidden', !dirty);
+      applyBtn.disabled = !dirty;
+      revertBtn.disabled = !dirty;
+    }
+    function stage(theme) { stagedTheme = theme; postTheme(theme); paint(); }
+    function revert() { stagedTheme = appliedTheme; postTheme(appliedTheme); paint(); }
+    function apply() {
+      applyBtn.disabled = true;
+      fetch('/edit/' + encodeURIComponent(slug) + '/theme', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theme: stagedTheme })
+      }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+        .then(function (res) {
+          if (!res.ok) { toast('Apply failed: ' + ((res.body && res.body.message) || 'unknown error'), 'error'); applyBtn.disabled = false; return; }
+          appliedTheme = stagedTheme;
+          paint();
+          if (res.body.warnings && res.body.warnings.length) {
+            warningsList.innerHTML = '';
+            res.body.warnings.forEach(function (w) { var li = document.createElement('li'); li.textContent = w; warningsList.appendChild(li); });
+            warningsBox.classList.remove('hidden');
+          } else {
+            warningsBox.classList.add('hidden');
+          }
+          toast('Theme applied.');
+          frame.src = frame.src;
+        })
+        .catch(function (err) { toast('Apply failed: ' + err, 'error'); applyBtn.disabled = false; });
+    }
+
+    revertBtn.addEventListener('click', revert);
+    applyBtn.addEventListener('click', apply);
+    paint();
+  })();
+
+  {{ if .Building }}
+  // Status strip SSE — ported from progress.html.
+  (function () {
+    var slug = {{ .SlugJSON }};
+    var statusEl = document.getElementById('status-msg');
+    var stepsEl = document.getElementById('steps');
+    var errorEl = document.getElementById('status-error');
+    var errorMsg = document.getElementById('status-error-msg');
+    var strip = document.getElementById('status-strip');
+    var preview = document.getElementById('preview');
+    var overlay = document.getElementById('preview-overlay');
+
+    var stepOrder = ['start', 'design', 'polish', 'done'];
+    function setStep(name) {
+      var idx = stepOrder.indexOf(name);
+      if (idx < 0) return;
+      stepOrder.forEach(function (s, i) {
+        var li = stepsEl.querySelector('[data-step="' + s + '"]');
+        if (!li) return;
+        li.classList.toggle('step-primary', i <= idx);
+      });
+    }
+    function filenameOf(p) { if (!p) return ''; var parts = String(p).split('/'); return parts[parts.length - 1] || ''; }
+    function startMsg(ev) {
+      var name = filenameOf(ev.path);
+      switch (ev.tool) {
+        case 'write_file': return (ev.path === '/index.html' || ev.path === 'index.html') ? 'Designing home page…' : 'Adding ' + (name || 'page') + '…';
+        case 'edit_file': return 'Updating ' + (name || 'page') + '…';
+        case 'replace_lines':
+        case 'insert_at_line': return 'Refining ' + (name || 'page') + '…';
+        case 'write_function': return 'Adding server logic…';
+        case 'edit_function': return 'Updating server logic…';
+        case 'delete_function': return 'Removing server logic…';
+        case 'fetch_reference': return 'Reading reference link…';
+        case 'read_attachment': return 'Reading reference document…';
+        case 'read_file':
+        case 'list_files':
+        case 'grep_files':
+        case 'list_assets':
+        case 'read_function':
+        case 'list_functions': return null;
+        default: return 'Working…';
+      }
+    }
+    function statusMsg(ev) {
+      switch (ev.status) {
+        case 'building': return 'Building your site…';
+        case 'linting': return 'Validating output…';
+        case 'retry': return 'Fixing issues: ' + (ev.message || '');
+        case 'completed': return 'Your site is ready.';
+        case 'failed': return 'Build failed: ' + (ev.message || 'unknown error');
+        default: return '';
+      }
+    }
+    var seen = new Set();
+    function evKey(ev) { return [ev.type || '', ev.status || '', ev.tool || '', ev.phase || '', ev.path || '', ev.time || '', ev.message || ''].join('|'); }
+
+    var es = new EventSource('/events/' + slug);
+    es.onmessage = function (e) {
+      var ev; try { ev = JSON.parse(e.data); } catch (_) { return; }
+      var k = evKey(ev);
+      if (seen.has(k)) return;
+      seen.add(k);
+
+      if (ev.type === 'status') {
+        if (ev.status === 'building') setStep('design');
+        if (ev.status === 'linting' || ev.status === 'retry') setStep('polish');
+        if (ev.status === 'completed') setStep('done');
+        statusEl.textContent = statusMsg(ev);
+        if (ev.status === 'failed') {
+          errorMsg.textContent = ev.message || 'Unknown error.';
+          errorEl.classList.remove('hidden');
+        }
+      } else if (ev.type === 'tool' && ev.phase === 'start') {
+        var m = startMsg(ev);
+        if (m) statusEl.textContent = m;
+      }
+
+      if (ev.type === 'status' && (ev.status === 'completed' || ev.status === 'failed' || ev.status === 'unknown')) {
+        es.close();
+        if (ev.status === 'completed') {
+          // Drop ?building=1 from the URL so a refresh doesn't reopen the SSE
+          // stream on a finished build. Reload the iframe so the preview shows
+          // the freshly-built site.
+          try { history.replaceState(null, '', location.pathname); } catch (_) {}
+          setTimeout(function () {
+            preview.classList.remove('opacity-30', 'pointer-events-none');
+            if (overlay) overlay.remove();
+            preview.src = preview.src;
+            strip.remove();
+            var form = document.getElementById('edit-form');
+            if (form) {
+              form.querySelectorAll('[disabled]').forEach(function (el) { el.disabled = false; });
+            }
+          }, 600);
+        }
+      }
+    };
+    es.onerror = function () { /* auto-reconnect */ };
+  })();
+  {{ end }}
+</script>
+</body>
+</html>

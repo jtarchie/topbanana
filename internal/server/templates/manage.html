@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="corporate">
+<head>
+<title>Manage {{ .SiteName }} — BuildABear</title>
+{{ template "head" . }}
+</head>
+<body class="min-h-screen flex flex-col bg-base-100">
+{{ template "brand" . }}
+{{ template "site_subnav" . }}
+<main class="flex-1 max-w-3xl w-full mx-auto px-4 sm:px-6 py-8 space-y-8">
+  <header class="flex items-end justify-between gap-3 flex-wrap">
+    <div>
+      <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight">Manage</h1>
+      <p class="text-sm text-base-content/70 mt-1">Site configuration and tools. Design lives in the <a href="/workspace/{{ .Slug }}" class="link link-hover font-medium">Workspace</a>.</p>
+    </div>
+  </header>
+
+  {{ if .Flash }}
+    <div class="alert alert-success" role="status"><span>{{ .Flash }}</span></div>
+  {{ end }}
+
+  <form method="POST" action="/settings/{{ .Slug }}" class="space-y-8">
+    <section class="card bg-base-100 border border-base-300" aria-labelledby="general-heading">
+      <div class="card-body">
+        <h2 id="general-heading" class="card-title text-lg">General</h2>
+        <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
+          <dt class="text-base-content/60">Name</dt>
+          <dd class="font-medium">{{ if .Title }}{{ .Title }}{{ else }}<span class="font-mono text-base-content/70">{{ .Slug }}</span>{{ end }}</dd>
+          <dt class="text-base-content/60">Address</dt>
+          <dd><a class="link link-primary font-mono break-all" href="{{ .SiteURL }}" target="_blank" rel="noopener">{{ .SiteURL }}</a></dd>
+        </dl>
+
+        <div class="form-control mt-4">
+          <label for="domains" class="label pb-1"><span class="label-text font-medium">Custom web address</span></label>
+          <textarea name="domains" id="domains" rows="3"
+                    class="textarea textarea-bordered w-full font-mono text-sm"
+                    placeholder="example.com&#10;www.example.com">{{ .Domains }}</textarea>
+          <p class="text-sm text-base-content/70 mt-2">One address per line. Add a <strong>CNAME</strong> record at your domain provider pointing here; a TLS certificate is issued on first visit. Don't use Cloudflare's orange-cloud proxy — set the record to "DNS only" or certificate issuance will fail.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="card bg-base-100 border border-base-300" aria-labelledby="permissions-heading">
+      <div class="card-body">
+        <h2 id="permissions-heading" class="card-title text-lg">Permissions</h2>
+
+        {{ if .FunctionsByTmpl }}
+          <p class="text-sm text-base-content/70">This site uses a template that already accepts visitor input (forms, RSVPs, counters). Always on.</p>
+          <input type="hidden" name="enable_functions" value="on">
+        {{ else }}
+          <div class="form-control">
+            <label class="label cursor-pointer justify-start gap-3">
+              <input type="checkbox" name="enable_functions" {{ if .FunctionsEnabled }}checked{{ end }} class="toggle toggle-primary">
+              <span class="label-text">
+                <span class="font-medium">Accept visitor input</span>
+                <span class="block text-xs text-base-content/60">Allows forms, RSVPs, counters, and other submissions on your site.</span>
+              </span>
+            </label>
+          </div>
+        {{ end }}
+
+        <div class="form-control">
+          <label class="label cursor-pointer justify-start gap-3">
+            <input type="checkbox" name="enable_public_api" {{ if .PublicAPIEnabled }}checked{{ end }} class="toggle toggle-primary">
+            <span class="label-text">
+              <span class="font-medium">Allow other websites to post data here</span>
+              <span class="block text-xs text-base-content/60">Off by default. Turn on only if another site needs to send data (e.g. a webhook).</span>
+            </span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <div class="flex justify-end">
+      <button type="submit" class="btn btn-primary">Save changes</button>
+    </div>
+  </form>
+
+  <section class="card bg-base-100 border border-base-300" aria-labelledby="submissions-heading">
+    <div class="card-body">
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <h2 id="submissions-heading" class="card-title text-lg">Form submissions</h2>
+        {{ if .Rows }}<a href="{{ .CSVURL }}" class="btn btn-ghost btn-sm">Download CSV</a>{{ end }}
+      </div>
+
+      {{ if .Rows }}
+        <p class="text-sm text-base-content/60">{{ len .Rows }} {{ if eq (len .Rows) 1 }}submission{{ else }}submissions{{ end }}</p>
+        <div class="overflow-x-auto rounded-box border border-base-300 mt-2">
+          <table class="table table-zebra table-sm">
+            <thead>
+              <tr>
+                <th>id</th>
+                {{ range .Columns }}<th>{{ . }}</th>{{ end }}
+              </tr>
+            </thead>
+            <tbody>
+              {{ range .Rows }}
+              <tr>
+                <td class="font-mono text-xs">{{ .Key }}</td>
+                {{ range .Values }}<td>{{ . }}</td>{{ end }}
+              </tr>
+              {{ end }}
+            </tbody>
+          </table>
+        </div>
+      {{ else }}
+        <p class="text-sm text-base-content/70 mt-2">No submissions yet. They'll appear here once visitors interact with forms on your site.</p>
+      {{ end }}
+    </div>
+  </section>
+
+  <section class="card bg-base-100 border border-base-300" aria-labelledby="advanced-heading">
+    <div class="card-body">
+      <h2 id="advanced-heading" class="card-title text-lg">Advanced tools</h2>
+      <p class="text-sm text-base-content/70">Diagnostic surfaces — useful when something looks wrong.</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+        <a href="/files/{{ .Slug }}" class="card bg-base-100 border border-base-300 hover:border-primary transition">
+          <div class="card-body p-4">
+            <div class="font-medium">All files →</div>
+            <p class="text-xs text-base-content/70">Every object stored for this site (pages, images, server logic, state).</p>
+          </div>
+        </a>
+        <a href="/debug/{{ .Slug }}" class="card bg-base-100 border border-base-300 hover:border-primary transition">
+          <div class="card-body p-4">
+            <div class="font-medium">Build transcripts →</div>
+            <p class="text-xs text-base-content/70">Per-edit tool calls and file diffs from the agent.</p>
+          </div>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section class="card bg-base-100 border border-error/40" aria-labelledby="danger-heading">
+    <div class="card-body">
+      <h2 id="danger-heading" class="card-title text-error text-lg">Delete this app</h2>
+      <p class="text-sm text-base-content/70">Permanently removes every page, file, and the entire version history. <strong>This cannot be undone.</strong></p>
+      <form method="POST" action="/settings/{{ .Slug }}/delete" class="form-control gap-3 mt-2">
+        <div>
+          <label for="confirm" class="label pb-1"><span class="label-text">Type <code class="font-mono">{{ .Slug }}</code> to confirm</span></label>
+          <input type="text" name="confirm" id="confirm" autocomplete="off" required class="input input-bordered w-full" placeholder="{{ .Slug }}">
+        </div>
+        <div>
+          <button type="submit" class="btn btn-error btn-sm">Delete permanently</button>
+        </div>
+      </form>
+    </div>
+  </section>
+</main>
+{{ template "footer" . }}
+</body>
+</html>

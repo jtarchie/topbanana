@@ -412,12 +412,13 @@ func (s *Server) functionEditHandler(c *echo.Context) error {
 		return notFound()
 	}
 	return s.render(c, "function_edit", map[string]any{
-		"Slug":    slug,
-		"SiteURL": s.siteURL(c, slug, "/"),
-		"Active":  "edit",
-		"Name":    name,
-		"APIURL":  s.siteURL(c, slug, "/api/"+name),
-		"Source":  obj.Content,
+		"Slug":     slug,
+		"SiteName": s.siteNameOrSlug(ctx, slug),
+		"SiteURL":  s.siteURL(c, slug, "/"),
+		"Active":   "workspace",
+		"Name":     name,
+		"APIURL":   s.siteURL(c, slug, "/api/"+name),
+		"Source":   obj.Content,
 	})
 }
 

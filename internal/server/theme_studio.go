@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html/template"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -68,17 +67,6 @@ var daisyThemeSet = func() map[string]bool {
 	return m
 }()
 
-type themeStudioData struct {
-	Slug             string
-	SiteURL          string
-	PageURL          string
-	Active           string
-	CurrentTheme     string
-	SlugJSON         template.JS
-	CurrentThemeJSON template.JS
-	ThemesJSON       template.JS
-}
-
 type themeApplyRequest struct {
 	Theme string `json:"theme"`
 }
@@ -87,40 +75,6 @@ type themeApplyResponse struct {
 	OK       bool     `json:"ok"`
 	Warnings []string `json:"warnings,omitempty"`
 	Changed  int      `json:"changed"`
-}
-
-func (s *Server) themeStudioHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	ctx := c.Request().Context()
-
-	all, err := s.store.List(ctx, slug)
-	if err != nil {
-		return httpErr(http.StatusInternalServerError, "list files", err)
-	}
-	pages, _ := build.SplitFilesByKind(all)
-	if len(pages) == 0 {
-		return echo.NewHTTPError(http.StatusNotFound, "site has no pages")
-	}
-
-	current := ""
-	indexObj, err := s.store.Read(ctx, slug, "index.html")
-	if err == nil && indexObj != nil && indexObj.Content != "" {
-		current, _ = readThemeAttribute(indexObj.Content)
-	}
-	if current == "" {
-		current = "light"
-	}
-
-	return s.render(c, "theme_studio", themeStudioData{
-		Slug:             slug,
-		SiteURL:          s.siteURL(c, slug, "/"),
-		PageURL:          s.siteURL(c, slug, "/"),
-		Active:           "theme",
-		CurrentTheme:     current,
-		SlugJSON:         toJSONLiteral(slug),
-		CurrentThemeJSON: toJSONLiteral(current),
-		ThemesJSON:       toJSONLiteral(daisyThemes),
-	})
 }
 
 func (s *Server) themeStudioApplyHandler(c *echo.Context) error {

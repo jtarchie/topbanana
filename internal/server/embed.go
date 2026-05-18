@@ -14,29 +14,17 @@ var landingTemplate string
 //go:embed templates/apps.html
 var appsTemplate string
 
-//go:embed templates/progress.html
-var progressTemplate string
+//go:embed templates/workspace.html
+var workspaceTemplate string
 
-//go:embed templates/edit.html
-var editTemplate string
-
-//go:embed templates/settings.html
-var settingsTemplate string
+//go:embed templates/manage.html
+var manageTemplate string
 
 //go:embed templates/visual_edit.html
 var visualEditTemplate string
 
-//go:embed templates/theme_studio.html
-var themeStudioTemplate string
-
 //go:embed templates/function_edit.html
 var functionEditTemplate string
-
-//go:embed templates/history.html
-var historyTemplate string
-
-//go:embed templates/data.html
-var dataTemplate string
 
 //go:embed templates/files.html
 var filesTemplate string

@@ -21,10 +21,11 @@ type fileRow struct {
 }
 
 type filesView struct {
-	Slug    string
-	SiteURL string
-	Active  string
-	Rows    []fileRow
+	Slug     string
+	SiteName string // consumed by the shared brand partial's breadcrumb
+	SiteURL  string
+	Active   string
+	Rows     []fileRow
 }
 
 func (s *Server) filesHandler(c *echo.Context) error {
@@ -55,11 +56,17 @@ func (s *Server) filesHandler(c *echo.Context) error {
 		})
 	}
 
+	meta := s.build.ReadMeta(c.Request().Context(), slug)
+	siteName := meta.Title
+	if siteName == "" {
+		siteName = slug
+	}
 	return s.render(c, "files", filesView{
-		Slug:    slug,
-		SiteURL: siteURL,
-		Active:  "files",
-		Rows:    rows,
+		Slug:     slug,
+		SiteName: siteName,
+		SiteURL:  siteURL,
+		Active:   "files",
+		Rows:     rows,
 	})
 }
 

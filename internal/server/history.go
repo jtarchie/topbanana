@@ -10,6 +10,9 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// historyRow is the per-snapshot row rendered in the workspace's history
+// side panel. Built from snapshot.Snapshot with formatting suitable for the
+// user-facing timeline.
 type historyRow struct {
 	Key       string
 	Reason    string
@@ -17,50 +20,6 @@ type historyRow struct {
 	WhenLabel string
 	WhenISO   string
 	SizeLabel string
-}
-
-type historyData struct {
-	Slug      string
-	SiteURL   string
-	Active    string
-	Snapshots []historyRow
-	Flash     string
-}
-
-func (s *Server) historyHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-	if s.snapshot == nil {
-		return echo.NewHTTPError(http.StatusServiceUnavailable, "snapshots are not configured")
-	}
-
-	snaps, err := s.snapshot.List(c.Request().Context(), slug)
-	if err != nil {
-		return httpErr(http.StatusInternalServerError, "list snapshots", err)
-	}
-
-	rows := make([]historyRow, 0, len(snaps))
-	for _, sn := range snaps {
-		rows = append(rows, historyRow{
-			Key:       sn.Key,
-			Reason:    sn.Reason,
-			FileCount: sn.FileCount,
-			WhenLabel: humanizeAge(sn.Timestamp),
-			WhenISO:   sn.Timestamp.Format(time.RFC3339),
-			SizeLabel: humanizeBytes(sn.SizeBytes),
-		})
-	}
-
-	return s.render(c, "history", historyData{
-		Slug:      slug,
-		SiteURL:   s.siteURL(c, slug, "/"),
-		Active:    "history",
-		Snapshots: rows,
-		Flash:     c.QueryParam("flash"),
-	})
 }
 
 func (s *Server) historyRestoreHandler(c *echo.Context) error {
@@ -82,7 +41,7 @@ func (s *Server) historyRestoreHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "restore snapshot", err)
 	}
 	slog.Info("snapshot.restore", "slug", slug, "key", key)
-	return c.Redirect(http.StatusSeeOther, "/history/"+slug+"?flash="+urlEscape("Restored. Current state was auto-snapshotted as pre-restore.")) //nolint:wrapcheck
+	return c.Redirect(http.StatusSeeOther, "/workspace/"+slug+"?flash="+urlEscape("Restored. Current state was auto-snapshotted first.")) //nolint:wrapcheck
 }
 
 func (s *Server) historyDeleteHandler(c *echo.Context) error {
@@ -104,7 +63,7 @@ func (s *Server) historyDeleteHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "delete snapshot", err)
 	}
 	slog.Info("snapshot.delete", "slug", slug, "key", key)
-	return c.Redirect(http.StatusSeeOther, "/history/"+slug+"?flash="+urlEscape("Snapshot deleted.")) //nolint:wrapcheck
+	return c.Redirect(http.StatusSeeOther, "/workspace/"+slug+"?flash="+urlEscape("Snapshot deleted.")) //nolint:wrapcheck
 }
 
 // humanizeAge renders timestamps relative to now ("3m ago") with an absolute
