@@ -69,16 +69,32 @@
       <h2 class="text-lg font-semibold">All users</h2>
       <div class="overflow-x-auto">
         <table class="table table-zebra">
-          <thead><tr><th>Email</th><th>Role</th><th>Passkeys</th><th>Created</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Email</th><th>Role</th><th>Max apps</th><th>Passkeys</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {{ range .Users }}
             <tr>
               <td class="font-mono">{{ .Email }}{{ if .IsSelf }} <span class="badge badge-ghost badge-sm ml-1">you</span>{{ end }}</td>
               <td>{{ .Role }}</td>
+              <td>{{ if eq .MaxApps 0 }}<span class="text-base-content/50">default</span>{{ else }}{{ .MaxApps }}{{ end }}</td>
               <td>{{ .Credentials }}</td>
-              <td>{{ .Created }}</td>
               <td>{{ if .Disabled }}<span class="badge badge-error">disabled</span>{{ else }}<span class="badge badge-success">active</span>{{ end }}</td>
-              <td class="flex gap-2">
+              <td class="flex gap-2 flex-wrap">
+                <details class="dropdown dropdown-end">
+                  <summary class="btn btn-ghost btn-sm">Quotas</summary>
+                  <form method="POST" action="/admin/users/{{ .Email }}/quotas"
+                        class="dropdown-content card card-compact bg-base-100 border border-base-300 shadow w-80 p-4 z-10">
+                    <label class="form-control mb-3">
+                      <span class="label-text font-medium">Max apps</span>
+                      <input type="number" min="0" name="max_apps" value="{{ .MaxApps }}" class="input input-bordered input-sm mt-1">
+                      <span class="label-text-alt text-base-content/60">0 = use server default</span>
+                    </label>
+                    <label class="form-control mb-3">
+                      <span class="label-text font-medium">Allowed models</span>
+                      <textarea name="allowed_models" rows="3" class="textarea textarea-bordered textarea-sm mt-1" placeholder="one per line; blank = no restriction">{{ .AllowedModels }}</textarea>
+                    </label>
+                    <button class="btn btn-primary btn-sm">Save</button>
+                  </form>
+                </details>
                 {{ if not .IsSelf }}
                   {{ if .Disabled }}
                     <form method="POST" action="/admin/users/{{ .Email }}/enable">

@@ -33,6 +33,10 @@ var cli struct {
 	SuperAdminEmail string `env:"SUPER_ADMIN_EMAIL" help:"Email of the seeded super admin. Required — used to seed the first user and log the bootstrap invite URL on a fresh install."   name:"super-admin-email" required:""`
 	InsecureCookies bool   `env:"INSECURE_COOKIES"  help:"Allow non-Secure cookies for local HTTP dev. Never set in production."                                                          name:"insecure-cookies"`
 
+	// Per-user quotas. The defaults apply when a user record's Quotas
+	// struct is zero-valued (no per-user override on /admin/users).
+	DefaultMaxApps int `default:"0" env:"DEFAULT_MAX_APPS" help:"Default per-admin app cap when the user record has no specific limit. 0 = unlimited." name:"default-max-apps"`
+
 	S3Bucket      string `env:"S3_BUCKET"        help:"S3 bucket name (multi-tenant)."     name:"s3-bucket"       required:""`
 	S3EndpointURL string `env:"AWS_ENDPOINT_URL" help:"Override S3 endpoint (e.g. Minio)." name:"s3-endpoint-url"`
 
@@ -129,6 +133,10 @@ func main() {
 		Domain:          cli.Domain,
 		SuperAdminEmail: cli.SuperAdminEmail,
 		InsecureCookies: cli.InsecureCookies,
+		QuotaDefaults: auth.QuotaDefaults{
+			MaxApps: cli.DefaultMaxApps,
+			Model:   cli.LLMModel,
+		},
 	})
 	if err != nil {
 		slog.Error("auth init failed", "err", err)

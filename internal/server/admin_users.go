@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,12 +16,14 @@ import (
 
 // adminUserRow is one row in the user table on /admin/users.
 type adminUserRow struct {
-	Email       string
-	Role        string
-	Disabled    bool
-	Credentials int
-	Created     string
-	IsSelf      bool
+	Email         string
+	Role          string
+	Disabled      bool
+	Credentials   int
+	Created       string
+	IsSelf        bool
+	MaxApps       int    // 0 = uses default
+	AllowedModels string // newline-joined for the textarea
 }
 
 // adminInviteRow is one row in the pending-invites table on /admin/users.
@@ -58,12 +61,14 @@ func (s *Server) adminUsersHandler(c *echo.Context) error {
 	rows := make([]adminUserRow, 0, len(users))
 	for _, u := range users {
 		rows = append(rows, adminUserRow{
-			Email:       u.Email,
-			Role:        string(u.Role),
-			Disabled:    u.Disabled,
-			Credentials: len(u.Credentials),
-			Created:     u.Created.UTC().Format("2006-01-02"),
-			IsSelf:      current != nil && current.Email == u.Email,
+			Email:         u.Email,
+			Role:          string(u.Role),
+			Disabled:      u.Disabled,
+			Credentials:   len(u.Credentials),
+			Created:       u.Created.UTC().Format("2006-01-02"),
+			IsSelf:        current != nil && current.Email == u.Email,
+			MaxApps:       u.Quotas.MaxApps,
+			AllowedModels: strings.Join(u.Quotas.AllowedModels, "\n"),
 		})
 	}
 
@@ -205,9 +210,49 @@ func (s *Server) adminUserRevokeSessionsHandler(c *echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/admin/users?flash=sessions+revoked") //nolint:wrapcheck
 }
 
-// adminInviteCopyURLHandler echoes a shareable invite URL into a Flash —
-// handy on the page when the operator wants a one-click way to grab the
-// signed-in URL after the original was lost.
-//
-// (Stub for now: rendered inline on /admin/users; no separate handler
-// needed because the page already builds the URL.)
+// adminUserQuotasHandler accepts a form post to update a user's MaxApps
+// + AllowedModels. Empty MaxApps means "use system default"; blank
+// AllowedModels means "no restriction (use default)".
+func (s *Server) adminUserQuotasHandler(c *echo.Context) error {
+	email := auth.NormalizeEmail(c.Param("email"))
+	if email == "" {
+		return notFound()
+	}
+	ctx := c.Request().Context()
+	user, err := s.auth.Users.Load(ctx, email)
+	if err != nil {
+		if errors.Is(err, auth.ErrUserNotFound) {
+			return notFound()
+		}
+		return httpErr(http.StatusInternalServerError, "load user", err)
+	}
+	maxAppsStr := strings.TrimSpace(c.FormValue("max_apps"))
+	maxApps := 0
+	if maxAppsStr != "" {
+		parsed, parseErr := strconv.Atoi(maxAppsStr)
+		if parseErr != nil || parsed < 0 {
+			return c.Redirect(http.StatusSeeOther, "/admin/users?error=max+apps+must+be+a+non-negative+integer") //nolint:wrapcheck
+		}
+		maxApps = parsed
+	}
+	user.Quotas.MaxApps = maxApps
+	rawModels := strings.TrimSpace(c.FormValue("allowed_models"))
+	if rawModels == "" {
+		user.Quotas.AllowedModels = nil
+	} else {
+		lines := strings.Split(rawModels, "\n")
+		out := make([]string, 0, len(lines))
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed != "" {
+				out = append(out, trimmed)
+			}
+		}
+		user.Quotas.AllowedModels = out
+	}
+	err = s.auth.Users.Save(ctx, user)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "save user", err)
+	}
+	return c.Redirect(http.StatusSeeOther, "/admin/users?flash=quotas+updated") //nolint:wrapcheck
+}

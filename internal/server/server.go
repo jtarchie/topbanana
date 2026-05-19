@@ -254,6 +254,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 	e.POST("/admin/users/:email/disable", s.adminUserDisableHandler, s.requireSuperAdmin)
 	e.POST("/admin/users/:email/enable", s.adminUserEnableHandler, s.requireSuperAdmin)
 	e.POST("/admin/users/:email/sessions/revoke", s.adminUserRevokeSessionsHandler, s.requireSuperAdmin)
+	e.POST("/admin/users/:email/quotas", s.adminUserQuotasHandler, s.requireSuperAdmin)
 	// Per-slug routes carry the ownership gate as route-level middleware
 	// so a regular admin gets a 404 on every slug they don't own without
 	// each handler having to repeat the check.
@@ -394,6 +395,24 @@ func (s *Server) setOwner(slug, owner string) {
 	}
 	s.ownerIndex[slug] = owner
 	s.domainMu.Unlock()
+}
+
+// countAppsFor returns the number of slugs the given email owns according
+// to the in-memory ownerIndex. Used by the quota check on /build and by
+// the over-quota banner on /apps. Empty email returns 0.
+func (s *Server) countAppsFor(email string) int {
+	if email == "" {
+		return 0
+	}
+	s.domainMu.RLock()
+	defer s.domainMu.RUnlock()
+	count := 0
+	for _, owner := range s.ownerIndex {
+		if owner == email {
+			count++
+		}
+	}
+	return count
 }
 
 // markSlug records a freshly-created slug so HostAllowed accepts it
@@ -894,6 +913,24 @@ func (s *Server) buildHandler(c *echo.Context) error {
 	if user != nil {
 		owner = user.Email
 	}
+
+	// Quota gates: regular admins can't exceed their per-user MaxApps cap,
+	// and the configured server model has to be in their allow-list (if
+	// they have one). Super admins bypass both. The owned-count comes from
+	// the in-memory ownerIndex so the apps check is one map walk, no S3
+	// round-trip.
+	if s.auth != nil {
+		defaults := s.auth.QuotaDefaults()
+		quotaErr := auth.CheckMaxApps(user, s.countAppsFor(owner), defaults)
+		if quotaErr != nil {
+			return echo.NewHTTPError(http.StatusForbidden, quotaErr.Error())
+		}
+		_, modelErr := auth.ResolveModel(user, defaults.Model, defaults)
+		if modelErr != nil {
+			return echo.NewHTTPError(http.StatusForbidden, modelErr.Error())
+		}
+	}
+
 	slog.Info("build.start", "slug", slug, "template", tmpl.ID, "attachments", len(attachments), "owner", owner)
 	// Register the slug + its owner before the build kicks off so the very
 	// first TLS handshake to <slug>.<domain> (the progress page about to
