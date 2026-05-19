@@ -197,8 +197,10 @@ func TestHistoryRestoreHandler_EndToEnd(t *testing.T) {
 	}
 }
 
-// TestHistoryRestoreHandler_RejectsUnauth confirms requireAdmin guards the
-// restore route. Without credentials, no S3 work happens.
+// TestHistoryRestoreHandler_RejectsUnauth confirms requireUser guards the
+// restore route. Without a session cookie, the request is bounced to /login
+// before any S3 work happens. (Pre-passkey this returned 401; the cutover
+// in 725d605 swapped that for a 303 redirect so the user has a way back in.)
 func TestHistoryRestoreHandler_RejectsUnauth(t *testing.T) {
 	st := minioStore(t)
 	if st == nil {
@@ -213,8 +215,11 @@ func TestHistoryRestoreHandler_RejectsUnauth(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status: got %d want 401", rec.Code)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status: got %d want 303", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/login" {
+		t.Errorf("redirect location: got %q want %q", loc, "/login")
 	}
 }
 
