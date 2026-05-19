@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -131,7 +132,29 @@ var fallThroughHosts = map[string]bool{
 // HostPolicy in main can reach HostAllowed without duplicating the dispatch
 // logic from subdomainMiddleware).
 func New(d Deps) (*echo.Echo, *Server) {
-	tpl := template.New("")
+	tpl := template.New("").Funcs(template.FuncMap{
+		// boolField reads a named bool out of any struct via reflection.
+		// Lets the shared chrome partials (brand, footer) gate links on
+		// values like IsSuperAdmin without every page data struct having
+		// to declare the field. Missing field => false.
+		"boolField": func(data any, name string) bool {
+			if data == nil {
+				return false
+			}
+			v := reflect.ValueOf(data)
+			if v.Kind() == reflect.Pointer {
+				v = v.Elem()
+			}
+			if v.Kind() != reflect.Struct {
+				return false
+			}
+			f := v.FieldByName(name)
+			if !f.IsValid() || f.Kind() != reflect.Bool {
+				return false
+			}
+			return f.Bool()
+		},
+	})
 	// layout.html defines shared partials (e.g. "head") used by the platform
 	// pages below. It must be parsed first so the others can reference its
 	// blocks.
@@ -151,6 +174,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		{"login", loginTemplate},
 		{"register", registerTemplate},
 		{"account", accountTemplate},
+		{"admin_users", adminUsersTemplate},
 	} {
 		template.Must(tpl.New(t.name).Parse(t.body))
 	}
@@ -220,6 +244,16 @@ func New(d Deps) (*echo.Echo, *Server) {
 	admin.POST("/build", s.buildHandler, promptWithAttachmentsBodyCap)
 	admin.GET("/apps", s.appsHandler)
 	admin.GET("/system", s.systemHandler)
+
+	// Super-admin-only surfaces. requireSuperAdmin layers role check on
+	// top of requireUser, so these routes live outside the regular admin
+	// group (which only checks logged-in).
+	e.GET("/admin/users", s.adminUsersHandler, s.requireSuperAdmin)
+	e.POST("/admin/users/invite", s.adminInviteCreateHandler, s.requireSuperAdmin)
+	e.POST("/admin/invites/:token/revoke", s.adminInviteRevokeHandler, s.requireSuperAdmin)
+	e.POST("/admin/users/:email/disable", s.adminUserDisableHandler, s.requireSuperAdmin)
+	e.POST("/admin/users/:email/enable", s.adminUserEnableHandler, s.requireSuperAdmin)
+	e.POST("/admin/users/:email/sessions/revoke", s.adminUserRevokeSessionsHandler, s.requireSuperAdmin)
 	// Per-slug routes carry the ownership gate as route-level middleware
 	// so a regular admin gets a 404 on every slug they don't own without
 	// each handler having to repeat the check.
@@ -594,11 +628,12 @@ type appsData struct {
 	// brand partial's `{{ if .SiteName }}` breadcrumb and `{{ eq .Active ... }}`
 	// nav-highlight checks evaluate against real fields on the struct
 	// (html/template errors on a missing field).
-	SiteName string
-	Active   string
-	Slug     string
-	Apps     []appLink
-	Flash    string
+	SiteName     string
+	Active       string
+	Slug         string
+	IsSuperAdmin bool
+	Apps         []appLink
+	Flash        string
 }
 
 func (s *Server) appsHandler(c *echo.Context) error {
@@ -632,8 +667,9 @@ func (s *Server) appsHandler(c *echo.Context) error {
 	})
 
 	return s.render(c, "apps", appsData{
-		Apps:  links,
-		Flash: c.QueryParam("flash"),
+		Apps:         links,
+		Flash:        c.QueryParam("flash"),
+		IsSuperAdmin: user != nil && user.Role == auth.RoleSuperAdmin,
 	})
 }
 

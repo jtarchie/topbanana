@@ -46,3 +46,6 @@ var registerTemplate string
 
 //go:embed templates/account.html
 var accountTemplate string
+
+//go:embed templates/admin_users.html
+var adminUsersTemplate string

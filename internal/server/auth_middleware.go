@@ -88,6 +88,21 @@ func userFromContext(c *echo.Context) *auth.User {
 	return u
 }
 
+// requireSuperAdmin chains requireUser and then rejects with a 404 if
+// the logged-in user isn't a super admin. 404 rather than 403 so the
+// existence of these routes doesn't leak to a regular admin probing
+// /admin/users.
+func (s *Server) requireSuperAdmin(next echo.HandlerFunc) echo.HandlerFunc {
+	gated := s.requireUser(func(c *echo.Context) error {
+		u := userFromContext(c)
+		if u == nil || u.Role != auth.RoleSuperAdmin {
+			return notFound()
+		}
+		return next(c)
+	})
+	return gated
+}
+
 // canEdit reports whether the session belongs to a user who can edit the
 // given slug — either the recorded owner or any super admin. Used by
 // injectEditToolbar to keep the floating toolbar off pages a regular

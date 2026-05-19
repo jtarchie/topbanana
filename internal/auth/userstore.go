@@ -151,6 +151,31 @@ func (s *UserStore) Save(ctx context.Context, user *User) error {
 	return nil
 }
 
+// List enumerates every user record in the bucket. Used by the super
+// admin's /admin/users page. Returns concrete *User values (not the
+// passkey.User interface) because callers want Role + Quotas, not just
+// the WebAuthn methods.
+func (s *UserStore) List(ctx context.Context) ([]*User, error) {
+	keys, err := s.store.ListPrefix(ctx, userStorePrefix)
+	if err != nil {
+		return nil, fmt.Errorf("auth: list users: %w", err)
+	}
+	users := make([]*User, 0, len(keys))
+	for _, key := range keys {
+		obj, readErr := s.store.ReadRaw(ctx, key)
+		if readErr != nil || obj.Content == "" {
+			continue
+		}
+		user := &User{}
+		parseErr := json.Unmarshal([]byte(obj.Content), user)
+		if parseErr != nil {
+			continue
+		}
+		users = append(users, user)
+	}
+	return users, nil
+}
+
 // Delete drops a user record. Idempotent. The cache is invalidated so a
 // re-create reads fresh state.
 func (s *UserStore) Delete(ctx context.Context, email string) error {

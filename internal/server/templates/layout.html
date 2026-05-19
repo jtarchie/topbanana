@@ -29,7 +29,9 @@
   </div>
   <div class="flex-none flex items-center gap-1">
     <a href="/apps" class="btn btn-ghost btn-sm">Your apps</a>
+    {{ if boolField . "IsSuperAdmin" }}<a href="/admin/users" class="btn btn-ghost btn-sm{{ if eq .Active `admin_users` }} btn-active{{ end }}">Users</a>{{ end }}
     <a href="/system" class="btn btn-ghost btn-sm{{ if eq .Active `system` }} btn-active{{ end }}">System</a>
+    <a href="/account" class="btn btn-ghost btn-sm{{ if eq .Active `account` }} btn-active{{ end }}">Account</a>
   </div>
 </header>
 {{- end }}

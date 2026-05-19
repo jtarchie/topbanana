@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="corporate">
+<head>
+<title>Users — BuildABear</title>
+{{ template "head" . }}
+</head>
+<body class="min-h-screen flex flex-col bg-base-100">
+{{ template "brand" . }}
+<main class="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8">
+  <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight mb-4">Users</h1>
+
+  {{ if .Flash }}<div class="alert alert-success mb-4" role="status"><span>{{ .Flash }}</span></div>{{ end }}
+  {{ if .Error }}<div class="alert alert-error mb-4" role="alert"><span>{{ .Error }}</span></div>{{ end }}
+
+  <section class="card bg-base-100 border border-base-300 mb-6">
+    <div class="card-body">
+      <h2 class="text-lg font-semibold">Invite a new user</h2>
+      <p class="text-sm text-base-content/70">
+        We generate a one-time URL bound to the email below. Share it via whatever channel you trust.
+        Default expiry is 7 days; consumed invites become inert immediately.
+      </p>
+      <form method="POST" action="/admin/users/invite" class="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-3 mt-3 items-end">
+        <label class="form-control">
+          <span class="label-text font-medium">Email</span>
+          <input type="email" name="email" required class="input input-bordered mt-1" placeholder="them@example.com">
+        </label>
+        <label class="form-control">
+          <span class="label-text font-medium">Role</span>
+          <select name="role" class="select select-bordered mt-1">
+            {{ range .Roles }}<option value="{{ . }}"{{ if eq . "admin" }} selected{{ end }}>{{ . }}</option>{{ end }}
+          </select>
+        </label>
+        <button type="submit" class="btn btn-primary">Issue invite</button>
+      </form>
+    </div>
+  </section>
+
+  {{ if .Invites }}
+  <section class="card bg-base-100 border border-base-300 mb-6">
+    <div class="card-body">
+      <h2 class="text-lg font-semibold">Pending invites</h2>
+      <div class="overflow-x-auto">
+        <table class="table table-zebra">
+          <thead><tr><th>Email</th><th>Role</th><th>Expires</th><th>Invite URL</th><th></th></tr></thead>
+          <tbody>
+            {{ range .Invites }}
+            <tr>
+              <td class="font-mono">{{ .Email }}</td>
+              <td>{{ .Role }}</td>
+              <td>{{ .Expires }}</td>
+              <td><code class="text-xs break-all">{{ .URL }}</code></td>
+              <td>
+                <form method="POST" action="/admin/invites/{{ .Token }}/revoke" class="js-confirm"
+                      data-confirm-title="Revoke this invite?" data-confirm="The link will stop working immediately." data-confirm-ok="Revoke">
+                  <button class="btn btn-ghost btn-sm text-error">Revoke</button>
+                </form>
+              </td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+  {{ end }}
+
+  <section class="card bg-base-100 border border-base-300">
+    <div class="card-body">
+      <h2 class="text-lg font-semibold">All users</h2>
+      <div class="overflow-x-auto">
+        <table class="table table-zebra">
+          <thead><tr><th>Email</th><th>Role</th><th>Passkeys</th><th>Created</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            {{ range .Users }}
+            <tr>
+              <td class="font-mono">{{ .Email }}{{ if .IsSelf }} <span class="badge badge-ghost badge-sm ml-1">you</span>{{ end }}</td>
+              <td>{{ .Role }}</td>
+              <td>{{ .Credentials }}</td>
+              <td>{{ .Created }}</td>
+              <td>{{ if .Disabled }}<span class="badge badge-error">disabled</span>{{ else }}<span class="badge badge-success">active</span>{{ end }}</td>
+              <td class="flex gap-2">
+                {{ if not .IsSelf }}
+                  {{ if .Disabled }}
+                    <form method="POST" action="/admin/users/{{ .Email }}/enable">
+                      <button class="btn btn-ghost btn-sm">Enable</button>
+                    </form>
+                  {{ else }}
+                    <form method="POST" action="/admin/users/{{ .Email }}/disable" class="js-confirm"
+                          data-confirm-title="Disable this user?"
+                          data-confirm="They will be signed out immediately and unable to sign in until re-enabled." data-confirm-ok="Disable">
+                      <button class="btn btn-ghost btn-sm text-error">Disable</button>
+                    </form>
+                  {{ end }}
+                  <form method="POST" action="/admin/users/{{ .Email }}/sessions/revoke" class="js-confirm"
+                        data-confirm-title="Revoke active sessions?"
+                        data-confirm="They will need to re-sign-in on every device." data-confirm-ok="Revoke" data-confirm-tone="primary">
+                    <button class="btn btn-ghost btn-sm">Revoke sessions</button>
+                  </form>
+                {{ end }}
+              </td>
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+{{ template "confirm_dialog" . }}
+</body>
+</html>
