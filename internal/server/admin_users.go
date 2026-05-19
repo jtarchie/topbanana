@@ -37,6 +37,11 @@ type adminInviteRow struct {
 
 // adminUsersData backs templates/admin_users.html.
 type adminUsersData struct {
+	// SiteName + Slug are unused here but declared so the shared brand
+	// partial's `{{ if .SiteName }}` breadcrumb evaluates without
+	// erroring on a missing field.
+	SiteName     string
+	Slug         string
 	Active       string
 	IsSuperAdmin bool // always true on this route; keeps brand's nav consistent.
 	Users        []adminUserRow

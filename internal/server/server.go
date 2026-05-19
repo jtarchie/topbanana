@@ -641,6 +641,10 @@ type appLink struct {
 	// derived from the most recent transcript in editrec. Empty when there's no
 	// edit history yet — the card omits the line in that case.
 	LastEdited string
+	// PrimaryDomain is the first entry in meta.Domains, or "" when no custom
+	// domain is configured. Surfaced on the row next to the slug so the user
+	// can see at a glance which apps live at their own address.
+	PrimaryDomain string
 }
 
 type appsData struct {
@@ -679,12 +683,17 @@ func (s *Server) appsHandler(c *echo.Context) error {
 		if user != nil && user.Role != auth.RoleSuperAdmin && meta.OwnerID != user.Email {
 			continue
 		}
+		primaryDomain := ""
+		if len(meta.Domains) > 0 {
+			primaryDomain = meta.Domains[0]
+		}
 		links = append(links, appLink{
-			Name:        app,
-			Title:       meta.Title,
-			Description: meta.Description,
-			URL:         s.siteURL(c, app, "/"),
-			LastEdited:  lastEditedFor(ctx, s, app),
+			Name:          app,
+			Title:         meta.Title,
+			Description:   meta.Description,
+			URL:           s.siteURL(c, app, "/"),
+			LastEdited:    lastEditedFor(ctx, s, app),
+			PrimaryDomain: primaryDomain,
 		})
 	}
 	sort.SliceStable(links, func(i, j int) bool {

@@ -211,16 +211,18 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	// 3. Consume the SSE event stream until the build reports completed/failed.
 	consumeBuild(t, httpSrv.URL, slug, 30*time.Second)
 
-	// 4. Site is listed on /apps after the build finishes.
+	// 4. Site is listed on /apps after the build finishes — dense-list
+	//    layout, so we check the row-level markers rather than card markup:
+	//    whole-row workspace link, the small Open ↗ button, and the kebab
+	//    dropdown wrapper.
 	resp, body = authedGET("/apps")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /apps: %d", resp.StatusCode)
 	}
-	if !strings.Contains(body, slug) {
-		t.Errorf("/apps body missing slug %q", slug)
-	}
-	if !strings.Contains(body, "card") {
-		t.Errorf("/apps body missing DaisyUI card markup")
+	for _, want := range []string{slug, `href="/workspace/` + slug + `"`, "Open ↗", "dropdown"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("/apps body missing %q", want)
+		}
 	}
 
 	// 5. Subdomain proxy serves the canned index.html from the stub agent.
@@ -334,8 +336,12 @@ func consumeBuild(t *testing.T, base, slug string, deadline time.Duration) {
 	}
 	req.Host = "localhost"
 	req.Header.Set("Accept", "text/event-stream")
-	// /events/:slug is intentionally unauthed (progress page polls it
-	// before the admin cookie is set), so we don't pass credentials.
+	// /events/:slug is now gated by requireUser + requireSlugOwnership;
+	// pass the test session cookie so we land on the handler rather than a
+	// 401.
+	if testSessionCookie != nil {
+		req.AddCookie(testSessionCookie)
+	}
 	c := &http.Client{Timeout: deadline + 5*time.Second}
 	resp, err := c.Do(req)
 	if err != nil {

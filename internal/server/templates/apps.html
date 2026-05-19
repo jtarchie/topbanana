@@ -25,18 +25,24 @@
   {{ end }}
 
   {{ if .Apps }}
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    <ul class="space-y-2" aria-label="Your apps">
       {{ range .Apps }}
-      <div class="card bg-base-100 border border-base-300 hover:border-base-content/30 transition">
-        <a href="/workspace/{{ .Name }}" class="card-body block">
-          <h2 class="card-title text-lg">
-            {{ if .Title }}{{ .Title }}{{ else }}<span class="font-mono">{{ .Name }}</span>{{ end }}
-          </h2>
-          {{ if .Description }}<p class="text-sm text-base-content/70 line-clamp-2 mt-1">{{ .Description }}</p>{{ end }}
-          <p class="text-xs text-base-content/60 font-mono mt-2">{{ .Name }}</p>
-          {{ if .LastEdited }}<p class="text-xs text-base-content/50 mt-1">Last edited {{ .LastEdited }}</p>{{ end }}
+      <li class="bg-base-100 border border-base-300 rounded-box hover:border-base-content/30 transition relative">
+        <a href="/workspace/{{ .Name }}" class="block p-4 pr-32">
+          <div class="flex items-baseline justify-between gap-3 flex-wrap">
+            <h2 class="text-base font-semibold leading-tight">
+              {{ if .Title }}{{ .Title }}{{ else }}<span class="font-mono">{{ .Name }}</span>{{ end }}
+            </h2>
+            {{ if .LastEdited }}<span class="text-xs text-base-content/60 shrink-0">Edited {{ .LastEdited }}</span>{{ end }}
+          </div>
+          {{ if .Description }}<p class="text-sm text-base-content/70 line-clamp-1 mt-1">{{ .Description }}</p>{{ end }}
+          <p class="text-xs text-base-content/60 mt-1.5">
+            <span class="font-mono">{{ .Name }}</span>
+            {{ if .PrimaryDomain }}<span class="mx-1 text-base-content/40">·</span><span class="font-mono">{{ .PrimaryDomain }}</span>{{ end }}
+          </p>
         </a>
-        <div class="card-actions justify-end items-center px-4 pb-4 -mt-1">
+        <div class="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+          <a href="{{ .URL }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener" aria-label="Open live site">Open ↗</a>
           <div class="dropdown dropdown-end">
             <button tabindex="0" class="btn btn-ghost btn-sm btn-square" aria-label="More actions">⋮</button>
             <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-10 w-44 p-2 shadow border border-base-300">
@@ -53,11 +59,10 @@
               </li>
             </ul>
           </div>
-          <a href="{{ .URL }}" class="btn btn-primary btn-sm" target="_blank" rel="noopener">Open</a>
         </div>
-      </div>
+      </li>
       {{ end }}
-    </div>
+    </ul>
   {{ else }}
     <div class="card bg-base-100 border border-base-300 border-dashed">
       <div class="card-body items-center text-center py-16">
