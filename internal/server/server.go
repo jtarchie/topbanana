@@ -36,6 +36,7 @@ import (
 	"github.com/jtarchie/buildabear/internal/build"
 	"github.com/jtarchie/buildabear/internal/editrec"
 	"github.com/jtarchie/buildabear/internal/events"
+	"github.com/jtarchie/buildabear/internal/model"
 	"github.com/jtarchie/buildabear/internal/sandbox"
 	"github.com/jtarchie/buildabear/internal/snapshot"
 	"github.com/jtarchie/buildabear/internal/state"
@@ -49,7 +50,7 @@ import (
 // store.Store keep them in private fields), so we hand them in directly
 // rather than threading getters through every package.
 type SystemInfo struct {
-	LLMModel           string
+	LLMTiers           model.TierMap
 	LLMBaseURL         string
 	LLMReasoningEffort string
 	S3Endpoint         string
@@ -548,22 +549,16 @@ func (s *Server) snapshotBefore(ctx context.Context, slug, reason string) {
 	}
 }
 
-// effectiveModelFor resolves the per-user model for a session: empty string
-// when auth is disabled (legacy single-tenant), the user's AllowedModels[0]
-// when they have one, or the CLI-configured default otherwise. Returns an
-// error only when the caller-supplied user is missing or somehow conflicts
-// with the quota config — handlers should surface it as a 403 to keep the
-// shape consistent with the original CheckMaxApps gate.
-func (s *Server) effectiveModelFor(user *auth.User) (string, error) {
+// effectiveTiersFor returns the per-user tier overrides to thread into
+// build.Params. Auth-disabled deployments hand back nil — build.Service
+// then falls through to its operator-configured TierMap for every tier.
+// With auth on, the user's AllowedModels overrides are layered on the
+// operator defaults so build.Service sees one merged map per request.
+func (s *Server) effectiveTiersFor(user *auth.User) model.TierMap {
 	if s.auth == nil {
-		return "", nil
+		return nil
 	}
-	defaults := s.auth.QuotaDefaults()
-	resolved, err := auth.ResolveModel(user, "", defaults)
-	if err != nil {
-		return "", fmt.Errorf("resolve model: %w", err)
-	}
-	return resolved, nil
+	return auth.ResolveTiers(user, s.auth.QuotaDefaults())
 }
 
 // startBuild kicks off the build via the build service and lands the user
@@ -1041,22 +1036,19 @@ func (s *Server) buildHandler(c *echo.Context) error {
 		owner = user.Email
 	}
 
-	// Quota gates + per-user model resolution. CheckMaxApps gates the apps
-	// cap (super admins bypass). effectiveModelFor returns the user's
-	// AllowedModels[0] (or the CLI default) so build.Service dispatches
-	// against the matching Runner.
+	// Quota gates + per-user tier resolution. CheckMaxApps gates the apps
+	// cap (super admins bypass). effectiveTiersFor returns the user's
+	// AllowedModels merged over the operator defaults so build.Service
+	// dispatches each tier against the matching Runner.
 	if s.auth != nil {
 		quotaErr := auth.CheckMaxApps(user, s.countAppsFor(owner), s.auth.QuotaDefaults())
 		if quotaErr != nil {
 			return echo.NewHTTPError(http.StatusForbidden, quotaErr.Error())
 		}
 	}
-	effectiveModel, modelErr := s.effectiveModelFor(user)
-	if modelErr != nil {
-		return echo.NewHTTPError(http.StatusForbidden, modelErr.Error())
-	}
+	tiers := s.effectiveTiersFor(user)
 
-	slog.Info("build.start", "slug", slug, "template", tmpl.ID, "attachments", len(attachments), "owner", owner, "model", effectiveModel)
+	slog.Info("build.start", "slug", slug, "template", tmpl.ID, "attachments", len(attachments), "owner", owner, "tiers", tiers)
 	// Register the slug + its owner before the build kicks off so the very
 	// first TLS handshake to <slug>.<domain> (the progress page about to
 	// load) passes HostAllowed, and so /events + /status see ownership
@@ -1073,7 +1065,7 @@ func (s *Server) buildHandler(c *echo.Context) error {
 		SeedSkeleton: true,
 		Attachments:  attachments,
 		OwnerID:      owner,
-		Model:        effectiveModel,
+		Tiers:        tiers,
 	})
 }
 
@@ -1456,11 +1448,8 @@ func (s *Server) editSubmitHandler(c *echo.Context) error {
 	meta := s.build.ReadMeta(ctx, slug)
 	tmpl := build.EffectiveTemplate(meta)
 	seeds := s.build.EditSeeds(ctx, slug, prompt)
-	model, modelErr := s.effectiveModelFor(userFromContext(c))
-	if modelErr != nil {
-		return echo.NewHTTPError(http.StatusForbidden, modelErr.Error())
-	}
-	slog.Info("edit.start", "slug", slug, "page", page, "selection_len", len(selection), "template", tmpl.ID, "seeds", len(seeds), "attachments", len(attachments), "model", model)
+	tiers := s.effectiveTiersFor(userFromContext(c))
+	slog.Info("edit.start", "slug", slug, "page", page, "selection_len", len(selection), "template", tmpl.ID, "seeds", len(seeds), "attachments", len(attachments), "tiers", tiers)
 	return s.startBuild(c, build.Params{
 		Slug:         slug,
 		Prompt:       build.EditPrompt(prompt, page, selection),
@@ -1471,7 +1460,7 @@ func (s *Server) editSubmitHandler(c *echo.Context) error {
 		UserPrompt:   prompt,
 		Page:         page,
 		SelectionLen: len(selection),
-		Model:        model,
+		Tiers:        tiers,
 	})
 }
 
@@ -1499,17 +1488,21 @@ func (s *Server) relintHandler(c *echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/workspace/"+slug+"?flash=lint-clean") //nolint:wrapcheck
 	}
 
-	model, modelErr := s.effectiveModelFor(userFromContext(c))
-	if modelErr != nil {
-		return echo.NewHTTPError(http.StatusForbidden, modelErr.Error())
-	}
-	slog.Info("relint.start", "slug", slug, "issues", len(lintErrs), "template", tmpl.ID, "model", model)
+	// Relint should run entirely on the Editor tier — the prompt is a
+	// deterministic lint-fix patch, well within reach of the smaller
+	// model that already handles per-build retries. Promoting the
+	// resolved Editor model into the Author slot of the override flips
+	// every phase of the build over without having to teach build.Service
+	// a per-call tier flag.
+	resolved := s.effectiveTiersFor(userFromContext(c))
+	tiers := model.TierMap{model.TierAuthor: resolved.Resolve(model.TierEditor)}
+	slog.Info("relint.start", "slug", slug, "issues", len(lintErrs), "template", tmpl.ID, "tiers", tiers)
 	return s.startBuild(c, build.Params{
 		Slug:     slug,
 		Prompt:   build.LintFixPrompt(lintErrs),
 		LogKey:   "relint",
 		Template: tmpl,
-		Model:    model,
+		Tiers:    tiers,
 	})
 }
 
