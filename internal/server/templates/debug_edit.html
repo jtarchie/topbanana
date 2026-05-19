@@ -14,9 +14,9 @@
   {{ if .Empty }}
     <div class="alert alert-warning"><span>Transcript not found or empty.</span></div>
   {{ else }}
-    <section class="card bg-base-200 mb-6">
+    <section class="card bg-base-100 border border-base-300 mb-6">
       <div class="card-body">
-        <h2 class="card-title text-base">Run details</h2>
+        <h2 class="card-title text-lg">Run details</h2>
         <dl class="grid grid-cols-[8rem_1fr] gap-y-1 gap-x-4 text-sm">
           <dt class="text-base-content/60">Kind</dt><dd class="font-mono">{{ .LogKey }}</dd>
           <dt class="text-base-content/60">Status</dt><dd>
@@ -38,13 +38,13 @@
     </section>
 
     <section class="mb-6">
-      <h2 class="text-xl font-bold mb-3">Tool calls ({{ len .ToolCalls }})</h2>
+      <h2 class="text-lg font-semibold mb-3">Tool calls ({{ len .ToolCalls }})</h2>
       {{ if not .ToolCalls }}
         <p class="text-base-content/70">No tool calls were recorded. The agent finished without invoking any tools — this almost always means it returned a chat response instead of writing files.</p>
       {{ else }}
         <ul class="space-y-1 text-sm">
           {{ range .ToolCalls }}
-          <li class="flex items-center gap-2 py-1 px-2 rounded bg-base-200">
+          <li class="flex items-center gap-2 py-1 px-2 rounded bg-base-100 border border-base-300">
             <span class="badge badge-sm {{ if eq .Phase "error" }}badge-error{{ else if eq .Phase "done" }}badge-success{{ else }}badge-ghost{{ end }}">{{ .Phase }}</span>
             <span class="text-xs text-base-content/60 font-mono">{{ .WhenISO }}</span>
             <span class="font-mono">#{{ .IndexLabel }}</span>
@@ -58,12 +58,12 @@
     </section>
 
     <section>
-      <h2 class="text-xl font-bold mb-3">File changes ({{ len .FileChanges }})</h2>
+      <h2 class="text-lg font-semibold mb-3">File changes ({{ len .FileChanges }})</h2>
       {{ if not .FileChanges }}
         <p class="text-base-content/70">No file mutations were recorded. If the agent reported success but nothing changed, this is the smoking gun.</p>
       {{ else }}
         {{ range .FileChanges }}
-          <details class="collapse collapse-arrow bg-base-200 mt-2">
+          <details class="collapse collapse-arrow bg-base-100 border border-base-300 mt-2">
             <summary class="collapse-title text-sm font-mono flex items-center gap-2 flex-wrap">
               <strong>{{ .Path }}</strong>
               <span class="text-base-content/60">via <code>{{ .Tool }}</code></span>

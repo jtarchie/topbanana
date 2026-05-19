@@ -39,7 +39,7 @@
   <section class="card bg-base-100 border border-base-300 mb-6">
     <div class="card-body">
       <h2 class="text-lg font-semibold">Pending invites</h2>
-      <div class="overflow-x-auto">
+      <div class="overflow-x-auto rounded-box border border-base-300">
         <table class="table table-zebra">
           <thead><tr><th>Email</th><th>Role</th><th>Expires</th><th>Invite URL</th><th></th></tr></thead>
           <tbody>
@@ -67,7 +67,7 @@
   <section class="card bg-base-100 border border-base-300">
     <div class="card-body">
       <h2 class="text-lg font-semibold">All users</h2>
-      <div class="overflow-x-auto">
+      <div class="overflow-x-auto rounded-box border border-base-300">
         <table class="table table-zebra">
           <thead><tr><th>Email</th><th>Role</th><th>Max apps</th><th>Passkeys</th><th>Status</th><th></th></tr></thead>
           <tbody>
@@ -111,6 +111,7 @@
     </div>
   </section>
 </main>
+{{ template "footer" . }}
 
 <!-- Quotas side panel. One shared panel; each row's "Quotas" button populates
      it via data-* attributes on click. -->

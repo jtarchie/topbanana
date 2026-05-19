@@ -12,16 +12,16 @@
   <p class="text-base-content/70 mb-4">Every build and edit run is captured here — every step the AI took, plus before/after for every file it changed. Useful when something didn't update the way you expected.</p>
 
   {{ if not .Rows }}
-    <div class="card bg-base-200">
+    <div class="card bg-base-100 border border-base-300 border-dashed">
       <div class="card-body items-center text-center">
-        <h2 class="card-title">No transcripts yet</h2>
-        <p class="text-base-content/70">The first one will appear after your next build or edit.</p>
+        <h2 class="card-title text-lg">No transcripts yet</h2>
+        <p class="text-sm text-base-content/70">The first one will appear after your next build or edit.</p>
       </div>
     </div>
   {{ else }}
     <div class="grid grid-cols-1 gap-2">
       {{ range .Rows }}
-      <a href="/debug/{{ $.Slug }}/edit?key={{ .Key }}" class="card bg-base-200 hover:bg-base-300 transition">
+      <a href="/debug/{{ $.Slug }}/edit?key={{ .Key }}" class="card bg-base-100 border border-base-300 hover:border-base-content/30 transition">
         <div class="card-body p-4 flex-row items-center gap-4">
           <div class="flex-1">
             <div class="font-semibold">{{ .WhenLabel }}</div>
