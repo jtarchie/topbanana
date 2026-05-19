@@ -4,7 +4,7 @@
 <title>Account — BuildABear</title>
 {{ template "head" . }}
 </head>
-<body class="min-h-screen flex flex-col bg-base-100">
+<body class="min-h-screen flex flex-col bg-base-100" data-email="{{ .Email }}">
 {{ template "brand" . }}
 <main class="flex-1 max-w-3xl w-full mx-auto px-4 sm:px-6 py-8">
   <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight mb-2">Account</h1>
@@ -48,7 +48,7 @@
     var btn = document.getElementById('add-passkey');
     var errEl = document.getElementById('add-error');
     var okEl = document.getElementById('add-success');
-    var email = {{ .Email | printf "%q" }};
+    var email = document.body.dataset.email;
     function showError(msg) {
       errEl.textContent = msg;
       errEl.classList.remove('hidden');

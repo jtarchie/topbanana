@@ -4,7 +4,7 @@
 <title>Create your passkey — BuildABear</title>
 {{ template "head" . }}
 </head>
-<body class="min-h-screen flex flex-col bg-base-100">
+<body class="min-h-screen flex flex-col bg-base-100" data-email="{{ .Email }}" data-invite="{{ .InviteToken }}">
 <main class="flex-1 grid place-items-center px-4 py-12">
   <div class="card w-full max-w-md bg-base-100 border border-base-300 shadow-sm">
     <div class="card-body">
@@ -26,7 +26,8 @@
     var btn = document.getElementById('register-button');
     var errEl = document.getElementById('register-error');
     var okEl = document.getElementById('register-success');
-    var email = {{ .Email | printf "%q" }};
+    var email = document.body.dataset.email;
+    var inviteToken = document.body.dataset.invite;
 
     function showError(msg) {
       errEl.textContent = msg;
@@ -68,7 +69,7 @@
         }
         // After register, ask the server to mark the invite consumed and
         // sign the user in. Both ride through /register/finish.
-        var consumeRes = await fetch('/register/finish?invite={{ .InviteToken }}', {
+        var consumeRes = await fetch('/register/finish?invite=' + encodeURIComponent(inviteToken), {
           method: 'POST',
           credentials: 'same-origin',
         });
