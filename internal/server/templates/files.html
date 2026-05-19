@@ -9,7 +9,7 @@
 {{ template "site_subnav" . }}
 <main class="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-6">
   <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight mb-2">Files</h1>
-  <p class="text-sm text-base-content/70 mb-4">All objects stored for this site. Pages open on the live site; server functions open in the editor; <code>_state/</code> opens the submissions view.</p>
+  <p class="text-sm text-base-content/70 mb-4">All objects stored for this site. Pages and server functions have an <strong>edit</strong> link into the editor; public files also have <strong>open</strong> to view them live.</p>
 
   {{ if .Rows }}
   <div class="overflow-x-auto rounded-box border border-base-300">
@@ -19,7 +19,7 @@
           <th>file</th>
           <th class="w-28">size</th>
           <th class="w-44">last changed</th>
-          <th class="w-32"></th>
+          <th class="w-40">actions</th>
         </tr>
       </thead>
       <tbody>
@@ -28,7 +28,12 @@
           <td class="font-mono break-all">{{ .Path }}</td>
           <td class="text-base-content/70">{{ .Size }}</td>
           <td class="text-base-content/70">{{ .Modified }}</td>
-          <td>{{ if .LinkURL }}<a class="link link-primary" href="{{ .LinkURL }}">{{ .LinkLabel }}</a>{{ end }}</td>
+          <td>
+            <div class="flex gap-3 text-sm">
+              {{ if .EditURL }}<a class="link link-primary" href="{{ .EditURL }}">edit</a>{{ end }}
+              {{ if .LinkURL }}<a class="link link-hover" href="{{ .LinkURL }}"{{ if eq .LinkLabel "open" }} target="_blank" rel="noopener"{{ end }}>{{ .LinkLabel }}</a>{{ end }}
+            </div>
+          </td>
         </tr>
         {{ end }}
       </tbody>
