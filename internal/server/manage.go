@@ -10,6 +10,13 @@ import (
 	"github.com/jtarchie/buildabear/internal/templates"
 )
 
+// manageSubmissionLimit caps how many submission rows we render inline on
+// /manage/:slug. Beyond this, the page shows a "+ N more" note and the CSV
+// download is the path to the full set. Pagination would add clicks and
+// state to a screen most users skim; CSV in a spreadsheet is the better
+// tool for bulk analysis anyway.
+const manageSubmissionLimit = 25
+
 // manageData is the single struct backing the consolidated /manage/:slug page.
 // It carries everything that was previously split across the settings page and
 // the form-submissions page so the user sees one config surface, not three.
@@ -24,9 +31,16 @@ type manageData struct {
 	FunctionsByTmpl  bool
 	PublicAPIEnabled bool
 	Columns          []string
-	Rows             []dataRow
-	CSVURL           string
-	Flash            string
+	Rows             []dataRow // capped at manageSubmissionLimit
+	// TotalRows is the unsliced count so the template can render
+	// "+ N more, download CSV for all".
+	TotalRows int
+	// MoreCount is TotalRows - len(Rows), exposed pre-computed because
+	// html/template has no arithmetic helpers.
+	MoreCount int
+	CSVURL    string
+	JSONURL   string
+	Flash     string
 }
 
 func (s *Server) manageHandler(c *echo.Context) error {
@@ -46,6 +60,11 @@ func (s *Server) manageHandler(c *echo.Context) error {
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "load submissions", err)
 	}
+	total := len(rows)
+	if total > manageSubmissionLimit {
+		rows = rows[:manageSubmissionLimit]
+	}
+	more := total - len(rows)
 
 	siteName := meta.Title
 	if siteName == "" {
@@ -64,7 +83,10 @@ func (s *Server) manageHandler(c *echo.Context) error {
 		PublicAPIEnabled: meta.EnablesPublicAPI,
 		Columns:          cols,
 		Rows:             rows,
+		TotalRows:        total,
+		MoreCount:        more,
 		CSVURL:           "/data/" + slug + "?format=csv",
+		JSONURL:          "/data/" + slug + "?format=json",
 		Flash:            c.QueryParam("flash"),
 	})
 }

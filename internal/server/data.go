@@ -30,13 +30,17 @@ func (s *Server) dataHandler(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	if c.QueryParam("format") != "csv" {
+	format := c.QueryParam("format")
+	if format != "csv" && format != "json" {
 		return c.Redirect(http.StatusFound, "/manage/"+slug) //nolint:wrapcheck
 	}
 
 	cols, rows, err := s.collectSubmissions(c.Request().Context(), slug)
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "load state", err)
+	}
+	if format == "json" {
+		return writeSubmissionsJSON(c, slug, cols, rows)
 	}
 	return writeSubmissionsCSV(c, slug, cols, rows)
 }
@@ -69,8 +73,12 @@ func (s *Server) collectSubmissions(ctx context.Context, slug string) ([]string,
 			fieldSet[f] = struct{}{}
 		}
 	}
+	// Sort newest-first by key. Submission keys are monotonic ids
+	// (`submission:NNNN`, `entry:NNNN`), so descending key = newest first. The
+	// manage page truncates to the first N, and CSV exports preserve this
+	// order so spreadsheet users see recent entries at the top.
 	sort.SliceStable(entries, func(i, j int) bool {
-		return entries[i].key < entries[j].key
+		return entries[i].key > entries[j].key
 	})
 
 	// Stable column order: alphabetical, with `ts` pinned to the end so the
@@ -175,6 +183,39 @@ func writeSubmissionsCSV(c *echo.Context, slug string, cols []string, rows []dat
 	err = w.Error()
 	if err != nil {
 		return fmt.Errorf("flush csv: %w", err)
+	}
+	return nil
+}
+
+// writeSubmissionsJSON streams the same rows as the CSV export as a JSON
+// array, each entry an object keyed by column name plus a "key" field for
+// the submission id. Values are the same display strings the CSV uses —
+// preserves column ordering across both formats so users can swap exporters
+// without their downstream scripts noticing.
+func writeSubmissionsJSON(c *echo.Context, slug string, cols []string, rows []dataRow) error {
+	resp := c.Response()
+	resp.Header().Set("Content-Type", "application/json; charset=utf-8")
+	resp.Header().Set("Content-Disposition", `attachment; filename="`+slug+`-submissions.json"`)
+	resp.WriteHeader(http.StatusOK)
+
+	out := make([]map[string]string, 0, len(rows))
+	for _, row := range rows {
+		obj := make(map[string]string, len(cols)+1)
+		obj["key"] = row.Key
+		for i, col := range cols {
+			if i >= len(row.Values) {
+				break
+			}
+			obj[col] = row.Values[i]
+		}
+		out = append(out, obj)
+	}
+
+	enc := json.NewEncoder(resp)
+	enc.SetIndent("", "  ")
+	err := enc.Encode(out)
+	if err != nil {
+		return fmt.Errorf("write json: %w", err)
 	}
 	return nil
 }
