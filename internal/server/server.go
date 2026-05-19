@@ -979,7 +979,9 @@ func (s *Server) proxyHandler(c *echo.Context, slug string) error {
 		reqPath = "index.html"
 	}
 
-	if reservedProxyPaths[reqPath] {
+	// Reject traversal *before* the reserved-prefix check — otherwise a path
+	// like `assets/../_state/data.json` slips past HasPrefix("_state/").
+	if isTraversal(reqPath) || reservedProxyPaths[reqPath] {
 		return notFound()
 	}
 	for _, pfx := range reservedProxyPrefixes {
@@ -1107,10 +1109,18 @@ func validatePage(page string) error {
 	if page == "" {
 		return nil
 	}
-	if strings.Contains(page, "..") || strings.HasPrefix(page, "/") || strings.Contains(page, `\`) {
+	if isTraversal(page) {
 		return fmt.Errorf("invalid page %q", page)
 	}
 	return nil
+}
+
+// isTraversal reports whether a user-supplied object path attempts to escape
+// its slug prefix. Rejects `..` segments, absolute paths, and Windows
+// separators. Used by both the static proxy and validatePage so a single
+// rule covers every code path that reaches the storage layer.
+func isTraversal(p string) bool {
+	return strings.Contains(p, "..") || strings.HasPrefix(p, "/") || strings.Contains(p, `\`)
 }
 
 // reservedSlugs collide with platform routes/hosts and cannot be used as
@@ -1121,6 +1131,9 @@ var reservedSlugs = map[string]bool{
 	"history": true, "settings": true, "test": true, "relint": true,
 	"admin": true, "login": true, "logout": true,
 	"workspace": true, "manage": true, "system": true,
+	// Reserved for the multi-tenancy auth surface and ACME challenge paths.
+	"auth": true, "webauthn": true, "acme": true, "well-known": true,
+	"register": true, "account": true,
 }
 
 func validateSlug(slug string) error {

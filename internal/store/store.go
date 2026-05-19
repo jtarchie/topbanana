@@ -48,6 +48,10 @@ type S3Object struct {
 const DefaultContentType = "text/html; charset=utf-8"
 
 func (s *Store) Write(ctx context.Context, slug, path, content, contentType string, metadata map[string]string) error {
+	err := validateObjectPath(path)
+	if err != nil {
+		return err
+	}
 	key := slug + "/" + path
 	if contentType == "" {
 		contentType = DefaultContentType
@@ -101,7 +105,23 @@ func cloneMetadata(m map[string]string) map[string]string {
 	return out
 }
 
+// validateObjectPath rejects relative-traversal segments, absolute paths, and
+// Windows separators. The proxy handler already gates on this before reaching
+// here, but every caller of Read/Write benefits from the same check —
+// otherwise a future agent tool or handler could write objects at keys like
+// `slug/../other/...` that escape the per-tenant prefix.
+func validateObjectPath(path string) error {
+	if strings.Contains(path, "..") || strings.HasPrefix(path, "/") || strings.Contains(path, `\`) {
+		return fmt.Errorf("invalid object path %q", path)
+	}
+	return nil
+}
+
 func (s *Store) Read(ctx context.Context, slug, path string) (*S3Object, error) {
+	err := validateObjectPath(path)
+	if err != nil {
+		return nil, err
+	}
 	key := slug + "/" + path
 
 	if s.cache != nil {

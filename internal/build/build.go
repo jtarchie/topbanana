@@ -67,6 +67,10 @@ type SiteMeta struct {
 	EnablesPublicAPI bool   `json:"enables_public_api,omitempty"`
 	Title            string `json:"title,omitempty"`
 	Description      string `json:"description,omitempty"`
+	// OwnerID is the canonical email of the user that owns this app. Empty on
+	// pre-multi-tenancy sites; the bootstrap migration assigns those to the
+	// super admin on first start.
+	OwnerID string `json:"owner_id,omitempty"`
 }
 
 // EffectiveTemplate returns the template a build/edit/route lookup should use,
