@@ -36,11 +36,10 @@ type accountCredential struct {
 
 // accountData backs templates/account.html.
 type accountData struct {
-	Email        string
-	Role         string
-	Credentials  []accountCredential
-	Active       string
-	IsSuperAdmin bool // populated by s.render via injectChrome.
+	Chrome
+	Email       string
+	Role        string
+	Credentials []accountCredential
 }
 
 // loginHandler renders the email-entry form. Available unauthenticated;
@@ -126,34 +125,30 @@ func (s *Server) logoutHandler(c *echo.Context) error {
 }
 
 // accountHandler renders the logged-in user's passkey list and the "add
-// another" UI. Gated by the passkey library's session cookie directly
-// (commit 3 doesn't have RequireUser yet — that lands in commit 5).
+// another" UI. Mounted under the admin group so requireUser handles the
+// session lookup + disabled-user check before we get here.
 func (s *Server) accountHandler(c *echo.Context) error {
-	if s.auth == nil {
+	user := userFromContext(c)
+	if user == nil {
+		// Defensive: requireUser should have redirected, but if a future
+		// route change moves /account back outside the gate we'd rather
+		// 404 than panic on a nil deref below.
 		return notFound()
-	}
-	email, ok := s.currentSessionEmail(c)
-	if !ok {
-		return c.Redirect(http.StatusSeeOther, "/login") //nolint:wrapcheck
-	}
-	user, err := s.auth.Users.LookupCached(c.Request().Context(), email)
-	if err != nil {
-		// Stale cookie pointing at a deleted user; clear it and bounce.
-		s.auth.Passkey.Logout(c.Response(), c.Request())
-		return c.Redirect(http.StatusSeeOther, "/login") //nolint:wrapcheck
 	}
 	creds := make([]accountCredential, 0, len(user.Credentials))
 	for _, cred := range user.Credentials {
 		creds = append(creds, accountCredential{
-			ID:      shortenCredID(cred.ID),
-			Created: time.Now().UTC().Format("2006-01-02"), // library doesn't track per-credential created time; show today's date as a placeholder until commit 6 extends User.
+			ID: shortenCredID(cred.ID),
+			// The library doesn't track per-credential created-time; show
+			// today's date as a placeholder until User grows the field.
+			Created: time.Now().UTC().Format("2006-01-02"),
 		})
 	}
 	return s.render(c, "account", accountData{
+		Chrome:      Chrome{Active: "account"},
 		Email:       user.Email,
 		Role:        string(user.Role),
 		Credentials: creds,
-		Active:      "account",
 	})
 }
 

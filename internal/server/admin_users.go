@@ -37,18 +37,12 @@ type adminInviteRow struct {
 
 // adminUsersData backs templates/admin_users.html.
 type adminUsersData struct {
-	// SiteName + Slug are unused here but declared so the shared brand
-	// partial's `{{ if .SiteName }}` breadcrumb evaluates without
-	// erroring on a missing field.
-	SiteName     string
-	Slug         string
-	Active       string
-	IsSuperAdmin bool // always true on this route; keeps brand's nav consistent.
-	Users        []adminUserRow
-	Invites      []adminInviteRow
-	Flash        string
-	Error        string
-	Roles        []string
+	Chrome
+	Users   []adminUserRow
+	Invites []adminInviteRow
+	Flash   string
+	Error   string
+	Roles   []string
 }
 
 // adminUsersHandler renders the super-admin user/invite page. Filters
@@ -98,7 +92,7 @@ func (s *Server) adminUsersHandler(c *echo.Context) error {
 	sort.SliceStable(inviteRows, func(i, j int) bool { return inviteRows[i].Email < inviteRows[j].Email })
 
 	return s.render(c, "admin_users", adminUsersData{
-		Active:  "admin_users",
+		Chrome:  Chrome{Active: "admin_users"},
 		Users:   rows,
 		Invites: inviteRows,
 		Flash:   c.QueryParam("flash"),

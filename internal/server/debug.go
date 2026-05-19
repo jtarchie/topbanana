@@ -26,12 +26,8 @@ type debugRow struct {
 }
 
 type debugListData struct {
-	Slug         string
-	SiteName     string // consumed by the shared brand partial's breadcrumb
-	SiteURL      string
-	Active       string
-	IsSuperAdmin bool // populated by s.render via injectChrome.
-	Rows         []debugRow
+	Chrome
+	Rows []debugRow
 }
 
 type debugToolRow struct {
@@ -60,11 +56,7 @@ type debugFileRow struct {
 }
 
 type debugDetailData struct {
-	Slug            string
-	SiteName        string // consumed by the shared brand partial's breadcrumb
-	SiteURL         string
-	Active          string
-	IsSuperAdmin    bool // populated by s.render via injectChrome.
+	Chrome
 	Key             string
 	LogKey          string
 	StartedAt       string
@@ -105,11 +97,13 @@ func (s *Server) debugHandler(c *echo.Context) error {
 	}
 
 	return s.render(c, "debug", debugListData{
-		Slug:     slug,
-		SiteName: s.siteNameOrSlug(c.Request().Context(), slug),
-		SiteURL:  s.siteURL(c, slug, "/"),
-		Active:   "debug",
-		Rows:     out,
+		Chrome: Chrome{
+			Slug:     slug,
+			SiteName: s.siteNameOrSlug(c.Request().Context(), slug),
+			SiteURL:  s.siteURL(c, slug, "/"),
+			Active:   "debug",
+		},
+		Rows: out,
 	})
 }
 
@@ -132,10 +126,12 @@ func (s *Server) debugDetailHandler(c *echo.Context) error {
 	}
 
 	data := debugDetailData{
-		Slug:            slug,
-		SiteName:        s.siteNameOrSlug(c.Request().Context(), slug),
-		SiteURL:         s.siteURL(c, slug, "/"),
-		Active:          "debug",
+		Chrome: Chrome{
+			Slug:     slug,
+			SiteName: s.siteNameOrSlug(c.Request().Context(), slug),
+			SiteURL:  s.siteURL(c, slug, "/"),
+			Active:   "debug",
+		},
 		Key:             key,
 		LogKey:          t.LogKey,
 		Model:           t.Model,

@@ -59,11 +59,8 @@ type systemStorage struct {
 }
 
 type systemData struct {
-	SiteName     string // shared brand partial field; unused on /system
-	Slug         string // unused on /system; brand partial requires the field
-	Active       string
-	IsSuperAdmin bool // populated by s.render via injectChrome.
-	Flash        string
+	Chrome
+	Flash string
 
 	// At-a-glance
 	AppCount      int
@@ -235,7 +232,7 @@ func (s *Server) systemHandler(c *echo.Context) error {
 	}
 
 	return s.render(c, "system", systemData{
-		Active:        "system",
+		Chrome:        Chrome{Active: "system"},
 		Flash:         c.QueryParam("flash"),
 		AppCount:      len(appRows),
 		CustomDomains: customDomains,

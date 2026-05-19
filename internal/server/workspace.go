@@ -18,17 +18,13 @@ import (
 // editHandler exposed plus the theme picker and snapshot list as inline
 // panels.
 type workspaceData struct {
-	Slug         string
-	SiteName     string
-	SiteURL      string
-	PageURL      string
-	Active       string
-	IsSuperAdmin bool // populated by s.render via injectChrome.
-	Page         string
-	Pages        []string
-	Assets       []editAsset
-	Functions    []string
-	Flash        string
+	Chrome
+	PageURL   string
+	Page      string
+	Pages     []string
+	Assets    []editAsset
+	Functions []string
+	Flash     string
 
 	// Building flag flips the status strip on and hides the preview behind a
 	// placeholder. Set from ?building=1 (right after POST /build or POST
@@ -79,11 +75,13 @@ func (s *Server) workspaceHandler(c *echo.Context) error {
 	building := c.QueryParam("building") == "1" || s.buildInFlight(slug)
 
 	return s.render(c, "workspace", workspaceData{
-		Slug:             slug,
-		SiteName:         siteName,
-		SiteURL:          s.siteURL(c, slug, "/"),
+		Chrome: Chrome{
+			Slug:     slug,
+			SiteName: siteName,
+			SiteURL:  s.siteURL(c, slug, "/"),
+			Active:   "workspace",
+		},
 		PageURL:          s.siteURL(c, slug, "/"+page),
-		Active:           "workspace",
 		Page:             page,
 		Pages:            pages,
 		Assets:           assets,

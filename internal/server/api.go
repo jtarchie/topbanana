@@ -411,15 +411,27 @@ func (s *Server) functionEditHandler(c *echo.Context) error {
 	if obj.Content == "" {
 		return notFound()
 	}
-	return s.render(c, "function_edit", map[string]any{
-		"Slug":     slug,
-		"SiteName": s.siteNameOrSlug(ctx, slug),
-		"SiteURL":  s.siteURL(c, slug, "/"),
-		"Active":   "workspace",
-		"Name":     name,
-		"APIURL":   s.siteURL(c, slug, "/api/"+name),
-		"Source":   obj.Content,
+	return s.render(c, "function_edit", functionEditData{
+		Chrome: Chrome{
+			Slug:     slug,
+			SiteName: s.siteNameOrSlug(ctx, slug),
+			SiteURL:  s.siteURL(c, slug, "/"),
+			Active:   "workspace",
+		},
+		Name:   name,
+		APIURL: s.siteURL(c, slug, "/api/"+name),
+		Source: obj.Content,
 	})
+}
+
+// functionEditData backs templates/function_edit.html. Was a
+// map[string]any until the chrome refactor; the typed struct lets the
+// shared brand partial pick up IsSuperAdmin via embedded promotion.
+type functionEditData struct {
+	Chrome
+	Name   string
+	APIURL string
+	Source string
 }
 
 // functionTestRequest is the JSON body the editor sends to /test/:slug/api/:name.

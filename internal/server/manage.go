@@ -21,11 +21,7 @@ const manageSubmissionLimit = 25
 // It carries everything that was previously split across the settings page and
 // the form-submissions page so the user sees one config surface, not three.
 type manageData struct {
-	Slug             string
-	SiteName         string
-	SiteURL          string
-	Active           string
-	IsSuperAdmin     bool // populated by s.render via injectChrome.
+	Chrome
 	Title            string
 	Domains          string
 	FunctionsEnabled bool
@@ -73,10 +69,12 @@ func (s *Server) manageHandler(c *echo.Context) error {
 	}
 
 	return s.render(c, "manage", manageData{
-		Slug:             slug,
-		SiteName:         siteName,
-		SiteURL:          s.siteURL(c, slug, "/"),
-		Active:           "manage",
+		Chrome: Chrome{
+			Slug:     slug,
+			SiteName: siteName,
+			SiteURL:  s.siteURL(c, slug, "/"),
+			Active:   "manage",
+		},
 		Title:            meta.Title,
 		Domains:          strings.Join(meta.Domains, "\n"),
 		FunctionsEnabled: tmpl != nil && tmpl.EnablesFunctions,

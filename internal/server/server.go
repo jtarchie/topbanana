@@ -132,17 +132,7 @@ var fallThroughHosts = map[string]bool{
 // HostPolicy in main can reach HostAllowed without duplicating the dispatch
 // logic from subdomainMiddleware).
 func New(d Deps) (*echo.Echo, *Server) {
-	tpl := template.New("").Funcs(template.FuncMap{
-		// boolField + stringField read a named field out of any struct via
-		// reflection. They let the shared chrome partials (brand,
-		// site_subnav) read .SiteName / .Slug / .Active / .IsSuperAdmin
-		// without every page-data struct having to declare the field.
-		// Missing/wrong-typed fields fall back to the zero value, so a new
-		// page can ship without remembering to declare unused chrome
-		// fields.
-		"boolField":   templateBoolField,
-		"stringField": templateStringField,
-	})
+	tpl := template.New("")
 	// layout.html defines shared partials (e.g. "head") used by the platform
 	// pages below. It must be parsed first so the others can reference its
 	// blocks.
@@ -216,7 +206,6 @@ func New(d Deps) (*echo.Echo, *Server) {
 		e.GET("/register", s.registerHandler)
 		e.POST("/register/finish", s.registerFinishHandler)
 		e.POST("/logout", s.logoutHandler)
-		e.GET("/account", s.accountHandler)
 	}
 
 	admin := e.Group("", s.requireUser)
@@ -232,6 +221,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 	admin.POST("/build", s.buildHandler, promptWithAttachmentsBodyCap)
 	admin.GET("/apps", s.appsHandler)
 	admin.GET("/system", s.systemHandler)
+	admin.GET("/account", s.accountHandler)
 
 	// Super-admin-only surfaces. requireSuperAdmin layers role check on
 	// top of requireUser, so these routes live outside the regular admin
@@ -600,22 +590,24 @@ func (s *Server) render(c *echo.Context, name string, data any) error {
 	return c.HTML(http.StatusOK, buf.String()) //nolint:wrapcheck
 }
 
-// injectChrome layers session-derived chrome values (currently just
-// IsSuperAdmin) onto the page data so the shared brand partial renders
-// consistently regardless of which handler produced the struct. Handlers
-// that pass a plain struct value get rewrapped in a *struct so reflection
-// can set fields; maps are mutated in place; pointers pass through.
-// Data shapes that don't have a matching IsSuperAdmin field fall through
-// without error — the chrome partial's boolField helper just returns
-// false on them, same as today.
+// injectChrome layers session-derived chrome values onto the page data
+// so the shared brand partial renders consistently regardless of which
+// handler produced the struct. Data structs embed Chrome by value, so
+// passing a pointer to the struct lets us reach the embedded Chrome via
+// the chromed interface and set IsSuperAdmin.
+//
+// Handlers that pass a struct value get rewrapped in a pointer so the
+// embedded Chrome is settable. Anything that doesn't satisfy chromed
+// passes through unchanged — useful for templates whose page-data type
+// genuinely doesn't render the brand partial.
 func (s *Server) injectChrome(c *echo.Context, data any) any {
 	isSuper := false
 	u := userFromContext(c)
 	if u != nil {
 		isSuper = u.Role == auth.RoleSuperAdmin
 	}
-	// Struct values aren't addressable through reflect, so injectBoolField
-	// can't set their fields. Wrap them in a pointer first.
+	// Struct values are not addressable through the chromed interface;
+	// wrap in a pointer so the embedded Chrome can be set in place.
 	if data != nil {
 		v := reflect.ValueOf(data)
 		if v.Kind() == reflect.Struct {
@@ -624,7 +616,9 @@ func (s *Server) injectChrome(c *echo.Context, data any) any {
 			data = ptr.Interface()
 		}
 	}
-	injectBoolField(data, "IsSuperAdmin", isSuper)
+	if ch, ok := data.(chromed); ok {
+		ch.chromePtr().IsSuperAdmin = isSuper
+	}
 	return data
 }
 
@@ -642,10 +636,19 @@ func notFound() *echo.HTTPError {
 	return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 }
 
+// landingData backs templates/landing.html. Was a map[string]any until
+// the chrome refactor; the typed struct lets the shared brand partial
+// pick up IsSuperAdmin via embedded promotion.
+type landingData struct {
+	Chrome
+	Templates []*templates.SiteTemplate
+	Domain    string
+}
+
 func (s *Server) landingHandler(c *echo.Context) error {
-	return s.render(c, "landing", map[string]any{
-		"Templates": templates.All(),
-		"Domain":    s.domain,
+	return s.render(c, "landing", landingData{
+		Templates: templates.All(),
+		Domain:    s.domain,
 	})
 }
 
@@ -665,16 +668,9 @@ type appLink struct {
 }
 
 type appsData struct {
-	// SiteName + Active are unused on the apps grid — exposed so the shared
-	// brand partial's `{{ if .SiteName }}` breadcrumb and `{{ eq .Active ... }}`
-	// nav-highlight checks evaluate against real fields on the struct
-	// (html/template errors on a missing field).
-	SiteName     string
-	Active       string
-	Slug         string
-	IsSuperAdmin bool
-	Apps         []appLink
-	Flash        string
+	Chrome
+	Apps  []appLink
+	Flash string
 	// OverQuotaCount is the diff between the current owned-app count and
 	// the user's MaxApps cap, or 0 when within quota. Triggers the banner
 	// at the top of the listing.
@@ -719,6 +715,7 @@ func (s *Server) appsHandler(c *echo.Context) error {
 
 	over, cap := s.appsOverQuota(user)
 	return s.render(c, "apps", appsData{
+		Chrome:         Chrome{Active: "apps"},
 		Apps:           links,
 		Flash:          c.QueryParam("flash"),
 		OverQuotaCount: over,

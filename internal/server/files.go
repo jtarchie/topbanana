@@ -28,12 +28,8 @@ type fileRow struct {
 }
 
 type filesView struct {
-	Slug         string
-	SiteName     string // consumed by the shared brand partial's breadcrumb
-	SiteURL      string
-	Active       string
-	IsSuperAdmin bool // populated by s.render via injectChrome.
-	Rows         []fileRow
+	Chrome
+	Rows []fileRow
 }
 
 func (s *Server) filesHandler(c *echo.Context) error {
@@ -71,11 +67,13 @@ func (s *Server) filesHandler(c *echo.Context) error {
 		siteName = slug
 	}
 	return s.render(c, "files", filesView{
-		Slug:     slug,
-		SiteName: siteName,
-		SiteURL:  siteURL,
-		Active:   "files",
-		Rows:     rows,
+		Chrome: Chrome{
+			Slug:     slug,
+			SiteName: siteName,
+			SiteURL:  siteURL,
+			Active:   "files",
+		},
+		Rows: rows,
 	})
 }
 
