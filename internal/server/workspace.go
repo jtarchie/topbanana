@@ -18,16 +18,17 @@ import (
 // editHandler exposed plus the theme picker and snapshot list as inline
 // panels.
 type workspaceData struct {
-	Slug      string
-	SiteName  string
-	SiteURL   string
-	PageURL   string
-	Active    string
-	Page      string
-	Pages     []string
-	Assets    []editAsset
-	Functions []string
-	Flash     string
+	Slug         string
+	SiteName     string
+	SiteURL      string
+	PageURL      string
+	Active       string
+	IsSuperAdmin bool // populated by s.render via injectChrome.
+	Page         string
+	Pages        []string
+	Assets       []editAsset
+	Functions    []string
+	Flash        string
 
 	// Building flag flips the status strip on and hides the preview behind a
 	// placeholder. Set from ?building=1 (right after POST /build or POST

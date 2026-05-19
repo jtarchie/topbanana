@@ -36,10 +36,11 @@ type accountCredential struct {
 
 // accountData backs templates/account.html.
 type accountData struct {
-	Email       string
-	Role        string
-	Credentials []accountCredential
-	Active      string
+	Email        string
+	Role         string
+	Credentials  []accountCredential
+	Active       string
+	IsSuperAdmin bool // populated by s.render via injectChrome.
 }
 
 // loginHandler renders the email-entry form. Available unauthenticated;

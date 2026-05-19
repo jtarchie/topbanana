@@ -28,11 +28,12 @@ type fileRow struct {
 }
 
 type filesView struct {
-	Slug     string
-	SiteName string // consumed by the shared brand partial's breadcrumb
-	SiteURL  string
-	Active   string
-	Rows     []fileRow
+	Slug         string
+	SiteName     string // consumed by the shared brand partial's breadcrumb
+	SiteURL      string
+	Active       string
+	IsSuperAdmin bool // populated by s.render via injectChrome.
+	Rows         []fileRow
 }
 
 func (s *Server) filesHandler(c *echo.Context) error {

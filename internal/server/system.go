@@ -59,10 +59,11 @@ type systemStorage struct {
 }
 
 type systemData struct {
-	SiteName string // shared brand partial field; unused on /system
-	Slug     string // unused on /system; brand partial requires the field
-	Active   string
-	Flash    string
+	SiteName     string // shared brand partial field; unused on /system
+	Slug         string // unused on /system; brand partial requires the field
+	Active       string
+	IsSuperAdmin bool // populated by s.render via injectChrome.
+	Flash        string
 
 	// At-a-glance
 	AppCount      int

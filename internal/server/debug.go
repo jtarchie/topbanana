@@ -26,11 +26,12 @@ type debugRow struct {
 }
 
 type debugListData struct {
-	Slug     string
-	SiteName string // consumed by the shared brand partial's breadcrumb
-	SiteURL  string
-	Active   string
-	Rows     []debugRow
+	Slug         string
+	SiteName     string // consumed by the shared brand partial's breadcrumb
+	SiteURL      string
+	Active       string
+	IsSuperAdmin bool // populated by s.render via injectChrome.
+	Rows         []debugRow
 }
 
 type debugToolRow struct {
@@ -63,6 +64,7 @@ type debugDetailData struct {
 	SiteName        string // consumed by the shared brand partial's breadcrumb
 	SiteURL         string
 	Active          string
+	IsSuperAdmin    bool // populated by s.render via injectChrome.
 	Key             string
 	LogKey          string
 	StartedAt       string

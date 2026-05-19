@@ -53,3 +53,37 @@ func derefStruct(data any) reflect.Value {
 	}
 	return v
 }
+
+// injectBoolField sets a named bool field on `data` to `value`. Handles
+// struct, *struct, and map[string]any. Silently no-ops when the target
+// doesn't have a matching settable bool field — same tolerance as the
+// read helpers, so render() can inject chrome values without every page
+// having to know.
+//
+// Used by render() to push IsSuperAdmin onto every page-data struct so
+// the shared brand partial gates the "Users" link consistently
+// regardless of which handler produced the data.
+func injectBoolField(data any, name string, value bool) {
+	if data == nil {
+		return
+	}
+	// Map case first: handlers like landingHandler / function_edit use
+	// map[string]any for their template data, so the struct path below
+	// would fall through without writing anything.
+	if m, ok := data.(map[string]any); ok {
+		m[name] = value
+		return
+	}
+	v := reflect.ValueOf(data)
+	if v.Kind() == reflect.Pointer {
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return
+	}
+	f := v.FieldByName(name)
+	if !f.IsValid() || f.Kind() != reflect.Bool || !f.CanSet() {
+		return
+	}
+	f.SetBool(value)
+}

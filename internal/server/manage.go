@@ -25,6 +25,7 @@ type manageData struct {
 	SiteName         string
 	SiteURL          string
 	Active           string
+	IsSuperAdmin     bool // populated by s.render via injectChrome.
 	Title            string
 	Domains          string
 	FunctionsEnabled bool

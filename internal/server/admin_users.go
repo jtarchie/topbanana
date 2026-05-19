@@ -98,13 +98,12 @@ func (s *Server) adminUsersHandler(c *echo.Context) error {
 	sort.SliceStable(inviteRows, func(i, j int) bool { return inviteRows[i].Email < inviteRows[j].Email })
 
 	return s.render(c, "admin_users", adminUsersData{
-		Active:       "admin_users",
-		IsSuperAdmin: true,
-		Users:        rows,
-		Invites:      inviteRows,
-		Flash:        c.QueryParam("flash"),
-		Error:        c.QueryParam("error"),
-		Roles:        []string{string(auth.RoleAdmin), string(auth.RoleSuperAdmin)},
+		Active:  "admin_users",
+		Users:   rows,
+		Invites: inviteRows,
+		Flash:   c.QueryParam("flash"),
+		Error:   c.QueryParam("error"),
+		Roles:   []string{string(auth.RoleAdmin), string(auth.RoleSuperAdmin)},
 	})
 }
 

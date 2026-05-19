@@ -44,6 +44,65 @@ func TestTemplateStringField(t *testing.T) {
 	}
 }
 
+func TestInjectBoolField(t *testing.T) {
+	t.Run("sets struct via pointer", func(t *testing.T) {
+		v := &chromeFixture{}
+		injectBoolField(v, "IsSuper", true)
+		if !v.IsSuper {
+			t.Fatalf("expected IsSuper=true on *struct, got false")
+		}
+	})
+
+	t.Run("sets map[string]any in place", func(t *testing.T) {
+		m := map[string]any{"existing": "preserved"}
+		injectBoolField(m, "IsSuperAdmin", true)
+		if got := m["IsSuperAdmin"]; got != true {
+			t.Fatalf("expected map[IsSuperAdmin]=true, got %v", got)
+		}
+		if got := m["existing"]; got != "preserved" {
+			t.Fatalf("map mutation clobbered an unrelated key: got %v", got)
+		}
+	})
+
+	t.Run("plain struct (non-addressable) silently no-ops", func(t *testing.T) {
+		// Passing a struct value (not a pointer) yields a non-settable
+		// reflect.Value. The injection should silently skip rather than
+		// panic — this exercises the f.CanSet branch.
+		v := chromeFixture{}
+		injectBoolField(v, "IsSuper", true)
+		if v.IsSuper {
+			t.Fatalf("non-addressable value should not have been mutated, got true")
+		}
+	})
+
+	t.Run("missing field no-ops", func(t *testing.T) {
+		v := &chromeFixture{}
+		injectBoolField(v, "NotAField", true)
+		// no panic + struct unchanged
+		if v.IsSuper || v.Disabled {
+			t.Fatalf("missing-field write should leave fixture untouched")
+		}
+	})
+
+	t.Run("wrong-type field no-ops", func(t *testing.T) {
+		v := &chromeFixture{SiteName: "Bear"}
+		injectBoolField(v, "SiteName", true)
+		if v.SiteName != "Bear" {
+			t.Fatalf("write to a string field should be skipped, got %q", v.SiteName)
+		}
+	})
+
+	t.Run("nil input no-ops", func(t *testing.T) {
+		// Just confirm no panic.
+		injectBoolField(nil, "IsSuper", true)
+	})
+
+	t.Run("non-struct non-map no-ops", func(t *testing.T) {
+		injectBoolField("just a string", "IsSuper", true)
+		injectBoolField(42, "IsSuper", true)
+	})
+}
+
 func TestTemplateBoolField(t *testing.T) {
 	full := chromeFixture{IsSuper: true, SiteName: "Bear"}
 	cases := []struct {

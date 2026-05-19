@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -590,12 +591,41 @@ func (s *Server) redirectToManage(c *echo.Context) error {
 }
 
 func (s *Server) render(c *echo.Context, name string, data any) error {
+	data = s.injectChrome(c, data)
 	var buf bytes.Buffer
 	err := s.tpl.ExecuteTemplate(&buf, name, data)
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "render "+name, err)
 	}
 	return c.HTML(http.StatusOK, buf.String()) //nolint:wrapcheck
+}
+
+// injectChrome layers session-derived chrome values (currently just
+// IsSuperAdmin) onto the page data so the shared brand partial renders
+// consistently regardless of which handler produced the struct. Handlers
+// that pass a plain struct value get rewrapped in a *struct so reflection
+// can set fields; maps are mutated in place; pointers pass through.
+// Data shapes that don't have a matching IsSuperAdmin field fall through
+// without error — the chrome partial's boolField helper just returns
+// false on them, same as today.
+func (s *Server) injectChrome(c *echo.Context, data any) any {
+	isSuper := false
+	u := userFromContext(c)
+	if u != nil {
+		isSuper = u.Role == auth.RoleSuperAdmin
+	}
+	// Struct values aren't addressable through reflect, so injectBoolField
+	// can't set their fields. Wrap them in a pointer first.
+	if data != nil {
+		v := reflect.ValueOf(data)
+		if v.Kind() == reflect.Struct {
+			ptr := reflect.New(v.Type())
+			ptr.Elem().Set(v)
+			data = ptr.Interface()
+		}
+	}
+	injectBoolField(data, "IsSuperAdmin", isSuper)
+	return data
 }
 
 func httpErr(code int, msg string, err error) *echo.HTTPError {
@@ -691,7 +721,6 @@ func (s *Server) appsHandler(c *echo.Context) error {
 	return s.render(c, "apps", appsData{
 		Apps:           links,
 		Flash:          c.QueryParam("flash"),
-		IsSuperAdmin:   user != nil && user.Role == auth.RoleSuperAdmin,
 		OverQuotaCount: over,
 		MaxApps:        cap,
 	})
