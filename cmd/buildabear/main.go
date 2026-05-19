@@ -11,7 +11,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"golang.org/x/crypto/bcrypt"
 
 	"github.com/jtarchie/buildabear/internal/auth"
 	"github.com/jtarchie/buildabear/internal/build"
@@ -28,14 +27,11 @@ var cli struct {
 	Port   string `default:"8080"      env:"PORT"   help:"HTTP port to listen on."`
 	Domain string `default:"localhost" env:"DOMAIN" help:"Base domain for subdomains."`
 
-	AdminUsername string `default:"admin"      env:"ADMIN_USERNAME"                                           help:"Username for the admin HTTP Basic Auth gate." name:"admin-username"`
-	AdminPassword string `env:"ADMIN_PASSWORD" help:"Password for the admin HTTP Basic Auth gate (required)." name:"admin-password"                               required:""`
-
-	// Multi-tenancy / passkeys. Empty SUPER_ADMIN_EMAIL keeps the legacy
-	// single-tenant basic-auth model active; setting it opts the deployment
-	// into the passkey flow once the routes land.
-	SuperAdminEmail string `env:"SUPER_ADMIN_EMAIL" help:"Email of the seeded super admin. When set, enables passkey-based multi-tenancy." name:"super-admin-email"`
-	InsecureCookies bool   `env:"INSECURE_COOKIES"  help:"Allow non-Secure cookies for local HTTP dev. Never set in production."           name:"insecure-cookies"`
+	// Multi-tenancy / passkeys. Required: every admin route is gated by a
+	// passkey session bound to a user record, and the super admin is the
+	// seeded role with platform-wide access.
+	SuperAdminEmail string `env:"SUPER_ADMIN_EMAIL" help:"Email of the seeded super admin. Required — used to seed the first user and log the bootstrap invite URL on a fresh install."   name:"super-admin-email" required:""`
+	InsecureCookies bool   `env:"INSECURE_COOKIES"  help:"Allow non-Secure cookies for local HTTP dev. Never set in production."                                                          name:"insecure-cookies"`
 
 	S3Bucket      string `env:"S3_BUCKET"        help:"S3 bucket name (multi-tenant)."     name:"s3-bucket"       required:""`
 	S3EndpointURL string `env:"AWS_ENDPOINT_URL" help:"Override S3 endpoint (e.g. Minio)." name:"s3-endpoint-url"`
@@ -128,49 +124,41 @@ func main() {
 	sb := sandbox.New(sandbox.Config{})
 	stateStore := state.NewS3(s3Client, cli.S3Bucket)
 
-	adminHash, err := bcrypt.GenerateFromPassword([]byte(cli.AdminPassword), bcrypt.DefaultCost)
+	authSvc, err := auth.New(auth.Config{
+		Store:           s,
+		Domain:          cli.Domain,
+		SuperAdminEmail: cli.SuperAdminEmail,
+		InsecureCookies: cli.InsecureCookies,
+	})
 	if err != nil {
-		slog.Error("admin password hash failed", "err", err)
+		slog.Error("auth init failed", "err", err)
+		os.Exit(1)
+	}
+	_, err = authSvc.Bootstrap(ctx)
+	if err != nil {
+		slog.Error("auth bootstrap failed", "err", err)
+		os.Exit(1)
+	}
+	// One-shot ownership migration: pre-multi-tenancy apps land with the
+	// super admin as their owner so commit 5's per-slug authorization sees
+	// every existing slug as accessible to them. Safe on every boot.
+	err = authSvc.MigrateOwnership(ctx, &storeAppLister{s: s}, &buildMetaAdapter{b: buildSvc})
+	if err != nil {
+		slog.Error("auth migrate ownership failed", "err", err)
 		os.Exit(1)
 	}
 
-	// Multi-tenancy is opt-in during the rollout. Once SUPER_ADMIN_EMAIL is
-	// set, the auth subsystem is constructed and bootstrapped (super-admin
-	// seeded, bootstrap invite URL logged) but no admin routes use it yet —
-	// that switch happens in the cutover commit. Leaving the env var unset
-	// keeps the existing basic-auth path live.
-	var authSvc *auth.Auth
-	if cli.SuperAdminEmail != "" {
-		authSvc, err = auth.New(auth.Config{
-			Store:           s,
-			Domain:          cli.Domain,
-			SuperAdminEmail: cli.SuperAdminEmail,
-			InsecureCookies: cli.InsecureCookies,
-		})
-		if err != nil {
-			slog.Error("auth init failed", "err", err)
-			os.Exit(1)
-		}
-		_, err = authSvc.Bootstrap(ctx)
-		if err != nil {
-			slog.Error("auth bootstrap failed", "err", err)
-			os.Exit(1)
-		}
-	}
-
 	deps := server.Deps{
-		Store:             s,
-		Build:             buildSvc,
-		Events:            tracker,
-		LLM:               llm,
-		Sandbox:           sb,
-		State:             stateStore,
-		Snapshot:          snapshotSvc,
-		Auth:              authSvc,
-		Domain:            cli.Domain,
-		Port:              cli.Port,
-		AdminUsername:     cli.AdminUsername,
-		AdminPasswordHash: string(adminHash),
+		Store:    s,
+		Build:    buildSvc,
+		Events:   tracker,
+		LLM:      llm,
+		Sandbox:  sb,
+		State:    stateStore,
+		Snapshot: snapshotSvc,
+		Auth:     authSvc,
+		Domain:   cli.Domain,
+		Port:     cli.Port,
 		SystemInfo: server.SystemInfo{
 			LLMModel:           cli.LLMModel,
 			LLMBaseURL:         cli.LLMBaseURL,
@@ -224,4 +212,36 @@ func main() {
 		slog.Error("server error", "err", err)
 		os.Exit(1)
 	}
+}
+
+// storeAppLister adapts *store.Store to auth.AppLister so the migration
+// can enumerate slugs without internal/auth importing internal/store-as-a-concrete-type.
+type storeAppLister struct{ s *store.Store }
+
+func (a *storeAppLister) ListApps(ctx context.Context) ([]string, error) {
+	apps, err := a.s.ListApps(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list apps: %w", err)
+	}
+	return apps, nil
+}
+
+// buildMetaAdapter adapts *build.Service to auth.MetaAdapter so the
+// migration can read and rewrite the per-app OwnerID without internal/auth
+// pulling in internal/build.
+type buildMetaAdapter struct{ b *build.Service }
+
+func (a *buildMetaAdapter) ReadOwnerID(ctx context.Context, slug string) (string, bool) {
+	meta := a.b.ReadMeta(ctx, slug)
+	return meta.OwnerID, meta.Template != ""
+}
+
+func (a *buildMetaAdapter) SetOwnerID(ctx context.Context, slug, ownerID string) error {
+	meta := a.b.ReadMeta(ctx, slug)
+	meta.OwnerID = ownerID
+	err := a.b.WriteMeta(ctx, slug, meta)
+	if err != nil {
+		return fmt.Errorf("write meta %s: %w", slug, err)
+	}
+	return nil
 }

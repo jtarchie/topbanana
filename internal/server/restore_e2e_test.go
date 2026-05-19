@@ -14,8 +14,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"golang.org/x/crypto/bcrypt"
 
+	"github.com/jtarchie/buildabear/internal/auth"
 	"github.com/jtarchie/buildabear/internal/build"
 	"github.com/jtarchie/buildabear/internal/events"
 	"github.com/jtarchie/buildabear/internal/server"
@@ -90,30 +90,38 @@ func cleanupSlug(t *testing.T, ctx context.Context, s *store.Store, svc *snapsho
 	})
 }
 
-const (
-	testAdminUser     = "admin"
-	testAdminPassword = "test-password"
-)
+const testAdminUser = "admin@test"
 
 // buildServer wires up a Server with all the dependencies the restore + delete
 // routes touch. LLM and Sandbox are left nil — neither code path goes near
-// them.
+// them. Also seeds a passkey session for the testAdminUser so the gated
+// routes (everything under requireUser) authenticate via the cookie set
+// by InjectTestSession.
 func buildServer(t *testing.T, st *store.Store, snapSvc *snapshot.Service) http.Handler {
 	t.Helper()
-	hash, err := bcrypt.GenerateFromPassword([]byte(testAdminPassword), bcrypt.MinCost)
+	authSvc, err := auth.New(auth.Config{
+		Store:           st,
+		Domain:          "localhost",
+		SuperAdminEmail: testAdminUser,
+		InsecureCookies: true,
+	})
 	if err != nil {
-		t.Fatalf("bcrypt: %v", err)
+		t.Fatalf("auth.New: %v", err)
 	}
+	token, err := authSvc.InjectTestSession(context.Background(), testAdminUser, auth.RoleSuperAdmin)
+	if err != nil {
+		t.Fatalf("inject test session: %v", err)
+	}
+	testSessionCookie = &http.Cookie{Name: auth.TestSessionCookieName, Value: token}
 	e, _ := server.New(server.Deps{
-		Store:             st,
-		Build:             build.New(st, nil, events.NewTracker(), snapSvc),
-		Events:            events.NewTracker(),
-		State:             state.NewMemory(),
-		Snapshot:          snapSvc,
-		Domain:            "localhost",
-		Port:              "8080",
-		AdminUsername:     testAdminUser,
-		AdminPasswordHash: string(hash),
+		Store:    st,
+		Build:    build.New(st, nil, events.NewTracker(), snapSvc),
+		Events:   events.NewTracker(),
+		State:    state.NewMemory(),
+		Snapshot: snapSvc,
+		Auth:     authSvc,
+		Domain:   "localhost",
+		Port:     "8080",
 	})
 	return e
 }
@@ -152,7 +160,7 @@ func TestHistoryRestoreHandler_EndToEnd(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/history/"+slug+"/restore", strings.NewReader(body))
 	req.Host = "localhost"
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.SetBasicAuth(testAdminUser, testAdminPassword)
+	req.AddCookie(testSessionCookie)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -239,7 +247,7 @@ func TestSettingsDeleteHandler_EndToEnd(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/settings/"+slug+"/delete", strings.NewReader(body))
 	req.Host = "localhost"
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.SetBasicAuth(testAdminUser, testAdminPassword)
+	req.AddCookie(testSessionCookie)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -255,7 +263,7 @@ func TestSettingsDeleteHandler_EndToEnd(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPost, "/settings/"+slug+"/delete", strings.NewReader(body))
 	req.Host = "localhost"
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.SetBasicAuth(testAdminUser, testAdminPassword)
+	req.AddCookie(testSessionCookie)
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther {

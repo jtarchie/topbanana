@@ -66,15 +66,13 @@ type Deps struct {
 	Sandbox  *sandbox.Manager
 	State    state.Store
 	Snapshot *snapshot.Service
-	// Auth, when non-nil, drives the passkey/multi-tenant identity surface.
-	// During the cutover (commits 2-4) it's allowed to be nil so basic auth
-	// keeps working; once mounted in commit 4 main.go will require it.
-	Auth              *auth.Auth
-	Domain            string
-	Port              string
-	AdminUsername     string
-	AdminPasswordHash string
-	SystemInfo        SystemInfo
+	// Auth drives the passkey/multi-tenant identity surface. main.go
+	// constructs it from SUPER_ADMIN_EMAIL; a nil value would crash the
+	// admin gate, so it's required by the binary.
+	Auth       *auth.Auth
+	Domain     string
+	Port       string
+	SystemInfo SystemInfo
 	// PreWarmCert, when non-nil, is invoked in a goroutine for each newly-saved
 	// custom domain so the autocert manager can issue a Let's Encrypt cert
 	// before the first visitor arrives. Set by main when --acme-email is on;
@@ -84,20 +82,18 @@ type Deps struct {
 
 // Server is the wired-up state shared across handlers.
 type Server struct {
-	store             *store.Store
-	build             *build.Service
-	events            *events.Tracker
-	llm               adkmodel.LLM
-	sandbox           *sandbox.Manager
-	state             state.Store
-	snapshot          *snapshot.Service
-	auth              *auth.Auth
-	domain            string
-	port              string
-	tpl               *template.Template
-	adminUsername     string
-	adminPasswordHash string
-	systemInfo        SystemInfo
+	store      *store.Store
+	build      *build.Service
+	events     *events.Tracker
+	llm        adkmodel.LLM
+	sandbox    *sandbox.Manager
+	state      state.Store
+	snapshot   *snapshot.Service
+	auth       *auth.Auth
+	domain     string
+	port       string
+	tpl        *template.Template
+	systemInfo SystemInfo
 
 	// htmlMinifier strips whitespace + comments from HTML on the serve
 	// path. Constructed once at startup so we don't re-allocate the
@@ -158,24 +154,22 @@ func New(d Deps) (*echo.Echo, *Server) {
 	}
 
 	s := &Server{
-		store:             d.Store,
-		build:             d.Build,
-		events:            d.Events,
-		llm:               d.LLM,
-		sandbox:           d.Sandbox,
-		state:             d.State,
-		snapshot:          d.Snapshot,
-		auth:              d.Auth,
-		domain:            d.Domain,
-		port:              d.Port,
-		tpl:               tpl,
-		adminUsername:     d.AdminUsername,
-		adminPasswordHash: d.AdminPasswordHash,
-		systemInfo:        d.SystemInfo,
-		htmlMinifier:      newHTMLMinifier(),
-		domainIndex:       map[string]string{},
-		slugIndex:         map[string]bool{},
-		preWarmCert:       d.PreWarmCert,
+		store:        d.Store,
+		build:        d.Build,
+		events:       d.Events,
+		llm:          d.LLM,
+		sandbox:      d.Sandbox,
+		state:        d.State,
+		snapshot:     d.Snapshot,
+		auth:         d.Auth,
+		domain:       d.Domain,
+		port:         d.Port,
+		tpl:          tpl,
+		systemInfo:   d.SystemInfo,
+		htmlMinifier: newHTMLMinifier(),
+		domainIndex:  map[string]string{},
+		slugIndex:    map[string]bool{},
+		preWarmCert:  d.PreWarmCert,
 	}
 	s.initialRebuildDomainIndex(context.Background())
 
@@ -208,7 +202,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		e.GET("/account", s.accountHandler)
 	}
 
-	admin := e.Group("", s.requireAdmin)
+	admin := e.Group("", s.requireUser)
 	// promptBodyCap bounds the whole request body on prompt-bearing POSTs so a
 	// runaway hidden field or selection can't sneak past the per-field caps in
 	// the handlers. Leaves /upload/:slug alone — image uploads need 5 MiB.

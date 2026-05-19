@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 
 	"github.com/jtarchie/buildabear/internal/snapshot"
@@ -76,18 +77,24 @@ func TestHappyPath_BrowserSmoke(t *testing.T) {
 	runCtx, cancelRun := context.WithTimeout(browserCtx, 30*time.Second)
 	defer cancelRun()
 
-	// Need to load the page with Host=localhost so subdomainMiddleware routes
-	// us to the admin landing page. chromedp doesn't let us set the Host
-	// header easily, but httptest.Server already serves on 127.0.0.1 — which
-	// is in fallThroughHosts — so the admin routes are reachable directly.
-	// We still need Basic Auth to get past requireAdmin: bake credentials
-	// into the URL.
-	urlBase := strings.Replace(httpSrv.URL, "http://", "http://"+testAdminUser+":"+testAdminPassword+"@", 1)
+	// chromedp doesn't let us set the Host header easily, but httptest.Server
+	// already serves on 127.0.0.1 — which is in fallThroughHosts — so the
+	// admin routes are reachable directly. After the basic-auth cutover we
+	// inject the passkey session cookie before navigation so requireUser
+	// sees a valid session.
+	host := strings.TrimPrefix(httpSrv.URL, "http://")
+	host = strings.SplitN(host, ":", 2)[0]
 
 	var theme, bodyText string
 	var primaryColor string
 	err := chromedp.Run(runCtx,
-		chromedp.Navigate(urlBase+"/"),
+		network.SetCookies([]*network.CookieParam{{
+			Name:   testSessionCookie.Name,
+			Value:  testSessionCookie.Value,
+			Domain: host,
+			Path:   "/",
+		}}),
+		chromedp.Navigate(httpSrv.URL+"/"),
 		chromedp.WaitVisible(`textarea#prompt`, chromedp.ByQuery),
 		chromedp.AttributeValue(`html`, `data-theme`, &theme, nil),
 		chromedp.Text(`h1`, &bodyText, chromedp.ByQuery),

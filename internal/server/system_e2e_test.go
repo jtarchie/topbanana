@@ -50,7 +50,7 @@ func TestSystem_Populated(t *testing.T) {
 			t.Fatalf("new %s %s: %v", method, path, err)
 		}
 		req.Host = "localhost"
-		req.SetBasicAuth(testAdminUser, testAdminPassword)
+		req.AddCookie(testSessionCookie)
 		if body != nil {
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		}
@@ -159,7 +159,7 @@ func TestSystem_EmptyBucket(t *testing.T) {
 		t.Fatalf("new GET /system: %v", err)
 	}
 	req.Host = "localhost"
-	req.SetBasicAuth(testAdminUser, testAdminPassword)
+	req.AddCookie(testSessionCookie)
 	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("GET /system: %v", err)

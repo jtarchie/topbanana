@@ -13,9 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
-
 	"github.com/jtarchie/buildabear/internal/agent"
+	"github.com/jtarchie/buildabear/internal/auth"
 	"github.com/jtarchie/buildabear/internal/build"
 	"github.com/jtarchie/buildabear/internal/events"
 	"github.com/jtarchie/buildabear/internal/server"
@@ -66,6 +65,13 @@ func (r *stubRunner) Describe(_ context.Context, _ *store.Store, _ string, _ str
 	return agent.SiteDescription{Title: r.title, Description: r.desc}, nil
 }
 
+// testSessionCookie is filled in by buildServerWithRunnerAndInfo and read
+// back by every authenticated test request. Package-scoped because each
+// test rebuilds the server fresh and gets its own cookie value, and
+// threading it through every helper would be more code than the global
+// is worth in test scope.
+var testSessionCookie *http.Cookie
+
 // buildServerWithRunner is the happy-path counterpart to buildServer: same
 // auth + deps but threads a Runner all the way through the build service so
 // the test can drive a deterministic build without a real LLM.
@@ -78,10 +84,6 @@ func buildServerWithRunner(t *testing.T, st *store.Store, snapSvc *snapshot.Serv
 // so it can assert /system surfaces config it didn't make up.
 func buildServerWithRunnerAndInfo(t *testing.T, st *store.Store, snapSvc *snapshot.Service, runner build.Runner, info server.SystemInfo) http.Handler {
 	t.Helper()
-	hash, err := bcrypt.GenerateFromPassword([]byte(testAdminPassword), bcrypt.MinCost)
-	if err != nil {
-		t.Fatalf("bcrypt: %v", err)
-	}
 	tracker := events.NewTracker()
 	buildSvc := build.NewWithConfig(build.Config{
 		Store:      st,
@@ -90,17 +92,30 @@ func buildServerWithRunnerAndInfo(t *testing.T, st *store.Store, snapSvc *snapsh
 		Runner:     runner,
 		RecordEdit: true,
 	})
+	authSvc, err := auth.New(auth.Config{
+		Store:           st,
+		Domain:          "localhost",
+		SuperAdminEmail: testAdminUser,
+		InsecureCookies: true,
+	})
+	if err != nil {
+		t.Fatalf("auth.New: %v", err)
+	}
+	token, err := authSvc.InjectTestSession(context.Background(), testAdminUser, auth.RoleSuperAdmin)
+	if err != nil {
+		t.Fatalf("inject test session: %v", err)
+	}
+	testSessionCookie = &http.Cookie{Name: auth.TestSessionCookieName, Value: token}
 	e, _ := server.New(server.Deps{
-		Store:             st,
-		Build:             buildSvc,
-		Events:            tracker,
-		State:             state.NewMemory(),
-		Snapshot:          snapSvc,
-		Domain:            "localhost",
-		Port:              "8080",
-		AdminUsername:     testAdminUser,
-		AdminPasswordHash: string(hash),
-		SystemInfo:        info,
+		Store:      st,
+		Build:      buildSvc,
+		Events:     tracker,
+		State:      state.NewMemory(),
+		Snapshot:   snapSvc,
+		Auth:       authSvc,
+		Domain:     "localhost",
+		Port:       "8080",
+		SystemInfo: info,
 	})
 	return e
 }
@@ -134,7 +149,7 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 			t.Fatalf("new GET %s: %v", path, err)
 		}
 		req.Host = "localhost"
-		req.SetBasicAuth(testAdminUser, testAdminPassword)
+		req.AddCookie(testSessionCookie)
 		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatalf("GET %s: %v", path, err)
@@ -174,7 +189,7 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	}
 	req.Host = "localhost"
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.SetBasicAuth(testAdminUser, testAdminPassword)
+	req.AddCookie(testSessionCookie)
 	resp, err = client.Do(req)
 	if err != nil {
 		t.Fatalf("POST /build: %v", err)
@@ -281,7 +296,7 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	}
 	delReq.Host = "localhost"
 	delReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	delReq.SetBasicAuth(testAdminUser, testAdminPassword)
+	delReq.AddCookie(testSessionCookie)
 	// Don't follow the redirect so we can assert it.
 	noRedirect := &http.Client{
 		Timeout: 10 * time.Second,
