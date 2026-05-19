@@ -274,6 +274,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 	admin.GET("/settings/:slug", s.redirectToManage, owns)
 	admin.POST("/settings/:slug", s.settingsSubmitHandler, owns)
 	admin.POST("/settings/:slug/delete", s.settingsDeleteHandler, owns)
+	admin.POST("/apps/:slug/transfer", s.transferAppHandler, owns)
 	admin.GET("/history/:slug", s.redirectToWorkspace, owns)
 	admin.POST("/history/:slug/restore", s.historyRestoreHandler, owns)
 	admin.POST("/history/:slug/delete", s.historyDeleteHandler, owns)
@@ -653,6 +654,11 @@ type appsData struct {
 	IsSuperAdmin bool
 	Apps         []appLink
 	Flash        string
+	// OverQuotaCount is the diff between the current owned-app count and
+	// the user's MaxApps cap, or 0 when within quota. Triggers the banner
+	// at the top of the listing.
+	OverQuotaCount int
+	MaxApps        int
 }
 
 func (s *Server) appsHandler(c *echo.Context) error {
@@ -685,11 +691,37 @@ func (s *Server) appsHandler(c *echo.Context) error {
 		return appLinkKey(links[i]) < appLinkKey(links[j])
 	})
 
+	over, cap := s.appsOverQuota(user)
 	return s.render(c, "apps", appsData{
-		Apps:         links,
-		Flash:        c.QueryParam("flash"),
-		IsSuperAdmin: user != nil && user.Role == auth.RoleSuperAdmin,
+		Apps:           links,
+		Flash:          c.QueryParam("flash"),
+		IsSuperAdmin:   user != nil && user.Role == auth.RoleSuperAdmin,
+		OverQuotaCount: over,
+		MaxApps:        cap,
 	})
+}
+
+// appsOverQuota returns (overByN, effectiveCap) for the given user.
+// overByN > 0 means the user is past their cap (almost always because
+// they were transferred into it) and the listing should render a
+// banner. Super admins are never over quota.
+func (s *Server) appsOverQuota(user *auth.User) (int, int) {
+	if s.auth == nil || user == nil || user.Role == auth.RoleSuperAdmin {
+		return 0, 0
+	}
+	defaults := s.auth.QuotaDefaults()
+	cap := user.Quotas.MaxApps
+	if cap == 0 {
+		cap = defaults.MaxApps
+	}
+	if cap <= 0 {
+		return 0, 0
+	}
+	count := s.countAppsFor(user.Email)
+	if count <= cap {
+		return 0, cap
+	}
+	return count - cap, cap
 }
 
 // siteNameOrSlug returns the site's friendly title for the chrome breadcrumb,

@@ -149,6 +149,21 @@
     </div>
   </section>
 
+  <section class="card bg-base-100 border border-base-300 mb-6" aria-labelledby="transfer-heading">
+    <div class="card-body">
+      <h2 id="transfer-heading" class="card-title text-lg">Transfer ownership</h2>
+      <p class="text-sm text-base-content/70">Hand this app off to another user by email. They take over editing immediately; you lose access (unless you're a super admin).</p>
+      <form method="POST" action="/apps/{{ .Slug }}/transfer" class="flex flex-wrap gap-3 mt-2 items-end"
+            onsubmit="return confirm('Transfer this app to ' + this.new_owner_email.value + '? You will lose access if you aren\'t a super admin.');">
+        <label class="form-control grow">
+          <span class="label-text font-medium">New owner email</span>
+          <input type="email" name="new_owner_email" required class="input input-bordered mt-1" placeholder="them@example.com">
+        </label>
+        <button type="submit" class="btn btn-primary btn-sm">Transfer</button>
+      </form>
+    </div>
+  </section>
+
   <section class="card bg-base-100 border border-error/40" aria-labelledby="danger-heading">
     <div class="card-body">
       <h2 id="danger-heading" class="card-title text-error text-lg">Delete this app</h2>
