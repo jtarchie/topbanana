@@ -3,6 +3,8 @@ package auth
 import (
 	"errors"
 	"fmt"
+
+	"github.com/jtarchie/buildabear/internal/model"
 )
 
 // ErrMaxAppsReached is returned by CheckMaxApps when the user has
@@ -11,15 +13,17 @@ import (
 var ErrMaxAppsReached = errors.New("max apps reached")
 
 // ErrModelNotAllowed is returned by ResolveModel when the requested
-// model isn't in the user's allowlist.
+// model isn't in the user's allowlist. Retained for any caller still on
+// the legacy single-model API; the per-tier flow no longer rejects.
 var ErrModelNotAllowed = errors.New("model not allowed")
 
 // QuotaDefaults captures the platform-wide fallbacks applied when a user
-// record's Quotas struct is zero-valued. Wired from main.go CLI flags so
-// operators can tune the bar without editing every user record.
+// record's Quotas struct is zero-valued. Tiers maps each model tier to
+// its operator-configured default (TierAuthor must be non-empty; the
+// others fall back via TierMap.Resolve).
 type QuotaDefaults struct {
 	MaxApps int
-	Model   string
+	Tiers   model.TierMap
 }
 
 // CheckMaxApps gates new-app creation. Super admins bypass; regular
@@ -51,31 +55,26 @@ func CheckMaxApps(u *User, currentCount int, defaults QuotaDefaults) error {
 	return nil
 }
 
-// ResolveModel validates that the user can run with the requested model
-// and returns the effective model string. Empty AllowedModels means "use
-// the system default" (which the caller passes in); a non-empty list
-// rejects anything outside it. Super admins are bound by their own
-// allowlist if they bothered to set one but bypass otherwise.
-func ResolveModel(u *User, requested string, defaults QuotaDefaults) (string, error) {
+// ResolveTiers returns the effective per-tier model map for a user.
+// User overrides layer on top of the platform defaults; empty user entries
+// fall through to the default for that tier. Super admins behave the same:
+// their per-tier overrides apply if they bothered to set any.
+func ResolveTiers(u *User, defaults QuotaDefaults) model.TierMap {
 	if u == nil {
-		return "", errors.New("auth: missing user for model check")
+		return defaults.Tiers
 	}
-	if len(u.Quotas.AllowedModels) == 0 {
-		if requested != "" {
-			return requested, nil
-		}
-		return defaults.Model, nil
+	return defaults.Tiers.Merge(u.Quotas.AllowedModels)
+}
+
+// ResolveModel is the legacy single-model resolver, retained as a thin
+// shim during the transition to tier-based dispatch. New code should call
+// ResolveTiers and pick the appropriate tier. The shim collapses everything
+// to TierAuthor so existing callers continue to behave the way they did
+// before tiers existed.
+func ResolveModel(u *User, requested string, defaults QuotaDefaults) (string, error) {
+	tiers := ResolveTiers(u, defaults)
+	if requested != "" {
+		return requested, nil
 	}
-	for _, m := range u.Quotas.AllowedModels {
-		if m == requested {
-			return requested, nil
-		}
-	}
-	// Fall back to the first allowed model when the caller hasn't asked
-	// for one specifically — keeps the build flow working when the form
-	// doesn't surface a model picker.
-	if requested == "" {
-		return u.Quotas.AllowedModels[0], nil
-	}
-	return "", fmt.Errorf("%w: %q", ErrModelNotAllowed, requested)
+	return tiers.Resolve(model.TierAuthor), nil
 }

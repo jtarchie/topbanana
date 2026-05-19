@@ -5,10 +5,14 @@
 package auth
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
+
+	"github.com/jtarchie/buildabear/internal/model"
 )
 
 // Role gates which routes a user can hit. RoleSuperAdmin sees every app and
@@ -23,12 +27,88 @@ const (
 // Quotas caps per-user resource usage. The zero value means "use the
 // system defaults" (resolved by the quota check at enforcement time);
 // RoleSuperAdmin bypasses all checks.
+//
+// AllowedModels carries per-tier model overrides — one model per agent
+// lifecycle phase (Author/Editor/Utility/Vision). Empty entries fall
+// through to the system default for that tier. The shape is a map so
+// operators can override exactly the tiers they want without touching the
+// rest; see model.TierMap for the fallback semantics.
+//
+// Legacy records on disk stored AllowedModels as a flat []string; the
+// custom UnmarshalJSON below interprets element 0 as the Author override
+// and drops the rest, so old user records keep loading without a one-shot
+// migration.
 type Quotas struct {
 	// MaxApps is the hard cap on owned-app count. 0 = use system default.
 	MaxApps int `json:"max_apps,omitempty"`
-	// AllowedModels is an explicit allowlist of LLM model IDs the user may
-	// drive the agent with. Empty = use whatever the server default is.
-	AllowedModels []string `json:"allowed_models,omitempty"`
+	// AllowedModels is the per-tier override map. Empty entries / missing
+	// tiers fall through to QuotaDefaults at resolve time.
+	AllowedModels model.TierMap `json:"allowed_models,omitempty"`
+}
+
+// UnmarshalJSON accepts either the new object form
+// (`{"author":"X","editor":"Y"}`) or the legacy array form
+// (`["openai/gpt-4-turbo"]`) for the allowed_models field. The legacy form
+// projects element 0 into TierAuthor and drops the rest — the old code
+// already treated `AllowedModels[0]` as the user's effective default, so
+// no information is lost beyond unused list entries.
+func (q *Quotas) UnmarshalJSON(data []byte) error {
+	// Decode into a shape that's permissive about allowed_models. Use
+	// json.RawMessage so we can dispatch on the underlying type.
+	var raw struct {
+		MaxApps       int             `json:"max_apps,omitempty"`
+		AllowedModels json.RawMessage `json:"allowed_models,omitempty"`
+	}
+	err := json.Unmarshal(data, &raw)
+	if err != nil {
+		return fmt.Errorf("decode quotas: %w", err)
+	}
+	q.MaxApps = raw.MaxApps
+	q.AllowedModels = nil
+
+	trimmed := strings.TrimSpace(string(raw.AllowedModels))
+	if trimmed == "" || trimmed == "null" {
+		return nil
+	}
+
+	// Object form: parse straight into a TierMap.
+	if trimmed[0] == '{' {
+		var tm model.TierMap
+		err = json.Unmarshal(raw.AllowedModels, &tm)
+		if err != nil {
+			return fmt.Errorf("decode allowed_models object: %w", err)
+		}
+		// Drop empty entries so the map stays canonical.
+		for k, v := range tm {
+			if v == "" {
+				delete(tm, k)
+			}
+		}
+		if len(tm) > 0 {
+			q.AllowedModels = tm
+		}
+		return nil
+	}
+
+	// Legacy array form: element 0 becomes the Author override.
+	if trimmed[0] == '[' {
+		var list []string
+		err = json.Unmarshal(raw.AllowedModels, &list)
+		if err != nil {
+			return fmt.Errorf("decode allowed_models array: %w", err)
+		}
+		for _, m := range list {
+			m = strings.TrimSpace(m)
+			if m == "" {
+				continue
+			}
+			q.AllowedModels = model.TierMap{model.TierAuthor: m}
+			return nil
+		}
+		return nil
+	}
+
+	return fmt.Errorf("allowed_models: unexpected shape %q", trimmed[:1])
 }
 
 // Invite is a one-shot token a super admin issues to onboard a new user.

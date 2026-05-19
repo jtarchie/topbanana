@@ -20,6 +20,7 @@ import (
 	"github.com/jtarchie/buildabear/internal/editrec"
 	"github.com/jtarchie/buildabear/internal/events"
 	"github.com/jtarchie/buildabear/internal/lint"
+	"github.com/jtarchie/buildabear/internal/model"
 	"github.com/jtarchie/buildabear/internal/snapshot"
 	"github.com/jtarchie/buildabear/internal/store"
 	"github.com/jtarchie/buildabear/internal/templates"
@@ -137,13 +138,18 @@ func (r agentRunner) Describe(ctx context.Context, s *store.Store, slug, userPro
 // buildTimeout caps wall-clock per build; zero falls back to DefaultBuildTimeout.
 // reasoningEffort is recorded in each transcript so the debug viewer can show
 // which reasoning level the operator was running at the time.
-// model is the human-readable LLM identifier (provider/model-name as the
-// user typed it) stamped into each transcript so the debug viewer can show
-// which model actually ran.
+//
+// tierMap is the operator-configured per-tier model assignment. Per-build
+// overrides on Params.Tiers layer on top via TierMap.Merge.
+//
+// runnersByTier is a test seam: when non-nil, runnerForTier returns the
+// pinned Runner for that tier instead of consulting the cache. runner is
+// the legacy single-Runner shorthand — when set it serves every tier.
 type Service struct {
 	store           *store.Store
 	runner          Runner
-	model           string
+	runnersByTier   map[model.Tier]Runner
+	tierMap         model.TierMap
 	events          *events.Tracker
 	snapshot        *snapshot.Service
 	editsKeep       int
@@ -151,33 +157,43 @@ type Service struct {
 	buildTimeout    time.Duration
 	reasoningEffort genai.ThinkingLevel
 
-	// runnerFactory builds a Runner for an arbitrary model string the
-	// default-CLI-runner doesn't already cover. Nil in tests (which inject
-	// a Runner directly) and in legacy New() callers; when nil, Params.Model
-	// is ignored and the default runner is used unconditionally.
-	runnerFactory RunnerFactory
-	runnersMu     sync.Mutex
-	runners       map[string]Runner
+	// llmFactory resolves a model ID to an ADK LLM. The Service wraps the
+	// LLM in an agentRunner internally and caches both. Nil in tests that
+	// inject Runners directly via Config.Runner or Config.RunnerForTier.
+	llmFactory LLMFactory
+	cacheMu    sync.Mutex
+	runners    map[string]Runner
+	llms       map[string]adkmodel.LLM
 }
 
-// RunnerFactory constructs a Runner for a given model identifier (typically
-// "provider/name"). Used by Service.runnerFor when Params.Model names a
-// non-default model the operator put on a user's AllowedModels allowlist.
-type RunnerFactory func(ctx context.Context, model string) (Runner, error)
+// LLMFactory resolves a model identifier (typically "provider/name") to an
+// ADK LLM. The Service wraps the result in an agentRunner so callers that
+// just need the raw LLM (caption flow) and callers that need a Runner
+// (build/edit/describe flows) share one cached underlying model object.
+type LLMFactory func(ctx context.Context, modelID string) (adkmodel.LLM, error)
 
 // Config bundles dependencies for the build service. RecordEdit toggles the
 // per-edit transcript capture (enabled by default in production; tests can
 // opt out to avoid extra S3 writes). BuildTimeout, when zero, falls back to
 // DefaultBuildTimeout. ReasoningEffort, when non-empty, asks the model to
 // reason before responding — only useful on reasoning-capable models.
-// Model is the provider/model string the operator configured; recorded in
-// each transcript for debug, never used for routing (LLM does that).
-// Runner, when set, overrides the default LLM-backed agent runner — used by
-// tests to inject a stub.
+//
+// TierMap is the operator-configured per-tier model assignment; the
+// Service merges per-build overrides on top before dispatching. Validate
+// it before passing in — Service construction will fail otherwise.
+//
+// LLMFactory resolves model IDs to LLMs lazily, on first use. The Service
+// caches the result.
+//
+// Runner, when set, short-circuits LLMFactory and serves every tier from
+// one Runner — used by the happy-path test. RunnerForTier is the finer-
+// grained test seam: pin a specific Runner per tier so a test can assert
+// that the initial turn went to one stub and the lint retry went to
+// another.
 type Config struct {
 	Store           *store.Store
-	LLM             adkmodel.LLM
-	Model           string
+	TierMap         model.TierMap
+	LLMFactory      LLMFactory
 	Events          *events.Tracker
 	Snapshot        *snapshot.Service
 	EditsKeep       int
@@ -185,21 +201,25 @@ type Config struct {
 	BuildTimeout    time.Duration
 	ReasoningEffort genai.ThinkingLevel
 	Runner          Runner
-	// RunnerFactory is invoked when a Start call carries a Params.Model
-	// distinct from the CLI-configured default. cmd/buildabear wires this
-	// to model.Resolve + NewAgentRunner; tests leave it nil and stay on
-	// the injected stub for every call.
-	RunnerFactory RunnerFactory
+	RunnerForTier   map[model.Tier]Runner
 }
 
+// New is the legacy constructor used by tests that just want a Service
+// wired to one stub LLM. Every tier resolves to the same synthesised
+// model ID; the directly-injected LLM is pre-populated into the cache so
+// no factory invocation ever occurs.
 func New(s *store.Store, llm adkmodel.LLM, t *events.Tracker, snap *snapshot.Service) *Service {
+	const legacyID = "legacy"
 	return &Service{
 		store:        s,
 		runner:       agentRunner{llm: llm},
+		tierMap:      model.TierMap{model.TierAuthor: legacyID},
 		events:       t,
 		snapshot:     snap,
 		recordEdit:   true,
 		buildTimeout: DefaultBuildTimeout,
+		runners:      map[string]Runner{legacyID: agentRunner{llm: llm}},
+		llms:         map[string]adkmodel.LLM{legacyID: llm},
 	}
 }
 
@@ -210,48 +230,94 @@ func NewWithConfig(cfg Config) *Service {
 	if timeout <= 0 {
 		timeout = DefaultBuildTimeout
 	}
-	runner := cfg.Runner
-	if runner == nil {
-		runner = agentRunner{llm: cfg.LLM, reasoningEffort: cfg.ReasoningEffort}
-	}
 	return &Service{
 		store:           cfg.Store,
-		runner:          runner,
-		model:           cfg.Model,
+		runner:          cfg.Runner,
+		runnersByTier:   cfg.RunnerForTier,
+		tierMap:         cfg.TierMap,
 		events:          cfg.Events,
 		snapshot:        cfg.Snapshot,
 		editsKeep:       cfg.EditsKeep,
 		recordEdit:      cfg.RecordEdit,
 		buildTimeout:    timeout,
 		reasoningEffort: cfg.ReasoningEffort,
-		runnerFactory:   cfg.RunnerFactory,
+		llmFactory:      cfg.LLMFactory,
 		runners:         map[string]Runner{},
+		llms:            map[string]adkmodel.LLM{},
 	}
 }
 
-// runnerFor returns the Runner for a given model identifier, lazily
-// constructing one via the runnerFactory and caching the result. An empty
-// model, the default model, or the absence of a factory all return the
-// service's default runner — keeping legacy callers and tests on the
-// same path they used before per-user model resolution existed.
-func (svc *Service) runnerFor(ctx context.Context, model string) (Runner, error) {
-	if model == "" || model == svc.model || svc.runnerFactory == nil {
-		return svc.runner, nil
+// runnerForTier resolves the Runner that should serve the given tier for
+// this build. Per-build overrides (typically the user's per-tier model
+// settings) are merged on top of the operator-configured tier map. Test
+// injection wins over factory resolution: a pinned Runner (Config.Runner
+// for all tiers, Config.RunnerForTier per-tier) is returned as-is.
+//
+// Returns the Runner, the resolved model ID (for transcript stamping),
+// and any factory error.
+func (svc *Service) runnerForTier(ctx context.Context, override model.TierMap, t model.Tier) (Runner, string, error) {
+	if r, ok := svc.runnersByTier[t]; ok && r != nil {
+		return r, "test-injected", nil
 	}
-	svc.runnersMu.Lock()
-	defer svc.runnersMu.Unlock()
-	if r, ok := svc.runners[model]; ok {
-		return r, nil
+	if svc.runner != nil {
+		return svc.runner, "test-injected", nil
 	}
-	r, err := svc.runnerFactory(ctx, model)
+
+	effective := svc.tierMap.Merge(override)
+	id := effective.Resolve(t)
+	if id == "" {
+		return nil, "", fmt.Errorf("build: no model configured for tier %q", t)
+	}
+
+	svc.cacheMu.Lock()
+	defer svc.cacheMu.Unlock()
+	if r, ok := svc.runners[id]; ok {
+		return r, id, nil
+	}
+	llm, err := svc.resolveLLMLocked(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("build: resolve runner for %q: %w", model, err)
+		return nil, id, err
 	}
-	if svc.runners == nil {
-		svc.runners = map[string]Runner{}
+	r := agentRunner{llm: llm, reasoningEffort: svc.reasoningEffort}
+	svc.runners[id] = r
+	return r, id, nil
+}
+
+// LLMForTier returns the raw ADK LLM for a tier — the path the caption
+// handler uses, since agent.CaptionAsset operates on bytes+mime rather
+// than the Runner surface. Same caching as runnerForTier: hits the shared
+// per-model-ID cache so identical tiers share one client.
+func (svc *Service) LLMForTier(ctx context.Context, override model.TierMap, t model.Tier) (adkmodel.LLM, string, error) {
+	effective := svc.tierMap.Merge(override)
+	id := effective.Resolve(t)
+	if id == "" {
+		return nil, "", fmt.Errorf("build: no model configured for tier %q", t)
 	}
-	svc.runners[model] = r
-	return r, nil
+	svc.cacheMu.Lock()
+	defer svc.cacheMu.Unlock()
+	llm, err := svc.resolveLLMLocked(ctx, id)
+	if err != nil {
+		return nil, id, err
+	}
+	return llm, id, nil
+}
+
+// resolveLLMLocked is the inner cache + factory dispatch. Caller must hold
+// svc.cacheMu. Returns the cached LLM on hit; invokes svc.llmFactory on
+// miss and caches the result before returning.
+func (svc *Service) resolveLLMLocked(ctx context.Context, id string) (adkmodel.LLM, error) {
+	if llm, ok := svc.llms[id]; ok {
+		return llm, nil
+	}
+	if svc.llmFactory == nil {
+		return nil, fmt.Errorf("build: no LLMFactory configured; cannot resolve %q", id)
+	}
+	llm, err := svc.llmFactory(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("build: resolve LLM for %q: %w", id, err)
+	}
+	svc.llms[id] = llm
+	return llm, nil
 }
 
 // Params describes one invocation of Start. LogKey distinguishes build vs.
@@ -281,12 +347,14 @@ type Params struct {
 	// startup migration assigns those to the super admin on the next boot).
 	OwnerID string
 
-	// Model is the per-user effective model identifier (e.g.
-	// "openai/gpt-4-turbo"). When set and different from the CLI default,
-	// the service dispatches against the matching cached Runner instead
-	// of the default. Empty means "use the default" — every legacy call
-	// site stays on its existing runner.
-	Model string
+	// Tiers carries the per-user per-tier model overrides for this build.
+	// Empty entries fall back to the operator-configured tier map; an empty
+	// Tiers entirely means "use the service defaults for every tier".
+	//
+	// The relint flow uses this to force the whole build onto the Editor
+	// tier — the handler promotes the user's Editor model into the Author
+	// slot of the override before calling Start.
+	Tiers model.TierMap
 }
 
 // Start records the build as in-flight and runs it asynchronously. The
@@ -302,13 +370,28 @@ func (svc *Service) Start(p Params) {
 
 	go func() {
 		ctx := context.Background()
-		// Resolve the per-build Runner once up-front. Every subsequent
-		// agent call (initial Run, lint-fix retries, post-build Describe)
-		// uses the same Runner so the per-user model stays consistent
-		// across the whole build lifecycle.
-		runner, err := svc.runnerFor(ctx, p.Model)
+		// Resolve one Runner per relevant tier up-front. Each phase of the
+		// build lifecycle uses the matching tier:
+		//   - Author for the initial agent turn (creative generation).
+		//   - Editor for lint-fix retries (mechanical patches).
+		//   - Utility for the post-build Describe summary call.
+		// Two tiers pointing at the same model share one Runner via the
+		// per-model-ID cache.
+		authorRunner, authorID, err := svc.runnerForTier(ctx, p.Tiers, model.TierAuthor)
 		if err != nil {
-			slog.Error(p.LogKey+".runner_resolve_failed", "slug", p.Slug, "model", p.Model, "err", err)
+			slog.Error(p.LogKey+".runner_resolve_failed", "slug", p.Slug, "tier", "author", "err", err)
+			svc.events.Fail(p.Slug, err)
+			return
+		}
+		editorRunner, _, err := svc.runnerForTier(ctx, p.Tiers, model.TierEditor)
+		if err != nil {
+			slog.Error(p.LogKey+".runner_resolve_failed", "slug", p.Slug, "tier", "editor", "err", err)
+			svc.events.Fail(p.Slug, err)
+			return
+		}
+		utilityRunner, _, err := svc.runnerForTier(ctx, p.Tiers, model.TierUtility)
+		if err != nil {
+			slog.Error(p.LogKey+".runner_resolve_failed", "slug", p.Slug, "tier", "utility", "err", err)
 			svc.events.Fail(p.Slug, err)
 			return
 		}
@@ -338,17 +421,12 @@ func (svc *Service) Start(p Params) {
 				userPrompt = p.Prompt
 			}
 			rec = editrec.New(p.Slug, p.LogKey, userPrompt, p.Page, p.SelectionLen)
-			// Record the effective model for this run — for legacy single-
-			// model deployments p.Model is empty and we fall back to the
-			// service default; for per-user overrides we stamp the chosen
-			// model so the debug viewer reads correctly.
-			model := p.Model
-			if model == "" {
-				model = svc.model
-			}
-			rec.SetModel(model, string(svc.reasoningEffort))
+			// Stamp the Author tier model — the "main" creative model for
+			// this build. Editor / Utility resolutions are visible in the
+			// retry / describe transcripts themselves.
+			rec.SetModel(authorID, string(svc.reasoningEffort))
 		}
-		err = svc.buildAndLint(ctx, runner, p.Slug, p.Prompt, p.Template, p.Attachments, p.Seeds, rec)
+		err = svc.buildAndLint(ctx, authorRunner, editorRunner, p.Slug, p.Prompt, p.Template, p.Attachments, p.Seeds, rec)
 		// Persist the transcript before emitting the terminal SSE event.
 		// Consumers (the progress strip, /system, /debug) treat "completed"
 		// /"failed" as "you can read everything related to this run now."
@@ -367,7 +445,7 @@ func (svc *Service) Start(p Params) {
 			svc.events.Fail(p.Slug, err)
 			return
 		}
-		svc.refreshDescription(ctx, runner, p.Slug, p.Prompt)
+		svc.refreshDescription(ctx, utilityRunner, p.Slug, p.Prompt)
 		slog.Info(p.LogKey+".done", "slug", p.Slug)
 		if rec != nil {
 			rec.Finish(ctx, svc.store, events.StatusCompleted, nil)
@@ -398,9 +476,12 @@ func LintFixPrompt(errs []lint.Error) string {
 }
 
 // buildAndLint runs the agent then lints with up to maxLintRetries fix-up
-// passes when issues are found. runner is resolved once at Start time so
-// every retry and the final Describe share the same per-user model.
-func (svc *Service) buildAndLint(ctx context.Context, runner Runner, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, rec *editrec.Recorder) error {
+// passes when issues are found. author runs the initial creative turn;
+// editor handles every lint-fix retry — a deliberate downshift since each
+// retry starts a fresh agent session against an already-written site and
+// the prompt is a deterministic LintFixPrompt, well within reach of a
+// smaller model.
+func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, rec *editrec.Recorder) error {
 	ctx, cancel := context.WithTimeout(ctx, svc.buildTimeout)
 	defer cancel()
 
@@ -409,7 +490,7 @@ func (svc *Service) buildAndLint(ctx context.Context, runner Runner, slug, promp
 		emit = rec.Wrap(ctx, svc.store, slug, emit)
 	}
 
-	err := runner.Run(ctx, svc.store, slug, prompt, tmpl, attachments, seeds, emit)
+	err := author.Run(ctx, svc.store, slug, prompt, tmpl, attachments, seeds, emit)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("build timed out after %s", svc.buildTimeout)
@@ -434,7 +515,7 @@ func (svc *Service) buildAndLint(ctx context.Context, runner Runner, slug, promp
 
 		slog.Info("build.lint_retry", "slug", slug, "attempt", attempt+1, "issues", len(lintErrs))
 		emit(events.Event{Type: events.TypeStatus, Status: events.StatusRetry, Message: fmt.Sprintf("fixing %d issue(s)", len(lintErrs))})
-		err := runner.Run(ctx, svc.store, slug, LintFixPrompt(lintErrs), tmpl, attachments, nil, emit)
+		err := editor.Run(ctx, svc.store, slug, LintFixPrompt(lintErrs), tmpl, attachments, nil, emit)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				return fmt.Errorf("build timed out after %s", svc.buildTimeout)
@@ -475,9 +556,9 @@ func (svc *Service) seedTemplate(ctx context.Context, slug, ownerID string, tmpl
 // refreshDescription asks the LLM for a fresh title + description for the
 // site and merges them into the existing sidecar. Best-effort: any failure
 // is logged and swallowed so the build still completes — the Available Apps
-// page just falls back to showing the slug. runner is the same instance the
-// preceding build/lint pass used so the description honours per-user model
-// selection.
+// page just falls back to showing the slug. runner is the Utility-tier
+// Runner resolved at Start: cheap summarisation, separate from the
+// creative model that wrote the site.
 func (svc *Service) refreshDescription(ctx context.Context, runner Runner, slug, userPrompt string) {
 	desc, err := runner.Describe(ctx, svc.store, slug, userPrompt)
 	if err != nil {

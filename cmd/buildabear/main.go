@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	adkmodel "google.golang.org/adk/model"
 
 	"github.com/jtarchie/buildabear/internal/auth"
 	"github.com/jtarchie/buildabear/internal/build"
@@ -49,10 +50,13 @@ var cli struct {
 
 	BuildTimeout time.Duration `default:"15m" env:"BUILD_TIMEOUT" help:"Wall-clock cap per build (initial agent run plus any lint retries). Bump for slower local models; lower for cloud-only deployments." name:"build-timeout"`
 
-	LLMModel        string `default:"lmstudio/google/gemma-4-26b-a4b" env:"LLM_MODEL"                                help:"LLM model as provider/model-name."                                                                                                                  name:"llm-model"`
-	LLMAPIKey       string `env:"LLM_API_KEY"                         help:"API key for the LLM provider."           name:"llm-api-key"`
-	LLMBaseURL      string `env:"LLM_BASE_URL"                        help:"Override base URL for the LLM provider." name:"llm-base-url"`
-	ReasoningEffort string `default:""                                env:"REASONING_EFFORT"                         help:"Ask the model to reason before responding. One of: none|minimal|low|medium|high. Empty / 'none' disables. Only useful on reasoning-capable models." name:"reasoning-effort"`
+	LLMModel        string `default:"lmstudio/google/gemma-4-26b-a4b" env:"LLM_MODEL"                                                                                                                                         help:"LLM model as provider/model-name. Used for the Author tier (initial site generation) and as the fallback for any tier-specific flag left unset."    name:"llm-model"`
+	LLMEditorModel  string `env:"LLM_EDITOR_MODEL"                    help:"Model for the Editor tier: /edit, /relint, and lint-retry passes inside a build. Falls back to --llm-model when empty."                           name:"llm-editor-model"`
+	LLMUtilityModel string `env:"LLM_UTILITY_MODEL"                   help:"Model for the Utility tier: post-build site-description summary. Falls back to --llm-model when empty."                                           name:"llm-utility-model"`
+	LLMVisionModel  string `env:"LLM_VISION_MODEL"                    help:"Model for the Vision tier: image alt-text captioning. Falls back to --llm-model when empty — set explicitly when --llm-model isn't multimodal."   name:"llm-vision-model"`
+	LLMAPIKey       string `env:"LLM_API_KEY"                         help:"API key for the LLM provider."                                                                                                                    name:"llm-api-key"`
+	LLMBaseURL      string `env:"LLM_BASE_URL"                        help:"Override base URL for the LLM provider."                                                                                                          name:"llm-base-url"`
+	ReasoningEffort string `default:""                                env:"REASONING_EFFORT"                                                                                                                                  help:"Ask the model to reason before responding. One of: none|minimal|low|medium|high. Empty / 'none' disables. Only useful on reasoning-capable models." name:"reasoning-effort"`
 
 	// ACME / Let's Encrypt. ACMEEmail is the toggle: empty = plain HTTP on
 	// --port (dev), non-empty = bind 80+443 and serve TLS via autocert with
@@ -74,10 +78,15 @@ func main() {
 
 	ctx := context.Background()
 
-	provider, name := model.SplitModel(cli.LLMModel)
-	llm, err := model.Resolve(provider, name, cli.LLMAPIKey, cli.LLMBaseURL)
+	tierMap := model.TierMap{
+		model.TierAuthor:  cli.LLMModel,
+		model.TierEditor:  cli.LLMEditorModel,
+		model.TierUtility: cli.LLMUtilityModel,
+		model.TierVision:  cli.LLMVisionModel,
+	}
+	err := tierMap.Validate()
 	if err != nil {
-		slog.Error("model resolve failed", "err", err)
+		slog.Error("model tier config invalid", "err", err)
 		os.Exit(1)
 	}
 
@@ -114,32 +123,28 @@ func main() {
 
 	tracker := events.NewTracker()
 	snapshotSvc := snapshot.New(s, cli.SnapshotKeep)
-	// runnerFactory wires per-user model overrides: when a Start call carries
-	// a Params.Model distinct from --llm-model, build.Service asks for a
-	// matching Runner. We construct it via the same model.Resolve path the
-	// default Runner uses, reusing the shared API key + base URL — multi-key
-	// per-provider support is a deliberate follow-up (see plan in
-	// .claude/plans). Cached inside build.Service so repeat builds on the
-	// same model don't reconstruct the HTTP client.
-	runnerFactory := func(_ context.Context, modelID string) (build.Runner, error) {
+	// llmFactory wires per-tier and per-user model dispatch: build.Service
+	// invokes it on first use of a model ID, then caches the result. Two
+	// tiers pointing at the same model share one client. Multi-key per-
+	// provider support is a deliberate follow-up.
+	llmFactory := func(_ context.Context, modelID string) (adkmodel.LLM, error) {
 		provider, name := model.SplitModel(modelID)
 		llm, err := model.Resolve(provider, name, cli.LLMAPIKey, cli.LLMBaseURL)
 		if err != nil {
 			return nil, fmt.Errorf("resolve model %q: %w", modelID, err)
 		}
-		return build.NewAgentRunner(llm, reasoningEffort), nil
+		return llm, nil
 	}
 	buildSvc := build.NewWithConfig(build.Config{
 		Store:           s,
-		LLM:             llm,
-		Model:           cli.LLMModel,
+		TierMap:         tierMap,
+		LLMFactory:      llmFactory,
 		Events:          tracker,
 		Snapshot:        snapshotSvc,
 		EditsKeep:       cli.EditsKeep,
 		RecordEdit:      cli.RecordEdits,
 		BuildTimeout:    cli.BuildTimeout,
 		ReasoningEffort: reasoningEffort,
-		RunnerFactory:   runnerFactory,
 	})
 	sb := sandbox.New(sandbox.Config{})
 	stateStore := state.NewS3(s3Client, cli.S3Bucket)
@@ -151,7 +156,7 @@ func main() {
 		InsecureCookies: cli.InsecureCookies,
 		QuotaDefaults: auth.QuotaDefaults{
 			MaxApps: cli.DefaultMaxApps,
-			Model:   cli.LLMModel,
+			Tiers:   tierMap,
 		},
 	})
 	if err != nil {
@@ -176,7 +181,6 @@ func main() {
 		Store:    s,
 		Build:    buildSvc,
 		Events:   tracker,
-		LLM:      llm,
 		Sandbox:  sb,
 		State:    stateStore,
 		Snapshot: snapshotSvc,
@@ -184,7 +188,7 @@ func main() {
 		Domain:   cli.Domain,
 		Port:     cli.Port,
 		SystemInfo: server.SystemInfo{
-			LLMModel:           cli.LLMModel,
+			LLMTiers:           tierMap,
 			LLMBaseURL:         cli.LLMBaseURL,
 			LLMReasoningEffort: cli.ReasoningEffort,
 			S3Endpoint:         cli.S3EndpointURL,
@@ -197,7 +201,7 @@ func main() {
 	// Plain-HTTP path (dev / no ACME). echo.Start blocks until shutdown.
 	if cli.ACMEEmail == "" {
 		e, _ := server.New(deps)
-		slog.Info("app.started", "port", cli.Port, "domain", cli.Domain, "model", cli.LLMModel, "tls", false)
+		slog.Info("app.started", "port", cli.Port, "domain", cli.Domain, "tiers", tierMap, "tls", false)
 		err = e.Start(":" + cli.Port)
 		if err != nil {
 			slog.Error("server error", "err", err)
@@ -229,7 +233,7 @@ func main() {
 	}
 
 	slog.Info("app.started", "tls_port", cli.TLSPort, "http_port", cli.HTTPPort,
-		"domain", cli.Domain, "model", cli.LLMModel, "tls", true,
+		"domain", cli.Domain, "tiers", tierMap, "tls", true,
 		"acme_directory", cli.ACMEDirectory)
 	err = server.RunWithTLS(ctx, e, mgr, tlsOpts)
 	if err != nil {

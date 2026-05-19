@@ -12,18 +12,24 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/jtarchie/buildabear/internal/auth"
+	"github.com/jtarchie/buildabear/internal/model"
 )
 
-// adminUserRow is one row in the user table on /admin/users.
+// adminUserRow is one row in the user table on /admin/users. ModelAuthor /
+// ModelEditor / ModelUtility / ModelVision are the per-tier overrides; an
+// empty string means "inherit the system default for this tier".
 type adminUserRow struct {
-	Email         string
-	Role          string
-	Disabled      bool
-	Credentials   int
-	Created       string
-	IsSelf        bool
-	MaxApps       int    // 0 = uses default
-	AllowedModels string // newline-joined for the textarea
+	Email        string
+	Role         string
+	Disabled     bool
+	Credentials  int
+	Created      string
+	IsSelf       bool
+	MaxApps      int // 0 = uses default
+	ModelAuthor  string
+	ModelEditor  string
+	ModelUtility string
+	ModelVision  string
 }
 
 // adminInviteRow is one row in the pending-invites table on /admin/users.
@@ -60,14 +66,17 @@ func (s *Server) adminUsersHandler(c *echo.Context) error {
 	rows := make([]adminUserRow, 0, len(users))
 	for _, u := range users {
 		rows = append(rows, adminUserRow{
-			Email:         u.Email,
-			Role:          string(u.Role),
-			Disabled:      u.Disabled,
-			Credentials:   len(u.Credentials),
-			Created:       u.Created.UTC().Format("2006-01-02"),
-			IsSelf:        current != nil && current.Email == u.Email,
-			MaxApps:       u.Quotas.MaxApps,
-			AllowedModels: strings.Join(u.Quotas.AllowedModels, "\n"),
+			Email:        u.Email,
+			Role:         string(u.Role),
+			Disabled:     u.Disabled,
+			Credentials:  len(u.Credentials),
+			Created:      u.Created.UTC().Format("2006-01-02"),
+			IsSelf:       current != nil && current.Email == u.Email,
+			MaxApps:      u.Quotas.MaxApps,
+			ModelAuthor:  u.Quotas.AllowedModels[model.TierAuthor],
+			ModelEditor:  u.Quotas.AllowedModels[model.TierEditor],
+			ModelUtility: u.Quotas.AllowedModels[model.TierUtility],
+			ModelVision:  u.Quotas.AllowedModels[model.TierVision],
 		})
 	}
 
@@ -209,8 +218,8 @@ func (s *Server) adminUserRevokeSessionsHandler(c *echo.Context) error {
 }
 
 // adminUserQuotasHandler accepts a form post to update a user's MaxApps
-// + AllowedModels. Empty MaxApps means "use system default"; blank
-// AllowedModels means "no restriction (use default)".
+// + per-tier model overrides. Empty MaxApps means "use system default";
+// each empty model field means "inherit the system default for that tier".
 func (s *Server) adminUserQuotasHandler(c *echo.Context) error {
 	email := auth.NormalizeEmail(c.Param("email"))
 	if email == "" {
@@ -234,23 +243,39 @@ func (s *Server) adminUserQuotasHandler(c *echo.Context) error {
 		maxApps = parsed
 	}
 	user.Quotas.MaxApps = maxApps
-	rawModels := strings.TrimSpace(c.FormValue("allowed_models"))
-	if rawModels == "" {
-		user.Quotas.AllowedModels = nil
-	} else {
-		lines := strings.Split(rawModels, "\n")
-		out := make([]string, 0, len(lines))
-		for _, line := range lines {
-			trimmed := strings.TrimSpace(line)
-			if trimmed != "" {
-				out = append(out, trimmed)
-			}
-		}
-		user.Quotas.AllowedModels = out
-	}
+	user.Quotas.AllowedModels = parseTierForm(c.FormValue)
 	err = s.auth.Users.Save(ctx, user)
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "save user", err)
 	}
 	return c.Redirect(http.StatusSeeOther, "/admin/users?flash=quotas+updated") //nolint:wrapcheck
+}
+
+// parseTierForm reads the four per-tier model fields off the quotas form
+// and returns a canonical TierMap. Trimmed-empty fields are dropped so the
+// resulting map only carries genuine overrides — empty entries fall back
+// at resolve time. Returns nil when no tier was set so the JSON sidecar
+// stays clean of empty objects.
+//
+// Takes a value-lookup function rather than *echo.Context so it can be
+// unit-tested without spinning up an Echo instance.
+func parseTierForm(formValue func(string) string) model.TierMap {
+	fields := map[model.Tier]string{
+		model.TierAuthor:  "model_author",
+		model.TierEditor:  "model_editor",
+		model.TierUtility: "model_utility",
+		model.TierVision:  "model_vision",
+	}
+	out := model.TierMap{}
+	for tier, field := range fields {
+		v := strings.TrimSpace(formValue(field))
+		if v == "" {
+			continue
+		}
+		out[tier] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

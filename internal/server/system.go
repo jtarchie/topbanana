@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/jtarchie/buildabear/internal/editrec"
+	"github.com/jtarchie/buildabear/internal/model"
 )
 
 // recentBuildsWindow is how many of the most recent transcripts across all
@@ -81,8 +82,16 @@ type systemData struct {
 
 // systemConfig is the read-only configuration block. Mirrors SystemInfo with
 // formatted-for-display fields (e.g., snapshot retention "off" instead of "0").
+//
+// LLMAuthor / LLMEditor / LLMUtility / LLMVision are pre-resolved through
+// the tier fallback chain so the dashboard reads naturally — every line
+// shows the model that actually runs for that tier, not a confusing empty
+// "(uses author)" marker.
 type systemConfig struct {
-	LLMModel           string
+	LLMAuthor          string
+	LLMEditor          string
+	LLMUtility         string
+	LLMVision          string
 	LLMBaseURL         string
 	LLMReasoningEffort string
 	S3Endpoint         string
@@ -339,8 +348,12 @@ func makeBuildRow(l slugListing, t editrec.Transcript) systemBuildRow {
 // systemConfig formats SystemInfo for display. The retention fields show
 // "off" when 0 because 0 disables retention in build.Service / snapshot.Service.
 func (s *Server) systemConfig(customDomains int) systemConfig {
+	tiers := s.systemInfo.LLMTiers
 	cfg := systemConfig{
-		LLMModel:           s.systemInfo.LLMModel,
+		LLMAuthor:          tiers.Resolve(model.TierAuthor),
+		LLMEditor:          tiers.Resolve(model.TierEditor),
+		LLMUtility:         tiers.Resolve(model.TierUtility),
+		LLMVision:          tiers.Resolve(model.TierVision),
 		LLMBaseURL:         s.systemInfo.LLMBaseURL,
 		LLMReasoningEffort: s.systemInfo.LLMReasoningEffort,
 		S3Endpoint:         s.systemInfo.S3Endpoint,

@@ -3,17 +3,21 @@ package build
 import (
 	"context"
 	"errors"
+	"iter"
 	"testing"
+
+	adkmodel "google.golang.org/adk/model"
 
 	"github.com/jtarchie/buildabear/internal/agent"
 	"github.com/jtarchie/buildabear/internal/events"
+	"github.com/jtarchie/buildabear/internal/model"
 	"github.com/jtarchie/buildabear/internal/store"
 	"github.com/jtarchie/buildabear/internal/templates"
 )
 
 // fakeRunner is a Runner that records its identity but does no work. The
 // methods panic if called because the cache tests below never invoke
-// them — they only assert which Runner runnerFor returns.
+// them — they only assert which Runner runnerForTier returns.
 type fakeRunner struct{ id string }
 
 func (f *fakeRunner) Run(_ context.Context, _ *store.Store, _, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, _ func(events.Event)) error {
@@ -24,123 +28,196 @@ func (f *fakeRunner) Describe(_ context.Context, _ *store.Store, _, _ string) (a
 	panic("fakeRunner.Describe should not be called in cache tests")
 }
 
-// TestRunnerCache pins the per-user-model cache contract:
-//
-//   - Empty Params.Model returns the default runner unchanged.
-//   - Params.Model equal to the configured Model also returns the default.
-//   - A novel model triggers RunnerFactory exactly once, then subsequent
-//     calls return the same Runner without re-invoking the factory.
-//   - Factory errors propagate wrapped.
-//   - With nil RunnerFactory, non-default models silently fall back to
-//     the default runner (the path tests rely on).
-//
-// per subtest; extracting helpers would obscure the contract being pinned.
-//
-//nolint:gocognit,cyclop // table-driven test with explicit assertions
-func TestRunnerCache(t *testing.T) {
-	t.Run("empty model returns default runner", func(t *testing.T) {
-		dflt := &fakeRunner{id: "default"}
-		svc := &Service{
-			runner:  dflt,
-			model:   "openai/gpt-4",
-			runners: map[string]Runner{},
-		}
-		got, err := svc.runnerFor(context.Background(), "")
-		if err != nil {
-			t.Fatalf("unexpected err: %v", err)
-		}
-		if got != Runner(dflt) {
-			t.Fatalf("expected default runner, got %#v", got)
-		}
-	})
+// stubLLM is an adkmodel.LLM that exists only to be stored in the cache
+// and identified by the name() method. Iterating its GenerateContent
+// panics — runnerForTier never invokes it, only wraps it in an
+// agentRunner.
+type stubLLM struct{ id string }
 
-	t.Run("model matching default returns default runner", func(t *testing.T) {
-		dflt := &fakeRunner{id: "default"}
-		svc := &Service{
-			runner:  dflt,
-			model:   "openai/gpt-4",
-			runners: map[string]Runner{},
-		}
-		got, err := svc.runnerFor(context.Background(), "openai/gpt-4")
-		if err != nil {
-			t.Fatalf("unexpected err: %v", err)
-		}
-		if got != Runner(dflt) {
-			t.Fatalf("expected default runner on Model==default, got %#v", got)
-		}
-	})
+func (s *stubLLM) Name() string { return s.id }
+func (s *stubLLM) GenerateContent(context.Context, *adkmodel.LLMRequest, bool) iter.Seq2[*adkmodel.LLMResponse, error] {
+	panic("stubLLM.GenerateContent should not be called in cache tests")
+}
 
-	t.Run("novel model invokes factory once and caches", func(t *testing.T) {
-		dflt := &fakeRunner{id: "default"}
-		want := &fakeRunner{id: "claude"}
-		calls := 0
-		factory := func(_ context.Context, model string) (Runner, error) {
-			calls++
-			if model != "anthropic/claude-3" {
-				t.Fatalf("factory called with %q, want anthropic/claude-3", model)
-			}
-			return want, nil
-		}
-		svc := &Service{
-			runner:        dflt,
-			model:         "openai/gpt-4",
-			runnerFactory: factory,
-			runners:       map[string]Runner{},
-		}
+func newSvc() *Service {
+	return &Service{
+		runners: map[string]Runner{},
+		llms:    map[string]adkmodel.LLM{},
+	}
+}
 
-		first, err := svc.runnerFor(context.Background(), "anthropic/claude-3")
-		if err != nil {
-			t.Fatalf("first call err: %v", err)
-		}
-		if first != Runner(want) {
-			t.Fatalf("first call: got %#v want %#v", first, want)
-		}
-		if calls != 1 {
-			t.Fatalf("factory should fire exactly once on first miss, got %d calls", calls)
-		}
+func TestRunnerForTier_TestInjectionPerTier(t *testing.T) {
+	t.Parallel()
 
-		second, err := svc.runnerFor(context.Background(), "anthropic/claude-3")
-		if err != nil {
-			t.Fatalf("second call err: %v", err)
-		}
-		if second != first {
-			t.Fatalf("cache miss on repeat: got %#v want %#v", second, first)
-		}
-		if calls != 1 {
-			t.Fatalf("factory re-fired on cache hit, got %d calls", calls)
-		}
-	})
+	author := &fakeRunner{id: "author"}
+	editor := &fakeRunner{id: "editor"}
 
-	t.Run("factory error surfaces as wrapped error", func(t *testing.T) {
-		want := errors.New("upstream blew up")
-		svc := &Service{
-			runner:        &fakeRunner{id: "default"},
-			model:         "openai/gpt-4",
-			runnerFactory: func(context.Context, string) (Runner, error) { return nil, want },
-			runners:       map[string]Runner{},
-		}
-		_, err := svc.runnerFor(context.Background(), "anthropic/claude-3")
-		if err == nil {
-			t.Fatalf("expected factory error to propagate")
-		}
-		if !errors.Is(err, want) {
-			t.Fatalf("expected wrap of %v, got %v", want, err)
-		}
-	})
+	svc := newSvc()
+	svc.runnersByTier = map[model.Tier]Runner{
+		model.TierAuthor: author,
+		model.TierEditor: editor,
+	}
 
-	t.Run("nil factory falls back to default runner", func(t *testing.T) {
-		dflt := &fakeRunner{id: "default"}
-		svc := &Service{
-			runner:  dflt,
-			model:   "openai/gpt-4",
-			runners: map[string]Runner{},
+	got, _, err := svc.runnerForTier(context.Background(), nil, model.TierAuthor)
+	if err != nil || got != Runner(author) {
+		t.Fatalf("Author tier: got %#v err=%v, want author", got, err)
+	}
+	got, _, err = svc.runnerForTier(context.Background(), nil, model.TierEditor)
+	if err != nil || got != Runner(editor) {
+		t.Fatalf("Editor tier: got %#v err=%v, want editor", got, err)
+	}
+}
+
+func TestRunnerForTier_LegacyRunnerServesAllTiers(t *testing.T) {
+	t.Parallel()
+
+	r := &fakeRunner{id: "legacy"}
+	svc := newSvc()
+	svc.runner = r
+
+	for _, tier := range model.AllTiers {
+		got, _, err := svc.runnerForTier(context.Background(), nil, tier)
+		if err != nil || got != Runner(r) {
+			t.Errorf("tier %q: got %#v err=%v, want legacy runner", tier, got, err)
 		}
-		got, err := svc.runnerFor(context.Background(), "anthropic/claude-3")
-		if err != nil {
-			t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestRunnerForTier_FactoryInvokedOnceCachedByModelID(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	llm := &stubLLM{id: "shared-model"}
+	svc := newSvc()
+	svc.tierMap = model.TierMap{
+		model.TierAuthor:  "shared-model",
+		model.TierEditor:  "shared-model", // same model for two tiers
+		model.TierUtility: "other-model",
+	}
+	svc.llmFactory = func(_ context.Context, id string) (adkmodel.LLM, error) {
+		calls++
+		if id == "shared-model" {
+			return llm, nil
 		}
-		if got != Runner(dflt) {
-			t.Fatalf("nil factory should fall back to default, got %#v", got)
-		}
-	})
+		return &stubLLM{id: id}, nil
+	}
+
+	_, idA, err := svc.runnerForTier(context.Background(), nil, model.TierAuthor)
+	if err != nil || idA != "shared-model" {
+		t.Fatalf("Author: id=%q err=%v", idA, err)
+	}
+	_, idE, err := svc.runnerForTier(context.Background(), nil, model.TierEditor)
+	if err != nil || idE != "shared-model" {
+		t.Fatalf("Editor: id=%q err=%v", idE, err)
+	}
+	if calls != 1 {
+		t.Errorf("factory called %d times for two tiers on same model, want 1", calls)
+	}
+
+	// Distinct model invokes factory again.
+	_, idU, err := svc.runnerForTier(context.Background(), nil, model.TierUtility)
+	if err != nil || idU != "other-model" {
+		t.Fatalf("Utility: id=%q err=%v", idU, err)
+	}
+	if calls != 2 {
+		t.Errorf("factory called %d times after distinct tier, want 2", calls)
+	}
+
+	// Repeat Author call hits cache.
+	_, _, _ = svc.runnerForTier(context.Background(), nil, model.TierAuthor)
+	if calls != 2 {
+		t.Errorf("factory re-fired on cache hit, total calls = %d", calls)
+	}
+}
+
+func TestRunnerForTier_PerBuildOverrideMergesOnTopOfDefaults(t *testing.T) {
+	t.Parallel()
+
+	svc := newSvc()
+	svc.tierMap = model.TierMap{model.TierAuthor: "default-author"}
+	svc.llmFactory = func(_ context.Context, id string) (adkmodel.LLM, error) {
+		return &stubLLM{id: id}, nil
+	}
+
+	override := model.TierMap{model.TierEditor: "user-editor"}
+	_, got, err := svc.runnerForTier(context.Background(), override, model.TierEditor)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if got != "user-editor" {
+		t.Errorf("Editor with override = %q, want user-editor", got)
+	}
+
+	// Tier the override didn't touch falls back to the service default.
+	_, got, err = svc.runnerForTier(context.Background(), override, model.TierAuthor)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if got != "default-author" {
+		t.Errorf("Author with override (no entry) = %q, want default-author", got)
+	}
+}
+
+func TestRunnerForTier_FactoryErrorSurfacesAsWrappedError(t *testing.T) {
+	t.Parallel()
+
+	want := errors.New("upstream blew up")
+	svc := newSvc()
+	svc.tierMap = model.TierMap{model.TierAuthor: "x"}
+	svc.llmFactory = func(context.Context, string) (adkmodel.LLM, error) { return nil, want }
+
+	_, _, err := svc.runnerForTier(context.Background(), nil, model.TierAuthor)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !errors.Is(err, want) {
+		t.Errorf("expected wrap of %v, got %v", want, err)
+	}
+}
+
+func TestRunnerForTier_NoFactoryReturnsError(t *testing.T) {
+	t.Parallel()
+
+	svc := newSvc()
+	svc.tierMap = model.TierMap{model.TierAuthor: "x"}
+	// no llmFactory, no runner, no runnersByTier
+
+	_, _, err := svc.runnerForTier(context.Background(), nil, model.TierAuthor)
+	if err == nil {
+		t.Errorf("expected error when no factory configured")
+	}
+}
+
+func TestLLMForTier_SharesCacheWithRunnerForTier(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	llm := &stubLLM{id: "vision-model"}
+	svc := newSvc()
+	svc.tierMap = model.TierMap{
+		model.TierAuthor: "vision-model",
+		model.TierVision: "vision-model",
+	}
+	svc.llmFactory = func(_ context.Context, id string) (adkmodel.LLM, error) {
+		calls++
+		return llm, nil
+	}
+
+	// Vision tier through LLMForTier populates the cache.
+	gotLLM, _, err := svc.LLMForTier(context.Background(), nil, model.TierVision)
+	if err != nil || gotLLM != adkmodel.LLM(llm) {
+		t.Fatalf("LLMForTier: got %#v err=%v", gotLLM, err)
+	}
+	if calls != 1 {
+		t.Errorf("calls after LLMForTier = %d, want 1", calls)
+	}
+
+	// Author resolves to the same model ID — should hit the cache.
+	_, _, err = svc.runnerForTier(context.Background(), nil, model.TierAuthor)
+	if err != nil {
+		t.Fatalf("runnerForTier(Author): %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("factory re-fired on cache hit: calls = %d", calls)
+	}
 }

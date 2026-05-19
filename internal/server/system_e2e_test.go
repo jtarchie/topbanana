@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jtarchie/buildabear/internal/model"
 	"github.com/jtarchie/buildabear/internal/server"
 	"github.com/jtarchie/buildabear/internal/snapshot"
 )
@@ -31,7 +32,7 @@ func TestSystem_Populated(t *testing.T) {
 	snapSvc := snapshot.New(st, 0)
 	runner := &stubRunner{title: "Sys Test", desc: "system dashboard fixture"}
 	info := server.SystemInfo{
-		LLMModel:           "stub/test-model",
+		LLMTiers:           model.TierMap{model.TierAuthor: "stub/test-model"},
 		LLMBaseURL:         "https://example.test/v1",
 		LLMReasoningEffort: "medium",
 		S3Endpoint:         "http://minio.example.test",
@@ -110,7 +111,8 @@ func TestSystem_Populated(t *testing.T) {
 
 	// Configuration block surfaces the planted SystemInfo.
 	for _, want := range []string{
-		info.LLMModel, info.LLMBaseURL, info.LLMReasoningEffort,
+		info.LLMTiers.Resolve(model.TierAuthor),
+		info.LLMBaseURL, info.LLMReasoningEffort,
 		info.S3Endpoint, info.S3Bucket,
 	} {
 		if !strings.Contains(page, want) {
@@ -148,7 +150,10 @@ func TestSystem_EmptyBucket(t *testing.T) {
 
 	snapSvc := snapshot.New(st, 0)
 	runner := &stubRunner{title: "empty", desc: "empty"}
-	info := server.SystemInfo{LLMModel: "stub/empty-model", S3Bucket: "empty-bucket-test"}
+	info := server.SystemInfo{
+		LLMTiers: model.TierMap{model.TierAuthor: "stub/empty-model"},
+		S3Bucket: "empty-bucket-test",
+	}
 	handler := buildServerWithRunnerAndInfo(t, st, snapSvc, runner, info)
 	httpSrv := httptest.NewServer(handler)
 	t.Cleanup(httpSrv.Close)
@@ -173,7 +178,7 @@ func TestSystem_EmptyBucket(t *testing.T) {
 
 	for _, want := range []string{
 		"At a glance", "Apps", "Recent builds", "Storage breakdown", "Configuration",
-		info.LLMModel, info.S3Bucket,
+		info.LLMTiers.Resolve(model.TierAuthor), info.S3Bucket,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("/system (empty state) missing %q", want)

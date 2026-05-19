@@ -83,7 +83,10 @@
                         data-panel="quotas"
                         data-email="{{ .Email }}"
                         data-max-apps="{{ .MaxApps }}"
-                        data-allowed-models="{{ .AllowedModels }}">Quotas</button>
+                        data-model-author="{{ .ModelAuthor }}"
+                        data-model-editor="{{ .ModelEditor }}"
+                        data-model-utility="{{ .ModelUtility }}"
+                        data-model-vision="{{ .ModelVision }}">Quotas</button>
                 {{ if not .IsSelf }}
                   {{ if .Disabled }}
                     <form method="POST" action="/admin/users/{{ .Email }}/enable">
@@ -130,10 +133,26 @@
       <input id="quotas-max-apps" type="number" min="0" name="max_apps" class="input input-bordered input-sm mt-1">
       <span class="label-text-alt text-base-content/60">0 = use server default</span>
     </label>
-    <label class="form-control">
-      <span class="label-text font-medium">Allowed models</span>
-      <textarea id="quotas-allowed-models" name="allowed_models" rows="6" class="textarea textarea-bordered textarea-sm mt-1" placeholder="one per line; blank = no restriction"></textarea>
-    </label>
+    <fieldset class="form-control space-y-2">
+      <legend class="label-text font-medium">Per-tier model overrides</legend>
+      <p class="label-text-alt text-base-content/60">Blank fields inherit the system default for that tier. Vision needs a multimodal model for image captions.</p>
+      <label class="form-control">
+        <span class="label-text">Author <span class="text-base-content/60 font-normal">— /build initial generation</span></span>
+        <input id="quotas-model-author" type="text" name="model_author" class="input input-bordered input-sm mt-1" placeholder="provider/model">
+      </label>
+      <label class="form-control">
+        <span class="label-text">Editor <span class="text-base-content/60 font-normal">— /edit, /relint, lint retries</span></span>
+        <input id="quotas-model-editor" type="text" name="model_editor" class="input input-bordered input-sm mt-1" placeholder="provider/model">
+      </label>
+      <label class="form-control">
+        <span class="label-text">Utility <span class="text-base-content/60 font-normal">— post-build site description</span></span>
+        <input id="quotas-model-utility" type="text" name="model_utility" class="input input-bordered input-sm mt-1" placeholder="provider/model">
+      </label>
+      <label class="form-control">
+        <span class="label-text">Vision <span class="text-base-content/60 font-normal">— image alt-text (multimodal)</span></span>
+        <input id="quotas-model-vision" type="text" name="model_vision" class="input input-bordered input-sm mt-1" placeholder="provider/model">
+      </label>
+    </fieldset>
     <div class="flex justify-end gap-2 pt-2">
       <button type="button" class="btn btn-ghost btn-sm" data-close="quotas">Cancel</button>
       <button type="submit" class="btn btn-primary btn-sm">Save</button>
@@ -149,13 +168,19 @@
     var form = document.getElementById('quotas-form');
     var target = document.getElementById('quotas-target');
     var maxApps = document.getElementById('quotas-max-apps');
-    var allowedModels = document.getElementById('quotas-allowed-models');
+    var modelAuthor = document.getElementById('quotas-model-author');
+    var modelEditor = document.getElementById('quotas-model-editor');
+    var modelUtility = document.getElementById('quotas-model-utility');
+    var modelVision = document.getElementById('quotas-model-vision');
     document.querySelectorAll('.js-quota-trigger').forEach(function (btn) {
       btn.addEventListener('click', function () {
         form.action = '/admin/users/' + encodeURIComponent(btn.dataset.email) + '/quotas';
         target.textContent = btn.dataset.email;
         maxApps.value = btn.dataset.maxApps || '0';
-        allowedModels.value = btn.dataset.allowedModels || '';
+        modelAuthor.value = btn.dataset.modelAuthor || '';
+        modelEditor.value = btn.dataset.modelEditor || '';
+        modelUtility.value = btn.dataset.modelUtility || '';
+        modelVision.value = btn.dataset.modelVision || '';
       });
     });
   })();
