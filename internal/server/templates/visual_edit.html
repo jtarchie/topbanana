@@ -4,6 +4,22 @@
 <title>Visual editor: {{.Slug}} / {{.Page}}</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// Pre-paint theme bootstrap — mirrors the layout.html head partial. The
+// visual editor rolls its own chrome around GrapesJS so it can't share the
+// partial verbatim; keep the two in sync if either changes.
+(function () {
+  try {
+    var stored = localStorage.getItem('bab_theme');
+    if (stored === 'corporate' || stored === 'business') {
+      document.documentElement.dataset.theme = stored;
+      return;
+    }
+    var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (dark) document.documentElement.dataset.theme = 'business';
+  } catch (_) {}
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -36,6 +52,7 @@
     <button id="refine-btn" type="button" class="btn btn-ghost btn-sm">Refine with AI</button>
     <button id="save-btn" type="button" class="btn btn-primary btn-sm">Save</button>
     <a class="btn btn-ghost btn-sm" href="/edit/{{.Slug}}?page={{.Page}}">Back</a>
+    {{ template "theme_toggle" . }}
   </div>
 </header>
 <div id="editor-wrap">

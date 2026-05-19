@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 
@@ -94,6 +95,15 @@ func TestHappyPath_BrowserSmoke(t *testing.T) {
 			Domain: host,
 			Path:   "/",
 		}}),
+		// Force prefers-color-scheme=light so the dark-mode bootstrap
+		// script lands on corporate (matching the SSR'd data-theme attr).
+		// Without this the test runner's OS theme leaks into the assertion;
+		// on a developer's mac in dark mode it'd flip <html> to business
+		// and the data-theme check below would fail.
+		emulation.SetEmulatedMedia().WithFeatures([]*emulation.MediaFeature{{
+			Name:  "prefers-color-scheme",
+			Value: "light",
+		}}),
 		chromedp.Navigate(httpSrv.URL+"/"),
 		chromedp.WaitVisible(`textarea#prompt`, chromedp.ByQuery),
 		chromedp.AttributeValue(`html`, `data-theme`, &theme, nil),
@@ -122,5 +132,27 @@ func TestHappyPath_BrowserSmoke(t *testing.T) {
 	}
 	if strings.TrimSpace(primaryColor) == "" {
 		t.Errorf("DaisyUI primary colour did not resolve — Tailwind/DaisyUI likely failed to load")
+	}
+
+	// Flip emulated media to dark, reload, and confirm the bootstrap script
+	// honors prefers-color-scheme=dark by swapping data-theme to business.
+	// Reload via Navigate so the inline head script re-runs against the new
+	// emulated media query.
+	var darkTheme string
+	err = chromedp.Run(runCtx,
+		chromedp.Evaluate(`localStorage.removeItem('bab_theme')`, nil),
+		emulation.SetEmulatedMedia().WithFeatures([]*emulation.MediaFeature{{
+			Name:  "prefers-color-scheme",
+			Value: "dark",
+		}}),
+		chromedp.Navigate(httpSrv.URL+"/"),
+		chromedp.WaitVisible(`textarea#prompt`, chromedp.ByQuery),
+		chromedp.AttributeValue(`html`, `data-theme`, &darkTheme, nil),
+	)
+	if err != nil {
+		t.Fatalf("dark-mode re-navigate: %v", err)
+	}
+	if darkTheme != "business" {
+		t.Errorf("dark-mode data-theme: got %q want %q", darkTheme, "business")
 	}
 }

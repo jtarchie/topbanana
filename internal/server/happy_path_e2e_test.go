@@ -167,7 +167,14 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /: %d", resp.StatusCode)
 	}
-	for _, want := range []string{`data-theme="corporate"`, "BuildABear", "Build a new app", "daisyui@5"} {
+	// Includes the bootstrap script + toggle markers so the dark-mode pass
+	// can't silently regress. `bab_theme` is the localStorage key the
+	// bootstrap script reads; `theme-toggle` is the input id wired up to
+	// flip the data-theme attribute.
+	for _, want := range []string{
+		`data-theme="corporate"`, "BuildABear", "Build a new app", "daisyui@5",
+		"bab_theme", `id="theme-toggle"`,
+	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("landing missing %q", want)
 		}
