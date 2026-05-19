@@ -145,6 +145,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		{"manage", manageTemplate},
 		{"system", systemTemplate},
 		{"toolbar", editToolbarTemplate},
+		{"theme_preview_listener", themePreviewListenerTemplate},
 		{"visual_edit", visualEditTemplate},
 		{"function_edit", functionEditTemplate},
 		{"files", filesTemplate},
@@ -1325,37 +1326,52 @@ func resolveContentType(stored, name string) string {
 	return store.DefaultContentType
 }
 
-// injectEditToolbar inserts the edit toolbar before </body>. Skipped on
-// custom-domain responses (so the CDN never caches the toolbar bytes) and
-// when the visitor isn't an admin who owns this app. If no </body> tag
-// exists, the content is returned unchanged.
+// injectEditToolbar inserts the theme-preview listener and (for owners) the
+// edit toolbar before </body>. Skipped entirely on custom-domain responses
+// so the CDN never caches admin bytes. On the platform domain the listener
+// always ships — the workspace iframe needs it to drive live theme preview,
+// and it loads without the admin session cookie because the cookie isn't
+// scoped to subdomains. The listener is a no-op without a postMessage opener,
+// so visitors see no behavior change. The visible toolbar (edit links) stays
+// gated on canEdit, since that does leak ownership. Returns the content
+// unchanged when there's no </body> to splice into.
 func (s *Server) injectEditToolbar(c *echo.Context, htmlContent, slug, page string) string {
 	if c.Get("custom_domain") == true {
-		return htmlContent
-	}
-	if !s.canEdit(c, slug) {
 		return htmlContent
 	}
 	if !strings.Contains(htmlContent, "</body>") {
 		return htmlContent
 	}
 
-	q := url.Values{"page": []string{page}}.Encode()
-	editURL := s.adminURL(c, "/edit/"+slug) + "?" + q
-	visualURL := s.adminURL(c, "/edit/"+slug+"/visual") + "?" + q
-
 	var buf bytes.Buffer
-	err := s.tpl.ExecuteTemplate(&buf, "toolbar", struct {
-		EditURL   template.URL
-		VisualURL template.URL
-	}{
-		EditURL:   template.URL(editURL),   //nolint:gosec // URL built from controlled inputs above.
-		VisualURL: template.URL(visualURL), //nolint:gosec // URL built from controlled inputs above.
-	})
+	err := s.tpl.ExecuteTemplate(&buf, "theme_preview_listener", nil)
 	if err != nil {
-		slog.Warn("toolbar.render_failed", "slug", slug, "err", err)
+		slog.Warn("theme_preview_listener.render_failed", "slug", slug, "err", err)
 		return htmlContent
 	}
+
+	if s.canEdit(c, slug) {
+		q := url.Values{"page": []string{page}}.Encode()
+		editURL := s.adminURL(c, "/edit/"+slug) + "?" + q
+		visualURL := s.adminURL(c, "/edit/"+slug+"/visual") + "?" + q
+
+		err := s.tpl.ExecuteTemplate(&buf, "toolbar", struct {
+			EditURL   template.URL
+			VisualURL template.URL
+		}{
+			EditURL:   template.URL(editURL),   //nolint:gosec // URL built from controlled inputs above.
+			VisualURL: template.URL(visualURL), //nolint:gosec // URL built from controlled inputs above.
+		})
+		if err != nil {
+			slog.Warn("toolbar.render_failed", "slug", slug, "err", err)
+			return htmlContent
+		}
+	} else {
+		// canEdit-less branch still needs a </body> in the spliced payload
+		// so the document closes properly after the listener.
+		buf.WriteString("</body>")
+	}
+
 	return strings.Replace(htmlContent, "</body>", buf.String(), 1)
 }
 

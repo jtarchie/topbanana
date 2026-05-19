@@ -5,6 +5,9 @@ import _ "embed"
 //go:embed edit_toolbar.html
 var editToolbarTemplate string
 
+//go:embed theme_preview_listener.html
+var themePreviewListenerTemplate string
+
 //go:embed templates/layout.html
 var layoutTemplate string
 
