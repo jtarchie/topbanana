@@ -22,28 +22,28 @@
 <header class="navbar bg-base-100 border-b border-base-300 px-4 sm:px-6">
   <div class="flex-1 gap-2 items-center min-w-0">
     <a href="/" class="btn btn-ghost btn-sm text-base font-semibold normal-case tracking-tight px-2">BuildABear</a>
-    {{ if .SiteName -}}
+    {{ if stringField . `SiteName` -}}
     <span class="text-base-content/30" aria-hidden="true">/</span>
-    <a href="/workspace/{{ .Slug }}" class="font-mono text-sm font-medium truncate text-base-content/80 hover:text-base-content">{{ .SiteName }}</a>
+    <a href="/workspace/{{ stringField . `Slug` }}" class="font-mono text-sm font-medium truncate text-base-content/80 hover:text-base-content">{{ stringField . `SiteName` }}</a>
     {{- end }}
   </div>
   <div class="flex-none flex items-center gap-1">
     <a href="/apps" class="btn btn-ghost btn-sm">Your apps</a>
-    {{ if boolField . "IsSuperAdmin" }}<a href="/admin/users" class="btn btn-ghost btn-sm{{ if eq .Active `admin_users` }} btn-active{{ end }}">Users</a>{{ end }}
-    <a href="/system" class="btn btn-ghost btn-sm{{ if eq .Active `system` }} btn-active{{ end }}">System</a>
-    <a href="/account" class="btn btn-ghost btn-sm{{ if eq .Active `account` }} btn-active{{ end }}">Account</a>
+    {{ if boolField . `IsSuperAdmin` }}<a href="/admin/users" class="btn btn-ghost btn-sm{{ if eq (stringField . `Active`) `admin_users` }} btn-active{{ end }}">Users</a>{{ end }}
+    <a href="/system" class="btn btn-ghost btn-sm{{ if eq (stringField . `Active`) `system` }} btn-active{{ end }}">System</a>
+    <a href="/account" class="btn btn-ghost btn-sm{{ if eq (stringField . `Active`) `account` }} btn-active{{ end }}">Account</a>
   </div>
 </header>
 {{- end }}
 
 {{ define "site_subnav" -}}
-{{ if .Slug -}}
+{{ if stringField . `Slug` -}}
 <nav class="bg-base-100 border-b border-base-300" aria-label="This site">
   <div class="max-w-6xl mx-auto px-4 sm:px-6">
     <div role="tablist" class="tabs tabs-bordered inline-flex flex-wrap -mb-px gap-1">
-      <a href="/workspace/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `workspace` }} tab-active{{ end }}">Workspace</a>
-      <a href="/manage/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `manage` }} tab-active{{ end }}">Manage</a>
-      {{ if .SiteURL }}<a class="tab tab-disabled-link ml-auto text-sm link link-hover font-medium" href="{{ .SiteURL }}" target="_blank" rel="noopener">View site →</a>{{ end }}
+      <a href="/workspace/{{ stringField . `Slug` }}" role="tab" class="tab{{ if eq (stringField . `Active`) `workspace` }} tab-active{{ end }}">Workspace</a>
+      <a href="/manage/{{ stringField . `Slug` }}" role="tab" class="tab{{ if eq (stringField . `Active`) `manage` }} tab-active{{ end }}">Manage</a>
+      {{ if stringField . `SiteURL` }}<a class="tab tab-disabled-link ml-auto text-sm link link-hover font-medium" href="{{ stringField . `SiteURL` }}" target="_blank" rel="noopener">View site →</a>{{ end }}
     </div>
   </div>
 </nav>

@@ -328,6 +328,11 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 // consumeBuild streams /events/:slug until a terminal status arrives or the
 // deadline fires. Returns once `completed` is seen; t.Fatals on `failed` or
 // timeout.
+//
+// per event type. Splitting it would scatter related state across helpers
+// without making the flow clearer.
+//
+//nolint:cyclop // SSE-consuming test helper with sequential parse + branch
 func consumeBuild(t *testing.T, base, slug string, deadline time.Duration) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, base+"/events/"+slug, nil)

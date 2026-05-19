@@ -16,7 +16,6 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -133,27 +132,15 @@ var fallThroughHosts = map[string]bool{
 // logic from subdomainMiddleware).
 func New(d Deps) (*echo.Echo, *Server) {
 	tpl := template.New("").Funcs(template.FuncMap{
-		// boolField reads a named bool out of any struct via reflection.
-		// Lets the shared chrome partials (brand, footer) gate links on
-		// values like IsSuperAdmin without every page data struct having
-		// to declare the field. Missing field => false.
-		"boolField": func(data any, name string) bool {
-			if data == nil {
-				return false
-			}
-			v := reflect.ValueOf(data)
-			if v.Kind() == reflect.Pointer {
-				v = v.Elem()
-			}
-			if v.Kind() != reflect.Struct {
-				return false
-			}
-			f := v.FieldByName(name)
-			if !f.IsValid() || f.Kind() != reflect.Bool {
-				return false
-			}
-			return f.Bool()
-		},
+		// boolField + stringField read a named field out of any struct via
+		// reflection. They let the shared chrome partials (brand,
+		// site_subnav) read .SiteName / .Slug / .Active / .IsSuperAdmin
+		// without every page-data struct having to declare the field.
+		// Missing/wrong-typed fields fall back to the zero value, so a new
+		// page can ship without remembering to declare unused chrome
+		// fields.
+		"boolField":   templateBoolField,
+		"stringField": templateStringField,
 	})
 	// layout.html defines shared partials (e.g. "head") used by the platform
 	// pages below. It must be parsed first so the others can reference its
