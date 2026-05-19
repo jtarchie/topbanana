@@ -27,7 +27,7 @@
   {{ if .Apps }}
     <ul class="space-y-2" aria-label="Your apps">
       {{ range .Apps }}
-      <li class="bg-base-100 border border-base-300 rounded-box hover:border-base-content/30 transition relative">
+      <li class="bg-base-100 border border-base-300 rounded-box hover:border-base-content/30 transition relative has-[.dropdown:focus-within]:z-20">
         <a href="/workspace/{{ .Name }}" class="block p-4 pr-32">
           <div class="flex items-baseline justify-between gap-3 flex-wrap">
             <h2 class="text-base font-semibold leading-tight">
