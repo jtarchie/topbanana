@@ -19,3 +19,10 @@ Site type: tiny shop / preorder list / single-vendor stall.
 - The order form on index.html posts name/email/product/qty to /api/order. functions/order.js validates against the product list and persists `order:NNNNNNNN` entries.
 - orders.html fetches /api/orders for the owner to scan. Add lightweight auth (this site's basic-auth covers it) before the kv data leaks to anyone.
 - Inline CSS. Make products feel like products — image (optional, via list_assets), name, price, short description, "order" button anchoring to the form.
+
+Stripe Buy Button integration (optional, per product):
+
+- Each entry in functions/products.js accepts an optional `buy_button_id: "buy_btn_..."` field. When set, that product card renders a `<stripe-buy-button>` (Stripe Checkout opens in an overlay) and is excluded from the in-house order form's `<select>`. Leave the field off (or `null`) for products that should keep using the kv order log.
+- Site-wide publishable key: index.html declares `var STRIPE_PUBLISHABLE_KEY = "pk_live_REPLACE_ME"`. When the user gives you their Stripe publishable key, replace that string. One publishable key works for any number of Buy Buttons on the page.
+- Use `buy_btn_REPLACE_ME` as the placeholder for buy_button_id values you don't know yet. Never invent realistic-looking Stripe IDs.
+- Both flows can coexist on the same site: e.g., a "t-shirt" product can have a Buy Button while a "preorder waitlist" product uses the kv form. If every product has a buy_button_id, the order form hides itself automatically.

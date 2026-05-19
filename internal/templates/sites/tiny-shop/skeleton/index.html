@@ -7,6 +7,7 @@
 <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
 <link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
 <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<script async src="https://js.stripe.com/v3/buy-button.js"></script>
 </head>
 <body class="bg-base-200 min-h-screen text-base-content">
   <div class="max-w-3xl mx-auto px-6 py-12">
@@ -42,11 +43,14 @@
     <p class="text-center text-sm text-base-content/60 mt-4">Owner: <a class="link link-primary" href="/orders.html">view orders</a></p>
   </div>
   <script>
+    var STRIPE_PUBLISHABLE_KEY = "pk_live_REPLACE_ME";
+
     fetch('/api/products')
       .then(function (r) { return r.json(); })
       .then(function (products) {
         var list = document.getElementById('products');
         var select = document.getElementById('product');
+        var form = select.closest('form');
         list.innerHTML = '';
         select.innerHTML = '';
         products.forEach(function (p) {
@@ -56,12 +60,25 @@
           card.querySelector('.name').textContent = p.name;
           card.querySelector('.desc').textContent = p.description || '';
           card.querySelector('.price').textContent = p.price;
+          if (p.buy_button_id) {
+            var buyWrap = document.createElement('div');
+            buyWrap.className = 'card-body pt-0';
+            var btn = document.createElement('stripe-buy-button');
+            btn.setAttribute('buy-button-id', p.buy_button_id);
+            btn.setAttribute('publishable-key', STRIPE_PUBLISHABLE_KEY);
+            buyWrap.appendChild(btn);
+            card.appendChild(buyWrap);
+          } else {
+            var opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = p.name + ' — ' + p.price;
+            select.appendChild(opt);
+          }
           list.appendChild(card);
-          var opt = document.createElement('option');
-          opt.value = p.id;
-          opt.textContent = p.name + ' — ' + p.price;
-          select.appendChild(opt);
         });
+        if (select.options.length === 0) {
+          form.style.display = 'none';
+        }
       })
       .catch(function () { document.getElementById('products').textContent = 'Could not load products.'; });
   </script>
