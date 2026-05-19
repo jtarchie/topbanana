@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/jtarchie/buildabear/internal/auth"
 	"github.com/jtarchie/buildabear/internal/build"
 	"github.com/jtarchie/buildabear/internal/events"
 	"github.com/jtarchie/buildabear/internal/model"
@@ -29,6 +30,12 @@ var cli struct {
 
 	AdminUsername string `default:"admin"      env:"ADMIN_USERNAME"                                           help:"Username for the admin HTTP Basic Auth gate." name:"admin-username"`
 	AdminPassword string `env:"ADMIN_PASSWORD" help:"Password for the admin HTTP Basic Auth gate (required)." name:"admin-password"                               required:""`
+
+	// Multi-tenancy / passkeys. Empty SUPER_ADMIN_EMAIL keeps the legacy
+	// single-tenant basic-auth model active; setting it opts the deployment
+	// into the passkey flow once the routes land.
+	SuperAdminEmail string `env:"SUPER_ADMIN_EMAIL" help:"Email of the seeded super admin. When set, enables passkey-based multi-tenancy." name:"super-admin-email"`
+	InsecureCookies bool   `env:"INSECURE_COOKIES"  help:"Allow non-Secure cookies for local HTTP dev. Never set in production."           name:"insecure-cookies"`
 
 	S3Bucket      string `env:"S3_BUCKET"        help:"S3 bucket name (multi-tenant)."     name:"s3-bucket"       required:""`
 	S3EndpointURL string `env:"AWS_ENDPOINT_URL" help:"Override S3 endpoint (e.g. Minio)." name:"s3-endpoint-url"`
@@ -127,6 +134,30 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Multi-tenancy is opt-in during the rollout. Once SUPER_ADMIN_EMAIL is
+	// set, the auth subsystem is constructed and bootstrapped (super-admin
+	// seeded, bootstrap invite URL logged) but no admin routes use it yet —
+	// that switch happens in the cutover commit. Leaving the env var unset
+	// keeps the existing basic-auth path live.
+	var authSvc *auth.Auth
+	if cli.SuperAdminEmail != "" {
+		authSvc, err = auth.New(auth.Config{
+			Store:           s,
+			Domain:          cli.Domain,
+			SuperAdminEmail: cli.SuperAdminEmail,
+			InsecureCookies: cli.InsecureCookies,
+		})
+		if err != nil {
+			slog.Error("auth init failed", "err", err)
+			os.Exit(1)
+		}
+		_, err = authSvc.Bootstrap(ctx)
+		if err != nil {
+			slog.Error("auth bootstrap failed", "err", err)
+			os.Exit(1)
+		}
+	}
+
 	deps := server.Deps{
 		Store:             s,
 		Build:             buildSvc,
@@ -135,6 +166,7 @@ func main() {
 		Sandbox:           sb,
 		State:             stateStore,
 		Snapshot:          snapshotSvc,
+		Auth:              authSvc,
 		Domain:            cli.Domain,
 		Port:              cli.Port,
 		AdminUsername:     cli.AdminUsername,

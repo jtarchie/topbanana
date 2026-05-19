@@ -31,6 +31,7 @@ import (
 	adkmodel "google.golang.org/adk/model"
 
 	"github.com/jtarchie/buildabear/internal/agent"
+	"github.com/jtarchie/buildabear/internal/auth"
 	"github.com/jtarchie/buildabear/internal/build"
 	"github.com/jtarchie/buildabear/internal/editrec"
 	"github.com/jtarchie/buildabear/internal/events"
@@ -58,13 +59,17 @@ type SystemInfo struct {
 
 // Deps holds the dependencies the server needs. Wired up in cmd/buildabear.
 type Deps struct {
-	Store             *store.Store
-	Build             *build.Service
-	Events            *events.Tracker
-	LLM               adkmodel.LLM
-	Sandbox           *sandbox.Manager
-	State             state.Store
-	Snapshot          *snapshot.Service
+	Store    *store.Store
+	Build    *build.Service
+	Events   *events.Tracker
+	LLM      adkmodel.LLM
+	Sandbox  *sandbox.Manager
+	State    state.Store
+	Snapshot *snapshot.Service
+	// Auth, when non-nil, drives the passkey/multi-tenant identity surface.
+	// During the cutover (commits 2-4) it's allowed to be nil so basic auth
+	// keeps working; once mounted in commit 4 main.go will require it.
+	Auth              *auth.Auth
 	Domain            string
 	Port              string
 	AdminUsername     string
@@ -86,6 +91,7 @@ type Server struct {
 	sandbox           *sandbox.Manager
 	state             state.Store
 	snapshot          *snapshot.Service
+	auth              *auth.Auth
 	domain            string
 	port              string
 	tpl               *template.Template
@@ -156,6 +162,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		sandbox:           d.Sandbox,
 		state:             d.State,
 		snapshot:          d.Snapshot,
+		auth:              d.Auth,
 		domain:            d.Domain,
 		port:              d.Port,
 		tpl:               tpl,
