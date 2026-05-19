@@ -19,6 +19,15 @@
     <div class="alert alert-success" role="status"><span>{{ .Flash }}</span></div>
   {{ end }}
 
+  {{ if .SetupNotes }}
+    <section class="card bg-base-100 border border-base-300" aria-labelledby="setup-heading">
+      <div class="card-body">
+        <h2 id="setup-heading" class="card-title text-lg">Setup for {{ if .TemplateLabel }}the {{ .TemplateLabel }} template{{ else }}this template{{ end }}</h2>
+        <div class="text-sm text-base-content/80 space-y-2 [&_p]:m-0">{{ .SetupNotes }}</div>
+      </div>
+    </section>
+  {{ end }}
+
   <form method="POST" action="/settings/{{ .Slug }}" class="space-y-8">
     <section class="card bg-base-100 border border-base-300" aria-labelledby="general-heading">
       <div class="card-body">

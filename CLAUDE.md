@@ -46,9 +46,25 @@ When building or modifying agents for this project, keep in mind the `systemProm
 
 ## Code Organization
 - `internal/model/`: LLM provider resolution logic.
+- `internal/templates/sites/{id}/`: Site templates the user picks from. Each ships a `prompt.md` (JSON frontmatter + system addendum for the agent), an optional `skeleton/` (seed files), and a `README.md` (contributor docs).
 - `static/`: Static assets like the landing page and agent system prompts.
 - `s3store.go`: The core storage abstraction layer.
 - `server.go`: The web server implementation and subdomain proxying logic.
+
+## Adding a new site template
+Every directory under `internal/templates/sites/` must contain:
+
+1. **`prompt.md`** — JSON frontmatter with `label`, `description`, optional `checks`, optional `enables_functions`, optional `setup_notes` (end-user setup steps rendered on the manage page); markdown body after `---` is appended to the LLM system prompt.
+2. **`README.md`** — contributor docs with these sections (omit Config / Gotchas if there's nothing to say):
+   ```
+   # {label}
+   ## Purpose
+   ## What ships
+   ## Checks
+   ## Config
+   ## Gotchas
+   ```
+3. **`skeleton/`** (optional) — files seeded onto the filesystem before the agent runs.
 
 ## Implementation Details (for developers)
 - **Subdomain Proxying**: The `subdomainMiddleware` in `server.go` is the heart of the routing. It strips the domain part to find the "slug" and uses that slug to query S3.

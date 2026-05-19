@@ -1,7 +1,9 @@
 package server
 
 import (
+	"html/template"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -38,6 +40,55 @@ type manageData struct {
 	CSVURL    string
 	JSONURL   string
 	Flash     string
+	// TemplateLabel + SetupNotes surface end-user "you picked this template,
+	// here's what to set up" guidance. Notes are pre-rendered to HTML in the
+	// handler so the manage template can drop them in without escaping logic.
+	TemplateLabel string
+	SetupNotes    template.HTML
+}
+
+// urlPattern matches bare http/https URLs anywhere in setup-notes text. Kept
+// liberal (no scheme other than http(s); no IDN niceties) because the input is
+// authored by template maintainers, not untrusted users.
+var urlPattern = regexp.MustCompile(`https?://[^\s<>"')]+`)
+
+// renderSetupNotes converts plain-text setup notes into a small bundle of
+// <p>...</p> blocks with bare URLs auto-linked. Blank lines split paragraphs;
+// single newlines within a paragraph become <br>. Everything else is
+// HTML-escaped. Returns "" when there's nothing to render so the caller can
+// branch on truthiness in the template.
+func renderSetupNotes(notes string) template.HTML {
+	notes = strings.TrimSpace(notes)
+	if notes == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, para := range strings.Split(notes, "\n\n") {
+		para = strings.TrimSpace(para)
+		if para == "" {
+			continue
+		}
+		b.WriteString("<p>")
+		for i, line := range strings.Split(para, "\n") {
+			if i > 0 {
+				b.WriteString("<br>")
+			}
+			cursor := 0
+			for _, match := range urlPattern.FindAllStringIndex(line, -1) {
+				b.WriteString(template.HTMLEscapeString(line[cursor:match[0]]))
+				url := line[match[0]:match[1]]
+				b.WriteString(`<a href="`)
+				b.WriteString(template.HTMLEscapeString(url))
+				b.WriteString(`" target="_blank" rel="noopener" class="link link-primary">`)
+				b.WriteString(template.HTMLEscapeString(url))
+				b.WriteString(`</a>`)
+				cursor = match[1]
+			}
+			b.WriteString(template.HTMLEscapeString(line[cursor:]))
+		}
+		b.WriteString("</p>")
+	}
+	return template.HTML(b.String())
 }
 
 func (s *Server) manageHandler(c *echo.Context) error {
@@ -52,6 +103,13 @@ func (s *Server) manageHandler(c *echo.Context) error {
 	base := templates.Get(meta.Template)
 	byTmpl := base != nil && base.EnablesFunctions
 	tmpl := build.EffectiveTemplate(meta)
+
+	var tmplLabel string
+	var setupNotes template.HTML
+	if base != nil {
+		tmplLabel = base.Label
+		setupNotes = renderSetupNotes(base.SetupNotes)
+	}
 
 	cols, rows, err := s.collectSubmissions(ctx, slug)
 	if err != nil {
@@ -87,5 +145,7 @@ func (s *Server) manageHandler(c *echo.Context) error {
 		CSVURL:           "/data/" + slug + "?format=csv",
 		JSONURL:          "/data/" + slug + "?format=json",
 		Flash:            c.QueryParam("flash"),
+		TemplateLabel:    tmplLabel,
+		SetupNotes:       setupNotes,
 	})
 }

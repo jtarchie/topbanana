@@ -29,6 +29,11 @@ type SiteTemplate struct {
 	Examples         map[string]string
 	Checks           []Check
 	EnablesFunctions bool
+	// SetupNotes is end-user-facing guidance shown on the manage page after a
+	// site is built — "you picked this template, here's what you need to
+	// configure" (Stripe keys, success URLs, etc). Plain text with bare URLs;
+	// the manage page wraps paragraphs and auto-links http(s) URLs.
+	SetupNotes string
 }
 
 // Check is a declarative invariant for a generated file. The lint loop runs
@@ -53,6 +58,7 @@ type templateMeta struct {
 	Description      string  `json:"description"`
 	Checks           []Check `json:"checks,omitempty"`
 	EnablesFunctions bool    `json:"enables_functions,omitempty"`
+	SetupNotes       string  `json:"setup_notes,omitempty"`
 }
 
 var (
@@ -153,6 +159,7 @@ func loadOne(id string) (*SiteTemplate, error) {
 		Examples:         examples,
 		Checks:           meta.Checks,
 		EnablesFunctions: meta.EnablesFunctions,
+		SetupNotes:       strings.TrimSpace(meta.SetupNotes),
 	}, nil
 }
 

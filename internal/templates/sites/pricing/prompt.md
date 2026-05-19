@@ -8,7 +8,8 @@
       "must_contain": ["<h1", "$"],
       "message": "pricing pages need a clear <h1> and at least one price (with a $ symbol)"
     }
-  ]
+  ],
+  "setup_notes": "Stripe is optional — configure only if you want the CTA buttons to take real payments.\n\nPer-tier Payment Links (recommended for most pricing pages):\n1. Create one Payment Link per tier at https://dashboard.stripe.com/payment-links\n2. In the workspace, replace each `https://buy.stripe.com/REPLACE_ME_<tier>` placeholder in index.html with the matching URL.\n\nDashboard-managed Pricing Table (alternative, if you want to edit prices in Stripe instead of HTML):\n1. Create a Pricing Table at https://dashboard.stripe.com/pricing-tables\n2. Replace `prctbl_REPLACE_ME` and `pk_live_REPLACE_ME` in index.html with your pricing-table-id and publishable key.\n\nThe page will show Stripe errors until real IDs are filled in."
 }
 ---
 Site type: SaaS pricing page.

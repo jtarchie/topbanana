@@ -9,7 +9,8 @@
       "must_contain": ["<form", "/api/sign"],
       "message": "guestbook sites need a <form> that posts to /api/sign"
     }
-  ]
+  ],
+  "setup_notes": "Every signed entry is visible on the public guestbook page — there is no moderation queue. If a bad-faith visitor signs the wall, use the All files tool below to find and delete the offending `entry:NNNNNNNN` key from the kv store.\n\nAll entries also appear in the Form submissions section above if you want to scan the full list at once."
 }
 ---
 Site type: guestbook / shared wall / public message board.

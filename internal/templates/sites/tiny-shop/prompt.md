@@ -9,7 +9,8 @@
       "must_contain": ["<form", "/api/order"],
       "message": "tiny-shop sites need an order <form> that posts to /api/order"
     }
-  ]
+  ],
+  "setup_notes": "By default, this template records orders in an in-house log — no payments are collected. You can opt any product into Stripe Buy Button checkout instead.\n\nTo enable Stripe for a product:\n1. Create a Buy Button at https://dashboard.stripe.com/buy-buttons\n2. In the workspace, open functions/products.js and add `buy_button_id: \"buy_btn_...\"` to that product entry.\n3. Open index.html and replace `pk_live_REPLACE_ME` with your Stripe publishable key (one key covers all Buy Buttons on the site).\n\nProducts without a buy_button_id keep using the in-house order form; visit /orders.html on your site to see those orders. If every product has a buy_button_id, the order form hides itself automatically."
 }
 ---
 Site type: tiny shop / preorder list / single-vendor stall.

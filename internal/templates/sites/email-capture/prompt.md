@@ -9,7 +9,8 @@
       "must_contain": ["<form", "type=\"email\"", "type=\"submit\"", "/api/submit"],
       "message": "email capture pages need a <form> that POSTs to /api/submit with an email input and a submit button in index.html"
     }
-  ]
+  ],
+  "setup_notes": "Captured emails appear in the Form submissions section on this page as they come in. Use the CSV or JSON download links to export them — Mailchimp, ConvertKit, Buttondown, and most other email services accept CSV imports.\n\nThere is no double opt-in or confirmation email step, so make sure the copy above the form is clear about what subscribers are signing up for."
 }
 ---
 Site type: email capture.
