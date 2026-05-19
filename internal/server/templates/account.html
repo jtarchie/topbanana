@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="corporate">
+<head>
+<title>Account — BuildABear</title>
+{{ template "head" . }}
+</head>
+<body class="min-h-screen flex flex-col bg-base-100">
+{{ template "brand" . }}
+<main class="flex-1 max-w-3xl w-full mx-auto px-4 sm:px-6 py-8">
+  <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight mb-2">Account</h1>
+  <p class="text-base-content/70 mb-6">Signed in as <span class="font-mono">{{ .Email }}</span> ({{ .Role }}).</p>
+
+  <section class="card bg-base-100 border border-base-300 mb-6">
+    <div class="card-body">
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h2 class="text-lg font-semibold">Passkeys</h2>
+          <p class="text-sm text-base-content/70">{{ len .Credentials }} bound to this account.</p>
+        </div>
+        <button id="add-passkey" type="button" class="btn btn-primary btn-sm">Add another passkey</button>
+      </div>
+      {{ if .Credentials }}
+      <ul class="mt-4 divide-y divide-base-300 border border-base-300 rounded-box">
+        {{ range .Credentials }}
+        <li class="px-4 py-3 flex items-center justify-between gap-3">
+          <div class="min-w-0">
+            <p class="text-sm font-mono truncate">{{ .ID }}</p>
+            <p class="text-xs text-base-content/60">added {{ .Created }}</p>
+          </div>
+        </li>
+        {{ end }}
+      </ul>
+      {{ else }}
+      <p class="text-sm text-base-content/60 italic mt-4">No passkeys bound yet.</p>
+      {{ end }}
+      <div id="add-error" class="alert alert-error mt-4 hidden" role="alert"></div>
+      <div id="add-success" class="alert alert-success mt-4 hidden" role="status">Passkey added.</div>
+    </div>
+  </section>
+
+  <form method="POST" action="/logout">
+    <button type="submit" class="btn btn-ghost btn-sm">Sign out</button>
+  </form>
+</main>
+{{ template "webauthn_js" . }}
+<script>
+  (async function () {
+    var btn = document.getElementById('add-passkey');
+    var errEl = document.getElementById('add-error');
+    var okEl = document.getElementById('add-success');
+    var email = {{ .Email | printf "%q" }};
+    function showError(msg) {
+      errEl.textContent = msg;
+      errEl.classList.remove('hidden');
+    }
+    btn.addEventListener('click', async function () {
+      errEl.classList.add('hidden');
+      okEl.classList.add('hidden');
+      btn.disabled = true;
+      try {
+        var beginRes = await fetch('/auth/passkey/registerBegin', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({username: email}),
+          credentials: 'same-origin',
+        });
+        if (!beginRes.ok) {
+          showError('Could not start: ' + (await beginRes.text()));
+          btn.disabled = false;
+          return;
+        }
+        var options = await beginRes.json();
+        var pubKey = window.babWebAuthn.parseCreationOptions(options.publicKey);
+        var credential = await navigator.credentials.create({publicKey: pubKey});
+        var payload = window.babWebAuthn.serializeAttestation(credential);
+
+        var finishRes = await fetch('/auth/passkey/registerFinish', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
+          credentials: 'same-origin',
+        });
+        if (!finishRes.ok) {
+          showError('Registration failed: ' + (await finishRes.text()));
+          btn.disabled = false;
+          return;
+        }
+        okEl.classList.remove('hidden');
+        setTimeout(function () { window.location.reload(); }, 600);
+      } catch (err) {
+        showError(err.message || String(err));
+        btn.disabled = false;
+      }
+    });
+  })();
+</script>
+</body>
+</html>

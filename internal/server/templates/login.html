@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="corporate">
+<head>
+<title>Sign in — BuildABear</title>
+{{ template "head" . }}
+</head>
+<body class="min-h-screen flex flex-col bg-base-100">
+<main class="flex-1 grid place-items-center px-4 py-12">
+  <div class="card w-full max-w-md bg-base-100 border border-base-300 shadow-sm">
+    <div class="card-body">
+      <h1 class="text-xl font-semibold tracking-tight mb-1">Sign in</h1>
+      <p class="text-sm text-base-content/70 mb-4">Sign in with the passkey bound to your account.</p>
+      <form id="login-form" novalidate>
+        <label class="form-control w-full">
+          <span class="label-text font-medium">Email</span>
+          <input id="login-email" name="email" type="email" autocomplete="username webauthn" required
+                 class="input input-bordered w-full mt-1" placeholder="you@example.com" />
+        </label>
+        <button type="submit" class="btn btn-primary w-full mt-4">Continue with passkey</button>
+      </form>
+      <div id="login-error" class="alert alert-error mt-4 hidden" role="alert"></div>
+    </div>
+  </div>
+</main>
+{{ template "webauthn_js" . }}
+<script>
+  (async function () {
+    var form = document.getElementById('login-form');
+    var emailEl = document.getElementById('login-email');
+    var errEl = document.getElementById('login-error');
+
+    function showError(msg) {
+      errEl.textContent = msg;
+      errEl.classList.remove('hidden');
+    }
+
+    form.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      errEl.classList.add('hidden');
+      var email = emailEl.value.trim().toLowerCase();
+      if (!email) { showError('Enter your email.'); return; }
+
+      try {
+        var beginRes = await fetch('/auth/passkey/loginBegin', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({username: email}),
+          credentials: 'same-origin',
+        });
+        if (!beginRes.ok) {
+          var msg = await beginRes.text();
+          showError('Could not start login: ' + msg);
+          return;
+        }
+        var options = await beginRes.json();
+        var pubKey = window.babWebAuthn.parseRequestOptions(options.publicKey);
+        var assertion = await navigator.credentials.get({publicKey: pubKey});
+        var payload = window.babWebAuthn.serializeAssertion(assertion);
+
+        var finishRes = await fetch('/auth/passkey/loginFinish', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
+          credentials: 'same-origin',
+        });
+        if (!finishRes.ok) {
+          var ferr = await finishRes.text();
+          showError('Login failed: ' + ferr);
+          return;
+        }
+        window.location.href = '/apps';
+      } catch (err) {
+        showError(err.message || String(err));
+      }
+    });
+  })();
+</script>
+</body>
+</html>

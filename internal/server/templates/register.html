@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="corporate">
+<head>
+<title>Create your passkey — BuildABear</title>
+{{ template "head" . }}
+</head>
+<body class="min-h-screen flex flex-col bg-base-100">
+<main class="flex-1 grid place-items-center px-4 py-12">
+  <div class="card w-full max-w-md bg-base-100 border border-base-300 shadow-sm">
+    <div class="card-body">
+      <h1 class="text-xl font-semibold tracking-tight mb-1">Bind a passkey</h1>
+      <p class="text-sm text-base-content/70 mb-4">
+        Enrolling <span class="font-mono">{{ .Email }}</span>. Your device will prompt you to create a passkey.
+      </p>
+      <button id="register-button" type="button" class="btn btn-primary w-full">Create passkey</button>
+      <div id="register-error" class="alert alert-error mt-4 hidden" role="alert"></div>
+      <div id="register-success" class="alert alert-success mt-4 hidden" role="status">
+        Passkey created. Redirecting…
+      </div>
+    </div>
+  </div>
+</main>
+{{ template "webauthn_js" . }}
+<script>
+  (async function () {
+    var btn = document.getElementById('register-button');
+    var errEl = document.getElementById('register-error');
+    var okEl = document.getElementById('register-success');
+    var email = {{ .Email | printf "%q" }};
+
+    function showError(msg) {
+      errEl.textContent = msg;
+      errEl.classList.remove('hidden');
+    }
+
+    btn.addEventListener('click', async function () {
+      errEl.classList.add('hidden');
+      btn.disabled = true;
+      try {
+        var beginRes = await fetch('/auth/passkey/registerBegin', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({username: email}),
+          credentials: 'same-origin',
+        });
+        if (!beginRes.ok) {
+          var berr = await beginRes.text();
+          showError('Could not start registration: ' + berr);
+          btn.disabled = false;
+          return;
+        }
+        var options = await beginRes.json();
+        var pubKey = window.babWebAuthn.parseCreationOptions(options.publicKey);
+        var credential = await navigator.credentials.create({publicKey: pubKey});
+        var payload = window.babWebAuthn.serializeAttestation(credential);
+
+        var finishRes = await fetch('/auth/passkey/registerFinish', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload),
+          credentials: 'same-origin',
+        });
+        if (!finishRes.ok) {
+          var ferr = await finishRes.text();
+          showError('Registration failed: ' + ferr);
+          btn.disabled = false;
+          return;
+        }
+        // After register, ask the server to mark the invite consumed and
+        // sign the user in. Both ride through /register/finish.
+        var consumeRes = await fetch('/register/finish?invite={{ .InviteToken }}', {
+          method: 'POST',
+          credentials: 'same-origin',
+        });
+        if (!consumeRes.ok) {
+          var cerr = await consumeRes.text();
+          showError('Could not finalize: ' + cerr);
+          btn.disabled = false;
+          return;
+        }
+        okEl.classList.remove('hidden');
+        setTimeout(function () { window.location.href = '/apps'; }, 800);
+      } catch (err) {
+        showError(err.message || String(err));
+        btn.disabled = false;
+      }
+    });
+  })();
+</script>
+</body>
+</html>

@@ -37,3 +37,12 @@ var debugTemplate string
 
 //go:embed templates/debug_edit.html
 var debugEditTemplate string
+
+//go:embed templates/login.html
+var loginTemplate string
+
+//go:embed templates/register.html
+var registerTemplate string
+
+//go:embed templates/account.html
+var accountTemplate string

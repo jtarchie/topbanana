@@ -150,6 +150,9 @@ func New(d Deps) (*echo.Echo, *Server) {
 		{"files", filesTemplate},
 		{"debug", debugTemplate},
 		{"debug_edit", debugEditTemplate},
+		{"login", loginTemplate},
+		{"register", registerTemplate},
+		{"account", accountTemplate},
 	} {
 		template.Must(tpl.New(t.name).Parse(t.body))
 	}
@@ -188,6 +191,22 @@ func New(d Deps) (*echo.Echo, *Server) {
 	// propagated cross-page.
 	e.GET("/status/:slug", s.statusHandler)
 	e.GET("/events/:slug", s.eventsHandler)
+
+	// Passkey surfaces. Mounted unauthenticated and parallel to the legacy
+	// basic-auth admin gate during the rollout; commit 4 swaps requireAdmin
+	// over to the session check these endpoints set up. Skipped entirely
+	// when SUPER_ADMIN_EMAIL was empty, so dev deployments stay on the
+	// single-tenant path.
+	if s.auth != nil {
+		authMux := http.NewServeMux()
+		s.auth.Passkey.MountRoutes(authMux, "/auth/")
+		e.Any("/auth/*", echo.WrapHandler(authMux))
+		e.GET("/login", s.loginHandler)
+		e.GET("/register", s.registerHandler)
+		e.POST("/register/finish", s.registerFinishHandler)
+		e.POST("/logout", s.logoutHandler)
+		e.GET("/account", s.accountHandler)
+	}
 
 	admin := e.Group("", s.requireAdmin)
 	// promptBodyCap bounds the whole request body on prompt-bearing POSTs so a
