@@ -8,11 +8,13 @@ import (
 	"github.com/egregors/passkey"
 )
 
-// TestSessionCookieName is the cookie name the egregors/passkey library
-// reads on every request — exposed so tests can construct the right
-// cookie without poking the library's internals. Stays in lockstep with
-// the prefix passed to passkey.WithSessionCookieNamePrefix in auth.New.
-const TestSessionCookieName = "bab_usid"
+// SessionCookieName is the user-session cookie the egregors/passkey
+// library writes after a successful login. We need this name on the
+// read side too (middleware, /account, tests). The library's
+// WithSessionCookieNamePrefix does a camelCase concat of
+// prefix + "Usid" (not prefix + "_usid"), so with our "bab" prefix the
+// real cookie name is "babUsid".
+const SessionCookieName = "babUsid"
 
 // InjectTestSession is a test-only entry point that creates a session
 // for the given email, returning the cookie value. Used by the server

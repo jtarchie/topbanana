@@ -105,7 +105,7 @@ func buildServerWithRunnerAndInfo(t *testing.T, st *store.Store, snapSvc *snapsh
 	if err != nil {
 		t.Fatalf("inject test session: %v", err)
 	}
-	testSessionCookie = &http.Cookie{Name: auth.TestSessionCookieName, Value: token}
+	testSessionCookie = &http.Cookie{Name: auth.SessionCookieName, Value: token}
 	e, _ := server.New(server.Deps{
 		Store:      st,
 		Build:      buildSvc,

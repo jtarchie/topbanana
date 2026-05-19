@@ -158,18 +158,16 @@ func (s *Server) accountHandler(c *echo.Context) error {
 
 // currentSessionEmail extracts the email from the passkey library's user
 // cookie. Returns ("", false) when the cookie is missing, malformed, or
-// points at a session that's been deleted/expired. Hand-rolled so we can
-// use the result in handlers that don't yet have the full RequireUser
-// middleware (commit 5).
+// points at a session that's been deleted/expired.
+//
+// The library's WithSessionCookieNamePrefix does a camelCase concat of
+// prefix + "Usid" (not prefix + "_usid"), so with our "bab" prefix the
+// actual cookie name is "babUsid".
 func (s *Server) currentSessionEmail(c *echo.Context) (string, bool) {
 	if s.auth == nil {
 		return "", false
 	}
-	r := c.Request()
-	// The library's cookie name is "<prefix>_usid" (see passkey internals);
-	// our prefix is "bab". Hard-coded here rather than threaded through
-	// because commit 3 only needs a read-only check.
-	ck, err := r.Cookie("bab_usid")
+	ck, err := c.Request().Cookie(auth.SessionCookieName)
 	if err != nil {
 		return "", false
 	}
