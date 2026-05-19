@@ -3,15 +3,6 @@
 <head>
 <title>Workspace: {{ .SiteName }} — BuildABear</title>
 {{ template "head" . }}
-<style type="text/tailwindcss">
-  /* Side panels slide in from the right. Use [open] selector since DaisyUI's
-     drawer component pulls in too much chrome — a plain <dialog> with a
-     fixed aside fits the workspace metaphor better. */
-  .side-panel { position: fixed; top: 0; right: 0; height: 100vh; width: min(420px, 100vw); transform: translateX(100%); transition: transform .2s ease; z-index: 50; }
-  .side-panel[data-open="true"] { transform: translateX(0); }
-  .side-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.3); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 40; }
-  .side-scrim[data-open="true"] { opacity: 1; pointer-events: auto; }
-</style>
 </head>
 <body class="min-h-screen flex flex-col bg-base-100">
 {{ template "brand" . }}
@@ -252,29 +243,8 @@
     setTimeout(function () { card.remove(); }, 4500);
   }
 
-  // Side panel open/close.
-  (function () {
-    function setOpen(name, open) {
-      var panel = document.getElementById('panel-' + name);
-      var scrim = document.getElementById('scrim-' + name);
-      if (!panel) return;
-      panel.dataset.open = open ? 'true' : 'false';
-      panel.setAttribute('aria-hidden', open ? 'false' : 'true');
-      if (scrim) scrim.dataset.open = open ? 'true' : 'false';
-    }
-    document.querySelectorAll('[data-panel]').forEach(function (btn) {
-      btn.addEventListener('click', function () { setOpen(btn.dataset.panel, true); });
-    });
-    document.querySelectorAll('[data-close]').forEach(function (btn) {
-      btn.addEventListener('click', function () { setOpen(btn.dataset.close, false); });
-    });
-    document.querySelectorAll('[data-scrim]').forEach(function (s) {
-      s.addEventListener('click', function () { setOpen(s.dataset.scrim, false); });
-    });
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') { setOpen('themes', false); setOpen('history', false); }
-    });
-  })();
+  // Side panel open/close is shared with /admin/users via the panel_js partial
+  // included at the bottom of <body>.
 
   // Image upload (drop + click).
   (function () {
@@ -512,5 +482,6 @@
   })();
   {{ end }}
 </script>
+{{ template "panel_js" . }}
 </body>
 </html>
