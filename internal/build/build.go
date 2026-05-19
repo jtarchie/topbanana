@@ -257,26 +257,33 @@ func (svc *Service) Start(p Params) {
 			rec.SetModel(svc.model, string(svc.reasoningEffort))
 		}
 		err := svc.buildAndLint(ctx, p.Slug, p.Prompt, p.Template, p.Attachments, p.Seeds, rec)
+		// Persist the transcript before emitting the terminal SSE event.
+		// Consumers (the progress strip, /system, /debug) treat "completed"
+		// /"failed" as "you can read everything related to this run now."
+		// Emitting the event first leaves a small window where readers see
+		// "build done" but the transcript JSON hasn't landed yet — flaked
+		// the system-dashboard e2e once and could surprise anyone clicking
+		// /debug fast enough.
 		if err != nil {
 			slog.Error(p.LogKey+".failed", "slug", p.Slug, "err", err)
-			svc.events.Fail(p.Slug, err)
 			if rec != nil {
 				rec.Finish(ctx, svc.store, events.StatusFailed, err)
 				if svc.editsKeep > 0 {
 					editrec.Trim(ctx, svc.store, p.Slug, svc.editsKeep)
 				}
 			}
+			svc.events.Fail(p.Slug, err)
 			return
 		}
 		svc.refreshDescription(ctx, p.Slug, p.Prompt)
 		slog.Info(p.LogKey+".done", "slug", p.Slug)
-		svc.events.Complete(p.Slug)
 		if rec != nil {
 			rec.Finish(ctx, svc.store, events.StatusCompleted, nil)
 			if svc.editsKeep > 0 {
 				editrec.Trim(ctx, svc.store, p.Slug, svc.editsKeep)
 			}
 		}
+		svc.events.Complete(p.Slug)
 	}()
 }
 

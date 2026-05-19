@@ -70,6 +70,13 @@ func (r *stubRunner) Describe(_ context.Context, _ *store.Store, _ string, _ str
 // auth + deps but threads a Runner all the way through the build service so
 // the test can drive a deterministic build without a real LLM.
 func buildServerWithRunner(t *testing.T, st *store.Store, snapSvc *snapshot.Service, runner build.Runner) http.Handler {
+	return buildServerWithRunnerAndInfo(t, st, snapSvc, runner, server.SystemInfo{})
+}
+
+// buildServerWithRunnerAndInfo is buildServerWithRunner plus a SystemInfo
+// override. The system dashboard test uses it to plant a known model string
+// so it can assert /system surfaces config it didn't make up.
+func buildServerWithRunnerAndInfo(t *testing.T, st *store.Store, snapSvc *snapshot.Service, runner build.Runner, info server.SystemInfo) http.Handler {
 	t.Helper()
 	hash, err := bcrypt.GenerateFromPassword([]byte(testAdminPassword), bcrypt.MinCost)
 	if err != nil {
@@ -77,10 +84,11 @@ func buildServerWithRunner(t *testing.T, st *store.Store, snapSvc *snapshot.Serv
 	}
 	tracker := events.NewTracker()
 	buildSvc := build.NewWithConfig(build.Config{
-		Store:    st,
-		Events:   tracker,
-		Snapshot: snapSvc,
-		Runner:   runner,
+		Store:      st,
+		Events:     tracker,
+		Snapshot:   snapSvc,
+		Runner:     runner,
+		RecordEdit: true,
 	})
 	e, _ := server.New(server.Deps{
 		Store:             st,
@@ -92,6 +100,7 @@ func buildServerWithRunner(t *testing.T, st *store.Store, snapSvc *snapshot.Serv
 		Port:              "8080",
 		AdminUsername:     testAdminUser,
 		AdminPasswordHash: string(hash),
+		SystemInfo:        info,
 	})
 	return e
 }
@@ -236,6 +245,17 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	}
 	if !strings.Contains(body, "panel-themes") {
 		t.Errorf("workspace (theme redirect target) missing themes panel")
+	}
+
+	// 8a. /system surfaces the just-built slug in its Apps table.
+	//     Cheap piggyback assertion — catches /system regressions caused by
+	//     edits to the shared brand partial or the apps walk.
+	resp, body = authedGET("/system")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /system: %d", resp.StatusCode)
+	}
+	if !strings.Contains(body, slug) {
+		t.Errorf("/system did not list slug %q in the Apps table", slug)
 	}
 
 	// 8. Manage page renders with the consolidated sections; legacy /settings

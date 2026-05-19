@@ -41,6 +41,21 @@ import (
 	"github.com/jtarchie/buildabear/internal/templates"
 )
 
+// SystemInfo captures read-only platform configuration the system dashboard
+// surfaces. Populated from CLI flags in cmd/buildabear/main.go — these values
+// don't live anywhere else on the wired-up server (build.Service and
+// store.Store keep them in private fields), so we hand them in directly
+// rather than threading getters through every package.
+type SystemInfo struct {
+	LLMModel           string
+	LLMBaseURL         string
+	LLMReasoningEffort string
+	S3Endpoint         string
+	S3Bucket           string
+	SnapshotKeep       int
+	EditsKeep          int
+}
+
 // Deps holds the dependencies the server needs. Wired up in cmd/buildabear.
 type Deps struct {
 	Store             *store.Store
@@ -54,6 +69,7 @@ type Deps struct {
 	Port              string
 	AdminUsername     string
 	AdminPasswordHash string
+	SystemInfo        SystemInfo
 	// PreWarmCert, when non-nil, is invoked in a goroutine for each newly-saved
 	// custom domain so the autocert manager can issue a Let's Encrypt cert
 	// before the first visitor arrives. Set by main when --acme-email is on;
@@ -75,6 +91,7 @@ type Server struct {
 	tpl               *template.Template
 	adminUsername     string
 	adminPasswordHash string
+	systemInfo        SystemInfo
 
 	// htmlMinifier strips whitespace + comments from HTML on the serve
 	// path. Constructed once at startup so we don't re-allocate the
@@ -120,6 +137,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		{"apps", appsTemplate},
 		{"workspace", workspaceTemplate},
 		{"manage", manageTemplate},
+		{"system", systemTemplate},
 		{"toolbar", editToolbarTemplate},
 		{"visual_edit", visualEditTemplate},
 		{"function_edit", functionEditTemplate},
@@ -143,6 +161,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		tpl:               tpl,
 		adminUsername:     d.AdminUsername,
 		adminPasswordHash: d.AdminPasswordHash,
+		systemInfo:        d.SystemInfo,
 		htmlMinifier:      newHTMLMinifier(),
 		domainIndex:       map[string]string{},
 		slugIndex:         map[string]bool{},
@@ -175,6 +194,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 	admin.GET("/", s.landingHandler)
 	admin.POST("/build", s.buildHandler, promptWithAttachmentsBodyCap)
 	admin.GET("/apps", s.appsHandler)
+	admin.GET("/system", s.systemHandler)
 	// New unified per-app surfaces.
 	admin.GET("/workspace/:slug", s.workspaceHandler)
 	admin.GET("/manage/:slug", s.manageHandler)
@@ -517,10 +537,12 @@ type appLink struct {
 }
 
 type appsData struct {
-	// SiteName is unused on the apps grid — exposed here so the shared brand
-	// partial's `{{ if .SiteName }}` breadcrumb check evaluates against a real
-	// field on the struct (html/template errors on a missing field).
+	// SiteName + Active are unused on the apps grid — exposed so the shared
+	// brand partial's `{{ if .SiteName }}` breadcrumb and `{{ eq .Active ... }}`
+	// nav-highlight checks evaluate against real fields on the struct
+	// (html/template errors on a missing field).
 	SiteName string
+	Active   string
 	Slug     string
 	Apps     []appLink
 	Flash    string
@@ -1098,7 +1120,7 @@ var reservedSlugs = map[string]bool{
 	"status": true, "build": true, "events": true, "upload": true,
 	"history": true, "settings": true, "test": true, "relint": true,
 	"admin": true, "login": true, "logout": true,
-	"workspace": true, "manage": true,
+	"workspace": true, "manage": true, "system": true,
 }
 
 func validateSlug(slug string) error {

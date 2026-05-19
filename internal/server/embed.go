@@ -20,6 +20,9 @@ var workspaceTemplate string
 //go:embed templates/manage.html
 var manageTemplate string
 
+//go:embed templates/system.html
+var systemTemplate string
+
 //go:embed templates/visual_edit.html
 var visualEditTemplate string
 

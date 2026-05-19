@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="corporate">
+<head>
+<title>System — BuildABear</title>
+{{ template "head" . }}
+</head>
+<body class="min-h-screen flex flex-col bg-base-100">
+{{ template "brand" . }}
+<main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8 space-y-10">
+  <header>
+    <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight">System</h1>
+    <p class="text-sm text-base-content/70 mt-1">Platform health, storage, and configuration for this BuildABear instance.</p>
+  </header>
+
+  {{ if .Flash }}<div class="alert alert-success" role="status"><span>{{ .Flash }}</span></div>{{ end }}
+
+  <section aria-labelledby="glance-heading" class="space-y-3">
+    <h2 id="glance-heading" class="text-xs font-semibold uppercase tracking-wide text-base-content/60">At a glance</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div class="card bg-base-100 border border-base-300">
+        <div class="card-body p-4">
+          <div class="text-xs text-base-content/60 uppercase tracking-wide">Apps</div>
+          <div class="text-2xl font-semibold mt-1">{{ .AppCount }}</div>
+          {{ if gt .CustomDomains 0 }}<div class="text-xs text-base-content/60 mt-1">{{ .CustomDomains }} custom {{ if eq .CustomDomains 1 }}domain{{ else }}domains{{ end }}</div>{{ end }}
+        </div>
+      </div>
+      <div class="card bg-base-100 border border-base-300">
+        <div class="card-body p-4">
+          <div class="text-xs text-base-content/60 uppercase tracking-wide">Storage</div>
+          <div class="text-2xl font-semibold mt-1">{{ .StorageLabel }}</div>
+          <div class="text-xs text-base-content/60 mt-1">{{ .StorageCount }} {{ if eq .StorageCount 1 }}object{{ else }}objects{{ end }}</div>
+        </div>
+      </div>
+      <div class="card bg-base-100 border border-base-300">
+        <div class="card-body p-4">
+          <div class="text-xs text-base-content/60 uppercase tracking-wide">Recent builds</div>
+          {{ if gt .RecentTotal 0 }}
+          <div class="text-2xl font-semibold mt-1">{{ .RecentSuccess }} <span class="text-base text-base-content/60">of {{ .RecentTotal }}</span></div>
+          <div class="text-xs text-base-content/60 mt-1">successful</div>
+          {{ else }}
+          <div class="text-2xl font-semibold mt-1">—</div>
+          <div class="text-xs text-base-content/60 mt-1">no builds yet</div>
+          {{ end }}
+        </div>
+      </div>
+      <div class="card bg-base-100 border border-base-300">
+        <div class="card-body p-4">
+          <div class="text-xs text-base-content/60 uppercase tracking-wide">Last activity</div>
+          <div class="text-2xl font-semibold mt-1">{{ .LastActivity }}</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="apps-heading" class="space-y-3">
+    <div class="flex items-end justify-between gap-3 flex-wrap">
+      <h2 id="apps-heading" class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Apps</h2>
+      <a href="/apps" class="link link-hover text-sm">View all →</a>
+    </div>
+    {{ if .Apps }}
+    <div class="overflow-x-auto rounded-box border border-base-300">
+      <table class="table table-zebra table-sm">
+        <thead>
+          <tr>
+            <th>slug</th>
+            <th>title</th>
+            <th class="text-right">size</th>
+            <th class="text-right">edits</th>
+            <th>last edited</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ range .Apps }}
+          <tr>
+            <td><a class="link link-primary font-mono" href="{{ .URL }}">{{ .Slug }}</a></td>
+            <td>{{ if .Title }}{{ .Title }}{{ else }}<span class="text-base-content/40">—</span>{{ end }}</td>
+            <td class="text-right text-base-content/70">{{ .SizeLabel }}</td>
+            <td class="text-right text-base-content/70">{{ .Edits }}</td>
+            <td class="text-base-content/70">{{ if .LastEdited }}{{ .LastEdited }}{{ else }}<span class="text-base-content/40">never</span>{{ end }}</td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+    </div>
+    {{ else }}
+    <p class="text-sm text-base-content/70">No apps yet. <a class="link link-primary" href="/">Build the first one →</a></p>
+    {{ end }}
+  </section>
+
+  <section aria-labelledby="builds-heading" class="space-y-3">
+    <h2 id="builds-heading" class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Recent builds</h2>
+    {{ if .Builds }}
+    <div class="overflow-x-auto rounded-box border border-base-300">
+      <table class="table table-zebra table-sm">
+        <thead>
+          <tr>
+            <th>slug</th>
+            <th>when</th>
+            <th>type</th>
+            <th>status</th>
+            <th class="text-right">duration</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ range .Builds }}
+          <tr>
+            <td><a class="link link-primary font-mono" href="{{ .DebugURL }}">{{ .Slug }}</a></td>
+            <td class="text-base-content/70" title="{{ .WhenISO }}">{{ .WhenLabel }}</td>
+            <td class="text-base-content/70">{{ .LogKey }}</td>
+            <td>
+              {{ if eq .Status "successful" }}<span class="badge badge-success badge-sm">{{ .StatusLabel }}</span>
+              {{ else if eq .Status "failed" }}<span class="badge badge-error badge-sm">{{ .StatusLabel }}</span>
+              {{ else }}<span class="badge badge-warning badge-sm">{{ .StatusLabel }}</span>{{ end }}
+            </td>
+            <td class="text-right text-base-content/70">{{ .DurationLabel }}</td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+    </div>
+    {{ else }}
+    <p class="text-sm text-base-content/70">No builds recorded yet.</p>
+    {{ end }}
+  </section>
+
+  <section aria-labelledby="storage-heading" class="space-y-3">
+    <h2 id="storage-heading" class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Storage breakdown</h2>
+    <div class="overflow-x-auto rounded-box border border-base-300">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>category</th>
+            <th class="text-right">size</th>
+            <th class="text-right">objects</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ range .Storage.Rows }}
+          <tr>
+            <td>{{ .Label }}</td>
+            <td class="text-right">{{ .BytesLabel }}</td>
+            <td class="text-right text-base-content/70">{{ .Count }}</td>
+          </tr>
+          {{ end }}
+        </tbody>
+        <tfoot>
+          <tr class="font-semibold">
+            <td>Total</td>
+            <td class="text-right">{{ .Storage.TotalBytesLabel }}</td>
+            <td class="text-right">{{ .Storage.TotalCount }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="config-heading" class="space-y-3">
+    <h2 id="config-heading" class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Configuration</h2>
+    <dl class="card bg-base-100 border border-base-300">
+      <div class="card-body p-4 grid grid-cols-1 sm:grid-cols-[12rem_1fr] gap-x-4 gap-y-2 text-sm">
+        <dt class="text-base-content/60">LLM model</dt><dd class="font-mono">{{ .Config.LLMModel }}</dd>
+        <dt class="text-base-content/60">LLM base URL</dt><dd class="font-mono break-all">{{ .Config.LLMBaseURL }}</dd>
+        <dt class="text-base-content/60">Reasoning effort</dt><dd>{{ .Config.LLMReasoningEffort }}</dd>
+        <dt class="text-base-content/60">S3 endpoint</dt><dd class="font-mono break-all">{{ .Config.S3Endpoint }}</dd>
+        <dt class="text-base-content/60">S3 bucket</dt><dd class="font-mono">{{ .Config.S3Bucket }}</dd>
+        <dt class="text-base-content/60">Snapshot retention</dt><dd>{{ .Config.SnapshotKeep }}</dd>
+        <dt class="text-base-content/60">Transcript retention</dt><dd>{{ .Config.EditsKeep }}</dd>
+        <dt class="text-base-content/60">Main domain</dt><dd class="font-mono">{{ .Config.Domain }}</dd>
+        <dt class="text-base-content/60">Custom domains</dt><dd>{{ .Config.CustomDomainCount }} in use</dd>
+      </div>
+    </dl>
+  </section>
+</main>
+{{ template "footer" . }}
+</body>
+</html>

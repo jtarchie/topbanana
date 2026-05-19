@@ -27,8 +27,9 @@
     <a href="/workspace/{{ .Slug }}" class="font-mono text-sm font-medium truncate text-base-content/80 hover:text-base-content">{{ .SiteName }}</a>
     {{- end }}
   </div>
-  <div class="flex-none">
+  <div class="flex-none flex items-center gap-1">
     <a href="/apps" class="btn btn-ghost btn-sm">Your apps</a>
+    <a href="/system" class="btn btn-ghost btn-sm{{ if eq .Active `system` }} btn-active{{ end }}">System</a>
   </div>
 </header>
 {{- end }}

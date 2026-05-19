@@ -139,6 +139,15 @@ func main() {
 		Port:              cli.Port,
 		AdminUsername:     cli.AdminUsername,
 		AdminPasswordHash: string(adminHash),
+		SystemInfo: server.SystemInfo{
+			LLMModel:           cli.LLMModel,
+			LLMBaseURL:         cli.LLMBaseURL,
+			LLMReasoningEffort: cli.ReasoningEffort,
+			S3Endpoint:         cli.S3EndpointURL,
+			S3Bucket:           cli.S3Bucket,
+			SnapshotKeep:       cli.SnapshotKeep,
+			EditsKeep:          cli.EditsKeep,
+		},
 	}
 
 	// Plain-HTTP path (dev / no ACME). echo.Start blocks until shutdown.
