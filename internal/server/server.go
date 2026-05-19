@@ -105,11 +105,13 @@ type Server struct {
 	// HostAllowed so autocert won't ask Let's Encrypt for a cert for a
 	// scanner-invented hostname like "whm.apps.jtarchie.com" — every miss
 	// would otherwise burn a slot in the 50/week per-registered-domain rate
-	// limit. Both are rebuilt from one ListApps call; the same mutex guards
-	// both.
+	// limit. ownerIndex maps slug → owner email so role-filtered listings
+	// don't need an S3 GET per app. All three are rebuilt from one
+	// ListApps call; the same mutex guards them.
 	domainMu    sync.RWMutex
 	domainIndex map[string]string
 	slugIndex   map[string]bool
+	ownerIndex  map[string]string
 
 	// preWarmCert is the deps callback, captured here so settingsSubmitHandler
 	// can fire it without threading the function through every signature.
@@ -169,6 +171,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		htmlMinifier: newHTMLMinifier(),
 		domainIndex:  map[string]string{},
 		slugIndex:    map[string]bool{},
+		ownerIndex:   map[string]string{},
 		preWarmCert:  d.PreWarmCert,
 	}
 	s.initialRebuildDomainIndex(context.Background())
@@ -179,12 +182,14 @@ func New(d Deps) (*echo.Echo, *Server) {
 	e.Use(hstsMiddleware())
 	e.Use(s.subdomainMiddleware())
 
-	// /status and /events are reachable unauthed: they're polled by the
-	// progress page (which is itself admin-gated) but don't carry any
-	// sensitive data, and admins land here mid-build before the cookie has
-	// propagated cross-page.
-	e.GET("/status/:slug", s.statusHandler)
-	e.GET("/events/:slug", s.eventsHandler)
+	// /status and /events are session-required and ownership-scoped: the
+	// progress page polls them mid-build, but neither carries data a
+	// non-owner should be able to subscribe to. Previously they were
+	// open by design so the cookie could propagate cross-page; with the
+	// passkey session cookie set on first reach to the admin surface,
+	// that handoff is no longer a problem.
+	e.GET("/status/:slug", s.statusHandler, s.requireUser, s.requireSlugOwnership)
+	e.GET("/events/:slug", s.eventsHandler, s.requireUser, s.requireSlugOwnership)
 
 	// Passkey surfaces. Mounted unauthenticated and parallel to the legacy
 	// basic-auth admin gate during the rollout; commit 4 swaps requireAdmin
@@ -215,32 +220,33 @@ func New(d Deps) (*echo.Echo, *Server) {
 	admin.POST("/build", s.buildHandler, promptWithAttachmentsBodyCap)
 	admin.GET("/apps", s.appsHandler)
 	admin.GET("/system", s.systemHandler)
-	// New unified per-app surfaces.
-	admin.GET("/workspace/:slug", s.workspaceHandler)
-	admin.GET("/manage/:slug", s.manageHandler)
-	// Pre-existing per-app endpoints. POSTs keep their URLs so the new templates
-	// can submit to them unchanged; the GETs redirect to /workspace or /manage.
-	admin.GET("/edit/:slug", s.redirectToWorkspace)
-	admin.POST("/edit/:slug", s.editSubmitHandler, promptWithAttachmentsBodyCap)
-	admin.POST("/relint/:slug", s.relintHandler)
-	admin.GET("/edit/:slug/visual", s.visualEditHandler)
-	admin.POST("/edit/:slug/visual", s.visualEditSaveHandler, promptBodyCap)
-	admin.GET("/edit/:slug/theme", s.redirectToWorkspace)
-	admin.POST("/edit/:slug/theme", s.themeStudioApplyHandler)
-	admin.GET("/edit/:slug/function/:name", s.functionEditHandler)
-	admin.POST("/test/:slug/api/:name", s.functionTestHandler)
-	admin.POST("/upload/:slug", s.uploadHandler)
-	admin.GET("/settings/:slug", s.redirectToManage)
-	admin.POST("/settings/:slug", s.settingsSubmitHandler)
-	admin.POST("/settings/:slug/delete", s.settingsDeleteHandler)
-	admin.GET("/history/:slug", s.redirectToWorkspace)
-	admin.POST("/history/:slug/restore", s.historyRestoreHandler)
-	admin.POST("/history/:slug/delete", s.historyDeleteHandler)
-	admin.GET("/data/:slug", s.dataHandler)
-	admin.GET("/files/:slug", s.filesHandler)
-	admin.GET("/debug/:slug", s.debugHandler)
-	admin.GET("/debug/:slug/edit", s.debugDetailHandler)
-	admin.GET("/debug/:slug/cache-check", s.debugCacheCheckHandler)
+	// Per-slug routes carry the ownership gate as route-level middleware
+	// so a regular admin gets a 404 on every slug they don't own without
+	// each handler having to repeat the check.
+	owns := s.requireSlugOwnership
+	admin.GET("/workspace/:slug", s.workspaceHandler, owns)
+	admin.GET("/manage/:slug", s.manageHandler, owns)
+	admin.GET("/edit/:slug", s.redirectToWorkspace, owns)
+	admin.POST("/edit/:slug", s.editSubmitHandler, owns, promptWithAttachmentsBodyCap)
+	admin.POST("/relint/:slug", s.relintHandler, owns)
+	admin.GET("/edit/:slug/visual", s.visualEditHandler, owns)
+	admin.POST("/edit/:slug/visual", s.visualEditSaveHandler, owns, promptBodyCap)
+	admin.GET("/edit/:slug/theme", s.redirectToWorkspace, owns)
+	admin.POST("/edit/:slug/theme", s.themeStudioApplyHandler, owns)
+	admin.GET("/edit/:slug/function/:name", s.functionEditHandler, owns)
+	admin.POST("/test/:slug/api/:name", s.functionTestHandler, owns)
+	admin.POST("/upload/:slug", s.uploadHandler, owns)
+	admin.GET("/settings/:slug", s.redirectToManage, owns)
+	admin.POST("/settings/:slug", s.settingsSubmitHandler, owns)
+	admin.POST("/settings/:slug/delete", s.settingsDeleteHandler, owns)
+	admin.GET("/history/:slug", s.redirectToWorkspace, owns)
+	admin.POST("/history/:slug/restore", s.historyRestoreHandler, owns)
+	admin.POST("/history/:slug/delete", s.historyDeleteHandler, owns)
+	admin.GET("/data/:slug", s.dataHandler, owns)
+	admin.GET("/files/:slug", s.filesHandler, owns)
+	admin.GET("/debug/:slug", s.debugHandler, owns)
+	admin.GET("/debug/:slug/edit", s.debugDetailHandler, owns)
+	admin.GET("/debug/:slug/cache-check", s.debugCacheCheckHandler, owns)
 
 	return e, s
 }
@@ -310,9 +316,13 @@ func (s *Server) rebuildDomainIndex(ctx context.Context) error {
 	}
 	idx := make(map[string]string, len(apps))
 	slugs := make(map[string]bool, len(apps))
+	owners := make(map[string]string, len(apps))
 	for _, slug := range apps {
 		slugs[slug] = true
 		meta := s.build.ReadMeta(ctx, slug)
+		if meta.OwnerID != "" {
+			owners[slug] = meta.OwnerID
+		}
 		for _, d := range meta.Domains {
 			if existing, dup := idx[d]; dup && existing != slug {
 				slog.Warn("domain_index.duplicate", "domain", d, "kept", existing, "dropped", slug)
@@ -324,9 +334,32 @@ func (s *Server) rebuildDomainIndex(ctx context.Context) error {
 	s.domainMu.Lock()
 	s.domainIndex = idx
 	s.slugIndex = slugs
+	s.ownerIndex = owners
 	s.domainMu.Unlock()
-	slog.Info("domain_index.rebuilt", "domains", len(idx), "slugs", len(slugs))
+	slog.Info("domain_index.rebuilt", "domains", len(idx), "slugs", len(slugs), "owners", len(owners))
 	return nil
+}
+
+// ownerOf returns the owner email recorded in the index for a slug, or
+// the empty string if the slug is unowned (pre-migration data). Cheap —
+// one in-memory map lookup. The caller is expected to handle "":
+// authorizeSlug treats it as "only super admin can access."
+func (s *Server) ownerOf(slug string) string {
+	s.domainMu.RLock()
+	defer s.domainMu.RUnlock()
+	return s.ownerIndex[slug]
+}
+
+// setOwner refreshes a single slug's owner without rebuilding the whole
+// index. Called from buildHandler (after a new app is created) and from
+// the transfer handler in commit 8.
+func (s *Server) setOwner(slug, owner string) {
+	s.domainMu.Lock()
+	if s.ownerIndex == nil {
+		s.ownerIndex = map[string]string{}
+	}
+	s.ownerIndex[slug] = owner
+	s.domainMu.Unlock()
 }
 
 // markSlug records a freshly-created slug so HostAllowed accepts it
@@ -570,6 +603,7 @@ type appsData struct {
 
 func (s *Server) appsHandler(c *echo.Context) error {
 	ctx := c.Request().Context()
+	user := userFromContext(c)
 	apps, err := s.store.ListApps(ctx)
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "list apps", err)
@@ -578,6 +612,13 @@ func (s *Server) appsHandler(c *echo.Context) error {
 	links := make([]appLink, 0, len(apps))
 	for _, app := range apps {
 		meta := s.build.ReadMeta(ctx, app)
+		// Role-filter: regular admins only see their own apps. Super
+		// admin sees everything regardless. Pre-migration data with an
+		// empty OwnerID falls through to super-admin-only on purpose;
+		// the startup migration assigns those on every boot.
+		if user != nil && user.Role != auth.RoleSuperAdmin && meta.OwnerID != user.Email {
+			continue
+		}
 		links = append(links, appLink{
 			Name:        app,
 			Title:       meta.Title,
@@ -812,11 +853,20 @@ func (s *Server) buildHandler(c *echo.Context) error {
 	}
 
 	tmpl := templates.Get(c.FormValue("template"))
-	slog.Info("build.start", "slug", slug, "template", tmpl.ID, "attachments", len(attachments))
-	// Register the slug before the build kicks off so the very first TLS
-	// handshake to <slug>.<domain> (the progress page that's about to load)
-	// passes HostAllowed and triggers an LE issuance for a real app.
+	user := userFromContext(c)
+	owner := ""
+	if user != nil {
+		owner = user.Email
+	}
+	slog.Info("build.start", "slug", slug, "template", tmpl.ID, "attachments", len(attachments), "owner", owner)
+	// Register the slug + its owner before the build kicks off so the very
+	// first TLS handshake to <slug>.<domain> (the progress page about to
+	// load) passes HostAllowed, and so /events + /status see ownership
+	// without waiting for the next ListApps rebuild.
 	s.markSlug(slug)
+	if owner != "" {
+		s.setOwner(slug, owner)
+	}
 	return s.startBuild(c, build.Params{
 		Slug:         slug,
 		Prompt:       prompt,
@@ -824,6 +874,7 @@ func (s *Server) buildHandler(c *echo.Context) error {
 		Template:     tmpl,
 		SeedSkeleton: true,
 		Attachments:  attachments,
+		OwnerID:      owner,
 	})
 }
 
@@ -1085,13 +1136,13 @@ func resolveContentType(stored, name string) string {
 
 // injectEditToolbar inserts the edit toolbar before </body>. Skipped on
 // custom-domain responses (so the CDN never caches the toolbar bytes) and
-// when the visitor isn't an admin. If no </body> tag exists, the content is
-// returned unchanged.
+// when the visitor isn't an admin who owns this app. If no </body> tag
+// exists, the content is returned unchanged.
 func (s *Server) injectEditToolbar(c *echo.Context, htmlContent, slug, page string) string {
 	if c.Get("custom_domain") == true {
 		return htmlContent
 	}
-	if !s.isAdmin(c) {
+	if !s.canEdit(c, slug) {
 		return htmlContent
 	}
 	if !strings.Contains(htmlContent, "</body>") {

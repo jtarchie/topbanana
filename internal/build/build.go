@@ -222,6 +222,11 @@ type Params struct {
 	UserPrompt   string
 	Page         string
 	SelectionLen int
+	// OwnerID is the canonical email of the user kicking off the build.
+	// Recorded on the initial SiteMeta so every later authorization check
+	// has somewhere to look. Empty leaves the sidecar unowned (server
+	// startup migration assigns those to the super admin on the next boot).
+	OwnerID string
 }
 
 // Start records the build as in-flight and runs it asynchronously. The
@@ -233,7 +238,7 @@ func (svc *Service) Start(p Params) {
 	go func() {
 		ctx := context.Background()
 		if p.SeedSkeleton {
-			err := svc.seedTemplate(ctx, p.Slug, p.Template)
+			err := svc.seedTemplate(ctx, p.Slug, p.OwnerID, p.Template)
 			if err != nil {
 				slog.Error(p.LogKey+".seed_failed", "slug", p.Slug, "template", p.Template.ID, "err", err)
 				svc.events.Fail(p.Slug, err)
@@ -360,7 +365,7 @@ func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl 
 // seedTemplate writes the template's skeleton files (if any) and the
 // .buildabear.json sidecar recording the template id. The sidecar lets later
 // edits re-apply the same template addendum.
-func (svc *Service) seedTemplate(ctx context.Context, slug string, tmpl *templates.SiteTemplate) error {
+func (svc *Service) seedTemplate(ctx context.Context, slug, ownerID string, tmpl *templates.SiteTemplate) error {
 	if tmpl == nil {
 		return nil
 	}
@@ -379,6 +384,7 @@ func (svc *Service) seedTemplate(ctx context.Context, slug string, tmpl *templat
 	return svc.WriteMeta(ctx, slug, SiteMeta{
 		Template: tmpl.ID,
 		Created:  time.Now().UTC(),
+		OwnerID:  ownerID,
 	})
 }
 

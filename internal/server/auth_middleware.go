@@ -82,23 +82,33 @@ func (s *Server) requireUser(next echo.HandlerFunc) echo.HandlerFunc {
 // downstream of the gate to read role + email for ownership checks
 // (wired in commit 5).
 //
-//nolint:unused // will be used in commit 5 when authorizeSlug lands.
+
 func userFromContext(c *echo.Context) *auth.User {
 	u, _ := c.Get(userContextKey).(*auth.User)
 	return u
 }
 
-// isAdmin reports whether the request carries a valid session signal.
-// Used by injectEditToolbar to decide whether to render the floating
-// toolbar on hosted-site pages. Note: after the basic-auth cutover the
-// passkey library's cookie isn't scoped to the parent domain, so the
-// toolbar only shows up on the admin host itself — visiting a slug
-// subdomain won't reveal it until a follow-up plumbs the cookie's Domain
-// through the library or via a parallel signal cookie.
-func (s *Server) isAdmin(c *echo.Context) bool {
+// canEdit reports whether the session belongs to a user who can edit the
+// given slug — either the recorded owner or any super admin. Used by
+// injectEditToolbar to keep the floating toolbar off pages a regular
+// admin happens to be viewing on someone else's site.
+func (s *Server) canEdit(c *echo.Context, slug string) bool {
 	if s.auth == nil {
 		return false
 	}
-	_, ok := s.currentSessionEmail(c)
-	return ok
+	email, ok := s.currentSessionEmail(c)
+	if !ok {
+		return false
+	}
+	user, err := s.auth.Users.LookupCached(c.Request().Context(), email)
+	if err != nil {
+		return false
+	}
+	if user.Disabled {
+		return false
+	}
+	if user.Role == auth.RoleSuperAdmin {
+		return true
+	}
+	return s.ownerOf(slug) == user.Email
 }
