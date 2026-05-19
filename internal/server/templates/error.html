@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="corporate">
+<head>
+<title>{{ .Status }} — BuildABear</title>
+{{ template "head" . }}
+</head>
+<body class="min-h-screen grid place-items-center bg-base-200 px-4 py-12">
+<main class="card bg-base-100 border border-base-300 max-w-md w-full">
+  <div class="card-body items-center text-center gap-3">
+    <svg viewBox="0 0 120 120" class="w-28 h-28 text-primary" fill="currentColor" aria-hidden="true">
+      <!-- ears -->
+      <circle cx="32" cy="30" r="14" />
+      <circle cx="88" cy="30" r="14" />
+      <circle cx="32" cy="30" r="6" fill="#fbcfe8" />
+      <circle cx="88" cy="30" r="6" fill="#fbcfe8" />
+      <!-- head -->
+      <circle cx="60" cy="62" r="38" />
+      <!-- muzzle -->
+      <ellipse cx="60" cy="78" rx="22" ry="16" fill="#fef3c7" />
+      <!-- nose -->
+      <ellipse cx="60" cy="70" rx="5" ry="4" fill="#1f2937" />
+      <!-- sad mouth -->
+      <path d="M50 86 Q60 78 70 86" stroke="#1f2937" stroke-width="2.5" fill="none" stroke-linecap="round" />
+      <!-- eyes (closed / sad arcs) -->
+      <path d="M44 56 Q48 50 52 56" stroke="#1f2937" stroke-width="2.5" fill="none" stroke-linecap="round" />
+      <path d="M68 56 Q72 50 76 56" stroke="#1f2937" stroke-width="2.5" fill="none" stroke-linecap="round" />
+      <!-- single tear -->
+      <path d="M46 60 Q44 66 46 70 Q48 66 46 60" fill="#60a5fa" />
+    </svg>
+    <div class="text-6xl font-bold text-primary tracking-tight leading-none">{{ .Status }}</div>
+    <h1 class="text-xl font-semibold">{{ .Title }}</h1>
+    <p class="text-base-content/70">{{ .Tagline }}</p>
+    <a href="/" class="btn btn-primary mt-2">Take me home</a>
+  </div>
+</main>
+</body>
+</html>

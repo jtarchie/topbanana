@@ -153,6 +153,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		{"register", registerTemplate},
 		{"account", accountTemplate},
 		{"admin_users", adminUsersTemplate},
+		{"error", errorTemplate},
 	} {
 		template.Must(tpl.New(t.name).Parse(t.body))
 	}
@@ -179,6 +180,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 	s.initialRebuildDomainIndex(context.Background())
 
 	e := echo.New()
+	e.HTTPErrorHandler = s.httpErrorHandler
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	e.Use(slogecho.New(logger))
 	e.Use(hstsMiddleware())
@@ -652,6 +654,59 @@ func httpErr(code int, msg string, err error) *echo.HTTPError {
 // we'd reach for echo.ErrNotFound.
 func notFound() *echo.HTTPError {
 	return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+}
+
+// errorData backs templates/error.html. The bear page is intentionally
+// chrome-less — it works on subdomains where there's no logged-in user as
+// well as on admin pages where we'd rather not lean on injectChrome to
+// re-fetch session state during an error response.
+type errorData struct {
+	Status  int
+	Title   string
+	Tagline string
+}
+
+// httpErrorHandler replaces Echo's default JSON serializer. Browser
+// navigations (Accept: text/html) get the bear page; everything else —
+// fetch() with default Accept, the SSE poller, /api/* function callers,
+// curl — keeps the original {"message": "..."} JSON so no client breaks.
+func (s *Server) httpErrorHandler(c *echo.Context, err error) {
+	if r, _ := echo.UnwrapResponse(c.Response()); r != nil && r.Committed {
+		return
+	}
+	code := http.StatusInternalServerError
+	msg := http.StatusText(code)
+	var he *echo.HTTPError
+	if errors.As(err, &he) {
+		code = he.Code
+		if he.Message != "" {
+			msg = he.Message
+		}
+	}
+
+	if !wantsHTML(c) {
+		_ = c.JSON(code, map[string]string{"message": msg})
+		return
+	}
+
+	var buf bytes.Buffer
+	rErr := s.tpl.ExecuteTemplate(&buf, "error", errorData{
+		Status:  code,
+		Title:   "That's not in the toy box.",
+		Tagline: "We looked everywhere — under the bed, behind the dresser, even in the honey jar. Try heading home and we'll start fresh.",
+	})
+	if rErr != nil {
+		_ = c.String(code, msg)
+		return
+	}
+	_ = c.HTML(code, buf.String())
+}
+
+// wantsHTML returns true for plain browser navigations. fetch(), curl, and
+// SSE clients leave Accept unset or send `*/*`, which we treat as JSON to
+// preserve the existing API contract.
+func wantsHTML(c *echo.Context) bool {
+	return strings.Contains(c.Request().Header.Get("Accept"), "text/html")
 }
 
 // landingData backs templates/landing.html. Was a map[string]any until

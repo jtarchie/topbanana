@@ -49,3 +49,6 @@ var accountTemplate string
 
 //go:embed templates/admin_users.html
 var adminUsersTemplate string
+
+//go:embed templates/error.html
+var errorTemplate string
