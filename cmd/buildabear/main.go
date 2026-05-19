@@ -114,6 +114,21 @@ func main() {
 
 	tracker := events.NewTracker()
 	snapshotSvc := snapshot.New(s, cli.SnapshotKeep)
+	// runnerFactory wires per-user model overrides: when a Start call carries
+	// a Params.Model distinct from --llm-model, build.Service asks for a
+	// matching Runner. We construct it via the same model.Resolve path the
+	// default Runner uses, reusing the shared API key + base URL — multi-key
+	// per-provider support is a deliberate follow-up (see plan in
+	// .claude/plans). Cached inside build.Service so repeat builds on the
+	// same model don't reconstruct the HTTP client.
+	runnerFactory := func(_ context.Context, modelID string) (build.Runner, error) {
+		provider, name := model.SplitModel(modelID)
+		llm, err := model.Resolve(provider, name, cli.LLMAPIKey, cli.LLMBaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("resolve model %q: %w", modelID, err)
+		}
+		return build.NewAgentRunner(llm, reasoningEffort), nil
+	}
 	buildSvc := build.NewWithConfig(build.Config{
 		Store:           s,
 		LLM:             llm,
@@ -124,6 +139,7 @@ func main() {
 		RecordEdit:      cli.RecordEdits,
 		BuildTimeout:    cli.BuildTimeout,
 		ReasoningEffort: reasoningEffort,
+		RunnerFactory:   runnerFactory,
 	})
 	sb := sandbox.New(sandbox.Config{})
 	stateStore := state.NewS3(s3Client, cli.S3Bucket)

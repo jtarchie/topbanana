@@ -546,6 +546,24 @@ func (s *Server) snapshotBefore(ctx context.Context, slug, reason string) {
 	}
 }
 
+// effectiveModelFor resolves the per-user model for a session: empty string
+// when auth is disabled (legacy single-tenant), the user's AllowedModels[0]
+// when they have one, or the CLI-configured default otherwise. Returns an
+// error only when the caller-supplied user is missing or somehow conflicts
+// with the quota config — handlers should surface it as a 403 to keep the
+// shape consistent with the original CheckMaxApps gate.
+func (s *Server) effectiveModelFor(user *auth.User) (string, error) {
+	if s.auth == nil {
+		return "", nil
+	}
+	defaults := s.auth.QuotaDefaults()
+	resolved, err := auth.ResolveModel(user, "", defaults)
+	if err != nil {
+		return "", fmt.Errorf("resolve model: %w", err)
+	}
+	return resolved, nil
+}
+
 // startBuild kicks off the build via the build service and lands the user
 // in the workspace with ?building=1, which makes the workspace render its
 // inline status strip and open the /events/:slug SSE stream. SSE subscribers
@@ -968,24 +986,22 @@ func (s *Server) buildHandler(c *echo.Context) error {
 		owner = user.Email
 	}
 
-	// Quota gates: regular admins can't exceed their per-user MaxApps cap,
-	// and the configured server model has to be in their allow-list (if
-	// they have one). Super admins bypass both. The owned-count comes from
-	// the in-memory ownerIndex so the apps check is one map walk, no S3
-	// round-trip.
+	// Quota gates + per-user model resolution. CheckMaxApps gates the apps
+	// cap (super admins bypass). effectiveModelFor returns the user's
+	// AllowedModels[0] (or the CLI default) so build.Service dispatches
+	// against the matching Runner.
 	if s.auth != nil {
-		defaults := s.auth.QuotaDefaults()
-		quotaErr := auth.CheckMaxApps(user, s.countAppsFor(owner), defaults)
+		quotaErr := auth.CheckMaxApps(user, s.countAppsFor(owner), s.auth.QuotaDefaults())
 		if quotaErr != nil {
 			return echo.NewHTTPError(http.StatusForbidden, quotaErr.Error())
 		}
-		_, modelErr := auth.ResolveModel(user, defaults.Model, defaults)
-		if modelErr != nil {
-			return echo.NewHTTPError(http.StatusForbidden, modelErr.Error())
-		}
+	}
+	effectiveModel, modelErr := s.effectiveModelFor(user)
+	if modelErr != nil {
+		return echo.NewHTTPError(http.StatusForbidden, modelErr.Error())
 	}
 
-	slog.Info("build.start", "slug", slug, "template", tmpl.ID, "attachments", len(attachments), "owner", owner)
+	slog.Info("build.start", "slug", slug, "template", tmpl.ID, "attachments", len(attachments), "owner", owner, "model", effectiveModel)
 	// Register the slug + its owner before the build kicks off so the very
 	// first TLS handshake to <slug>.<domain> (the progress page about to
 	// load) passes HostAllowed, and so /events + /status see ownership
@@ -1002,6 +1018,7 @@ func (s *Server) buildHandler(c *echo.Context) error {
 		SeedSkeleton: true,
 		Attachments:  attachments,
 		OwnerID:      owner,
+		Model:        effectiveModel,
 	})
 }
 
@@ -1384,7 +1401,11 @@ func (s *Server) editSubmitHandler(c *echo.Context) error {
 	meta := s.build.ReadMeta(ctx, slug)
 	tmpl := build.EffectiveTemplate(meta)
 	seeds := s.build.EditSeeds(ctx, slug, prompt)
-	slog.Info("edit.start", "slug", slug, "page", page, "selection_len", len(selection), "template", tmpl.ID, "seeds", len(seeds), "attachments", len(attachments))
+	model, modelErr := s.effectiveModelFor(userFromContext(c))
+	if modelErr != nil {
+		return echo.NewHTTPError(http.StatusForbidden, modelErr.Error())
+	}
+	slog.Info("edit.start", "slug", slug, "page", page, "selection_len", len(selection), "template", tmpl.ID, "seeds", len(seeds), "attachments", len(attachments), "model", model)
 	return s.startBuild(c, build.Params{
 		Slug:         slug,
 		Prompt:       build.EditPrompt(prompt, page, selection),
@@ -1395,6 +1416,7 @@ func (s *Server) editSubmitHandler(c *echo.Context) error {
 		UserPrompt:   prompt,
 		Page:         page,
 		SelectionLen: len(selection),
+		Model:        model,
 	})
 }
 
@@ -1422,12 +1444,17 @@ func (s *Server) relintHandler(c *echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/workspace/"+slug+"?flash=lint-clean") //nolint:wrapcheck
 	}
 
-	slog.Info("relint.start", "slug", slug, "issues", len(lintErrs), "template", tmpl.ID)
+	model, modelErr := s.effectiveModelFor(userFromContext(c))
+	if modelErr != nil {
+		return echo.NewHTTPError(http.StatusForbidden, modelErr.Error())
+	}
+	slog.Info("relint.start", "slug", slug, "issues", len(lintErrs), "template", tmpl.ID, "model", model)
 	return s.startBuild(c, build.Params{
 		Slug:     slug,
 		Prompt:   build.LintFixPrompt(lintErrs),
 		LogKey:   "relint",
 		Template: tmpl,
+		Model:    model,
 	})
 }
 

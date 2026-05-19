@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	adkmodel "google.golang.org/adk/model"
@@ -105,6 +106,13 @@ type agentRunner struct {
 	reasoningEffort genai.ThinkingLevel
 }
 
+// NewAgentRunner constructs the production Runner around an already-resolved
+// LLM client. Exposed so cmd/buildabear can wire a per-model factory without
+// internal/build needing to know about internal/model.
+func NewAgentRunner(llm adkmodel.LLM, reasoningEffort genai.ThinkingLevel) Runner {
+	return agentRunner{llm: llm, reasoningEffort: reasoningEffort}
+}
+
 func (r agentRunner) Run(ctx context.Context, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, emit func(events.Event)) error {
 	err := agent.Run(ctx, r.llm, s, slug, prompt, tmpl, attachments, seeds, r.reasoningEffort, emit)
 	if err != nil {
@@ -142,7 +150,20 @@ type Service struct {
 	recordEdit      bool
 	buildTimeout    time.Duration
 	reasoningEffort genai.ThinkingLevel
+
+	// runnerFactory builds a Runner for an arbitrary model string the
+	// default-CLI-runner doesn't already cover. Nil in tests (which inject
+	// a Runner directly) and in legacy New() callers; when nil, Params.Model
+	// is ignored and the default runner is used unconditionally.
+	runnerFactory RunnerFactory
+	runnersMu     sync.Mutex
+	runners       map[string]Runner
 }
+
+// RunnerFactory constructs a Runner for a given model identifier (typically
+// "provider/name"). Used by Service.runnerFor when Params.Model names a
+// non-default model the operator put on a user's AllowedModels allowlist.
+type RunnerFactory func(ctx context.Context, model string) (Runner, error)
 
 // Config bundles dependencies for the build service. RecordEdit toggles the
 // per-edit transcript capture (enabled by default in production; tests can
@@ -164,6 +185,11 @@ type Config struct {
 	BuildTimeout    time.Duration
 	ReasoningEffort genai.ThinkingLevel
 	Runner          Runner
+	// RunnerFactory is invoked when a Start call carries a Params.Model
+	// distinct from the CLI-configured default. cmd/buildabear wires this
+	// to model.Resolve + NewAgentRunner; tests leave it nil and stay on
+	// the injected stub for every call.
+	RunnerFactory RunnerFactory
 }
 
 func New(s *store.Store, llm adkmodel.LLM, t *events.Tracker, snap *snapshot.Service) *Service {
@@ -198,7 +224,34 @@ func NewWithConfig(cfg Config) *Service {
 		recordEdit:      cfg.RecordEdit,
 		buildTimeout:    timeout,
 		reasoningEffort: cfg.ReasoningEffort,
+		runnerFactory:   cfg.RunnerFactory,
+		runners:         map[string]Runner{},
 	}
+}
+
+// runnerFor returns the Runner for a given model identifier, lazily
+// constructing one via the runnerFactory and caching the result. An empty
+// model, the default model, or the absence of a factory all return the
+// service's default runner — keeping legacy callers and tests on the
+// same path they used before per-user model resolution existed.
+func (svc *Service) runnerFor(ctx context.Context, model string) (Runner, error) {
+	if model == "" || model == svc.model || svc.runnerFactory == nil {
+		return svc.runner, nil
+	}
+	svc.runnersMu.Lock()
+	defer svc.runnersMu.Unlock()
+	if r, ok := svc.runners[model]; ok {
+		return r, nil
+	}
+	r, err := svc.runnerFactory(ctx, model)
+	if err != nil {
+		return nil, fmt.Errorf("build: resolve runner for %q: %w", model, err)
+	}
+	if svc.runners == nil {
+		svc.runners = map[string]Runner{}
+	}
+	svc.runners[model] = r
+	return r, nil
 }
 
 // Params describes one invocation of Start. LogKey distinguishes build vs.
@@ -227,16 +280,38 @@ type Params struct {
 	// has somewhere to look. Empty leaves the sidecar unowned (server
 	// startup migration assigns those to the super admin on the next boot).
 	OwnerID string
+
+	// Model is the per-user effective model identifier (e.g.
+	// "openai/gpt-4-turbo"). When set and different from the CLI default,
+	// the service dispatches against the matching cached Runner instead
+	// of the default. Empty means "use the default" — every legacy call
+	// site stays on its existing runner.
+	Model string
 }
 
 // Start records the build as in-flight and runs it asynchronously. The
 // goroutine emits status events through the tracker; callers render the
 // progress page and subscribe via the events handler.
+//
+// step-by-step; splitting it into helpers fragments the failure-handling
+// paths without making the flow clearer.
+//
+//nolint:gocognit // procedural goroutine that walks the build lifecycle
 func (svc *Service) Start(p Params) {
 	svc.events.Start(p.Slug)
 
 	go func() {
 		ctx := context.Background()
+		// Resolve the per-build Runner once up-front. Every subsequent
+		// agent call (initial Run, lint-fix retries, post-build Describe)
+		// uses the same Runner so the per-user model stays consistent
+		// across the whole build lifecycle.
+		runner, err := svc.runnerFor(ctx, p.Model)
+		if err != nil {
+			slog.Error(p.LogKey+".runner_resolve_failed", "slug", p.Slug, "model", p.Model, "err", err)
+			svc.events.Fail(p.Slug, err)
+			return
+		}
 		if p.SeedSkeleton {
 			err := svc.seedTemplate(ctx, p.Slug, p.OwnerID, p.Template)
 			if err != nil {
@@ -263,9 +338,17 @@ func (svc *Service) Start(p Params) {
 				userPrompt = p.Prompt
 			}
 			rec = editrec.New(p.Slug, p.LogKey, userPrompt, p.Page, p.SelectionLen)
-			rec.SetModel(svc.model, string(svc.reasoningEffort))
+			// Record the effective model for this run — for legacy single-
+			// model deployments p.Model is empty and we fall back to the
+			// service default; for per-user overrides we stamp the chosen
+			// model so the debug viewer reads correctly.
+			model := p.Model
+			if model == "" {
+				model = svc.model
+			}
+			rec.SetModel(model, string(svc.reasoningEffort))
 		}
-		err := svc.buildAndLint(ctx, p.Slug, p.Prompt, p.Template, p.Attachments, p.Seeds, rec)
+		err = svc.buildAndLint(ctx, runner, p.Slug, p.Prompt, p.Template, p.Attachments, p.Seeds, rec)
 		// Persist the transcript before emitting the terminal SSE event.
 		// Consumers (the progress strip, /system, /debug) treat "completed"
 		// /"failed" as "you can read everything related to this run now."
@@ -284,7 +367,7 @@ func (svc *Service) Start(p Params) {
 			svc.events.Fail(p.Slug, err)
 			return
 		}
-		svc.refreshDescription(ctx, p.Slug, p.Prompt)
+		svc.refreshDescription(ctx, runner, p.Slug, p.Prompt)
 		slog.Info(p.LogKey+".done", "slug", p.Slug)
 		if rec != nil {
 			rec.Finish(ctx, svc.store, events.StatusCompleted, nil)
@@ -315,8 +398,9 @@ func LintFixPrompt(errs []lint.Error) string {
 }
 
 // buildAndLint runs the agent then lints with up to maxLintRetries fix-up
-// passes when issues are found.
-func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, rec *editrec.Recorder) error {
+// passes when issues are found. runner is resolved once at Start time so
+// every retry and the final Describe share the same per-user model.
+func (svc *Service) buildAndLint(ctx context.Context, runner Runner, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, rec *editrec.Recorder) error {
 	ctx, cancel := context.WithTimeout(ctx, svc.buildTimeout)
 	defer cancel()
 
@@ -325,7 +409,7 @@ func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl 
 		emit = rec.Wrap(ctx, svc.store, slug, emit)
 	}
 
-	err := svc.runner.Run(ctx, svc.store, slug, prompt, tmpl, attachments, seeds, emit)
+	err := runner.Run(ctx, svc.store, slug, prompt, tmpl, attachments, seeds, emit)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("build timed out after %s", svc.buildTimeout)
@@ -350,7 +434,7 @@ func (svc *Service) buildAndLint(ctx context.Context, slug, prompt string, tmpl 
 
 		slog.Info("build.lint_retry", "slug", slug, "attempt", attempt+1, "issues", len(lintErrs))
 		emit(events.Event{Type: events.TypeStatus, Status: events.StatusRetry, Message: fmt.Sprintf("fixing %d issue(s)", len(lintErrs))})
-		err := svc.runner.Run(ctx, svc.store, slug, LintFixPrompt(lintErrs), tmpl, attachments, nil, emit)
+		err := runner.Run(ctx, svc.store, slug, LintFixPrompt(lintErrs), tmpl, attachments, nil, emit)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				return fmt.Errorf("build timed out after %s", svc.buildTimeout)
@@ -391,9 +475,11 @@ func (svc *Service) seedTemplate(ctx context.Context, slug, ownerID string, tmpl
 // refreshDescription asks the LLM for a fresh title + description for the
 // site and merges them into the existing sidecar. Best-effort: any failure
 // is logged and swallowed so the build still completes — the Available Apps
-// page just falls back to showing the slug.
-func (svc *Service) refreshDescription(ctx context.Context, slug, userPrompt string) {
-	desc, err := svc.runner.Describe(ctx, svc.store, slug, userPrompt)
+// page just falls back to showing the slug. runner is the same instance the
+// preceding build/lint pass used so the description honours per-user model
+// selection.
+func (svc *Service) refreshDescription(ctx context.Context, runner Runner, slug, userPrompt string) {
+	desc, err := runner.Describe(ctx, svc.store, slug, userPrompt)
 	if err != nil {
 		slog.Warn("describe.failed", "slug", slug, "err", err)
 		return
