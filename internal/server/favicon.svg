@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <style>
+    :root { color: #2d4a23; }
+    @media (prefers-color-scheme: dark) { :root { color: #d4e4cc; } }
+  </style>
+  <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 22 V10"/>
+    <path d="M12 14 C7 14, 4 11, 4 6 C9 6, 12 9, 12 14 Z"/>
+    <path d="M12 10 C17 10, 20 7, 20 2 C15 2, 12 5, 12 10 Z"/>
+  </g>
+</svg>

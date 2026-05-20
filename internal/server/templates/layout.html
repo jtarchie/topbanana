@@ -1,6 +1,7 @@
 {{ define "head" -}}
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <script>
 // Pre-paint theme bootstrap. Runs synchronously before any CSS loads so the
 // browser never flashes light-corporate before swapping to dark-business.
@@ -49,7 +50,10 @@
 {{ define "brand" -}}
 <header class="navbar bg-base-100 border-b border-base-300 px-4 sm:px-6">
   <div class="flex-1 gap-2 items-center min-w-0">
-    <a href="/" class="btn btn-ghost btn-sm text-base font-semibold normal-case tracking-tight px-2">Bloomhollow</a>
+    <a href="/" class="btn btn-ghost btn-sm text-base font-semibold normal-case tracking-tight px-2 gap-2">
+      <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-success"><path d="M12 22 V10"/><path d="M12 14 C7 14, 4 11, 4 6 C9 6, 12 9, 12 14 Z"/><path d="M12 10 C17 10, 20 7, 20 2 C15 2, 12 5, 12 10 Z"/></svg>
+      <span>Bloomhollow</span>
+    </a>
     {{ if .SiteName -}}
     <span class="text-base-content/30" aria-hidden="true">/</span>
     <a href="/workspace/{{ .Slug }}" class="font-mono text-sm font-medium truncate text-base-content/80 hover:text-base-content">{{ .SiteName }}</a>

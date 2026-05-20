@@ -11,6 +11,9 @@ var themePreviewListenerTemplate string
 //go:embed selection_listener.html
 var selectionListenerTemplate string
 
+//go:embed favicon.svg
+var faviconSVG string
+
 //go:embed templates/layout.html
 var layoutTemplate string
 

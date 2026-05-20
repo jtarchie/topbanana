@@ -197,6 +197,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 	// that handoff is no longer a problem.
 	e.GET("/status/:slug", s.statusHandler, s.requireUser, s.requireSlugOwnership)
 	e.GET("/events/:slug", s.eventsHandler, s.requireUser, s.requireSlugOwnership)
+	e.GET("/favicon.svg", s.faviconHandler)
 
 	// Passkey surfaces. Mounted unauthenticated and parallel to the legacy
 	// basic-auth admin gate during the rollout; commit 4 swaps requireAdmin
@@ -526,6 +527,14 @@ func (s *Server) siteURL(c *echo.Context, slug, path string) string {
 		path = "/" + path
 	}
 	return c.Scheme() + "://" + slug + "." + s.domain + s.publicPort(c) + path
+}
+
+// faviconHandler serves the embedded Bloomhollow sprout mark on the admin
+// host. Subdomain requests never reach here — subdomainMiddleware intercepts
+// them and proxies to S3, so user sites get their own favicon (or 404).
+func (s *Server) faviconHandler(c *echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "public, max-age=86400")
+	return c.Blob(http.StatusOK, "image/svg+xml", []byte(faviconSVG)) //nolint:wrapcheck
 }
 
 // adminURL builds an absolute URL on the main app domain. Used by the toolbar
