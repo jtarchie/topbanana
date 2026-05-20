@@ -8,6 +8,9 @@ var editToolbarTemplate string
 //go:embed theme_preview_listener.html
 var themePreviewListenerTemplate string
 
+//go:embed selection_listener.html
+var selectionListenerTemplate string
+
 //go:embed templates/layout.html
 var layoutTemplate string
 

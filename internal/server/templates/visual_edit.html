@@ -98,6 +98,7 @@
     components: initialHTML,
     style: initialCSS,
   });
+  window.editor = editor;
 
   var statusEl = document.getElementById('status');
   function setStatus(msg, kind){
@@ -122,12 +123,30 @@
 
   var panel = document.getElementById('ai-panel');
   var selEl = document.getElementById('ai-selection');
+  var currentSelection = {html:'', text:''};
   document.getElementById('refine-btn').addEventListener('click', function(){ panel.classList.add('open'); refreshSelection(); });
   document.getElementById('ai-cancel').addEventListener('click', function(){ panel.classList.remove('open'); });
   editor.on('component:selected', refreshSelection);
+  editor.on('load', function(){
+    var cdoc = editor.Canvas.getDocument();
+    if (!cdoc) return;
+    cdoc.addEventListener('selectionchange', function(){
+      var s = cdoc.getSelection();
+      if (!s || !s.rangeCount || !s.toString().trim()) { currentSelection = {html:'', text:''}; return; }
+      var d = cdoc.createElement('div');
+      d.appendChild(s.getRangeAt(0).cloneContents());
+      currentSelection = {html:d.innerHTML, text:s.toString()};
+      if (panel.classList.contains('open')) refreshSelection();
+    });
+  });
   function refreshSelection(){
+    if (currentSelection.text) {
+      var t = currentSelection.text;
+      selEl.textContent = '"' + (t.length > 200 ? t.slice(0,200) + '…' : t) + '"';
+      return;
+    }
     var sel = editor.getSelected();
-    if (!sel) { selEl.textContent = 'Select a component first; its HTML will be the target.'; return; }
+    if (!sel) { selEl.textContent = 'Select a component or drag-highlight text; that will be the target.'; return; }
     var h = sel.toHTML();
     selEl.textContent = h.length > 200 ? h.slice(0,200) + '…' : h;
   }
@@ -184,7 +203,7 @@
     var prompt = document.getElementById('ai-prompt').value.trim();
     if (!prompt) return;
     var sel = editor.getSelected();
-    var selectionHTML = sel ? sel.toHTML() : '';
+    var selectionHTML = currentSelection.html || (sel ? sel.toHTML() : '');
     aiApply.disabled = true;
     aiStatus.textContent = 'Submitting…';
     aiLog.innerHTML = '';

@@ -25,13 +25,6 @@
     bar.setAttribute('data-hidden', hidden ? 'false' : 'true');
     try { sessionStorage.setItem('_bab_hidden', hidden ? '0' : '1'); } catch(_){}
   });
-  document.addEventListener('selectionchange', function(){
-    var s = getSelection();
-    if(!s || !s.rangeCount || !s.toString().trim()) return;
-    var d = document.createElement('div');
-    d.appendChild(s.getRangeAt(0).cloneContents());
-    parent.postMessage({type:'_bab_sel', html:d.innerHTML, text:s.toString()}, '*');
-  });
 })();
 </script>
 </body>
