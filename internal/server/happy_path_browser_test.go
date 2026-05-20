@@ -40,7 +40,7 @@ func chromeExecPath() string {
 }
 
 // TestHappyPath_BrowserSmoke loads the redesigned landing page in headless
-// Chrome and asserts the DaisyUI corporate theme + Tailwind processing landed.
+// Chrome and asserts the DaisyUI lemonade theme + Tailwind processing landed.
 // This is a thin smoke test — its job is to catch the kinds of failures the
 // HTTP-level test can't see, like a missing CDN script, a CSS that fails to
 // apply, or a JavaScript error in the boot path. Skips when Chrome isn't
@@ -96,9 +96,9 @@ func TestHappyPath_BrowserSmoke(t *testing.T) {
 			Path:   "/",
 		}}),
 		// Force prefers-color-scheme=light so the dark-mode bootstrap
-		// script lands on corporate (matching the SSR'd data-theme attr).
+		// script lands on lemonade (matching the SSR'd data-theme attr).
 		// Without this the test runner's OS theme leaks into the assertion;
-		// on a developer's mac in dark mode it'd flip <html> to business
+		// on a developer's mac in dark mode it'd flip <html> to forest
 		// and the data-theme check below would fail.
 		emulation.SetEmulatedMedia().WithFeatures([]*emulation.MediaFeature{{
 			Name:  "prefers-color-scheme",
@@ -124,8 +124,8 @@ func TestHappyPath_BrowserSmoke(t *testing.T) {
 		}
 		t.Fatalf("chromedp run: %v", err)
 	}
-	if theme != "corporate" {
-		t.Errorf("data-theme: got %q want %q", theme, "corporate")
+	if theme != "lemonade" {
+		t.Errorf("data-theme: got %q want %q", theme, "lemonade")
 	}
 	if !strings.Contains(bodyText, "Build a new app") {
 		t.Errorf("landing h1 text: got %q", bodyText)
@@ -135,7 +135,7 @@ func TestHappyPath_BrowserSmoke(t *testing.T) {
 	}
 
 	// Flip emulated media to dark, reload, and confirm the bootstrap script
-	// honors prefers-color-scheme=dark by swapping data-theme to business.
+	// honors prefers-color-scheme=dark by swapping data-theme to forest.
 	// Reload via Navigate so the inline head script re-runs against the new
 	// emulated media query.
 	var darkTheme string
@@ -152,7 +152,7 @@ func TestHappyPath_BrowserSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dark-mode re-navigate: %v", err)
 	}
-	if darkTheme != "business" {
-		t.Errorf("dark-mode data-theme: got %q want %q", darkTheme, "business")
+	if darkTheme != "forest" {
+		t.Errorf("dark-mode data-theme: got %q want %q", darkTheme, "forest")
 	}
 }

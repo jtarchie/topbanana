@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="corporate">
+<html lang="en" data-theme="lemonade">
 <head>
 <title>Visual editor: {{.Slug}} / {{.Page}}</title>
 <meta charset="utf-8">
@@ -11,12 +11,12 @@
 (function () {
   try {
     var stored = localStorage.getItem('bh_theme');
-    if (stored === 'corporate' || stored === 'business') {
+    if (stored === 'lemonade' || stored === 'forest') {
       document.documentElement.dataset.theme = stored;
       return;
     }
     var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    if (dark) document.documentElement.dataset.theme = 'business';
+    if (dark) document.documentElement.dataset.theme = 'forest';
   } catch (_) {}
 })();
 </script>

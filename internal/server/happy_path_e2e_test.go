@@ -162,7 +162,7 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 		return resp, string(body)
 	}
 
-	// 1. Landing page renders with DaisyUI corporate chrome.
+	// 1. Landing page renders with DaisyUI lemonade chrome.
 	resp, body := authedGET("/")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /: %d", resp.StatusCode)
@@ -172,7 +172,7 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	// bootstrap script reads; `theme-toggle` is the input id wired up to
 	// flip the data-theme attribute.
 	for _, want := range []string{
-		`data-theme="corporate"`, "Bloomhollow", "Build a new app", "daisyui@5",
+		`data-theme="lemonade"`, "Bloomhollow", "Build a new app", "daisyui@5",
 		"bh_theme", `id="theme-toggle"`,
 	} {
 		if !strings.Contains(body, want) {

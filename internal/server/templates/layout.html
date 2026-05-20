@@ -4,19 +4,19 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <script>
 // Pre-paint theme bootstrap. Runs synchronously before any CSS loads so the
-// browser never flashes light-corporate before swapping to dark-business.
+// browser never flashes light-lemonade before swapping to dark-forest.
 // localStorage.bh_theme wins over the OS preference; absent that, we mirror
-// the OS's prefers-color-scheme. Default is corporate (light) — keeps the
-// SSR'd <html data-theme="corporate"> consistent for clients with JS off.
+// the OS's prefers-color-scheme. Default is lemonade (light) — keeps the
+// SSR'd <html data-theme="lemonade"> consistent for clients with JS off.
 (function () {
   try {
     var stored = localStorage.getItem('bh_theme');
-    if (stored === 'corporate' || stored === 'business') {
+    if (stored === 'lemonade' || stored === 'forest') {
       document.documentElement.dataset.theme = stored;
       return;
     }
     var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    if (dark) document.documentElement.dataset.theme = 'business';
+    if (dark) document.documentElement.dataset.theme = 'forest';
   } catch (_) { /* private mode, no matchMedia, etc. — fall back to SSR default */ }
 })();
 </script>
@@ -81,9 +81,9 @@
 (function () {
   var toggle = document.getElementById('theme-toggle');
   if (!toggle) return;
-  toggle.checked = document.documentElement.dataset.theme === 'business';
+  toggle.checked = document.documentElement.dataset.theme === 'forest';
   toggle.addEventListener('change', function () {
-    var theme = toggle.checked ? 'business' : 'corporate';
+    var theme = toggle.checked ? 'forest' : 'lemonade';
     document.documentElement.dataset.theme = theme;
     try { localStorage.setItem('bh_theme', theme); } catch (_) { /* private mode */ }
   });
