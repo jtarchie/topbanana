@@ -12,9 +12,9 @@ import (
 	"github.com/labstack/echo/v5"
 	"golang.org/x/net/html"
 
-	"github.com/jtarchie/buildabear/internal/build"
-	"github.com/jtarchie/buildabear/internal/lint"
-	"github.com/jtarchie/buildabear/internal/snapshot"
+	"github.com/jtarchie/bloomhollow/internal/build"
+	"github.com/jtarchie/bloomhollow/internal/lint"
+	"github.com/jtarchie/bloomhollow/internal/snapshot"
 )
 
 const maxVisualSaveBytes = 2 << 20 // 2 MiB

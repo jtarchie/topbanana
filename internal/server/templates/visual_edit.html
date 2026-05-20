@@ -10,7 +10,7 @@
 // partial verbatim; keep the two in sync if either changes.
 (function () {
   try {
-    var stored = localStorage.getItem('bab_theme');
+    var stored = localStorage.getItem('bh_theme');
     if (stored === 'corporate' || stored === 'business') {
       document.documentElement.dataset.theme = stored;
       return;
@@ -43,7 +43,7 @@
 <body class="bg-base-100">
 <header class="navbar bg-base-100 border-b border-base-300 px-4" style="height:56px;min-height:56px">
   <div class="flex-1 gap-2 items-center">
-    <a href="/" class="font-semibold text-base">BuildABear</a>
+    <a href="/" class="font-semibold text-base">Bloomhollow</a>
     <span class="text-base-content/40">/</span>
     <span class="text-sm">Visual editor — <span class="font-mono">{{.Slug}} / {{.Page}}</span></span>
   </div>

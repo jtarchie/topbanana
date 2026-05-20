@@ -15,7 +15,7 @@ import (
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
 
-	"github.com/jtarchie/buildabear/internal/events"
+	"github.com/jtarchie/bloomhollow/internal/events"
 )
 
 type fetchReferenceArgs struct {

@@ -22,7 +22,7 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 
-	"github.com/jtarchie/buildabear/internal/store"
+	"github.com/jtarchie/bloomhollow/internal/store"
 )
 
 // snapshotPrefix is the bucket-level prefix under which all archives live.
@@ -32,6 +32,17 @@ import (
 const snapshotPrefix = "_snapshots/"
 
 const archiveContentType = "application/zstd"
+
+// PAX header key prefixes for per-file content type and S3 user metadata.
+// Tarballs written before the Bloomhollow rebrand carry the BUILDABEAR.*
+// prefix; extractArchive reads both prefixes so old archives still restore
+// cleanly. New archives are always written with the BLOOMHOLLOW.* prefix.
+const (
+	paxContentTypeKey       = "BLOOMHOLLOW.content-type"
+	paxMetaPrefix           = "BLOOMHOLLOW.meta."
+	legacyPaxContentTypeKey = "BUILDABEAR.content-type"
+	legacyPaxMetaPrefix     = "BUILDABEAR.meta."
+)
 
 // Reasons that show up in the History UI. Free-form strings — these constants
 // just keep callers consistent.
@@ -256,14 +267,14 @@ func buildArchive(ctx context.Context, st *store.Store, slug string, files []str
 			ModTime: ts,
 		}
 		if obj.ContentType != "" {
-			header.PAXRecords = map[string]string{"BUILDABEAR.content-type": obj.ContentType}
+			header.PAXRecords = map[string]string{paxContentTypeKey: obj.ContentType}
 		}
 		if len(obj.Metadata) > 0 {
 			if header.PAXRecords == nil {
 				header.PAXRecords = map[string]string{}
 			}
 			for k, v := range obj.Metadata {
-				header.PAXRecords["BUILDABEAR.meta."+k] = v
+				header.PAXRecords[paxMetaPrefix+k] = v
 			}
 		}
 		err = tw.WriteHeader(header)
@@ -313,7 +324,10 @@ func extractArchive(ctx context.Context, st *store.Store, slug, archive string) 
 			return fmt.Errorf("tar read %s: %w", hdr.Name, err)
 		}
 
-		contentType := hdr.PAXRecords["BUILDABEAR.content-type"]
+		contentType := hdr.PAXRecords[paxContentTypeKey]
+		if contentType == "" {
+			contentType = hdr.PAXRecords[legacyPaxContentTypeKey]
+		}
 		if contentType == "" {
 			if ext := path.Ext(hdr.Name); ext != "" {
 				contentType = mime.TypeByExtension(ext)
@@ -322,7 +336,10 @@ func extractArchive(ctx context.Context, st *store.Store, slug, archive string) 
 
 		var metadata map[string]string
 		for k, v := range hdr.PAXRecords {
-			rest, ok := strings.CutPrefix(k, "BUILDABEAR.meta.")
+			rest, ok := strings.CutPrefix(k, paxMetaPrefix)
+			if !ok {
+				rest, ok = strings.CutPrefix(k, legacyPaxMetaPrefix)
+			}
 			if !ok {
 				continue
 			}

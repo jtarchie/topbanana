@@ -12,9 +12,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/jtarchie/buildabear/internal/editrec"
-	"github.com/jtarchie/buildabear/internal/events"
-	"github.com/jtarchie/buildabear/internal/store"
+	"github.com/jtarchie/bloomhollow/internal/editrec"
+	"github.com/jtarchie/bloomhollow/internal/events"
+	"github.com/jtarchie/bloomhollow/internal/store"
 )
 
 func minioStore(t *testing.T) *store.Store {

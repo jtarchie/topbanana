@@ -16,14 +16,14 @@ import (
 	adkmodel "google.golang.org/adk/model"
 	"google.golang.org/genai"
 
-	"github.com/jtarchie/buildabear/internal/agent"
-	"github.com/jtarchie/buildabear/internal/editrec"
-	"github.com/jtarchie/buildabear/internal/events"
-	"github.com/jtarchie/buildabear/internal/lint"
-	"github.com/jtarchie/buildabear/internal/model"
-	"github.com/jtarchie/buildabear/internal/snapshot"
-	"github.com/jtarchie/buildabear/internal/store"
-	"github.com/jtarchie/buildabear/internal/templates"
+	"github.com/jtarchie/bloomhollow/internal/agent"
+	"github.com/jtarchie/bloomhollow/internal/editrec"
+	"github.com/jtarchie/bloomhollow/internal/events"
+	"github.com/jtarchie/bloomhollow/internal/lint"
+	"github.com/jtarchie/bloomhollow/internal/model"
+	"github.com/jtarchie/bloomhollow/internal/snapshot"
+	"github.com/jtarchie/bloomhollow/internal/store"
+	"github.com/jtarchie/bloomhollow/internal/templates"
 )
 
 const (
@@ -43,7 +43,13 @@ const (
 	// MetaFile holds the per-site sidecar (template id, creation time, custom
 	// domains). Stored alongside the HTML files in the same S3 prefix so it
 	// travels with the site.
-	MetaFile = ".buildabear.json"
+	MetaFile = ".bloomhollow.json"
+
+	// legacyMetaFile is the pre-rebrand sidecar name. ReadMeta falls through
+	// to it when MetaFile is absent so sites created before the Bloomhollow
+	// rebrand keep their template id, custom domains, and function flags.
+	// The next successful WriteMeta migrates the site to MetaFile.
+	legacyMetaFile = ".buildabear.json"
 )
 
 // SiteMeta is the per-site sidecar persisted at MetaFile.
@@ -108,7 +114,7 @@ type agentRunner struct {
 }
 
 // NewAgentRunner constructs the production Runner around an already-resolved
-// LLM client. Exposed so cmd/buildabear can wire a per-model factory without
+// LLM client. Exposed so cmd/bloomhollow can wire a per-model factory without
 // internal/build needing to know about internal/model.
 func NewAgentRunner(llm adkmodel.LLM, reasoningEffort genai.ThinkingLevel) Runner {
 	return agentRunner{llm: llm, reasoningEffort: reasoningEffort}
@@ -223,7 +229,7 @@ func New(s *store.Store, llm adkmodel.LLM, t *events.Tracker, snap *snapshot.Ser
 	}
 }
 
-// NewWithConfig is the configurable constructor used by cmd/buildabear; New
+// NewWithConfig is the configurable constructor used by cmd/bloomhollow; New
 // stays around for tests and callers that don't care about retention.
 func NewWithConfig(cfg Config) *Service {
 	timeout := cfg.BuildTimeout
@@ -528,7 +534,7 @@ func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slu
 }
 
 // seedTemplate writes the template's skeleton files (if any) and the
-// .buildabear.json sidecar recording the template id. The sidecar lets later
+// .bloomhollow.json sidecar recording the template id. The sidecar lets later
 // edits re-apply the same template addendum.
 func (svc *Service) seedTemplate(ctx context.Context, slug, ownerID string, tmpl *templates.SiteTemplate) error {
 	if tmpl == nil {
@@ -608,7 +614,8 @@ func NormalizeDomain(raw string) (string, error) {
 }
 
 // ReadMeta returns the recorded sidecar for an existing site, or a zero value
-// if the sidecar is missing (older sites pre-date templates).
+// if the sidecar is missing (older sites pre-date templates). Falls through
+// to legacyMetaFile for sites created before the Bloomhollow rebrand.
 func (svc *Service) ReadMeta(ctx context.Context, slug string) SiteMeta {
 	obj, err := svc.store.Read(ctx, slug, MetaFile)
 	if err != nil {
@@ -616,7 +623,14 @@ func (svc *Service) ReadMeta(ctx context.Context, slug string) SiteMeta {
 		return SiteMeta{}
 	}
 	if obj.Content == "" {
-		return SiteMeta{}
+		obj, err = svc.store.Read(ctx, slug, legacyMetaFile)
+		if err != nil {
+			slog.Warn("site_meta.read_failed", "slug", slug, "err", err)
+			return SiteMeta{}
+		}
+		if obj.Content == "" {
+			return SiteMeta{}
+		}
 	}
 	var m SiteMeta
 	err = json.Unmarshal([]byte(obj.Content), &m)

@@ -13,7 +13,7 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	lru "github.com/hashicorp/golang-lru/v2"
 
-	"github.com/jtarchie/buildabear/internal/store"
+	"github.com/jtarchie/bloomhollow/internal/store"
 )
 
 // authChallengeTTL bounds how long a WebAuthn challenge is honoured. Five

@@ -31,21 +31,21 @@ import (
 
 	adkmodel "google.golang.org/adk/model"
 
-	"github.com/jtarchie/buildabear/internal/agent"
-	"github.com/jtarchie/buildabear/internal/auth"
-	"github.com/jtarchie/buildabear/internal/build"
-	"github.com/jtarchie/buildabear/internal/editrec"
-	"github.com/jtarchie/buildabear/internal/events"
-	"github.com/jtarchie/buildabear/internal/model"
-	"github.com/jtarchie/buildabear/internal/sandbox"
-	"github.com/jtarchie/buildabear/internal/snapshot"
-	"github.com/jtarchie/buildabear/internal/state"
-	"github.com/jtarchie/buildabear/internal/store"
-	"github.com/jtarchie/buildabear/internal/templates"
+	"github.com/jtarchie/bloomhollow/internal/agent"
+	"github.com/jtarchie/bloomhollow/internal/auth"
+	"github.com/jtarchie/bloomhollow/internal/build"
+	"github.com/jtarchie/bloomhollow/internal/editrec"
+	"github.com/jtarchie/bloomhollow/internal/events"
+	"github.com/jtarchie/bloomhollow/internal/model"
+	"github.com/jtarchie/bloomhollow/internal/sandbox"
+	"github.com/jtarchie/bloomhollow/internal/snapshot"
+	"github.com/jtarchie/bloomhollow/internal/state"
+	"github.com/jtarchie/bloomhollow/internal/store"
+	"github.com/jtarchie/bloomhollow/internal/templates"
 )
 
 // SystemInfo captures read-only platform configuration the system dashboard
-// surfaces. Populated from CLI flags in cmd/buildabear/main.go — these values
+// surfaces. Populated from CLI flags in cmd/bloomhollow/main.go — these values
 // don't live anywhere else on the wired-up server (build.Service and
 // store.Store keep them in private fields), so we hand them in directly
 // rather than threading getters through every package.
@@ -59,7 +59,7 @@ type SystemInfo struct {
 	EditsKeep          int
 }
 
-// Deps holds the dependencies the server needs. Wired up in cmd/buildabear.
+// Deps holds the dependencies the server needs. Wired up in cmd/bloomhollow.
 type Deps struct {
 	Store    *store.Store
 	Build    *build.Service
@@ -1229,11 +1229,16 @@ func writeSSEWithID(w io.Writer, id int, event events.Event) error {
 // Slugs themselves can't start with "_" (validateSlug), so these only apply
 // to paths *within* a real slug — e.g. blocking GET /_state/data.json from
 // leaking persisted form data on a site at slug.example.com.
-var reservedProxyPrefixes = []string{"_state/", ".buildabear/"}
+var reservedProxyPrefixes = []string{"_state/", ".bloomhollow/", ".buildabear/"}
 
 // reservedProxyPaths are exact bucket paths the static proxy must never
-// serve. `.buildabear.json` is the per-site metadata sidecar.
-var reservedProxyPaths = map[string]bool{".buildabear.json": true}
+// serve. `.bloomhollow.json` is the per-site metadata sidecar;
+// `.buildabear.json` is the pre-rebrand name kept reserved so legacy sites
+// can't leak metadata if the new file is missing.
+var reservedProxyPaths = map[string]bool{
+	".bloomhollow.json": true,
+	".buildabear.json":  true,
+}
 
 func (s *Server) proxyHandler(c *echo.Context, slug string) error {
 	ctx := c.Request().Context()

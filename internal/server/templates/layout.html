@@ -4,12 +4,12 @@
 <script>
 // Pre-paint theme bootstrap. Runs synchronously before any CSS loads so the
 // browser never flashes light-corporate before swapping to dark-business.
-// localStorage.bab_theme wins over the OS preference; absent that, we mirror
+// localStorage.bh_theme wins over the OS preference; absent that, we mirror
 // the OS's prefers-color-scheme. Default is corporate (light) — keeps the
 // SSR'd <html data-theme="corporate"> consistent for clients with JS off.
 (function () {
   try {
-    var stored = localStorage.getItem('bab_theme');
+    var stored = localStorage.getItem('bh_theme');
     if (stored === 'corporate' || stored === 'business') {
       document.documentElement.dataset.theme = stored;
       return;
@@ -49,7 +49,7 @@
 {{ define "brand" -}}
 <header class="navbar bg-base-100 border-b border-base-300 px-4 sm:px-6">
   <div class="flex-1 gap-2 items-center min-w-0">
-    <a href="/" class="btn btn-ghost btn-sm text-base font-semibold normal-case tracking-tight px-2">BuildABear</a>
+    <a href="/" class="btn btn-ghost btn-sm text-base font-semibold normal-case tracking-tight px-2">Bloomhollow</a>
     {{ if .SiteName -}}
     <span class="text-base-content/30" aria-hidden="true">/</span>
     <a href="/workspace/{{ .Slug }}" class="font-mono text-sm font-medium truncate text-base-content/80 hover:text-base-content">{{ .SiteName }}</a>
@@ -81,7 +81,7 @@
   toggle.addEventListener('change', function () {
     var theme = toggle.checked ? 'business' : 'corporate';
     document.documentElement.dataset.theme = theme;
-    try { localStorage.setItem('bab_theme', theme); } catch (_) { /* private mode */ }
+    try { localStorage.setItem('bh_theme', theme); } catch (_) { /* private mode */ }
   });
 })();
 </script>
@@ -104,7 +104,7 @@
 {{ define "footer" -}}
 <footer class="footer footer-center bg-base-200 text-base-content/60 p-4 mt-auto text-sm">
   <aside>
-    <p>BuildABear · <a class="link link-hover" href="/">Home</a> · <a class="link link-hover" href="/apps">Your apps</a></p>
+    <p>Bloomhollow · <a class="link link-hover" href="/">Home</a> · <a class="link link-hover" href="/apps">Your apps</a></p>
   </aside>
 </footer>
 {{- end }}

@@ -11,7 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/jtarchie/buildabear/internal/store"
+	"github.com/jtarchie/bloomhollow/internal/store"
 )
 
 // minioStore connects to the dev minio (or any S3-compatible backend exposed

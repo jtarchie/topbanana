@@ -12,18 +12,18 @@
   <span class="sep">·</span>
   <a target="_top" href="{{.VisualURL}}">&#x270e; Visual</a>
   <span class="sep">·</span>
-  <button type="button" id="_bab_hide" aria-label="Hide toolbar">Hide</button>
+  <button type="button" id="_bh_hide" aria-label="Hide toolbar">Hide</button>
 </div>
 <script>
 (function(){
   if(self!==top) document.body.classList.add('in-frame');
   var bar = document.getElementById('_bab');
-  var hide = document.getElementById('_bab_hide');
-  try { if (sessionStorage.getItem('_bab_hidden') === '1') bar.setAttribute('data-hidden','true'); } catch(_){}
+  var hide = document.getElementById('_bh_hide');
+  try { if (sessionStorage.getItem('_bh_hidden') === '1') bar.setAttribute('data-hidden','true'); } catch(_){}
   hide.addEventListener('click', function(){
     var hidden = bar.getAttribute('data-hidden') === 'true';
     bar.setAttribute('data-hidden', hidden ? 'false' : 'true');
-    try { sessionStorage.setItem('_bab_hidden', hidden ? '0' : '1'); } catch(_){}
+    try { sessionStorage.setItem('_bh_hidden', hidden ? '0' : '1'); } catch(_){}
   });
 })();
 </script>

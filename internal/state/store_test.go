@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/jtarchie/buildabear/internal/state"
+	"github.com/jtarchie/bloomhollow/internal/state"
 )
 
 // conformanceTests is the suite every Store implementation has to satisfy.

@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jtarchie/buildabear/internal/agent"
-	"github.com/jtarchie/buildabear/internal/events"
-	"github.com/jtarchie/buildabear/internal/snapshot"
-	"github.com/jtarchie/buildabear/internal/store"
-	"github.com/jtarchie/buildabear/internal/templates"
+	"github.com/jtarchie/bloomhollow/internal/agent"
+	"github.com/jtarchie/bloomhollow/internal/events"
+	"github.com/jtarchie/bloomhollow/internal/snapshot"
+	"github.com/jtarchie/bloomhollow/internal/store"
+	"github.com/jtarchie/bloomhollow/internal/templates"
 )
 
 // failingRunner returns an error on its first Run call. Used to exercise

@@ -10,8 +10,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/jtarchie/buildabear/internal/editrec"
-	"github.com/jtarchie/buildabear/internal/model"
+	"github.com/jtarchie/bloomhollow/internal/editrec"
+	"github.com/jtarchie/bloomhollow/internal/model"
 )
 
 // recentBuildsWindow is how many of the most recent transcripts across all

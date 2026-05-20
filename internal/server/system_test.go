@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jtarchie/buildabear/internal/editrec"
+	"github.com/jtarchie/bloomhollow/internal/editrec"
 )
 
 func TestSummarizeBuilds(t *testing.T) {

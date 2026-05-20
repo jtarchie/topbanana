@@ -12,8 +12,8 @@ import (
 
 	"golang.org/x/net/html"
 
-	"github.com/jtarchie/buildabear/internal/store"
-	"github.com/jtarchie/buildabear/internal/templates"
+	"github.com/jtarchie/bloomhollow/internal/store"
+	"github.com/jtarchie/bloomhollow/internal/templates"
 )
 
 type Error struct {

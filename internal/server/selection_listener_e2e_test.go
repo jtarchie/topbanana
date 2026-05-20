@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jtarchie/buildabear/internal/build"
-	"github.com/jtarchie/buildabear/internal/events"
-	"github.com/jtarchie/buildabear/internal/snapshot"
+	"github.com/jtarchie/bloomhollow/internal/build"
+	"github.com/jtarchie/bloomhollow/internal/events"
+	"github.com/jtarchie/bloomhollow/internal/snapshot"
 )
 
 // TestSelectionListener_AlwaysInjected pins the iframe-selection bridge to
@@ -87,7 +87,7 @@ func TestSelectionListener_AlwaysInjected(t *testing.T) {
 	// reaches the parent; the visible toolbar UI must not, since anonymous
 	// visitors shouldn't see edit chrome.
 	anonBody := get(t, subdomainSlug+".localhost", nil)
-	if !strings.Contains(anonBody, "_bab_sel") {
+	if !strings.Contains(anonBody, "_bh_sel") {
 		t.Errorf("cookie-less response missing selection bridge; agent loses iframe context.\nbody=%q", trim(anonBody, 400))
 	}
 	if !strings.Contains(anonBody, "window.parent === window") {
@@ -99,7 +99,7 @@ func TestSelectionListener_AlwaysInjected(t *testing.T) {
 
 	// Authed subdomain request — admin sees both the bridge and the toolbar.
 	authedBody := get(t, subdomainSlug+".localhost", testSessionCookie)
-	if !strings.Contains(authedBody, "_bab_sel") {
+	if !strings.Contains(authedBody, "_bh_sel") {
 		t.Errorf("authed response missing selection bridge")
 	}
 	if !strings.Contains(authedBody, `id="_bab"`) {
@@ -109,10 +109,10 @@ func TestSelectionListener_AlwaysInjected(t *testing.T) {
 	// Custom-domain request — neither listener nor toolbar is injected, so
 	// the CDN can cache the response publicly without leaking admin chrome.
 	customBody := get(t, customHost, nil)
-	if strings.Contains(customBody, "_bab_sel") {
+	if strings.Contains(customBody, "_bh_sel") {
 		t.Errorf("custom-domain response includes selection bridge; CDN would cache admin chrome.\nbody=%q", trim(customBody, 400))
 	}
-	if strings.Contains(customBody, "buildabear:settheme") {
+	if strings.Contains(customBody, "bloomhollow:settheme") {
 		t.Errorf("custom-domain response includes theme listener; CDN would cache admin chrome")
 	}
 	if strings.Contains(customBody, `id="_bab"`) {

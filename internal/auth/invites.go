@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jtarchie/buildabear/internal/store"
+	"github.com/jtarchie/bloomhollow/internal/store"
 )
 
 const inviteStorePrefix = "_auth/invites/"

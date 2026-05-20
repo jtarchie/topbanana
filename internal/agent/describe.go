@@ -11,7 +11,7 @@ import (
 	adkmodel "google.golang.org/adk/model"
 	"google.golang.org/genai"
 
-	"github.com/jtarchie/buildabear/internal/store"
+	"github.com/jtarchie/bloomhollow/internal/store"
 )
 
 // describeInstruction asks the LLM for a tiny structured response. Strict

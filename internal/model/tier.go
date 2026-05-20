@@ -7,7 +7,7 @@ import (
 )
 
 // Tier names a phase of the agent lifecycle that can be served by its own
-// model. The four tiers map onto BuildABear's call sites: TierAuthor for
+// model. The four tiers map onto Bloomhollow's call sites: TierAuthor for
 // initial generation, TierEditor for mechanical fix-ups and surgical edits,
 // TierUtility for one-shot summarisation, TierVision for multimodal alt-text.
 //

@@ -15,11 +15,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/jtarchie/buildabear/internal/agent"
-	"github.com/jtarchie/buildabear/internal/events"
-	"github.com/jtarchie/buildabear/internal/lint"
-	"github.com/jtarchie/buildabear/internal/store"
-	"github.com/jtarchie/buildabear/internal/templates"
+	"github.com/jtarchie/bloomhollow/internal/agent"
+	"github.com/jtarchie/bloomhollow/internal/events"
+	"github.com/jtarchie/bloomhollow/internal/lint"
+	"github.com/jtarchie/bloomhollow/internal/store"
+	"github.com/jtarchie/bloomhollow/internal/templates"
 )
 
 // --- Pure unit tests (no MinIO required) ------------------------------------
@@ -466,6 +466,65 @@ func TestService_ReadMeta_MissingReturnsZeroValue(t *testing.T) {
 	got := svc.ReadMeta(context.Background(), "no-such-slug-"+buildSuffix())
 	if got.Template != "" || got.OwnerID != "" {
 		t.Errorf("missing meta returned non-zero: %+v", got)
+	}
+}
+
+// Sites created before the Bloomhollow rebrand store their sidecar at
+// .buildabear.json. ReadMeta must fall through to it when the canonical
+// .bloomhollow.json is absent, otherwise existing sites silently lose
+// template id, domains, and function flags after the upgrade.
+func TestService_ReadMeta_FallsBackToLegacySidecar(t *testing.T) {
+	t.Parallel()
+
+	st := minioStoreForBuild(t)
+	if st == nil {
+		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
+	}
+
+	svc := NewWithConfig(Config{Store: st})
+	slug := buildSlug(t)
+	cleanupSlug(t, st, slug)
+
+	legacy := SiteMeta{
+		Template:         "blank",
+		Domains:          []string{"legacy.example.com"},
+		EnablesFunctions: true,
+		OwnerID:          "legacy@example.com",
+	}
+	body, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatalf("marshal legacy meta: %v", err)
+	}
+	err = st.Write(context.Background(), slug, legacyMetaFile, string(body), "application/json", nil)
+	if err != nil {
+		t.Fatalf("seed legacy sidecar: %v", err)
+	}
+
+	got := svc.ReadMeta(context.Background(), slug)
+	if got.Template != legacy.Template {
+		t.Errorf("legacy fallback: Template=%q, want %q", got.Template, legacy.Template)
+	}
+	if got.OwnerID != legacy.OwnerID {
+		t.Errorf("legacy fallback: OwnerID=%q, want %q", got.OwnerID, legacy.OwnerID)
+	}
+	if !got.EnablesFunctions {
+		t.Errorf("legacy fallback: EnablesFunctions lost")
+	}
+	if len(got.Domains) != 1 || got.Domains[0] != "legacy.example.com" {
+		t.Errorf("legacy fallback: Domains=%+v", got.Domains)
+	}
+
+	// New writes go to the canonical name; the legacy file is left in place
+	// as belt-and-suspenders for rollback, but ReadMeta now prefers the new.
+	updated := got
+	updated.Title = "after migration"
+	err = svc.WriteMeta(context.Background(), slug, updated)
+	if err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+	obj, err := st.Read(context.Background(), slug, MetaFile)
+	if err != nil || obj.Content == "" {
+		t.Fatalf("WriteMeta did not persist to MetaFile (%s): err=%v content=%q", MetaFile, err, obj.Content)
 	}
 }
 

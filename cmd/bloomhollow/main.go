@@ -13,15 +13,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	adkmodel "google.golang.org/adk/model"
 
-	"github.com/jtarchie/buildabear/internal/auth"
-	"github.com/jtarchie/buildabear/internal/build"
-	"github.com/jtarchie/buildabear/internal/events"
-	"github.com/jtarchie/buildabear/internal/model"
-	"github.com/jtarchie/buildabear/internal/sandbox"
-	"github.com/jtarchie/buildabear/internal/server"
-	"github.com/jtarchie/buildabear/internal/snapshot"
-	"github.com/jtarchie/buildabear/internal/state"
-	"github.com/jtarchie/buildabear/internal/store"
+	"github.com/jtarchie/bloomhollow/internal/auth"
+	"github.com/jtarchie/bloomhollow/internal/build"
+	"github.com/jtarchie/bloomhollow/internal/events"
+	"github.com/jtarchie/bloomhollow/internal/model"
+	"github.com/jtarchie/bloomhollow/internal/sandbox"
+	"github.com/jtarchie/bloomhollow/internal/server"
+	"github.com/jtarchie/bloomhollow/internal/snapshot"
+	"github.com/jtarchie/bloomhollow/internal/state"
+	"github.com/jtarchie/bloomhollow/internal/store"
 )
 
 var cli struct {
@@ -71,7 +71,7 @@ var cli struct {
 
 func main() {
 	kong.Parse(&cli,
-		kong.Name("buildabear"),
+		kong.Name("bloomhollow"),
 		kong.Description("Vibe coding app hosting platform."),
 		kong.UsageOnError(),
 	)

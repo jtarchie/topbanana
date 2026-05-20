@@ -305,7 +305,8 @@ func TestGrepEligible(t *testing.T) {
 		"about/team.html":        true,
 		"assets/hero.jpg":        false,
 		"assets/foo.html":        false, // anything under assets/ is excluded
-		".buildabear.json":       false,
+		".bloomhollow.json":      false,
+		".buildabear.json":       false, // legacy sidecar — still excluded for old sites
 		"functions/handler.json": false, // wrong extension
 		"styles.css":             false,
 	}
@@ -340,7 +341,8 @@ func TestValidateHTMLPath(t *testing.T) {
 		{name: "control char", path: "x\nhtml.html", wantErr: "[a-z0-9_/.-]"},
 		{name: "reserved functions", path: "functions/x.html", wantErr: "reserved prefix"},
 		{name: "reserved assets", path: "assets/x.html", wantErr: "reserved prefix"},
-		{name: "reserved meta", path: ".buildabear.json", wantErr: "must end with .html"},
+		{name: "reserved meta", path: ".bloomhollow.json", wantErr: "must end with .html"},
+		{name: "reserved legacy meta", path: ".buildabear.json", wantErr: "must end with .html"},
 		{name: "too long", path: strings.Repeat("a", maxHTMLPathLen-4) + "x.html", wantErr: "too long"},
 	}
 	for _, tc := range cases {

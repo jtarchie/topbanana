@@ -10,7 +10,7 @@ import (
 	"github.com/egregors/passkey"
 	"github.com/go-webauthn/webauthn/webauthn"
 
-	"github.com/jtarchie/buildabear/internal/store"
+	"github.com/jtarchie/bloomhollow/internal/store"
 )
 
 // Config wires the auth subsystem at server startup. Domain is the parent
@@ -60,7 +60,7 @@ func New(cfg Config) (*Auth, error) {
 		cfg.UserSessionTTL = 30 * 24 * time.Hour
 	}
 	if cfg.CookieNamePrefix == "" {
-		cfg.CookieNamePrefix = "bab"
+		cfg.CookieNamePrefix = "bh"
 	}
 
 	users, err := NewUserStore(cfg.Store)
@@ -84,7 +84,7 @@ func New(cfg Config) (*Auth, error) {
 
 	pkey, err := passkey.New(passkey.Config{
 		WebauthnConfig: &webauthn.Config{
-			RPDisplayName: "BuildABear",
+			RPDisplayName: "Bloomhollow",
 			RPID:          cfg.Domain,
 			RPOrigins:     []string{"https://" + cfg.Domain},
 		},

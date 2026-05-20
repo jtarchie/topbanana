@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/jtarchie/buildabear/internal/agent"
+	"github.com/jtarchie/bloomhollow/internal/agent"
 )
 
 // editPrefetchTotalCap caps the total bytes of HTML page content we'll inline
@@ -21,7 +21,7 @@ func SplitFilesByKind(files []string) (pages, assets []string) {
 	for _, f := range files {
 		switch {
 		case strings.HasPrefix(f, "."):
-			// sidecars like .buildabear.json
+			// sidecars like .bloomhollow.json
 		case strings.HasPrefix(f, "assets/"):
 			assets = append(assets, f)
 		case strings.HasSuffix(f, ".html"):

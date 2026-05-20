@@ -15,7 +15,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/jtarchie/buildabear/internal/editrec"
+	"github.com/jtarchie/bloomhollow/internal/editrec"
 )
 
 type debugRow struct {
@@ -259,7 +259,7 @@ func fetchServed(ctx context.Context, servedURL string) (sha string, size int, h
 	}
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")
-	req.Header.Set("User-Agent", "buildabear-cache-check/1.0")
+	req.Header.Set("User-Agent", "bloomhollow-cache-check/1.0")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", 0, nil, fmt.Errorf("fetch: %w", err)

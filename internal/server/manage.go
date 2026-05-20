@@ -8,8 +8,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/jtarchie/buildabear/internal/build"
-	"github.com/jtarchie/buildabear/internal/templates"
+	"github.com/jtarchie/bloomhollow/internal/build"
+	"github.com/jtarchie/bloomhollow/internal/templates"
 )
 
 // manageSubmissionLimit caps how many submission rows we render inline on

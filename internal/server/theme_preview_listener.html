@@ -1,7 +1,7 @@
 <script>
 (function(){
   window.addEventListener('message', function(e){
-    if(!e.data || e.data.type !== 'buildabear:settheme') return;
+    if(!e.data || e.data.type !== 'bloomhollow:settheme') return;
     var t = e.data.theme;
     if(typeof t !== 'string' || !/^[a-z]{2,20}$/.test(t)) return;
     document.documentElement.setAttribute('data-theme', t);

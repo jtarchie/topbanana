@@ -22,8 +22,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jtarchie/buildabear/internal/events"
-	"github.com/jtarchie/buildabear/internal/store"
+	"github.com/jtarchie/bloomhollow/internal/events"
+	"github.com/jtarchie/bloomhollow/internal/store"
 )
 
 // Prefix is the bucket-level prefix transcripts live under. Sits outside any

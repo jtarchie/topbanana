@@ -13,15 +13,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jtarchie/buildabear/internal/agent"
-	"github.com/jtarchie/buildabear/internal/auth"
-	"github.com/jtarchie/buildabear/internal/build"
-	"github.com/jtarchie/buildabear/internal/events"
-	"github.com/jtarchie/buildabear/internal/server"
-	"github.com/jtarchie/buildabear/internal/snapshot"
-	"github.com/jtarchie/buildabear/internal/state"
-	"github.com/jtarchie/buildabear/internal/store"
-	"github.com/jtarchie/buildabear/internal/templates"
+	"github.com/jtarchie/bloomhollow/internal/agent"
+	"github.com/jtarchie/bloomhollow/internal/auth"
+	"github.com/jtarchie/bloomhollow/internal/build"
+	"github.com/jtarchie/bloomhollow/internal/events"
+	"github.com/jtarchie/bloomhollow/internal/server"
+	"github.com/jtarchie/bloomhollow/internal/snapshot"
+	"github.com/jtarchie/bloomhollow/internal/state"
+	"github.com/jtarchie/bloomhollow/internal/store"
+	"github.com/jtarchie/bloomhollow/internal/templates"
 )
 
 // stubRunner is a deterministic agent.Runner used by the happy-path test. It
@@ -168,12 +168,12 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 		t.Fatalf("GET /: %d", resp.StatusCode)
 	}
 	// Includes the bootstrap script + toggle markers so the dark-mode pass
-	// can't silently regress. `bab_theme` is the localStorage key the
+	// can't silently regress. `bh_theme` is the localStorage key the
 	// bootstrap script reads; `theme-toggle` is the input id wired up to
 	// flip the data-theme attribute.
 	for _, want := range []string{
-		`data-theme="corporate"`, "BuildABear", "Build a new app", "daisyui@5",
-		"bab_theme", `id="theme-toggle"`,
+		`data-theme="corporate"`, "Bloomhollow", "Build a new app", "daisyui@5",
+		"bh_theme", `id="theme-toggle"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("landing missing %q", want)

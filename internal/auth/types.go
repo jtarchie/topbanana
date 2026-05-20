@@ -1,4 +1,4 @@
-// Package auth owns multi-tenant identity for buildabear: user records,
+// Package auth owns multi-tenant identity for bloomhollow: user records,
 // passkey credentials, sessions, invites, role-based authorization, and
 // per-user quotas. Records live in S3 under the reserved `_auth/` prefix so
 // no new datastore is introduced.
@@ -12,7 +12,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/webauthn"
 
-	"github.com/jtarchie/buildabear/internal/model"
+	"github.com/jtarchie/bloomhollow/internal/model"
 )
 
 // Role gates which routes a user can hit. RoleSuperAdmin sees every app and

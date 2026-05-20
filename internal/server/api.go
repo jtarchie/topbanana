@@ -14,10 +14,10 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/jtarchie/buildabear/internal/build"
-	"github.com/jtarchie/buildabear/internal/events"
-	"github.com/jtarchie/buildabear/internal/sandbox"
-	"github.com/jtarchie/buildabear/internal/state"
+	"github.com/jtarchie/bloomhollow/internal/build"
+	"github.com/jtarchie/bloomhollow/internal/events"
+	"github.com/jtarchie/bloomhollow/internal/sandbox"
+	"github.com/jtarchie/bloomhollow/internal/state"
 )
 
 // maxCASRetries caps the number of times we'll re-run a handler after an

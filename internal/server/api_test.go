@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jtarchie/buildabear/internal/build"
+	"github.com/jtarchie/bloomhollow/internal/build"
 )
 
 func TestCheckAPIOrigin_PublicAPIBypass(t *testing.T) {

@@ -12,7 +12,7 @@ import (
 	"github.com/egregors/passkey"
 	"github.com/hashicorp/golang-lru/arc/v2"
 
-	"github.com/jtarchie/buildabear/internal/store"
+	"github.com/jtarchie/bloomhollow/internal/store"
 )
 
 // userStorePrefix is the bucket area for user records. One file per user,

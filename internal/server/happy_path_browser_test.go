@@ -13,7 +13,7 @@ import (
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 
-	"github.com/jtarchie/buildabear/internal/snapshot"
+	"github.com/jtarchie/bloomhollow/internal/snapshot"
 )
 
 // chromeExecPath returns a working Chrome binary path, or "" when none is
@@ -140,7 +140,7 @@ func TestHappyPath_BrowserSmoke(t *testing.T) {
 	// emulated media query.
 	var darkTheme string
 	err = chromedp.Run(runCtx,
-		chromedp.Evaluate(`localStorage.removeItem('bab_theme')`, nil),
+		chromedp.Evaluate(`localStorage.removeItem('bh_theme')`, nil),
 		emulation.SetEmulatedMedia().WithFeatures([]*emulation.MediaFeature{{
 			Name:  "prefers-color-scheme",
 			Value: "dark",

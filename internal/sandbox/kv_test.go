@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jtarchie/buildabear/internal/state"
+	"github.com/jtarchie/bloomhollow/internal/state"
 )
 
 func invokeWithSnap(t *testing.T, src string, snap *state.Snapshot, req Request) (Response, []string) {

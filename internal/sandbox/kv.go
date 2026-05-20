@@ -7,7 +7,7 @@ import (
 
 	"github.com/dop251/goja"
 
-	"github.com/jtarchie/buildabear/internal/state"
+	"github.com/jtarchie/bloomhollow/internal/state"
 )
 
 // installKV exposes a request-scoped `kv` global to the handler. All mutations

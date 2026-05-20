@@ -1,7 +1,7 @@
-# Agent Guide for BuildABear
+# Agent Guide for Bloomhollow
 
 ## Overview
-BuildABear is a "vibe coding" hosting platform that uses LLM agents to build and host static HTML applications. Each application is hosted under a unique subdomain, with files stored in an S3-compatible backend (e.g., Minio).
+Bloomhollow is a "vibe coding" hosting platform that uses LLM agents to build and host static HTML applications. Each application is hosted under a unique subdomain, with files stored in an S3-compatible backend (e.g., Minio).
 
 ## Architecture
 - **Multi-tenant Static Hosting**: The server uses subdomain routing. Requests to `*.localhost` are intercepted by the `subdomainMiddleware` and proxied to an S3 bucket where each site is a folder/prefix identified by its subdomain slug.

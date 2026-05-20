@@ -1,4 +1,4 @@
-# BuildABear
+# Bloomhollow
 
 A "vibe coding" hosting platform where LLM agents build and host static HTML applications. Describe what you want, and an AI agent generates a self-contained site hosted under a unique subdomain.
 
@@ -62,9 +62,9 @@ task minio:ready  # Start Minio if not running
 
 ## Custom Domains with Cloudflare
 
-A BuildABear site can be served on any external domain (e.g. `myblog.com`) by attaching the hostname under **Settings → Custom domains** and pointing DNS at your origin. Putting Cloudflare in front gives you free TLS and a global cache; BuildABear already emits the right cache headers, so the Cloudflare config is small.
+A Bloomhollow site can be served on any external domain (e.g. `myblog.com`) by attaching the hostname under **Settings → Custom domains** and pointing DNS at your origin. Putting Cloudflare in front gives you free TLS and a global cache; Bloomhollow already emits the right cache headers, so the Cloudflare config is small.
 
-### 1. Add the domain in BuildABear
+### 1. Add the domain in Bloomhollow
 
 Open **Settings** for the site (e.g. `http://your-domain/settings/{slug}`) and add the hostnames you'll be using — one per line:
 
@@ -83,20 +83,20 @@ In the Cloudflare dashboard for the zone:
 - **`www.myblog.com`** — CNAME to the same origin hostname.
 - Set **Proxy status: Proxied** (orange cloud) on both records so traffic flows through Cloudflare's edge.
 
-If you're running BuildABear behind a bare IP, use `A` records instead of `CNAME` — same idea.
+If you're running Bloomhollow behind a bare IP, use `A` records instead of `CNAME` — same idea.
 
 ### 3. SSL/TLS
 
-BuildABear listens on plain HTTP. Terminate TLS at Cloudflare (or with a Caddy/nginx reverse proxy on the origin):
+Bloomhollow listens on plain HTTP. Terminate TLS at Cloudflare (or with a Caddy/nginx reverse proxy on the origin):
 
 - **SSL/TLS → Overview → Encryption mode**:
-  - `Full` (or `Full (strict)`) if you put a TLS-terminating proxy in front of BuildABear.
-  - `Flexible` if BuildABear is exposed over plain HTTP — Cloudflare ↔ visitor is HTTPS, Cloudflare ↔ origin is HTTP. Easier to set up; weaker than Full.
+  - `Full` (or `Full (strict)`) if you put a TLS-terminating proxy in front of Bloomhollow.
+  - `Flexible` if Bloomhollow is exposed over plain HTTP — Cloudflare ↔ visitor is HTTPS, Cloudflare ↔ origin is HTTP. Easier to set up; weaker than Full.
 - **SSL/TLS → Edge Certificates → Always Use HTTPS**: on.
 
 ### 4. Caching
 
-BuildABear sends explicit cache directives:
+Bloomhollow sends explicit cache directives:
 
 | Path on a custom domain | `Cache-Control` |
 | --- | --- |
@@ -106,7 +106,7 @@ BuildABear sends explicit cache directives:
 Cloudflare's default cache only stores certain file extensions, so extensionless URLs like `/` won't be cached unless you say so. Create **one** Cache Rule:
 
 - **Caching → Cache Rules → Create rule**
-- **Name**: `BuildABear — respect origin headers`
+- **Name**: `Bloomhollow — respect origin headers`
 - **When incoming requests match**: `Hostname` equals `myblog.com` (add a second `or` for `www.myblog.com`)
 - **Then**:
   - **Cache eligibility**: *Eligible for cache*

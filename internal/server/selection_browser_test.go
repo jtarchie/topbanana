@@ -10,7 +10,7 @@ import (
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 
-	"github.com/jtarchie/buildabear/internal/snapshot"
+	"github.com/jtarchie/bloomhollow/internal/snapshot"
 )
 
 // TestSelectionBridge_IframeToParent drives the full selection round-trip

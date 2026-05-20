@@ -1,4 +1,4 @@
-module github.com/jtarchie/buildabear
+module github.com/jtarchie/bloomhollow
 
 go 1.26
 
@@ -9,11 +9,16 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.17
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.100.1
 	github.com/aws/smithy-go v1.25.1
+	github.com/chromedp/cdproto v0.0.0-20260321001828-e3e3800016bc
 	github.com/chromedp/chromedp v0.15.1
 	github.com/dop251/goja v0.0.0-20260311135729-065cd970411c
+	github.com/egregors/passkey v1.0.8
+	github.com/go-webauthn/webauthn v0.14.0
 	github.com/hashicorp/golang-lru/arc/v2 v2.0.7
+	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/klauspost/compress v1.18.6
 	github.com/labstack/echo/v5 v5.1.1
+	github.com/pires/go-proxyproto v0.12.0
 	github.com/samber/slog-echo v1.22.0
 	github.com/tdewolff/minify/v2 v2.24.13
 	golang.org/x/crypto v0.50.0
@@ -44,18 +49,15 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.21 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.42.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/chromedp/cdproto v0.0.0-20260321001828-e3e3800016bc // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dlclark/regexp2 v1.11.4 // indirect
-	github.com/egregors/passkey v1.0.8 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
-	github.com/go-webauthn/webauthn v0.14.0 // indirect
 	github.com/go-webauthn/x v0.1.25 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
@@ -71,10 +73,8 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.14 // indirect
 	github.com/googleapis/gax-go/v2 v2.18.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
-	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/openai/openai-go/v3 v3.16.0 // indirect
-	github.com/pires/go-proxyproto v0.12.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/samber/lo v1.53.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect

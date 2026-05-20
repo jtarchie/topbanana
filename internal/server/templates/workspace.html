@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="corporate">
 <head>
-<title>Workspace: {{ .SiteName }} — BuildABear</title>
+<title>Workspace: {{ .SiteName }} — Bloomhollow</title>
 {{ template "head" . }}
 </head>
 <body class="min-h-screen flex flex-col bg-base-100">
@@ -208,7 +208,7 @@
 <script>
   // Bridge selection text from the live preview into the edit form.
   window.addEventListener('message', function (e) {
-    if (!e.data || e.data.type !== '_bab_sel') return;
+    if (!e.data || e.data.type !== '_bh_sel') return;
     var sel = document.getElementById('selection');
     var chip = document.getElementById('selection-chip');
     var txt = document.getElementById('selection-text');
@@ -329,7 +329,7 @@
     });
 
     function postTheme(theme) {
-      try { frame.contentWindow.postMessage({ type: 'buildabear:settheme', theme: theme }, '*'); } catch (_) {}
+      try { frame.contentWindow.postMessage({ type: 'bloomhollow:settheme', theme: theme }, '*'); } catch (_) {}
     }
     function paint() {
       Array.prototype.forEach.call(gallery.querySelectorAll('.swatch'), function (el) {

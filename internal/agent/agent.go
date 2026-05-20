@@ -29,9 +29,9 @@ import (
 	"google.golang.org/adk/tool/functiontool"
 	"google.golang.org/genai"
 
-	"github.com/jtarchie/buildabear/internal/events"
-	"github.com/jtarchie/buildabear/internal/store"
-	"github.com/jtarchie/buildabear/internal/templates"
+	"github.com/jtarchie/bloomhollow/internal/events"
+	"github.com/jtarchie/bloomhollow/internal/store"
+	"github.com/jtarchie/bloomhollow/internal/templates"
 )
 
 //go:embed agent_prompt.md
@@ -273,7 +273,7 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 	}
 
 	r, err := runner.New(runner.Config{
-		AppName:           "buildabear",
+		AppName:           "bloomhollow",
 		Agent:             a,
 		SessionService:    sessSvc,
 		AutoCreateSession: false,
@@ -309,7 +309,7 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 // with synthetic tool-call/response pairs.
 func seedSession(ctx context.Context, sessSvc session.Service, slug string, seeds []SeedToolCall) (session.Session, error) {
 	createResp, err := sessSvc.Create(ctx, &session.CreateRequest{
-		AppName:   "buildabear",
+		AppName:   "bloomhollow",
 		UserID:    slug,
 		SessionID: slug,
 	})
@@ -1202,7 +1202,7 @@ func grepEligible(path string) bool {
 	if strings.HasPrefix(path, "assets/") {
 		return false
 	}
-	if path == ".buildabear.json" {
+	if path == ".bloomhollow.json" || path == ".buildabear.json" {
 		return false
 	}
 	return strings.HasSuffix(path, ".html") || strings.HasSuffix(path, ".js")
@@ -1420,8 +1420,13 @@ func budgetHint(htmlCount int, state *buildState) string {
 var reservedWritePrefixes = []string{"functions/", "assets/"}
 
 // reservedWritePaths are exact paths the HTML write tools must not touch
-// (e.g. the per-site sidecar persisted by the build service).
-var reservedWritePaths = map[string]bool{".buildabear.json": true}
+// (e.g. the per-site sidecar persisted by the build service). Both the
+// current and legacy sidecar names are reserved so an agent on a legacy
+// site can't accidentally clobber pre-rebrand metadata.
+var reservedWritePaths = map[string]bool{
+	".bloomhollow.json": true,
+	".buildabear.json":  true,
+}
 
 // validateHTMLPath gates every tool that writes/edits HTML. Mirrors
 // validateFunctionName's posture: reject anything that could escape the slug,
