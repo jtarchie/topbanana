@@ -29,6 +29,7 @@ type manageData struct {
 	FunctionsEnabled bool
 	FunctionsByTmpl  bool
 	PublicAPIEnabled bool
+	Private          bool
 	Columns          []string
 	Rows             []dataRow // capped at manageSubmissionLimit
 	// TotalRows is the unsliced count so the template can render
@@ -138,6 +139,7 @@ func (s *Server) manageHandler(c *echo.Context) error {
 		FunctionsEnabled: tmpl != nil && tmpl.EnablesFunctions,
 		FunctionsByTmpl:  byTmpl,
 		PublicAPIEnabled: meta.EnablesPublicAPI,
+		Private:          meta.Private,
 		Columns:          cols,
 		Rows:             rows,
 		TotalRows:        total,

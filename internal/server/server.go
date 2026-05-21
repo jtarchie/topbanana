@@ -108,12 +108,15 @@ type Server struct {
 	// scanner-invented hostname like "whm.apps.jtarchie.com" — every miss
 	// would otherwise burn a slot in the 50/week per-registered-domain rate
 	// limit. ownerIndex maps slug → owner email so role-filtered listings
-	// don't need an S3 GET per app. All three are rebuilt from one
-	// ListApps call; the same mutex guards them.
-	domainMu    sync.RWMutex
-	domainIndex map[string]string
-	slugIndex   map[string]bool
-	ownerIndex  map[string]string
+	// don't need an S3 GET per app. privateIndex flags slugs whose owner
+	// has marked them private — the subdomain proxy consults it on every
+	// hit so we don't pay an S3 round-trip for the gate. All four are
+	// rebuilt from one ListApps call; the same mutex guards them.
+	domainMu     sync.RWMutex
+	domainIndex  map[string]string
+	slugIndex    map[string]bool
+	ownerIndex   map[string]string
+	privateIndex map[string]bool
 
 	// preWarmCert is the deps callback, captured here so settingsSubmitHandler
 	// can fire it without threading the function through every signature.
@@ -178,6 +181,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		domainIndex:  map[string]string{},
 		slugIndex:    map[string]bool{},
 		ownerIndex:   map[string]string{},
+		privateIndex: map[string]bool{},
 		preWarmCert:  d.PreWarmCert,
 	}
 	s.initialRebuildDomainIndex(context.Background())
@@ -316,13 +320,42 @@ func (s *Server) subdomainMiddleware() echo.MiddlewareFunc {
 }
 
 // dispatchSite routes a request that's already been mapped to a slug to either
-// /api or the static proxy.
+// /api or the static proxy. Private slugs are gated here — anyone but the
+// owner (or a super admin) gets a 404 so the existence of a private site
+// can't be inferred from the status code.
 func (s *Server) dispatchSite(c *echo.Context, slug string) error {
+	if s.isPrivate(slug) && !s.callerCanViewPrivate(c, slug) {
+		return notFound()
+	}
 	reqPath := c.Request().URL.Path
 	if name, ok := strings.CutPrefix(reqPath, "/api/"); ok {
 		return s.apiHandler(c, slug, name)
 	}
 	return s.proxyHandler(c, slug)
+}
+
+// callerCanViewPrivate answers whether the request's session belongs to a
+// user permitted to see a private site. The subdomain path doesn't go
+// through requireUser so we read the session cookie directly — the same
+// cookie the admin chain uses, just resolved inline without erroring on
+// miss. Super admins always pass; otherwise the email must match the
+// recorded owner.
+func (s *Server) callerCanViewPrivate(c *echo.Context, slug string) bool {
+	email, ok := s.currentSessionEmail(c)
+	if !ok {
+		return false
+	}
+	if email == s.ownerOf(slug) {
+		return true
+	}
+	if s.auth == nil {
+		return false
+	}
+	u, err := s.auth.Users.LookupCached(c.Request().Context(), email)
+	if err != nil {
+		return false
+	}
+	return u.Role == auth.RoleSuperAdmin
 }
 
 // rebuildDomainIndex scans all sites and rebuilds the host → slug map. Called
@@ -337,11 +370,15 @@ func (s *Server) rebuildDomainIndex(ctx context.Context) error {
 	idx := make(map[string]string, len(apps))
 	slugs := make(map[string]bool, len(apps))
 	owners := make(map[string]string, len(apps))
+	privates := make(map[string]bool, len(apps))
 	for _, slug := range apps {
 		slugs[slug] = true
 		meta := s.build.ReadMeta(ctx, slug)
 		if meta.OwnerID != "" {
 			owners[slug] = meta.OwnerID
+		}
+		if meta.Private {
+			privates[slug] = true
 		}
 		for _, d := range meta.Domains {
 			if existing, dup := idx[d]; dup && existing != slug {
@@ -355,8 +392,9 @@ func (s *Server) rebuildDomainIndex(ctx context.Context) error {
 	s.domainIndex = idx
 	s.slugIndex = slugs
 	s.ownerIndex = owners
+	s.privateIndex = privates
 	s.domainMu.Unlock()
-	slog.Info("domain_index.rebuilt", "domains", len(idx), "slugs", len(slugs), "owners", len(owners))
+	slog.Info("domain_index.rebuilt", "domains", len(idx), "slugs", len(slugs), "owners", len(owners), "private", len(privates))
 	return nil
 }
 
@@ -368,6 +406,15 @@ func (s *Server) ownerOf(slug string) string {
 	s.domainMu.RLock()
 	defer s.domainMu.RUnlock()
 	return s.ownerIndex[slug]
+}
+
+// isPrivate reports whether the slug is marked private. Consulted by the
+// subdomain dispatcher on every public-facing hit so we can gate the
+// proxy without an extra S3 round-trip per request.
+func (s *Server) isPrivate(slug string) bool {
+	s.domainMu.RLock()
+	defer s.domainMu.RUnlock()
+	return s.privateIndex[slug]
 }
 
 // setOwner refreshes a single slug's owner without rebuilding the whole
@@ -1571,6 +1618,7 @@ func (s *Server) settingsSubmitHandler(c *echo.Context) error {
 	}
 
 	meta.EnablesPublicAPI = c.FormValue("enable_public_api") == "on"
+	meta.Private = c.FormValue("private") == "on"
 
 	s.snapshotBefore(ctx, slug, snapshot.ReasonSettings)
 

@@ -77,6 +77,16 @@
             </span>
           </label>
         </div>
+
+        <div class="form-control">
+          <label class="label cursor-pointer justify-start gap-3">
+            <input type="checkbox" name="private" {{ if .Private }}checked{{ end }} class="toggle toggle-primary">
+            <span class="label-text">
+              <span class="font-medium">Keep this site private</span>
+              <span class="block text-xs text-base-content/60">Hides the site from the public web. Only you (and super admins) can open it.</span>
+            </span>
+          </label>
+        </div>
       </div>
     </section>
 

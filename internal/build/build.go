@@ -79,6 +79,10 @@ type SiteMeta struct {
 	// pre-multi-tenancy sites; the bootstrap migration assigns those to the
 	// super admin on first start.
 	OwnerID string `json:"owner_id,omitempty"`
+	// Private hides the site from the public web. When true the subdomain
+	// (and any custom domains) return 404 to everyone except the owner and
+	// super admins.
+	Private bool `json:"private,omitempty"`
 }
 
 // EffectiveTemplate returns the template a build/edit/route lookup should use,
