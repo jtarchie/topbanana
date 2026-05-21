@@ -262,6 +262,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 	admin.GET("/settings/:slug", s.redirectToManage, owns)
 	admin.POST("/settings/:slug", s.settingsSubmitHandler, owns)
 	admin.POST("/settings/:slug/delete", s.settingsDeleteHandler, owns)
+	admin.POST("/manage/:slug/remix", s.remixHandler, owns)
 	admin.POST("/apps/:slug/transfer", s.transferAppHandler, owns)
 	admin.GET("/history/:slug", s.redirectToWorkspace, owns)
 	admin.POST("/history/:slug/restore", s.historyRestoreHandler, owns)
@@ -1132,7 +1133,7 @@ func (s *Server) buildHandler(c *echo.Context) error {
 // collisions in S3.
 func (s *Server) resolveSlug(ctx context.Context, requested string) (string, error) {
 	if requested == "" {
-		return newSlug(), nil
+		return s.allocateSlug(ctx)
 	}
 	err := validateSlug(requested)
 	if err != nil {
@@ -1146,6 +1147,26 @@ func (s *Server) resolveSlug(ctx context.Context, requested string) (string, err
 		return "", echo.NewHTTPError(http.StatusConflict, fmt.Sprintf("slug %q is already taken", requested))
 	}
 	return requested, nil
+}
+
+// allocateSlug draws fresh slugs until it finds one that's unused in the
+// bucket. The slug space is small enough (~500k combinations) that
+// collisions are realistic once a few hundred apps exist, so the loop
+// retries rather than returning the first hit. Used by /build's empty-slug
+// path and by the remix handler.
+func (s *Server) allocateSlug(ctx context.Context) (string, error) {
+	const maxAttempts = 16
+	for range maxAttempts {
+		candidate := newSlug()
+		existing, err := s.store.List(ctx, candidate)
+		if err != nil {
+			return "", httpErr(http.StatusInternalServerError, "check slug", err)
+		}
+		if len(existing) == 0 {
+			return candidate, nil
+		}
+	}
+	return "", echo.NewHTTPError(http.StatusInternalServerError, "could not allocate a free slug")
 }
 
 func (s *Server) statusHandler(c *echo.Context) error {
