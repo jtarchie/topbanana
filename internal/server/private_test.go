@@ -60,7 +60,7 @@ func (r *privateTestRig) session(t *testing.T, email string, role auth.Role) *ht
 	if err != nil {
 		t.Fatalf("inject session for %s: %v", email, err)
 	}
-	return &http.Cookie{Name: auth.SessionCookieName, Value: token}
+	return &http.Cookie{Name: r.auth.SessionCookieName(), Value: token}
 }
 
 // writeMeta drops a SiteMeta sidecar into the bucket directly. Used to seed

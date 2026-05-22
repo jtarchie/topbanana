@@ -13,6 +13,15 @@ import (
 	"github.com/jtarchie/bloomhollow/internal/store"
 )
 
+// defaultCookieNamePrefix is the prefix passed to the egregors/passkey
+// library by default. The library's WithSessionCookieNamePrefix runs
+// this through camelCaseConcat with "usid" to produce the actual cookie
+// name — so a fresh login lands a cookie named defaultCookieNamePrefix
+// + "Usid" (e.g. "bhUsid"). Anything that reads the cookie must derive
+// its name from this constant (or, preferably, call Auth.SessionCookieName)
+// so renames stay in lockstep with the write side.
+const defaultCookieNamePrefix = "bh"
+
 // Config wires the auth subsystem at server startup. Domain is the parent
 // the cookies are scoped to and the WebAuthn RPID — every admin route is
 // served from the same parent so RPID and Origin can be derived from it.
@@ -39,6 +48,10 @@ type Auth struct {
 	Invites  *InviteStore
 	Passkey  *passkey.Passkey
 	cfg      Config
+	// sessionCookieName is the name the egregors/passkey library actually
+	// writes after loginFinish, computed once at construction time from the
+	// configured prefix. Exposed via SessionCookieName().
+	sessionCookieName string
 }
 
 // New constructs the auth subsystem. Returns an error for misconfigured
@@ -60,7 +73,7 @@ func New(cfg Config) (*Auth, error) {
 		cfg.UserSessionTTL = 30 * 24 * time.Hour
 	}
 	if cfg.CookieNamePrefix == "" {
-		cfg.CookieNamePrefix = "bh"
+		cfg.CookieNamePrefix = defaultCookieNamePrefix
 	}
 
 	users, err := NewUserStore(cfg.Store)
@@ -102,6 +115,11 @@ func New(cfg Config) (*Auth, error) {
 		Invites:  invites,
 		Passkey:  pkey,
 		cfg:      cfg,
+		// camelCaseConcat(prefix, "usid") for a lowercase prefix is just
+		// prefix + "Usid". Keep this in sync with the library's option, not
+		// with a hand-maintained constant — commits b30103b and 8c44f89
+		// were both the "constant drifted from prefix" bug.
+		sessionCookieName: cfg.CookieNamePrefix + "Usid",
 	}, nil
 }
 
@@ -141,6 +159,15 @@ func (a *Auth) Bootstrap(ctx context.Context) (string, error) {
 // SuperAdminEmail returns the configured super-admin email. Exposed so
 // middleware/handlers can compare without reaching back through cfg.
 func (a *Auth) SuperAdminEmail() string { return a.cfg.SuperAdminEmail }
+
+// SessionCookieName returns the name of the user-session cookie the
+// egregors/passkey library writes after a successful login. Derived from
+// the CookieNamePrefix passed to passkey.WithSessionCookieNamePrefix so a
+// future rename of the prefix can't desync the read side from the write
+// side. The previous package-level constant did exactly that — see
+// commits b30103b ("read the session cookie under the name the library
+// actually sets") and 8c44f89 (project rename, which re-broke it).
+func (a *Auth) SessionCookieName() string { return a.sessionCookieName }
 
 // QuotaDefaults returns the platform fallback quotas wired at startup.
 // Used by the build handler to fill in zero-valued per-user limits.

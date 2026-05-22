@@ -156,14 +156,15 @@ func (s *Server) accountHandler(c *echo.Context) error {
 // cookie. Returns ("", false) when the cookie is missing, malformed, or
 // points at a session that's been deleted/expired.
 //
-// The library's WithSessionCookieNamePrefix does a camelCase concat of
-// prefix + "Usid" (not prefix + "_usid"), so with our "bab" prefix the
-// actual cookie name is "babUsid".
+// The cookie name is derived from the configured prefix on the auth
+// instance (see auth.Auth.SessionCookieName) rather than a hand-coded
+// constant — the library's camelCase concat means a renamed prefix
+// silently changes the cookie name on the write side.
 func (s *Server) currentSessionEmail(c *echo.Context) (string, bool) {
 	if s.auth == nil {
 		return "", false
 	}
-	ck, err := c.Request().Cookie(auth.SessionCookieName)
+	ck, err := c.Request().Cookie(s.auth.SessionCookieName())
 	if err != nil {
 		return "", false
 	}
