@@ -48,8 +48,8 @@ const (
 
 // mutators is the set of tools the recorder snapshots before/after content
 // for. All other tools (read_file, list_files, grep_files, list_assets,
-// read_attachment, list_functions, read_function) are recorded in the
-// tool-call timeline but don't produce file-change entries.
+// read_attachment, fetch_reference, list_functions, read_function) are
+// recorded in the tool-call timeline but don't produce file-change entries.
 var mutators = map[string]bool{
 	"write_file":      true,
 	"edit_file":       true,

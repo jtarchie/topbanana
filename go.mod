@@ -3,6 +3,7 @@ module github.com/jtarchie/bloomhollow
 go 1.26
 
 require (
+	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/achetronic/adk-utils-go v0.15.2
 	github.com/alecthomas/kong v1.15.0
 	github.com/aws/aws-sdk-go-v2 v1.41.7
@@ -16,6 +17,7 @@ require (
 	github.com/go-webauthn/webauthn v0.14.0
 	github.com/hashicorp/golang-lru/arc/v2 v2.0.7
 	github.com/hashicorp/golang-lru/v2 v2.0.7
+	github.com/imroc/req/v3 v3.57.0
 	github.com/klauspost/compress v1.18.6
 	github.com/labstack/echo/v5 v5.1.1
 	github.com/pires/go-proxyproto v0.12.0
@@ -33,6 +35,8 @@ require (
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.18.2 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
+	github.com/andybalholm/brotli v1.2.0 // indirect
+	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/anthropics/anthropic-sdk-go v1.19.0 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.10 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.16 // indirect
@@ -64,6 +68,7 @@ require (
 	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
+	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/go-tpm v0.9.5 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/google/pprof v0.0.0-20230207041349-798e818bf904 // indirect
@@ -73,9 +78,13 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.14 // indirect
 	github.com/googleapis/gax-go/v2 v2.18.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/icholy/digest v1.1.0 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/openai/openai-go/v3 v3.16.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/quic-go/qpack v0.6.0 // indirect
+	github.com/quic-go/quic-go v0.57.1 // indirect
+	github.com/refraction-networking/utls v1.8.1 // indirect
 	github.com/samber/lo v1.53.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
