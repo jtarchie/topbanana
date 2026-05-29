@@ -259,6 +259,8 @@ func New(d Deps) (*echo.Echo, *Server) {
 	admin.GET("/edit/:slug/function/:name", s.functionEditHandler, owns)
 	admin.POST("/test/:slug/api/:name", s.functionTestHandler, owns)
 	admin.POST("/upload/:slug", s.uploadHandler, owns)
+	admin.POST("/files/:slug/delete", s.deleteFileHandler, owns)
+	admin.POST("/files/:slug/rename", s.renameFileHandler, owns)
 	admin.GET("/settings/:slug", s.redirectToManage, owns)
 	admin.POST("/settings/:slug", s.settingsSubmitHandler, owns)
 	admin.POST("/settings/:slug/delete", s.settingsDeleteHandler, owns)

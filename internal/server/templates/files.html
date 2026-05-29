@@ -29,9 +29,19 @@
           <td class="text-base-content/70">{{ .Size }}</td>
           <td class="text-base-content/70">{{ .Modified }}</td>
           <td>
-            <div class="flex gap-3 text-sm">
+            <div class="flex gap-3 text-sm items-center">
               {{ if .EditURL }}<a class="link link-primary" href="{{ .EditURL }}">edit</a>{{ end }}
               {{ if .LinkURL }}<a class="link link-hover" href="{{ .LinkURL }}"{{ if eq .LinkLabel "open" }} target="_blank" rel="noopener"{{ end }}>{{ .LinkLabel }}</a>{{ end }}
+              {{ if .Deletable }}
+              <form method="POST" action="/files/{{ $.Slug }}/delete" class="inline js-confirm"
+                    data-confirm-title="Delete {{ .Path }}?"
+                    data-confirm="{{ if .IsHomepage }}This is your homepage — your site will be unreachable until you create a new index.html. {{ end }}This permanently removes the file. There's no undo."
+                    data-confirm-ok="Delete">
+                <input type="hidden" name="path" value="{{ .Path }}">
+                <input type="hidden" name="confirm" value="{{ .Path }}">
+                <button type="submit" class="link link-error">delete</button>
+              </form>
+              {{ end }}
             </div>
           </td>
         </tr>

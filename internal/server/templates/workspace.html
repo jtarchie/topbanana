@@ -86,6 +86,26 @@
     </aside>
 
     <section class="space-y-4">
+      {{ if .Page }}
+      <div class="flex flex-wrap items-center gap-2 text-sm">
+        <form method="POST" action="/files/{{ .Slug }}/rename" class="flex items-center gap-1">
+          <input type="hidden" name="from" value="{{ .Page }}">
+          <label for="rename-to" class="text-xs text-base-content/60">Path</label>
+          <input id="rename-to" type="text" name="to" value="{{ .Page }}"
+                 class="input input-sm input-bordered font-mono text-xs w-64"
+                 autocomplete="off">
+          <button type="submit" class="btn btn-sm btn-ghost">Rename</button>
+        </form>
+        <form method="POST" action="/files/{{ .Slug }}/delete" class="js-confirm"
+              data-confirm-title="Delete {{ .Page }}?"
+              data-confirm="{{ if eq .Page `index.html` }}This is your homepage — your site will be unreachable until you create a new index.html. {{ end }}This permanently removes the file. There's no undo."
+              data-confirm-ok="Delete">
+          <input type="hidden" name="path" value="{{ .Page }}">
+          <input type="hidden" name="confirm" value="{{ .Page }}">
+          <button type="submit" class="btn btn-sm btn-error btn-outline">Delete file</button>
+        </form>
+      </div>
+      {{ end }}
       <div id="preview-wrap" class="relative border border-base-300 rounded-box overflow-hidden bg-base-100">
         <iframe src="{{ .PageURL }}" id="preview" class="w-full h-[60vh] block bg-base-100{{ if .Building }} opacity-30 pointer-events-none{{ end }}"></iframe>
         {{ if .Building }}

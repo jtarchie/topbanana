@@ -283,6 +283,54 @@ func (s *Store) Delete(ctx context.Context, slug, path string) error {
 	return nil
 }
 
+// Copy duplicates `{slug}/{srcPath}` to `{slug}/{dstPath}` via s3.CopyObject.
+// Preserves the source object's content-type and user metadata. Evicts the
+// destination from the ARC cache so subsequent Reads pick up the new object.
+func (s *Store) Copy(ctx context.Context, slug, srcPath, dstPath string) error {
+	err := validateObjectPath(srcPath)
+	if err != nil {
+		return err
+	}
+	err = validateObjectPath(dstPath)
+	if err != nil {
+		return err
+	}
+	srcKey := slug + "/" + srcPath
+	dstKey := slug + "/" + dstPath
+	_, err = s.client.CopyObject(ctx, &s3.CopyObjectInput{
+		Bucket:     aws.String(s.bucket),
+		Key:        aws.String(dstKey),
+		CopySource: aws.String(s.bucket + "/" + srcKey),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to copy %s to %s: %w", srcKey, dstKey, err)
+	}
+	if s.cache != nil {
+		s.cache.Remove(dstKey)
+	}
+	return nil
+}
+
+// Rename moves an object from srcPath to dstPath by Copy+Delete. Returns nil
+// without doing any work when src == dst. If Copy succeeds but Delete fails
+// the new object exists alongside the old one — surviving but inconsistent —
+// and the delete error is returned so the caller can surface it.
+func (s *Store) Rename(ctx context.Context, slug, srcPath, dstPath string) error {
+	if srcPath == dstPath {
+		return nil
+	}
+	err := s.Copy(ctx, slug, srcPath, dstPath)
+	if err != nil {
+		return err
+	}
+	err = s.Delete(ctx, slug, srcPath)
+	if err != nil {
+		slog.Warn("store.rename.delete_failed", "slug", slug, "src", srcPath, "dst", dstPath, "err", err)
+		return err
+	}
+	return nil
+}
+
 // WriteRaw writes to an arbitrary bucket key, bypassing the slug-prefix
 // convention. Used by snapshot infrastructure that stores archives under a
 // reserved `_snapshots/` prefix outside any user slug. No metadata encoding;

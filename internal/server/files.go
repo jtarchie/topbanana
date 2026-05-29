@@ -25,6 +25,13 @@ type fileRow struct {
 	// Empty when no view action exists.
 	LinkURL   string
 	LinkLabel string
+	// Deletable controls whether the trash action appears for this row.
+	// State sidecars and the legacy meta file are off-limits — they're
+	// platform-managed, not user content.
+	Deletable bool
+	// IsHomepage swaps the confirm copy to warn the owner that deleting
+	// index.html breaks their site.
+	IsHomepage bool
 }
 
 type filesView struct {
@@ -51,13 +58,16 @@ func (s *Server) filesHandler(c *echo.Context) error {
 	rows := make([]fileRow, 0, len(entries))
 	for _, e := range entries {
 		editURL, openURL, openLabel := actionsFor(c, s, slug, e.Path)
+		_, classifyErr := classifyUserPath(e.Path)
 		rows = append(rows, fileRow{
-			Path:      e.Path,
-			Size:      formatSize(e.Size),
-			Modified:  e.LastModified.UTC().Format("2006-01-02 15:04"),
-			EditURL:   editURL,
-			LinkURL:   openURL,
-			LinkLabel: openLabel,
+			Path:       e.Path,
+			Size:       formatSize(e.Size),
+			Modified:   e.LastModified.UTC().Format("2006-01-02 15:04"),
+			EditURL:    editURL,
+			LinkURL:    openURL,
+			LinkLabel:  openLabel,
+			Deletable:  classifyErr == nil,
+			IsHomepage: e.Path == "index.html",
 		})
 	}
 
