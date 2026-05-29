@@ -45,7 +45,7 @@ DaisyUI components to reach for first (they ARE the modern look):
 - `btn`, `btn-primary`, `btn-secondary`, `btn-accent`, `btn-ghost`, `btn-outline`, `btn-lg` — for any call-to-action. Compose modifiers, e.g. `class="btn btn-primary btn-lg"`.
 - `badge`, `badge-primary`, `badge-outline`, `badge-lg` — for tags, skill chips, status pills. Lay them out with `flex flex-wrap gap-2`.
 - `avatar`, `avatar-placeholder` — for profile photos or initial bubbles.
-- `timeline`, `timeline-start`, `timeline-middle`, `timeline-end`, `timeline-vertical` — for résumé experience, history, changelog.
+- `timeline`, `timeline-start`, `timeline-middle`, `timeline-end`, `timeline-vertical` — for résumé experience, history, changelog. Default to `timeline-vertical`: it scales to any number of entries and any copy length. `md:timeline-horizontal` distributes items across the timeline's width, so 4+ items or sentence-length descriptions WILL exceed a 1024–1280px viewport and clip past the right edge. If you genuinely want the horizontal layout, wrap the `<ul class="timeline ...">` in `<div class="overflow-x-auto">` so the user gets a scoped scrollbar instead of a silently clipped page.
 - `stats`, `stat`, `stat-title`, `stat-value`, `stat-desc` — for KPI / "by the numbers" sections.
 - `menu`, `menu-vertical` — for sidebars or footer link groups.
 - `divider` — for section breaks that need a visible separator.
@@ -59,6 +59,13 @@ Layout with Tailwind utilities — examples of the vocabulary you should be usin
 - Type: `text-5xl md:text-7xl font-bold tracking-tight`, `text-lg text-base-content/70 max-w-prose`
 - Surfaces: `bg-base-200 rounded-2xl shadow-xl backdrop-blur`
 - Decoration: `bg-gradient-to-br from-primary to-secondary`, `border border-base-300`
+
+Viewport safety — the page itself must never scroll horizontally. Content that's wider than the viewport on any breakpoint gets clipped at the right edge with no scrollbar affordance, so the user can't see it exists. Apply these rules whenever you reach for a wide component:
+
+- Wrap potentially-wide content in `<div class="overflow-x-auto">`: horizontal timelines, wide tables, `<pre>` code blocks, badge/chip rows that don't wrap, side-scrolling image strips. The wrapper produces a scoped scrollbar instead of pushing the whole page wider than the viewport.
+- For flex/grid rows of variable-length content, add `flex-wrap` (on flex) or use responsive column counts (`grid-cols-1 md:grid-cols-2 lg:grid-cols-3`) rather than fixed columns at every breakpoint. A 4-column desktop grid with long card titles will overflow on a 1024px viewport.
+- Long unbreakable strings (URLs, emails, hashes, code snippets in prose) need `break-words` or `break-all` on the surrounding element, otherwise they push the container wider than the column.
+- Constrain prose width with `max-w-prose` or `max-w-2xl` and pad page sections with `px-4 md:px-8` so content never butts against the viewport edge.
 
 Modern aesthetics, things to actively reach for:
 - A real hero. Big display heading (`text-5xl` to `text-7xl`), subhead in `text-base-content/70`, optional CTA pair, gradient or image background. Never a flat colored bar with a single `<strong>` and a few inline links.
