@@ -515,17 +515,34 @@ func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slu
 			return nil
 		}
 
+		// Mechanical fixes happen in code before the agent ever sees a
+		// retry prompt. A common failure (missing DaisyUI/Tailwind
+		// substrate tag) used to cost a full author/editor run with a
+		// fresh ~5–7K-token prefix; now it costs an in-process file
+		// rewrite and a re-lint.
+		residual := svc.autoFixLint(ctx, slug, lintErrs)
+		if len(residual) < len(lintErrs) {
+			slog.Info("build.autofix",
+				"slug", slug,
+				"fixed", len(lintErrs)-len(residual),
+				"residual", len(residual),
+			)
+		}
+		if len(residual) == 0 {
+			continue
+		}
+
 		if attempt == maxLintRetries {
-			msgs := make([]string, 0, len(lintErrs))
-			for _, e := range lintErrs {
+			msgs := make([]string, 0, len(residual))
+			for _, e := range residual {
 				msgs = append(msgs, e.Error())
 			}
 			return fmt.Errorf("lint errors after %d retries: %s", maxLintRetries, strings.Join(msgs, "; "))
 		}
 
-		slog.Info("build.lint_retry", "slug", slug, "attempt", attempt+1, "issues", len(lintErrs))
-		emit(events.Event{Type: events.TypeStatus, Status: events.StatusRetry, Message: fmt.Sprintf("fixing %d issue(s)", len(lintErrs))})
-		err := editor.Run(ctx, svc.store, slug, LintFixPrompt(lintErrs), tmpl, attachments, nil, emit)
+		slog.Info("build.lint_retry", "slug", slug, "attempt", attempt+1, "issues", len(residual))
+		emit(events.Event{Type: events.TypeStatus, Status: events.StatusRetry, Message: fmt.Sprintf("fixing %d issue(s)", len(residual))})
+		err := editor.Run(ctx, svc.store, slug, LintFixPrompt(residual), tmpl, attachments, nil, emit)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				return fmt.Errorf("build timed out after %s", svc.buildTimeout)
@@ -535,6 +552,54 @@ func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slu
 	}
 
 	return nil
+}
+
+// autoFixLint rewrites files in-place for any error whose Kind has a
+// deterministic fix, then returns the residual errors that still need the
+// agent. Files that also produced a KindSuspiciousAttr error are skipped —
+// see the AutoFixDesignSubstrate doc for why touching a parser-recovery
+// bug is unsafe.
+func (svc *Service) autoFixLint(ctx context.Context, slug string, errs []lint.Error) []lint.Error {
+	blocked := map[string]bool{}
+	for _, e := range errs {
+		if e.Kind == lint.KindSuspiciousAttr {
+			blocked[e.File] = true
+		}
+	}
+
+	fixed := map[string]bool{}
+	for _, e := range errs {
+		if e.Kind != lint.KindDesignSubstrate || blocked[e.File] || fixed[e.File] {
+			continue
+		}
+		obj, err := svc.store.Read(ctx, slug, e.File)
+		if err != nil || obj.Content == "" {
+			continue
+		}
+		out, changed := lint.AutoFixDesignSubstrate(obj.Content)
+		if !changed {
+			continue
+		}
+		err = svc.store.Write(ctx, slug, e.File, out, "text/html; charset=utf-8", nil)
+		if err != nil {
+			slog.Warn("build.autofix.write_failed", "slug", slug, "file", e.File, "error", err)
+			continue
+		}
+		fixed[e.File] = true
+	}
+
+	if len(fixed) == 0 {
+		return errs
+	}
+
+	residual := make([]lint.Error, 0, len(errs))
+	for _, e := range errs {
+		if e.Kind == lint.KindDesignSubstrate && fixed[e.File] {
+			continue
+		}
+		residual = append(residual, e)
+	}
+	return residual
 }
 
 // seedTemplate writes the template's skeleton files (if any) and the

@@ -16,9 +16,28 @@ import (
 	"github.com/jtarchie/bloomhollow/internal/templates"
 )
 
+// Kind classifies an Error so the build loop can decide whether to attempt
+// a deterministic auto-fix or hand the error to the agent. An empty Kind
+// is the default and always means "agent must fix" — safe fallback for
+// anything we have not categorized yet.
+type Kind string
+
+const (
+	// KindDesignSubstrate identifies a missing DaisyUI/Tailwind <link> or
+	// <script> tag — purely mechanical, AutoFixDesignSubstrate handles it.
+	KindDesignSubstrate Kind = "design_substrate"
+	// KindSuspiciousAttr identifies an unclosed quoted attribute that
+	// swallowed a following element. Auto-fix is unsafe here because
+	// blindly injecting more tags on top of a parser-recovery bug would
+	// deepen the corruption — only the agent can repair the original
+	// quoting before any substrate fix is meaningful.
+	KindSuspiciousAttr Kind = "suspicious_attr"
+)
+
 type Error struct {
 	File    string
 	Message string
+	Kind    Kind
 }
 
 func (e *Error) Error() string {
@@ -156,22 +175,70 @@ func checkDesignSubstrate(file string, doc *html.Node) []Error {
 	if !p.daisy {
 		errs = append(errs, Error{
 			File:    file,
+			Kind:    KindDesignSubstrate,
 			Message: "missing DaisyUI stylesheet — every page must include `<link href=\"https://cdn.jsdelivr.net/npm/daisyui@5\" rel=\"stylesheet\" type=\"text/css\" />` in <head> as a well-formed element. If the URL appears in the file but this check still fires, an earlier attribute (often a <meta> viewport) is missing a closing quote and is consuming the <link> tag.",
 		})
 	}
 	if !p.daisyThemes {
 		errs = append(errs, Error{
 			File:    file,
+			Kind:    KindDesignSubstrate,
 			Message: "missing DaisyUI themes stylesheet — every page must also include `<link href=\"https://cdn.jsdelivr.net/npm/daisyui@5/themes.css\" rel=\"stylesheet\" type=\"text/css\" />` in <head> directly after the base daisyui link. Without it the base stylesheet only ships `light` and `dark`, so a `data-theme` value like `synthwave` falls back to the default palette.",
 		})
 	}
 	if !p.tailwind {
 		errs = append(errs, Error{
 			File:    file,
+			Kind:    KindDesignSubstrate,
 			Message: "missing Tailwind browser script — every page must include `<script src=\"https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4\"></script>` in <head> as a well-formed element.",
 		})
 	}
 	return errs
+}
+
+// AutoFixDesignSubstrate injects any missing DaisyUI + Tailwind substrate
+// tags right before the closing </head>. Idempotent: an already-present
+// tag (per the same DOM walk checkDesignSubstrate uses) is not
+// re-injected. Returns the new content and whether anything changed.
+//
+// Callers must NOT invoke this on a file that also produced a
+// KindSuspiciousAttr error — a parser-recovery bug there means the
+// substrate URL may appear in the bytes but be swallowed by a broken
+// attribute, and adding more tags would compound the corruption rather
+// than repair it. The build loop checks for that before calling in.
+func AutoFixDesignSubstrate(content string) (string, bool) {
+	doc, err := html.Parse(strings.NewReader(content))
+	if err != nil {
+		return content, false
+	}
+	var p substratePresence
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		p.inspect(n)
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+	if p.daisy && p.daisyThemes && p.tailwind {
+		return content, false
+	}
+	lower := strings.ToLower(content)
+	closeIdx := strings.Index(lower, "</head>")
+	if closeIdx == -1 {
+		return content, false
+	}
+	var b strings.Builder
+	if !p.daisy {
+		b.WriteString(`<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />` + "\n")
+	}
+	if !p.daisyThemes {
+		b.WriteString(`<link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />` + "\n")
+	}
+	if !p.tailwind {
+		b.WriteString(`<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>` + "\n")
+	}
+	return content[:closeIdx] + b.String() + content[closeIdx:], true
 }
 
 // suspiciousAttrValues flags an attribute value that contains an embedded
@@ -195,6 +262,7 @@ func suspiciousAttrValues(file string, doc *html.Node) []Error {
 				}
 				errs = append(errs, Error{
 					File:    file,
+					Kind:    KindSuspiciousAttr,
 					Message: fmt.Sprintf("<%s> attribute %q has a value containing an embedded <%s> tag — the value is missing a closing quote and is swallowing the following element. Re-read the file, then rewrite the broken attribute so its quoted value ends before the next tag begins.", n.Data, attr.Key, name),
 				})
 				// One error per element is plenty; the agent will re-read

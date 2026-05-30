@@ -205,3 +205,99 @@ func TestCheckDesignSubstrate_MissingThemesFailsLint(t *testing.T) {
 		t.Fatalf("expected a themes-stylesheet error, got: %+v", errs)
 	}
 }
+
+func TestAutoFixDesignSubstrate(t *testing.T) {
+	t.Parallel()
+
+	const wantDaisy = `cdn.jsdelivr.net/npm/daisyui@5"`
+	const wantThemes = `daisyui@5/themes.css`
+	const wantTailwind = `@tailwindcss/browser@4`
+
+	t.Run("injects all three when head is empty", func(t *testing.T) {
+		in := `<!DOCTYPE html><html><head><title>x</title></head><body></body></html>`
+		out, changed := AutoFixDesignSubstrate(in)
+		if !changed {
+			t.Fatal("expected changed=true")
+		}
+		if !strings.Contains(out, wantDaisy) || !strings.Contains(out, wantThemes) || !strings.Contains(out, wantTailwind) {
+			t.Errorf("missing substrate tags in output: %s", out)
+		}
+		if !strings.Contains(out, "</head>") || strings.Index(out, "</head>") < strings.Index(out, wantTailwind) {
+			t.Errorf("substrate must be injected before </head>: %s", out)
+		}
+	})
+
+	t.Run("idempotent when all present", func(t *testing.T) {
+		in := `<!DOCTYPE html><html><head>` +
+			`<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />` +
+			`<link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />` +
+			`<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>` +
+			`</head><body></body></html>`
+		_, changed := AutoFixDesignSubstrate(in)
+		if changed {
+			t.Fatal("expected changed=false when substrate already present")
+		}
+	})
+
+	t.Run("injects only the missing tag", func(t *testing.T) {
+		in := `<!DOCTYPE html><html><head>` +
+			`<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />` +
+			`<link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />` +
+			`</head><body></body></html>`
+		out, changed := AutoFixDesignSubstrate(in)
+		if !changed {
+			t.Fatal("expected changed=true (tailwind is missing)")
+		}
+		if strings.Count(out, "daisyui@5\"") != 1 || strings.Count(out, "daisyui@5/themes.css") != 1 {
+			t.Errorf("existing tags must not be duplicated: %s", out)
+		}
+		if !strings.Contains(out, wantTailwind) {
+			t.Errorf("tailwind tag must be injected: %s", out)
+		}
+	})
+
+	t.Run("returns unchanged when no </head>", func(t *testing.T) {
+		in := `<html><body></body></html>`
+		out, changed := AutoFixDesignSubstrate(in)
+		if changed {
+			t.Fatal("expected changed=false when </head> is absent")
+		}
+		if out != in {
+			t.Errorf("content must be returned unchanged when fix is skipped")
+		}
+	})
+}
+
+func TestErrorKindClassification(t *testing.T) {
+	t.Parallel()
+
+	// Bare doc → all three substrate errors must have the auto-fix kind.
+	doc, err := html.Parse(strings.NewReader(`<!DOCTYPE html><html><head></head><body></body></html>`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	for _, e := range checkDesignSubstrate("index.html", doc) {
+		if e.Kind != KindDesignSubstrate {
+			t.Errorf("expected KindDesignSubstrate, got %q for %q", e.Kind, e.Message)
+		}
+	}
+
+	// Suspicious-attr fixture from the existing test: unclosed viewport
+	// content swallows the next <link>.
+	doc, err = html.Parse(strings.NewReader(
+		`<!DOCTYPE html><html><head>` +
+			`<meta name="viewport" content="<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />` +
+			`</head><body></body></html>`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	saw := false
+	for _, e := range suspiciousAttrValues("index.html", doc) {
+		if e.Kind == KindSuspiciousAttr {
+			saw = true
+		}
+	}
+	if !saw {
+		t.Errorf("expected at least one KindSuspiciousAttr error from the swallowed-link fixture")
+	}
+}
