@@ -502,7 +502,7 @@ func newReadAttachmentTool(attachments []Attachment, emit func(events.Event)) (t
 	t, err := functiontool.New(
 		functiontool.Config{
 			Name:        "read_attachment",
-			Description: "Read a markdown or HTML file the user attached to this build/edit submission. Each returned line is prefixed with its 1-indexed line number and a tab, same convention as read_file. Use these attachments as authoritative source for page copy. The full set of names was pre-loaded into your conversation history; call this tool only if you need to re-read.",
+			Description: "Re-read a user-uploaded markdown or HTML attachment. The full set is pre-loaded into history; call only when you need a second look.",
 		},
 		func(_ tool.Context, args readAttachmentArgs) (readAttachmentResult, error) {
 			em.start(args.Name)
@@ -567,7 +567,7 @@ func newReadExampleTool(tmpl *templates.SiteTemplate, emit func(events.Event)) (
 	t, err := functiontool.New(
 		functiontool.Config{
 			Name:        "read_example",
-			Description: "Read an aspirational reference HTML page for this template. Examples are not the user's content — they are hand-crafted demonstrations of layout, type hierarchy, DaisyUI component usage, and visual rhythm. Use them as inspiration, never copy markup verbatim. The full set was pre-loaded into your conversation history via seeded read_example calls; call this tool only if you need to re-read.",
+			Description: "Re-read an aspirational reference HTML page for this template. Inspiration only — never copy markup verbatim. Pre-loaded into history; call only when you need a second look.",
 		},
 		func(_ tool.Context, args readExampleArgs) (readExampleResult, error) {
 			em.start(args.Name)
@@ -703,7 +703,7 @@ func newReadFileTool(s *store.Store, slug string, emit func(events.Event)) (tool
 	t, err := functiontool.New(
 		functiontool.Config{
 			Name:        "read_file",
-			Description: "Read content from an HTML file. Each returned line is prefixed with its 1-indexed line number and a tab (`   42\\t<section>`), so the number you pass to replace_lines/insert_at_line is the number you see — no counting newlines. Optionally pass start_line and end_line (1-indexed, inclusive) to read only a slice; line numbers in the slice still refer to the original file. total_lines is always returned. The leading `<number>\\t` is annotation, not file content — strip it before passing text back to write_file/edit_file/replace_lines/insert_at_line.",
+			Description: "Read an HTML file. Pass start_line/end_line (1-indexed inclusive) for a slice. Lines come back prefixed with their 1-indexed number and a tab — strip that annotation before passing text back.",
 		},
 		func(tctx tool.Context, args readFileArgs) (readFileResult, error) {
 			em.start(args.Path)
@@ -800,7 +800,7 @@ func newEditFileTool(s *store.Store, slug string, emit func(events.Event), state
 	t, err := functiontool.New(
 		functiontool.Config{
 			Name:        "edit_file",
-			Description: "Replace exact text in an existing HTML file. Provide old_text (must match verbatim — include enough surrounding context to be unique) and new_text. Prefer this over write_file for surgical changes: rewriting whole files wastes tokens and risks regressions in unrelated content. Set replace_all=true to replace every occurrence.",
+			Description: "Surgical edit on an HTML file: old_text must byte-match and be unique unless replace_all=true. Prefer this over rewriting the whole file.",
 		},
 		func(tctx tool.Context, args editFileArgs) (editFileResult, error) {
 			em.start(args.Path)
@@ -882,7 +882,7 @@ func newReplaceLinesTool(s *store.Store, slug string, emit func(events.Event), s
 	t, err := functiontool.New(
 		functiontool.Config{
 			Name:        "replace_lines",
-			Description: "Replace lines start_line..end_line (1-indexed, inclusive) in an HTML file with new_text. Use when read_file showed you the exact line range and you want to avoid whitespace-matching headaches. Pass empty new_text to delete those lines. Both line numbers refer to the file as it exists right now; if you make multiple replacements, re-read between them to get fresh numbers.",
+			Description: "Replace lines start_line..end_line (1-indexed inclusive) in an HTML file with new_text. Empty new_text deletes. Line numbers must reflect the current file — re-read between multiple edits.",
 		},
 		func(tctx tool.Context, args replaceLinesArgs) (editFileResult, error) {
 			em.start(args.Path)
@@ -950,7 +950,7 @@ func newInsertAtLineTool(s *store.Store, slug string, emit func(events.Event), s
 	t, err := functiontool.New(
 		functiontool.Config{
 			Name:        "insert_at_line",
-			Description: "Insert content after line N (1-indexed) in an HTML file. Use after_line=0 to prepend, after_line=total_lines to append. Content is inserted verbatim — include a trailing newline if you want a clean break before the next line.",
+			Description: "Insert content after line N in an HTML file. after_line=0 prepends, after_line=total_lines appends. Inserted verbatim — include a trailing newline if needed.",
 		},
 		func(tctx tool.Context, args insertAtLineArgs) (editFileResult, error) {
 			em.start(args.Path)
@@ -1180,7 +1180,7 @@ func newGrepFilesTool(s *store.Store, slug string, emit func(events.Event)) (too
 	t, err := functiontool.New(
 		functiontool.Config{
 			Name:        "grep_files",
-			Description: "Search a literal (case-sensitive, no regex) substring across all HTML pages and function handlers. Returns matching paths with 1-indexed line numbers and snippets. Use before edit_file to find the unique surrounding context you need.",
+			Description: "Literal (case-sensitive, no regex) substring search across HTML pages and function handlers. Returns paths, 1-indexed line numbers, and snippets.",
 		},
 		func(tctx tool.Context, args grepFilesArgs) (grepFilesResult, error) {
 			em.start("")
@@ -1305,7 +1305,7 @@ func newListAssetsTool(s *store.Store, slug string, emit func(events.Event)) (to
 	t, err := functiontool.New(
 		functiontool.Config{
 			Name:        "list_assets",
-			Description: "List uploaded image assets with their alt text and descriptions. Embed an asset with <img src=\"assets/filename.ext\" alt=\"...\"> using the alt verbatim. Use the description to decide which images to use and where.",
+			Description: "List uploaded image assets with path, alt text, and description. Embed with <img src=\"assets/filename.ext\" alt=\"...\">; use the alt verbatim. Description tells you which image fits where.",
 		},
 		func(tctx tool.Context, _ struct{}) (listAssetsResult, error) {
 			em.start("")
@@ -1724,7 +1724,7 @@ func newEditFunctionTool(s *store.Store, slug string, emit func(events.Event), s
 	t, err := functiontool.New(
 		functiontool.Config{
 			Name:        "edit_function",
-			Description: "Replace exact text in an existing functions/<name>.js handler. Same semantics as edit_file but for JS handlers. Prefer this over write_function for surgical changes.",
+			Description: "Surgical edit on a functions/<name>.js handler: same semantics as edit_file. Prefer this over rewriting the whole handler.",
 		},
 		func(tctx tool.Context, args editFunctionArgs) (editFunctionResult, error) {
 			path := functionsDir + args.Name + jsExt
