@@ -8,6 +8,7 @@ vars:
   MINIO_BUCKET: bloomhollow
   LMSTUDIO_BASE_URL: http://localhost:1234/v1
   LMSTUDIO_MODEL: lmstudio/google/gemma-4-26b-a4b
+  SUPER_ADMIN_EMAIL: admin@local
 
 tasks:
   fmt:
@@ -32,7 +33,8 @@ tasks:
           --llm-base-url {{.LMSTUDIO_BASE_URL}} \
           --llm-api-key lm-studio \
           --domain lvh.me \
-          --admin-password password \
+          --super-admin-email {{.SUPER_ADMIN_EMAIL}} \
+          --insecure-cookies \
           --port 8080
 
   minio:start:
