@@ -145,6 +145,9 @@ func main() {
 		RecordEdit:      cli.RecordEdits,
 		BuildTimeout:    cli.BuildTimeout,
 		ReasoningEffort: reasoningEffort,
+		Domain:          cli.Domain,
+		Port:            cli.Port,
+		Insecure:        cli.InsecureCookies,
 	})
 	sb := sandbox.New(sandbox.Config{})
 	stateStore := state.NewS3(s3Client, cli.S3Bucket)

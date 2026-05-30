@@ -105,27 +105,70 @@ func EffectiveTemplate(meta SiteMeta) *templates.SiteTemplate {
 // touching a live model. Run is invoked on every agent turn (initial build
 // plus each lint-retry fix-up); Describe is invoked once after a successful
 // build to populate the site sidecar's title + description.
+//
+// buildStart is captured once per build at the top of buildAndLint and
+// flows unchanged into every retry, so the agent sees the same "today" all
+// the way through a single build. isEdit comes from !Params.SeedSkeleton.
 type Runner interface {
-	Run(ctx context.Context, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, emit func(events.Event)) error
+	Run(ctx context.Context, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, buildStart time.Time, isEdit bool, emit func(events.Event)) error
 	Describe(ctx context.Context, s *store.Store, slug, userPrompt string) (agent.SiteDescription, error)
 }
 
 // agentRunner is the production Runner — a thin shim over package agent that
-// carries the configured ThinkingLevel into every Run call.
+// carries the configured ThinkingLevel into every Run call. domain / port /
+// insecure are only used to compose the per-build SiteURL the agent sees
+// in its BuildContext block; the real subdomain routing is owned by the
+// server, not the agent.
 type agentRunner struct {
 	llm             adkmodel.LLM
 	reasoningEffort genai.ThinkingLevel
+	domain          string
+	port            string
+	insecure        bool
 }
 
 // NewAgentRunner constructs the production Runner around an already-resolved
 // LLM client. Exposed so cmd/bloomhollow can wire a per-model factory without
 // internal/build needing to know about internal/model.
-func NewAgentRunner(llm adkmodel.LLM, reasoningEffort genai.ThinkingLevel) Runner {
-	return agentRunner{llm: llm, reasoningEffort: reasoningEffort}
+func NewAgentRunner(llm adkmodel.LLM, reasoningEffort genai.ThinkingLevel, domain, port string, insecure bool) Runner {
+	return agentRunner{
+		llm:             llm,
+		reasoningEffort: reasoningEffort,
+		domain:          domain,
+		port:            port,
+		insecure:        insecure,
+	}
 }
 
-func (r agentRunner) Run(ctx context.Context, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, emit func(events.Event)) error {
-	err := agent.Run(ctx, r.llm, s, slug, prompt, tmpl, attachments, seeds, r.reasoningEffort, agent.BuildContext{}, emit)
+// siteURL composes the canonical URL the agent should reference in og:url,
+// self-links, and similar. Mirrors the scheme/port rule the auth package
+// already uses for RPOrigins: insecure local dev gets http:// plus the port
+// suffix (omitted for 80/443); everything else gets https:// with no port.
+// An empty domain (legacy New constructor used by some tests) returns ""
+// so the rendered BuildContext block stays clean.
+func (r agentRunner) siteURL(slug string) string {
+	if r.domain == "" {
+		return ""
+	}
+	scheme := "https"
+	port := ""
+	if r.insecure {
+		scheme = "http"
+		if r.port != "" && r.port != "80" && r.port != "443" {
+			port = ":" + r.port
+		}
+	}
+	return fmt.Sprintf("%s://%s.%s%s", scheme, slug, r.domain, port)
+}
+
+func (r agentRunner) Run(ctx context.Context, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, buildStart time.Time, isEdit bool, emit func(events.Event)) error {
+	bctx := agent.BuildContext{
+		Now:     buildStart,
+		Slug:    slug,
+		SiteURL: r.siteURL(slug),
+		IsEdit:  isEdit,
+	}
+	err := agent.Run(ctx, r.llm, s, slug, prompt, tmpl, attachments, seeds, r.reasoningEffort, bctx, emit)
 	if err != nil {
 		return fmt.Errorf("agent run: %w", err)
 	}
@@ -166,6 +209,9 @@ type Service struct {
 	recordEdit      bool
 	buildTimeout    time.Duration
 	reasoningEffort genai.ThinkingLevel
+	domain          string
+	port            string
+	insecure        bool
 
 	// llmFactory resolves a model ID to an ADK LLM. The Service wraps the
 	// LLM in an agentRunner internally and caches both. Nil in tests that
@@ -212,6 +258,13 @@ type Config struct {
 	ReasoningEffort genai.ThinkingLevel
 	Runner          Runner
 	RunnerForTier   map[model.Tier]Runner
+	// Domain / Port / Insecure are passed through to every agentRunner the
+	// factory builds so the agent's BuildContext can include a canonical
+	// SiteURL for the slug. Empty Domain disables the URL line in the
+	// rendered context block (tests and one-off invocations stay clean).
+	Domain   string
+	Port     string
+	Insecure bool
 }
 
 // New is the legacy constructor used by tests that just want a Service
@@ -251,6 +304,9 @@ func NewWithConfig(cfg Config) *Service {
 		recordEdit:      cfg.RecordEdit,
 		buildTimeout:    timeout,
 		reasoningEffort: cfg.ReasoningEffort,
+		domain:          cfg.Domain,
+		port:            cfg.Port,
+		insecure:        cfg.Insecure,
 		llmFactory:      cfg.LLMFactory,
 		runners:         map[string]Runner{},
 		llms:            map[string]adkmodel.LLM{},
@@ -288,7 +344,13 @@ func (svc *Service) runnerForTier(ctx context.Context, override model.TierMap, t
 	if err != nil {
 		return nil, id, err
 	}
-	r := agentRunner{llm: llm, reasoningEffort: svc.reasoningEffort}
+	r := agentRunner{
+		llm:             llm,
+		reasoningEffort: svc.reasoningEffort,
+		domain:          svc.domain,
+		port:            svc.port,
+		insecure:        svc.insecure,
+	}
 	svc.runners[id] = r
 	return r, id, nil
 }
@@ -436,7 +498,7 @@ func (svc *Service) Start(p Params) {
 			// retry / describe transcripts themselves.
 			rec.SetModel(authorID, string(svc.reasoningEffort))
 		}
-		err = svc.buildAndLint(ctx, authorRunner, editorRunner, p.Slug, p.Prompt, p.Template, p.Attachments, p.Seeds, rec)
+		err = svc.buildAndLint(ctx, authorRunner, editorRunner, p.Slug, p.Prompt, p.Template, p.Attachments, p.Seeds, !p.SeedSkeleton, rec)
 		// Persist the transcript before emitting the terminal SSE event.
 		// Consumers (the progress strip, /system, /debug) treat "completed"
 		// /"failed" as "you can read everything related to this run now."
@@ -491,7 +553,7 @@ func LintFixPrompt(errs []lint.Error) string {
 // retry starts a fresh agent session against an already-written site and
 // the prompt is a deterministic LintFixPrompt, well within reach of a
 // smaller model.
-func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, rec *editrec.Recorder) error {
+func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, isEdit bool, rec *editrec.Recorder) error {
 	ctx, cancel := context.WithTimeout(ctx, svc.buildTimeout)
 	defer cancel()
 
@@ -500,7 +562,12 @@ func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slu
 		emit = rec.Wrap(ctx, svc.store, slug, emit)
 	}
 
-	err := author.Run(ctx, svc.store, slug, prompt, tmpl, attachments, seeds, emit)
+	// Frozen once at build entry so every retry shows the agent the same
+	// calendar day — a long build that crosses midnight should not flip
+	// dates mid-flight and invalidate the per-build prefix.
+	buildStart := time.Now()
+
+	err := author.Run(ctx, svc.store, slug, prompt, tmpl, attachments, seeds, buildStart, isEdit, emit)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("build timed out after %s", svc.buildTimeout)
@@ -542,7 +609,7 @@ func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slu
 
 		slog.Info("build.lint_retry", "slug", slug, "attempt", attempt+1, "issues", len(residual))
 		emit(events.Event{Type: events.TypeStatus, Status: events.StatusRetry, Message: fmt.Sprintf("fixing %d issue(s)", len(residual))})
-		err := editor.Run(ctx, svc.store, slug, LintFixPrompt(residual), tmpl, attachments, nil, emit)
+		err := editor.Run(ctx, svc.store, slug, LintFixPrompt(residual), tmpl, attachments, nil, buildStart, isEdit, emit)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				return fmt.Errorf("build timed out after %s", svc.buildTimeout)

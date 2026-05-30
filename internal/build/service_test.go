@@ -203,7 +203,7 @@ type scriptedRunner struct {
 	runDelay time.Duration // optional pause to exercise timeout path
 }
 
-func (r *scriptedRunner) Run(ctx context.Context, s *store.Store, slug, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, emit func(events.Event)) error {
+func (r *scriptedRunner) Run(ctx context.Context, s *store.Store, slug, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, _ time.Time, _ bool, emit func(events.Event)) error {
 	idx := int(r.calls.Add(1)) - 1
 	if r.runDelay > 0 {
 		select {

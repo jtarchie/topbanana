@@ -26,7 +26,7 @@ import (
 // and a subsequent GET on the workspace must still render.
 type failingRunner struct{}
 
-func (failingRunner) Run(context.Context, *store.Store, string, string, *templates.SiteTemplate, []agent.Attachment, []agent.SeedToolCall, func(events.Event)) error {
+func (failingRunner) Run(context.Context, *store.Store, string, string, *templates.SiteTemplate, []agent.Attachment, []agent.SeedToolCall, time.Time, bool, func(events.Event)) error {
 	return errors.New("scripted failure")
 }
 
