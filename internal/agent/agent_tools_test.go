@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/jtarchie/bloomhollow/internal/templates"
 )
 
 func TestApplyEdit(t *testing.T) {
@@ -424,6 +426,51 @@ func TestToolGuard(t *testing.T) {
 			t.Fatalf("b: %v", err)
 		}
 	})
+}
+
+func TestFormatTemplateChecks(t *testing.T) {
+	cases := []struct {
+		name   string
+		checks []templates.Check
+		want   string
+	}{
+		{
+			name:   "empty",
+			checks: nil,
+			want:   "",
+		},
+		{
+			name: "skips entries missing file or needles",
+			checks: []templates.Check{
+				{File: "", MustContain: []string{"<h1"}},
+				{File: "index.html", MustContain: nil},
+			},
+			want: "",
+		},
+		{
+			name: "single check with message",
+			checks: []templates.Check{
+				{File: "index.html", MustContain: []string{"<h1"}, Message: "landing pages need a clear headline"},
+			},
+			want: "Your output will be validated against these requirements (the lint loop asserts them after every build):\n- index.html must contain `<h1` — landing pages need a clear headline",
+		},
+		{
+			name: "multi-needle joined with and",
+			checks: []templates.Check{
+				{File: "index.html", MustContain: []string{"<form", `method="post"`}},
+			},
+			want: "Your output will be validated against these requirements (the lint loop asserts them after every build):\n- index.html must contain `<form` and `method=\"post\"`",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatTemplateChecks(tc.checks)
+			if got != tc.want {
+				t.Errorf("formatTemplateChecks = %q\nwant: %q", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestTruncateSnippet(t *testing.T) {

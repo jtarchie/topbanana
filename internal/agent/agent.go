@@ -1340,6 +1340,36 @@ func collectAssetEntries(ctx context.Context, s *store.Store, slug string, files
 	return out
 }
 
+// formatTemplateChecks renders a template's declarative Checks as a short
+// upfront requirement list so the agent's first pass already targets the
+// invariants the lint loop will later assert. Without this the model only
+// learns about a missing <h1> or <form> through a retry round-trip — every
+// avoided retry skips a fresh ~5–7K-token prefix resend.
+func formatTemplateChecks(checks []templates.Check) string {
+	if len(checks) == 0 {
+		return ""
+	}
+	lines := []string{"Your output will be validated against these requirements (the lint loop asserts them after every build):"}
+	for _, c := range checks {
+		if c.File == "" || len(c.MustContain) == 0 {
+			continue
+		}
+		needles := make([]string, 0, len(c.MustContain))
+		for _, n := range c.MustContain {
+			needles = append(needles, fmt.Sprintf("`%s`", n))
+		}
+		line := fmt.Sprintf("- %s must contain %s", c.File, strings.Join(needles, " and "))
+		if c.Message != "" {
+			line += " — " + c.Message
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 1 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
+}
+
 // buildInstruction layers the per-template addendum on top of the base system
 // prompt and adds a one-liner whenever the template ships skeleton files, so
 // the agent knows to inspect the existing filesystem before writing.
@@ -1361,6 +1391,9 @@ func buildInstruction(tmpl *templates.SiteTemplate, attachments []Attachment) st
 		}
 		if tmpl.PromptAddendum != "" {
 			parts = append(parts, tmpl.PromptAddendum)
+		}
+		if checks := formatTemplateChecks(tmpl.Checks); checks != "" {
+			parts = append(parts, checks)
 		}
 		if len(tmpl.Skeleton) > 0 {
 			parts = append(parts, "A starter skeleton has already been written for this site. Call list_files and read_file before deciding what to write — extend or refine the existing files rather than starting from scratch.")
