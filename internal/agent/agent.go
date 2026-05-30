@@ -1331,14 +1331,24 @@ func collectAssetEntries(ctx context.Context, s *store.Store, slug string, files
 // buildInstruction layers the per-template addendum on top of the base system
 // prompt and adds a one-liner whenever the template ships skeleton files, so
 // the agent knows to inspect the existing filesystem before writing.
+//
+// Order matters for prompt caching. Providers that cache automatically
+// (OpenAI, DeepSeek, Gemini, Grok, Groq, Moonshot via OpenRouter) reuse
+// whatever stable prefix the request opens with, so we lay the parts down
+// stablest-first: base prompt (every build), functions addendum (shared by
+// every functions-enabled template), per-template addendum (template-stable),
+// skeleton notice (template-stable), examples notice (template-stable
+// content, but the names list is template-determined), then attachments
+// notice (the only per-request variable). Any reordering of these blocks
+// invalidates the cache for every build that follows.
 func buildInstruction(tmpl *templates.SiteTemplate, attachments []Attachment) string {
 	parts := []string{systemPrompt}
 	if tmpl != nil {
-		if tmpl.PromptAddendum != "" {
-			parts = append(parts, tmpl.PromptAddendum)
-		}
 		if tmpl.EnablesFunctions {
 			parts = append(parts, functionsPrompt)
+		}
+		if tmpl.PromptAddendum != "" {
+			parts = append(parts, tmpl.PromptAddendum)
 		}
 		if len(tmpl.Skeleton) > 0 {
 			parts = append(parts, "A starter skeleton has already been written for this site. Call list_files and read_file before deciding what to write — extend or refine the existing files rather than starting from scratch.")
