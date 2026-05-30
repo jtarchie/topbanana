@@ -249,6 +249,14 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 		Model:       llm,
 		Tools:       tools,
 	}
+	// Parallel tool calls are intentionally left to provider defaults.
+	// genai.GenerateContentConfig has no parallel-tool-calls field, and the
+	// adk-utils-go OpenAI/Anthropic adapters expose no hook for OpenAI's
+	// parallel_tool_calls or Anthropic's disable_parallel_tool_use. Both
+	// providers default to *enabled*, and ADK's runner fans concurrent calls
+	// into goroutines (base_flow.handleFunctionCalls), so the model can batch
+	// freely. buildState.writeMu serializes the read-modify-write tools so
+	// that fan-out doesn't lose work at S3.
 	if reasoningEffort != "" {
 		cfg.GenerateContentConfig = &genai.GenerateContentConfig{
 			ThinkingConfig: &genai.ThinkingConfig{ThinkingLevel: reasoningEffort},
@@ -295,6 +303,13 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 		if iters > maxAgentIterations {
 			slog.Warn("agent.iteration_cap", "slug", slug, "iterations", iters, "max", maxAgentIterations)
 			return fmt.Errorf("agent exceeded %d iterations without finalizing", maxAgentIterations)
+		}
+		// Surface multi-tool-call batches so we can confirm the model is
+		// actually fanning out and that the writeMu serialization isn't
+		// being exercised by an empty hypothetical. Single-call turns stay
+		// quiet — that's the common case and not interesting.
+		if n := countFunctionCalls(event); n > 1 {
+			slog.Info("agent.parallel_tool_calls", "slug", slug, "count", n)
 		}
 		if event != nil && event.IsFinalResponse() {
 			slog.Info("agent.done", "slug", slug, "iterations", iters)
@@ -427,14 +442,23 @@ func buildAgentTools(s *store.Store, slug string, tmpl *templates.SiteTemplate, 
 	}
 	tools = append(tools, refTool)
 	if tmpl != nil && tmpl.EnablesFunctions {
-		fnBuilders := []func(*store.Store, string, func(events.Event)) (tool.Tool, error){
+		fnGuardedBuilders := []func(*store.Store, string, func(events.Event), *buildState) (tool.Tool, error){
 			newWriteFunctionTool,
-			newReadFunctionTool,
 			newEditFunctionTool,
 			newDeleteFunctionTool,
+		}
+		fnPlainBuilders := []func(*store.Store, string, func(events.Event)) (tool.Tool, error){
+			newReadFunctionTool,
 			newListFunctionsTool,
 		}
-		for _, b := range fnBuilders {
+		for _, b := range fnGuardedBuilders {
+			t, err := b(s, slug, emit, state)
+			if err != nil {
+				return nil, err
+			}
+			tools = append(tools, t)
+		}
+		for _, b := range fnPlainBuilders {
 			t, err := b(s, slug, emit)
 			if err != nil {
 				return nil, err
@@ -597,6 +621,8 @@ func newWriteFileTool(s *store.Store, slug string, emit func(events.Event), stat
 				em.fail(args.Path, err)
 				return writeFileResult{Error: err.Error()}, nil
 			}
+			state.writeMu.Lock()
+			defer state.writeMu.Unlock()
 			// File-count cap: only block when this path would create a *new*
 			// HTML file beyond the limit. Overwrites of existing files are
 			// always allowed. List failures don't block the write — we'd
@@ -774,6 +800,8 @@ func newEditFileTool(s *store.Store, slug string, emit func(events.Event), state
 					Note: "old_text and new_text are identical; no change made",
 				}, nil
 			}
+			state.writeMu.Lock()
+			defer state.writeMu.Unlock()
 			obj, err := s.Read(tctx, slug, args.Path)
 			if err != nil {
 				slog.Warn("agent.edit_file", "slug", slug, "path", args.Path, "err", err)
@@ -839,6 +867,8 @@ func newReplaceLinesTool(s *store.Store, slug string, emit func(events.Event), s
 				em.fail(args.Path, pathErr)
 				return editFileResult{Error: pathErr.Error()}, nil
 			}
+			state.writeMu.Lock()
+			defer state.writeMu.Unlock()
 			obj, err := s.Read(tctx, slug, args.Path)
 			if err != nil {
 				slog.Warn("agent.replace_lines", "slug", slug, "path", args.Path, "err", err)
@@ -905,6 +935,8 @@ func newInsertAtLineTool(s *store.Store, slug string, emit func(events.Event), s
 				em.fail(args.Path, pathErr)
 				return editFileResult{Error: pathErr.Error()}, nil
 			}
+			state.writeMu.Lock()
+			defer state.writeMu.Unlock()
 			obj, err := s.Read(tctx, slug, args.Path)
 			if err != nil {
 				slog.Warn("agent.insert_at_line", "slug", slug, "path", args.Path, "err", err)
@@ -1347,13 +1379,40 @@ const (
 // both touch. iters is incremented from the ADK event loop in Run; tool
 // closures read it via Load() to surface a "iterations remaining" hint to
 // the model so it can self-pace.
+//
+// writeMu serializes every mutating tool against the store. ADK dispatches
+// each function call in a separate goroutine (base_flow.handleFunctionCalls),
+// and OpenAI/Anthropic both default to parallel tool calls — so two
+// edit_file/replace_lines/write_file calls on the same path would otherwise
+// race at S3, where there's no per-key locking and last-write-wins silently
+// drops work. Reads stay lock-free so the model still gets fan-out wins on
+// list_files / read_file / grep_files batches.
 type buildState struct {
-	guard *toolGuard
-	iters atomic.Int64
+	guard   *toolGuard
+	iters   atomic.Int64
+	writeMu sync.Mutex
 }
 
 func newBuildState() *buildState {
 	return &buildState{guard: &toolGuard{}}
+}
+
+// countFunctionCalls returns the number of function-call parts on an ADK
+// event. ADK dispatches each call in its own goroutine
+// (base_flow.handleFunctionCalls), so a return value > 1 means parallel tool
+// execution actually happened on this turn — useful for confirming the model
+// is batching and that buildState.writeMu is doing real work.
+func countFunctionCalls(ev *session.Event) int {
+	if ev == nil || ev.Content == nil {
+		return 0
+	}
+	n := 0
+	for _, part := range ev.Content.Parts {
+		if part != nil && part.FunctionCall != nil {
+			n++
+		}
+	}
+	return n
 }
 
 // toolGuard rejects the same write/edit being issued twice in a short
@@ -1530,7 +1589,7 @@ func validateFunctionName(name string) error {
 	return nil
 }
 
-func newWriteFunctionTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
+func newWriteFunctionTool(s *store.Store, slug string, emit func(events.Event), state *buildState) (tool.Tool, error) {
 	em := emitter{emit: emit, tool: "write_function"}
 	t, err := functiontool.New(
 		functiontool.Config{
@@ -1545,6 +1604,8 @@ func newWriteFunctionTool(s *store.Store, slug string, emit func(events.Event)) 
 				return writeFunctionResult{Error: err.Error()}, nil
 			}
 			em.start(path)
+			state.writeMu.Lock()
+			defer state.writeMu.Unlock()
 			err = s.Write(tctx, slug, path, args.Source, "application/javascript; charset=utf-8", nil)
 			if err != nil {
 				slog.Warn("agent.write_function", "slug", slug, "name", args.Name, "err", err)
@@ -1591,7 +1652,7 @@ func newReadFunctionTool(s *store.Store, slug string, emit func(events.Event)) (
 	return t, nil
 }
 
-func newEditFunctionTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
+func newEditFunctionTool(s *store.Store, slug string, emit func(events.Event), state *buildState) (tool.Tool, error) {
 	em := emitter{emit: emit, tool: "edit_function"}
 	t, err := functiontool.New(
 		functiontool.Config{
@@ -1618,6 +1679,8 @@ func newEditFunctionTool(s *store.Store, slug string, emit func(events.Event)) (
 					Note: "old_text and new_text are identical; no change made",
 				}, nil
 			}
+			state.writeMu.Lock()
+			defer state.writeMu.Unlock()
 			obj, err := s.Read(tctx, slug, path)
 			if err != nil {
 				slog.Warn("agent.edit_function", "slug", slug, "name", args.Name, "err", err)
@@ -1651,7 +1714,7 @@ func newEditFunctionTool(s *store.Store, slug string, emit func(events.Event)) (
 	return t, nil
 }
 
-func newDeleteFunctionTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
+func newDeleteFunctionTool(s *store.Store, slug string, emit func(events.Event), state *buildState) (tool.Tool, error) {
 	em := emitter{emit: emit, tool: "delete_function"}
 	t, err := functiontool.New(
 		functiontool.Config{
@@ -1666,6 +1729,8 @@ func newDeleteFunctionTool(s *store.Store, slug string, emit func(events.Event))
 				return deleteFunctionResult{Error: err.Error()}, nil
 			}
 			em.start(path)
+			state.writeMu.Lock()
+			defer state.writeMu.Unlock()
 			err = s.Delete(tctx, slug, path)
 			if err != nil {
 				slog.Warn("agent.delete_function", "slug", slug, "name", args.Name, "err", err)
