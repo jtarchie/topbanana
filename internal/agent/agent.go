@@ -597,6 +597,15 @@ func newReadExampleTool(tmpl *templates.SiteTemplate, emit func(events.Event)) (
 // seeds so the model sees aesthetic references first — this is the "few-shot
 // what good looks like" path. Returns nil when the template has no examples,
 // so older brochure templates pay no token cost.
+// maxSeededExamples caps how many examples we pre-load into the agent's
+// session, even if the template ships more. Each example is several KB of
+// HTML that the agent pays for on every turn (history is replayed), so
+// beyond the first couple the marginal taste-information per token gets
+// thin. The cap is deliberately permissive — today's templates all ship
+// exactly two, so this only kicks in if a contributor adds a third. The
+// remaining examples remain reachable via the read_example tool.
+const maxSeededExamples = 2
+
 func ExampleSeeds(tmpl *templates.SiteTemplate) []SeedToolCall {
 	if tmpl == nil || len(tmpl.Examples) == 0 {
 		return nil
@@ -606,6 +615,9 @@ func ExampleSeeds(tmpl *templates.SiteTemplate) []SeedToolCall {
 		names = append(names, n)
 	}
 	sort.Strings(names)
+	if len(names) > maxSeededExamples {
+		names = names[:maxSeededExamples]
+	}
 	seeds := make([]SeedToolCall, 0, len(names))
 	for _, n := range names {
 		seeds = append(seeds, SeedToolCall{
