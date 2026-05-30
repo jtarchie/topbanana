@@ -154,6 +154,7 @@ func main() {
 		Domain:          cli.Domain,
 		SuperAdminEmail: cli.SuperAdminEmail,
 		InsecureCookies: cli.InsecureCookies,
+		Port:            cli.Port,
 		QuotaDefaults: auth.QuotaDefaults{
 			MaxApps: cli.DefaultMaxApps,
 			Tiers:   tierMap,

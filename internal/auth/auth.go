@@ -33,8 +33,16 @@ type Config struct {
 	CookieNamePrefix string
 	// InsecureCookies forces Secure=false on the library's cookies for
 	// local dev (the library refuses to set them on http:// otherwise).
-	// Production deployments leave this false.
+	// Production deployments leave this false. When true, RPOrigins is
+	// also extended with http://{Domain} (and the port-bearing variant
+	// if Port is set) so WebAuthn accepts the browser's plain-HTTP
+	// origin during registration/login.
 	InsecureCookies bool
+	// Port is the HTTP listen port; only used to build the local-dev
+	// RPOrigin when InsecureCookies is true. Empty means "no port suffix"
+	// (the default 80/443 case where the browser omits the port from
+	// Origin headers).
+	Port string
 	// QuotaDefaults are the platform-wide fallbacks applied when a user
 	// record's Quotas struct is zero-valued. Wired from CLI flags.
 	QuotaDefaults QuotaDefaults
@@ -99,7 +107,7 @@ func New(cfg Config) (*Auth, error) {
 		WebauthnConfig: &webauthn.Config{
 			RPDisplayName: "Bloomhollow",
 			RPID:          cfg.Domain,
-			RPOrigins:     []string{"https://" + cfg.Domain},
+			RPOrigins:     buildRPOrigins(cfg.Domain, cfg.Port, cfg.InsecureCookies),
 		},
 		UserStore:        users,
 		AuthSessionStore: NewMemAuthSessionStore(),
@@ -154,6 +162,24 @@ func (a *Auth) Bootstrap(ctx context.Context) (string, error) {
 	url := fmt.Sprintf("https://%s/register?invite=%s", a.cfg.Domain, invite.Token)
 	slog.Info("auth.bootstrap.invite_pending", "email", a.cfg.SuperAdminEmail, "url", url, "expires", invite.Expires.Format(time.RFC3339))
 	return url, nil
+}
+
+// buildRPOrigins assembles the WebAuthn RPOrigins list. Production always
+// gets the https://{domain} form. When insecure is set (local HTTP dev),
+// also add the http://{domain} and http://{domain}:{port} variants so
+// the browser's Origin header matches; the webauthn library does exact
+// string matching. The port-bearing form is omitted for the default
+// HTTP/HTTPS ports because browsers strip them from the Origin header.
+func buildRPOrigins(domain, port string, insecure bool) []string {
+	origins := []string{"https://" + domain}
+	if !insecure {
+		return origins
+	}
+	origins = append(origins, "http://"+domain)
+	if port != "" && port != "80" && port != "443" {
+		origins = append(origins, "http://"+domain+":"+port)
+	}
+	return origins
 }
 
 // SuperAdminEmail returns the configured super-admin email. Exposed so
