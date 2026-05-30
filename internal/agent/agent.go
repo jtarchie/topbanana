@@ -229,7 +229,21 @@ type deleteFunctionResult struct {
 // asks the model to spend reasoning tokens before each response — supported
 // by Gemini 2.5/3 Flash + Pro, Claude Sonnet/Opus/Haiku, Qwen Plus, GPT-5,
 // DeepSeek V3.1+ and other reasoning-capable models on OpenRouter.
-func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []Attachment, seeds []SeedToolCall, reasoningEffort genai.ThinkingLevel, emit func(events.Event)) error {
+// BuildContext carries the per-build meta facts the agent needs to pin its
+// output to reality: today's date (for copyright years, "last updated"
+// footers, blog dates that don't drift back to the model's training year),
+// the site's canonical slug + URL (for og:url, self-links, and so the
+// agent has a single source of truth for the host it is generating
+// against), and whether this is the initial build or a follow-up edit
+// (drives the "rewrite vs surgical edit" framing in the instruction).
+type BuildContext struct {
+	Now     time.Time
+	Slug    string
+	SiteURL string
+	IsEdit  bool
+}
+
+func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []Attachment, seeds []SeedToolCall, reasoningEffort genai.ThinkingLevel, bctx BuildContext, emit func(events.Event)) error {
 	if emit == nil {
 		emit = func(events.Event) {}
 	}
@@ -246,7 +260,7 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 	cfg := llmagent.Config{
 		Name:        "html-builder",
 		Description: "Builds static HTML apps from a prompt",
-		Instruction: buildInstruction(tmpl, attachments),
+		Instruction: buildInstruction(tmpl, attachments, bctx),
 		Model:       llm,
 		Tools:       tools,
 	}
@@ -1478,10 +1492,11 @@ func formatTemplateChecks(checks []templates.Check) string {
 // stablest-first: base prompt (every build), functions addendum (shared by
 // every functions-enabled template), per-template addendum (template-stable),
 // skeleton notice (template-stable), examples notice (template-stable
-// content, but the names list is template-determined), then attachments
-// notice (the only per-request variable). Any reordering of these blocks
-// invalidates the cache for every build that follows.
-func buildInstruction(tmpl *templates.SiteTemplate, attachments []Attachment) string {
+// content, but the names list is template-determined), build context (the
+// per-build meta block — date, slug, mode), then attachments notice (the
+// only per-request variable). Any reordering of these blocks invalidates
+// the cache for every build that follows.
+func buildInstruction(tmpl *templates.SiteTemplate, attachments []Attachment, bctx BuildContext) string {
 	parts := []string{systemPrompt}
 	if tmpl != nil {
 		if tmpl.EnablesFunctions {
@@ -1505,6 +1520,9 @@ func buildInstruction(tmpl *templates.SiteTemplate, attachments []Attachment) st
 			parts = append(parts, fmt.Sprintf("Reference exemplars for this template were pre-loaded via read_example calls: %s. Use them as inspiration for layout, type hierarchy, and DaisyUI component composition — do not copy markup verbatim. The user's content comes from the prompt and any attachments, not from these examples.", strings.Join(names, ", ")))
 		}
 	}
+	if block := formatBuildContext(bctx); block != "" {
+		parts = append(parts, block)
+	}
 	if len(attachments) > 0 {
 		names := make([]string, 0, len(attachments))
 		for _, a := range attachments {
@@ -1513,6 +1531,35 @@ func buildInstruction(tmpl *templates.SiteTemplate, attachments []Attachment) st
 		parts = append(parts, fmt.Sprintf("The user attached the following reference files (markdown or HTML): %s. Their contents were pre-loaded into your conversation history via read_attachment calls. Treat them as authoritative source for page copy unless the user's prompt says otherwise.", strings.Join(names, ", ")))
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+// formatBuildContext renders the per-build meta block. An entirely zero-value
+// BuildContext returns "" so unit tests and any caller that has not migrated
+// yet do not get a garbage block. A populated Now alone is enough to render
+// the date line; Slug/SiteURL render together when both are set.
+func formatBuildContext(bctx BuildContext) string {
+	lines := []string{}
+	if !bctx.Now.IsZero() {
+		lines = append(lines, "- Today: "+bctx.Now.Format("Monday, 2006-01-02"))
+	}
+	if bctx.Slug != "" && bctx.SiteURL != "" {
+		lines = append(lines, fmt.Sprintf("- Site: %s at %s", bctx.Slug, bctx.SiteURL))
+	} else if bctx.Slug != "" {
+		lines = append(lines, "- Site: "+bctx.Slug)
+	}
+	mode := "initial build (skeleton seeded — extend it)"
+	if bctx.IsEdit {
+		mode = "follow-up edit (extend or surgically modify existing files; prefer edit_file / replace_lines over rewriting whole pages)"
+	}
+	// Mode is meaningful only when there is enough other context to anchor
+	// it — without slug or date the agent has nothing to attach it to.
+	if len(lines) > 0 {
+		lines = append(lines, "- Mode: "+mode)
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "Build context:\n" + strings.Join(lines, "\n")
 }
 
 const (

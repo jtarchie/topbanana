@@ -125,7 +125,7 @@ func NewAgentRunner(llm adkmodel.LLM, reasoningEffort genai.ThinkingLevel) Runne
 }
 
 func (r agentRunner) Run(ctx context.Context, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, emit func(events.Event)) error {
-	err := agent.Run(ctx, r.llm, s, slug, prompt, tmpl, attachments, seeds, r.reasoningEffort, emit)
+	err := agent.Run(ctx, r.llm, s, slug, prompt, tmpl, attachments, seeds, r.reasoningEffort, agent.BuildContext{}, emit)
 	if err != nil {
 		return fmt.Errorf("agent run: %w", err)
 	}
