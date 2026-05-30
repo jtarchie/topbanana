@@ -32,7 +32,7 @@ tasks:
           --llm-model {{.LMSTUDIO_MODEL}} \
           --llm-base-url {{.LMSTUDIO_BASE_URL}} \
           --llm-api-key lm-studio \
-          --domain lvh.me \
+          --domain localhost \
           --super-admin-email {{.SUPER_ADMIN_EMAIL}} \
           --insecure-cookies \
           --port 8080

@@ -203,6 +203,16 @@ func New(d Deps) (*echo.Echo, *Server) {
 	e.GET("/events/:slug", s.eventsHandler, s.requireUser, s.requireSlugOwnership)
 	e.GET("/favicon.svg", s.faviconHandler)
 
+	// Path-based access to a hosted site, mirroring the subdomain route. The
+	// subdomain form (slug.<domain>) is canonical and what production uses;
+	// /s/:slug is the local-dev fallback for environments where running
+	// passkeys against a real domain is awkward (--domain localhost gets you
+	// a secure WebAuthn context for free but loses *.lvh.me style
+	// subdomains). Same private-site gate via dispatchSite — no information
+	// leak between the two surfaces.
+	e.Any("/s/:slug", s.pathRouteHandler)
+	e.Any("/s/:slug/*", s.pathRouteHandler)
+
 	// Passkey surfaces. Mounted unauthenticated and parallel to the legacy
 	// basic-auth admin gate during the rollout; commit 4 swaps requireAdmin
 	// over to the session check these endpoints set up. Skipped entirely
@@ -320,6 +330,29 @@ func (s *Server) subdomainMiddleware() echo.MiddlewareFunc {
 			return notFound()
 		}
 	}
+}
+
+// pathRouteHandler serves a hosted site via /s/:slug[/...], reusing the
+// dispatchSite path that the subdomain route also funnels through. Slug
+// validation mirrors subdomainMiddleware so an unknown or malformed slug
+// returns 404 instead of leaking the existence of admin routes. The URL
+// path is rewritten in place so proxyHandler / apiHandler see the relative
+// site path (e.g. /about.html, /api/submit), exactly as they would on the
+// subdomain.
+func (s *Server) pathRouteHandler(c *echo.Context) error {
+	slug := c.Param("slug")
+	if validateSlug(slug) != nil || !s.slugExists(slug) {
+		return notFound()
+	}
+
+	req := c.Request()
+	rest := strings.TrimPrefix(req.URL.Path, "/s/"+slug)
+	if rest == "" {
+		rest = "/"
+	}
+	req.URL.Path = rest
+
+	return s.dispatchSite(c, slug)
 }
 
 // dispatchSite routes a request that's already been mapped to a slug to either
