@@ -35,13 +35,14 @@ const archiveContentType = "application/zstd"
 
 // PAX header key prefixes for per-file content type and S3 user metadata.
 // Tarballs written before the Bloomhollow rebrand carry the BUILDABEAR.*
-// prefix; extractArchive reads both prefixes so old archives still restore
+// prefix; ExtractArchive reads both prefixes so old archives still restore
 // cleanly. New archives are always written with the BLOOMHOLLOW.* prefix.
+// Exported so internal/portable can produce archives in the same wire format.
 const (
-	paxContentTypeKey       = "BLOOMHOLLOW.content-type"
-	paxMetaPrefix           = "BLOOMHOLLOW.meta."
-	legacyPaxContentTypeKey = "BUILDABEAR.content-type"
-	legacyPaxMetaPrefix     = "BUILDABEAR.meta."
+	PAXContentTypeKey       = "BLOOMHOLLOW.content-type"
+	PAXMetaPrefix           = "BLOOMHOLLOW.meta."
+	LegacyPAXContentTypeKey = "BUILDABEAR.content-type"
+	LegacyPAXMetaPrefix     = "BUILDABEAR.meta."
 )
 
 // Reasons that show up in the History UI. Free-form strings — these constants
@@ -94,7 +95,7 @@ func (s *Service) Create(ctx context.Context, slug, reason string) (Snapshot, er
 	}
 
 	now := time.Now().UTC()
-	archive, fileCount, originalBytes, err := buildArchive(ctx, s.store, slug, files, now)
+	archive, fileCount, originalBytes, err := BuildArchive(ctx, s.store, slug, files, now)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -205,7 +206,7 @@ func (s *Service) Restore(ctx context.Context, slug, key string) error {
 		}
 	}
 
-	return extractArchive(ctx, s.store, slug, obj.Content)
+	return ExtractArchive(ctx, s.store, slug, obj.Content)
 }
 
 // Delete removes a single archive. Doesn't touch site state.
@@ -241,10 +242,10 @@ func (s *Service) trim(ctx context.Context, slug string) {
 	}
 }
 
-// buildArchive streams every slug-relative file through tar+zstd. Returns
+// BuildArchive streams every slug-relative file through tar+zstd. Returns
 // the archive bytes, file count, and total uncompressed payload size for
 // metadata.
-func buildArchive(ctx context.Context, st *store.Store, slug string, files []string, ts time.Time) (string, int, int64, error) {
+func BuildArchive(ctx context.Context, st *store.Store, slug string, files []string, ts time.Time) (string, int, int64, error) {
 	var buf bytes.Buffer
 	zw, err := zstd.NewWriter(&buf)
 	if err != nil {
@@ -267,14 +268,14 @@ func buildArchive(ctx context.Context, st *store.Store, slug string, files []str
 			ModTime: ts,
 		}
 		if obj.ContentType != "" {
-			header.PAXRecords = map[string]string{paxContentTypeKey: obj.ContentType}
+			header.PAXRecords = map[string]string{PAXContentTypeKey: obj.ContentType}
 		}
 		if len(obj.Metadata) > 0 {
 			if header.PAXRecords == nil {
 				header.PAXRecords = map[string]string{}
 			}
 			for k, v := range obj.Metadata {
-				header.PAXRecords[paxMetaPrefix+k] = v
+				header.PAXRecords[PAXMetaPrefix+k] = v
 			}
 		}
 		err = tw.WriteHeader(header)
@@ -300,10 +301,10 @@ func buildArchive(ctx context.Context, st *store.Store, slug string, files []str
 	return buf.String(), count, originalBytes, nil
 }
 
-// extractArchive decodes the tar+zstd payload and writes each entry back
+// ExtractArchive decodes the tar+zstd payload and writes each entry back
 // under `{slug}/`. Content type and metadata are restored from PAX records
 // when present; otherwise the content type is sniffed from the path.
-func extractArchive(ctx context.Context, st *store.Store, slug, archive string) error {
+func ExtractArchive(ctx context.Context, st *store.Store, slug, archive string) error {
 	zr, err := zstd.NewReader(strings.NewReader(archive))
 	if err != nil {
 		return fmt.Errorf("open zstd: %w", err)
@@ -324,9 +325,9 @@ func extractArchive(ctx context.Context, st *store.Store, slug, archive string) 
 			return fmt.Errorf("tar read %s: %w", hdr.Name, err)
 		}
 
-		contentType := hdr.PAXRecords[paxContentTypeKey]
+		contentType := hdr.PAXRecords[PAXContentTypeKey]
 		if contentType == "" {
-			contentType = hdr.PAXRecords[legacyPaxContentTypeKey]
+			contentType = hdr.PAXRecords[LegacyPAXContentTypeKey]
 		}
 		if contentType == "" {
 			if ext := path.Ext(hdr.Name); ext != "" {
@@ -336,9 +337,9 @@ func extractArchive(ctx context.Context, st *store.Store, slug, archive string) 
 
 		var metadata map[string]string
 		for k, v := range hdr.PAXRecords {
-			rest, ok := strings.CutPrefix(k, paxMetaPrefix)
+			rest, ok := strings.CutPrefix(k, PAXMetaPrefix)
 			if !ok {
-				rest, ok = strings.CutPrefix(k, legacyPaxMetaPrefix)
+				rest, ok = strings.CutPrefix(k, LegacyPAXMetaPrefix)
 			}
 			if !ok {
 				continue

@@ -65,6 +65,20 @@
     </div>
   </form>
 
+  <section class="mt-6">
+    <details class="collapse collapse-arrow bg-base-100 border border-base-300">
+      <summary class="collapse-title text-sm font-medium">Import an existing site</summary>
+      <div class="collapse-content">
+        <p class="text-sm text-base-content/70 mb-3">Upload a <code class="font-mono text-sm bg-base-200 px-1 rounded">.tar.zst</code> archive previously exported from Bloomhollow. We'll create a new site in your account using its contents.</p>
+        <form method="POST" action="/import" enctype="multipart/form-data" class="space-y-3">
+          <input type="file" name="archive" accept=".tar.zst,application/zstd" required class="file-input file-input-bordered w-full">
+          <input type="text" name="slug" pattern="[a-z0-9]([a-z0-9\-]{1,28}[a-z0-9])?" minlength="3" maxlength="30" class="input input-bordered w-full" placeholder="Custom slug (optional, auto-generated if blank)">
+          <div class="flex justify-end"><button type="submit" class="btn btn-secondary">Import site</button></div>
+        </form>
+      </div>
+    </details>
+  </section>
+
   <p class="text-center text-sm text-base-content/60 mt-6"><a class="link link-hover font-medium" href="/apps">View existing apps →</a></p>
 </main>
 {{ template "footer" . }}

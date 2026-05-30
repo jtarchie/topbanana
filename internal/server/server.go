@@ -37,6 +37,7 @@ import (
 	"github.com/jtarchie/bloomhollow/internal/editrec"
 	"github.com/jtarchie/bloomhollow/internal/events"
 	"github.com/jtarchie/bloomhollow/internal/model"
+	"github.com/jtarchie/bloomhollow/internal/portable"
 	"github.com/jtarchie/bloomhollow/internal/sandbox"
 	"github.com/jtarchie/bloomhollow/internal/snapshot"
 	"github.com/jtarchie/bloomhollow/internal/state"
@@ -269,6 +270,8 @@ func New(d Deps) (*echo.Echo, *Server) {
 	admin.GET("/edit/:slug/function/:name", s.functionEditHandler, owns)
 	admin.POST("/test/:slug/api/:name", s.functionTestHandler, owns)
 	admin.POST("/upload/:slug", s.uploadHandler, owns)
+	admin.GET("/export/:slug", s.exportHandler, owns)
+	admin.POST("/import", s.importHandler, middleware.BodyLimit(portable.MaxArchiveBytes+(64*1024)))
 	admin.POST("/files/:slug/delete", s.deleteFileHandler, owns)
 	admin.POST("/files/:slug/rename", s.renameFileHandler, owns)
 	admin.GET("/settings/:slug", s.redirectToManage, owns)
