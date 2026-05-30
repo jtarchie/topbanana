@@ -428,6 +428,110 @@ func TestToolGuard(t *testing.T) {
 	})
 }
 
+func TestSkeletonSeeds_NilOrEmpty(t *testing.T) {
+	if got := SkeletonSeeds(nil); got != nil {
+		t.Errorf("nil template: expected nil, got %d seeds", len(got))
+	}
+	if got := SkeletonSeeds(&templates.SiteTemplate{Skeleton: nil}); got != nil {
+		t.Errorf("empty skeleton: expected nil, got %d seeds", len(got))
+	}
+}
+
+func TestSkeletonSeeds_HTML(t *testing.T) {
+	tmpl := &templates.SiteTemplate{Skeleton: map[string]string{
+		"index.html": "<html><body>a</body></html>",
+		"about.html": "<html><body>b\nc</body></html>",
+	}}
+	seeds := SkeletonSeeds(tmpl)
+	if len(seeds) != 3 {
+		t.Fatalf("expected 3 seeds (list + 2 reads), got %d", len(seeds))
+	}
+	if seeds[0].Name != "list_files" {
+		t.Errorf("first seed must be list_files, got %s", seeds[0].Name)
+	}
+	// Names are sorted, so about.html comes first.
+	if seeds[1].Name != "read_file" || seeds[1].Args["path"] != "about.html" {
+		t.Errorf("second seed must be read_file(about.html), got %+v", seeds[1])
+	}
+	if seeds[2].Args["path"] != "index.html" {
+		t.Errorf("third seed must be read_file(index.html), got %+v", seeds[2].Args)
+	}
+	resp := seeds[2].Response
+	if resp["content"] == "" || resp["total_lines"] == nil {
+		t.Errorf("read_file response missing content/total_lines: %+v", resp)
+	}
+}
+
+func TestSkeletonSeeds_Functions(t *testing.T) {
+	tmpl := &templates.SiteTemplate{Skeleton: map[string]string{
+		"index.html":            "<html></html>",
+		"functions/submit.js":   "module.exports = function() {}",
+		"functions/redirect.js": "module.exports = function() {}",
+	}}
+	seeds := SkeletonSeeds(tmpl)
+	// 1 list_files + 1 read_file + 1 list_functions + 2 read_function = 5
+	if len(seeds) != 5 {
+		t.Fatalf("expected 5 seeds, got %d: %+v", len(seeds), seeds)
+	}
+
+	listFns := findSeed(seeds, "list_functions", nil)
+	if listFns == nil {
+		t.Fatal("expected a list_functions seed")
+	}
+	fns, _ := listFns.Response["functions"].([]string)
+	if len(fns) != 2 || fns[0] != "redirect" || fns[1] != "submit" {
+		t.Errorf("list_functions returned wrong names: %+v", fns)
+	}
+
+	readSubmit := findSeed(seeds, "read_function", map[string]any{"name": "submit"})
+	if readSubmit == nil {
+		t.Fatal("expected a read_function(submit) seed")
+	}
+	if readSubmit.Response["source"] == "" {
+		t.Errorf("read_function(submit) missing source")
+	}
+}
+
+// findSeed returns the first seed whose Name matches and whose Args contain
+// every key/value in match. Args may be nil to match on Name alone.
+func findSeed(seeds []SeedToolCall, name string, match map[string]any) *SeedToolCall {
+	for i := range seeds {
+		if seeds[i].Name != name {
+			continue
+		}
+		ok := true
+		for k, v := range match {
+			if seeds[i].Args[k] != v {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return &seeds[i]
+		}
+	}
+	return nil
+}
+
+func TestLineCount(t *testing.T) {
+	cases := []struct {
+		in   string
+		want int
+	}{
+		{"", 0},
+		{"a", 1},
+		{"a\n", 1},
+		{"a\nb", 2},
+		{"a\nb\n", 2},
+		{"\n", 1},
+	}
+	for _, c := range cases {
+		if got := lineCount(c.in); got != c.want {
+			t.Errorf("lineCount(%q) = %d, want %d", c.in, got, c.want)
+		}
+	}
+}
+
 func TestFormatTemplateChecks(t *testing.T) {
 	cases := []struct {
 		name   string

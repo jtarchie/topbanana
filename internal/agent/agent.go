@@ -270,9 +270,12 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 	}
 
 	// Examples first (aspirational references the model should see before
-	// anything else), then attachments (the user's authoritative content),
-	// then caller-supplied seeds (per-page reads, list_files, etc).
-	allSeeds := append(ExampleSeeds(tmpl), AttachmentSeeds(attachments)...)
+	// anything else), then skeletons (so the model arrives knowing what's
+	// already on disk without spending tool turns to discover it), then
+	// attachments (the user's authoritative content), then caller-supplied
+	// seeds (per-page reads, list_files, etc).
+	allSeeds := append(ExampleSeeds(tmpl), SkeletonSeeds(tmpl)...)
+	allSeeds = append(allSeeds, AttachmentSeeds(attachments)...)
 	allSeeds = append(allSeeds, seeds...)
 
 	sessSvc := session.InMemoryService()
@@ -597,6 +600,89 @@ func newReadExampleTool(tmpl *templates.SiteTemplate, emit func(events.Event)) (
 // seeds so the model sees aesthetic references first — this is the "few-shot
 // what good looks like" path. Returns nil when the template has no examples,
 // so older brochure templates pay no token cost.
+// SkeletonSeeds emits the synthetic tool-call/response pairs the agent
+// would otherwise have to run itself to discover the files seedTemplate
+// already wrote to S3: one list_files (HTML pages), one list_functions
+// (handler names) when any are present, and one read_file / read_function
+// per skeleton file. Without these the first build turns are spent on
+// pure discovery — list, then read each path — and the model pays
+// for that exchange on every subsequent turn because the history is
+// replayed in full.
+func SkeletonSeeds(tmpl *templates.SiteTemplate) []SeedToolCall {
+	if tmpl == nil || len(tmpl.Skeleton) == 0 {
+		return nil
+	}
+
+	var htmlPaths, jsPaths []string
+	for p := range tmpl.Skeleton {
+		switch {
+		case strings.HasSuffix(p, ".html"):
+			htmlPaths = append(htmlPaths, p)
+		case strings.HasPrefix(p, functionsDir) && strings.HasSuffix(p, jsExt):
+			jsPaths = append(jsPaths, p)
+		}
+	}
+	sort.Strings(htmlPaths)
+	sort.Strings(jsPaths)
+
+	seeds := make([]SeedToolCall, 0, 2+len(htmlPaths)+len(jsPaths))
+
+	if len(htmlPaths) > 0 {
+		seeds = append(seeds, SeedToolCall{
+			Name:     "list_files",
+			Args:     map[string]any{},
+			Response: map[string]any{"files": htmlPaths},
+		})
+		for _, p := range htmlPaths {
+			content := tmpl.Skeleton[p]
+			seeds = append(seeds, SeedToolCall{
+				Name: "read_file",
+				Args: map[string]any{"path": p},
+				Response: map[string]any{
+					"content":     NumberLines(content, 1),
+					"total_lines": lineCount(content),
+				},
+			})
+		}
+	}
+
+	if len(jsPaths) > 0 {
+		fnNames := make([]string, 0, len(jsPaths))
+		for _, p := range jsPaths {
+			fnNames = append(fnNames, strings.TrimSuffix(strings.TrimPrefix(p, functionsDir), jsExt))
+		}
+		seeds = append(seeds, SeedToolCall{
+			Name:     "list_functions",
+			Args:     map[string]any{},
+			Response: map[string]any{"functions": fnNames},
+		})
+		for i, p := range jsPaths {
+			seeds = append(seeds, SeedToolCall{
+				Name:     "read_function",
+				Args:     map[string]any{"name": fnNames[i]},
+				Response: map[string]any{"source": tmpl.Skeleton[p]},
+			})
+		}
+	}
+
+	return seeds
+}
+
+// lineCount returns the 1-based number of lines NumberLines would emit for
+// the given content (matches the convention read_file reports). An empty
+// string is 0 lines; otherwise a trailing newline does not add a phantom
+// final line.
+func lineCount(s string) int {
+	if s == "" {
+		return 0
+	}
+	n := strings.Count(s, "\n")
+	if !strings.HasSuffix(s, "\n") {
+		n++
+	}
+	return n
+}
+
 // maxSeededExamples caps how many examples we pre-load into the agent's
 // session, even if the template ships more. Each example is several KB of
 // HTML that the agent pays for on every turn (history is replayed), so
@@ -1408,7 +1494,7 @@ func buildInstruction(tmpl *templates.SiteTemplate, attachments []Attachment) st
 			parts = append(parts, checks)
 		}
 		if len(tmpl.Skeleton) > 0 {
-			parts = append(parts, "A starter skeleton has already been written for this site. Call list_files and read_file before deciding what to write — extend or refine the existing files rather than starting from scratch.")
+			parts = append(parts, "A starter skeleton has already been written for this site and pre-loaded into your conversation history via seeded list_files / read_file (and list_functions / read_function for handlers). Extend or refine the existing files rather than starting from scratch.")
 		}
 		if len(tmpl.Examples) > 0 {
 			names := make([]string, 0, len(tmpl.Examples))
