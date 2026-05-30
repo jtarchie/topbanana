@@ -20,6 +20,7 @@ import (
 
 	_ "embed"
 
+	"github.com/achetronic/adk-utils-go/plugin/contextguard"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
 	adkmodel "google.golang.org/adk/model"
@@ -280,11 +281,22 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 		return err
 	}
 
+	// History compaction: cap the conversation at ~20 entries so a long
+	// build does not replay an ever-growing history on every turn. The
+	// sliding-window strategy is turn-based (no tokenizer needed), uses
+	// this agent's own LLM to produce the summary, and only fires when
+	// the cap is exceeded — short builds pay nothing. CrushRegistry
+	// ships with the upstream package and provides context-window
+	// metadata for known model IDs, with sane fallbacks otherwise.
+	guard := contextguard.New(contextguard.NewCrushRegistry())
+	guard.Add(cfg.Name, llm, contextguard.WithSlidingWindow(20))
+
 	r, err := runner.New(runner.Config{
 		AppName:           "bloomhollow",
 		Agent:             a,
 		SessionService:    sessSvc,
 		AutoCreateSession: false,
+		PluginConfig:      guard.PluginConfig(),
 	})
 	if err != nil {
 		return fmt.Errorf("create runner: %w", err)
