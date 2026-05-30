@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jtarchie/bloomhollow/internal/templates"
 )
@@ -529,6 +530,83 @@ func TestLineCount(t *testing.T) {
 		if got := lineCount(c.in); got != c.want {
 			t.Errorf("lineCount(%q) = %d, want %d", c.in, got, c.want)
 		}
+	}
+}
+
+func TestFormatBuildContext_Empty(t *testing.T) {
+	if got := formatBuildContext(BuildContext{}); got != "" {
+		t.Errorf("zero-value BuildContext should render empty, got %q", got)
+	}
+}
+
+func TestFormatBuildContext_InitialBuild(t *testing.T) {
+	// Saturday, 2026-05-30 — picked so the date format assertion is stable.
+	when := time.Date(2026, 5, 30, 15, 42, 0, 0, time.UTC)
+	got := formatBuildContext(BuildContext{
+		Now:     when,
+		Slug:    "myapp",
+		SiteURL: "http://myapp.localhost:8080",
+		IsEdit:  false,
+	})
+	want := "Build context:\n" +
+		"- Today: Saturday, 2026-05-30\n" +
+		"- Site: myapp at http://myapp.localhost:8080\n" +
+		"- Mode: initial build (skeleton seeded — extend it)"
+	if got != want {
+		t.Errorf("initial build render mismatch:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestFormatBuildContext_FollowUpEdit(t *testing.T) {
+	when := time.Date(2026, 5, 30, 15, 42, 0, 0, time.UTC)
+	got := formatBuildContext(BuildContext{
+		Now:     when,
+		Slug:    "myapp",
+		SiteURL: "https://myapp.bloomhollow.io",
+		IsEdit:  true,
+	})
+	if !strings.Contains(got, "- Mode: follow-up edit") {
+		t.Errorf("edit mode line missing: %s", got)
+	}
+	if !strings.Contains(got, "edit_file / replace_lines") {
+		t.Errorf("edit-mode rendering must nudge toward edit_file / replace_lines: %s", got)
+	}
+	if !strings.Contains(got, "- Site: myapp at https://myapp.bloomhollow.io") {
+		t.Errorf("production-style site URL missing: %s", got)
+	}
+}
+
+func TestFormatBuildContext_SlugOnlyNoURL(t *testing.T) {
+	// The legacy build.New constructor leaves Domain empty so the runner
+	// emits SiteURL="". The block should still render with date + slug.
+	when := time.Date(2026, 5, 30, 0, 0, 0, 0, time.UTC)
+	got := formatBuildContext(BuildContext{
+		Now:     when,
+		Slug:    "myapp",
+		SiteURL: "",
+		IsEdit:  false,
+	})
+	if !strings.Contains(got, "- Site: myapp\n") {
+		t.Errorf("site line should render slug alone when SiteURL is empty: %s", got)
+	}
+	if strings.Contains(got, " at ") {
+		t.Errorf("no \" at <url>\" suffix expected when SiteURL is empty: %s", got)
+	}
+}
+
+func TestFormatBuildContext_Stable(t *testing.T) {
+	// Cache stability: identical inputs must produce byte-identical output.
+	// Catches accidental non-determinism (map iteration, time formatting).
+	bctx := BuildContext{
+		Now:     time.Date(2026, 5, 30, 15, 42, 0, 0, time.UTC),
+		Slug:    "myapp",
+		SiteURL: "http://myapp.localhost:8080",
+		IsEdit:  false,
+	}
+	a := formatBuildContext(bctx)
+	b := formatBuildContext(bctx)
+	if a != b {
+		t.Errorf("formatBuildContext not deterministic:\na: %q\nb: %q", a, b)
 	}
 }
 
