@@ -31,7 +31,19 @@ A "vibe coding" hosting platform where LLM agents build and host static HTML app
 task local
 ```
 
-The server starts on port `8080`. Visit `http://localhost:8080` to see the landing page.
+The server starts on port `8080`. Visit `http://lvh.me:8080` to see the landing page.
+
+### First-run: enrolling the super admin
+
+Authentication is passkey-based — there is no admin password. On every startup, the server seeds a user record for `--super-admin-email` (defaults to `admin@local` in `task local`) and issues a one-shot bootstrap invite the first time that account has no registered credentials. The invite URL is logged as:
+
+```
+auth.bootstrap.invite_pending email=admin@local url=https://lvh.me/register?invite=<token> expires=...
+```
+
+For local HTTP dev, **rewrite the scheme and add the port** — turn that into `http://lvh.me:8080/register?invite=<token>` and open it in a browser. The `/register` page binds a passkey to the super-admin account; subsequent visits to `/login` use that passkey. The invite is reused on every restart until you finish enrolling, then it stops appearing in the logs.
+
+If you ever lose the passkey, delete the user from Minio (`rm -rf /tmp/bloomhollow-minio/bloomhollow/_auth/users/`) and restart — bootstrap will fire again.
 
 ## Configuration
 
@@ -39,15 +51,15 @@ All options are available as CLI flags or environment variables.
 
 | Flag | Env Var | Default | Description |
 |---|---|---|---|
-| `--port` | | `8080` | HTTP listen port |
-| `--domain` | | `localhost` | Base domain for subdomain routing |
-| `--admin-username` | `ADMIN_USERNAME` | `admin` | Username for the admin HTTP Basic Auth gate |
-| `--admin-password` | `ADMIN_PASSWORD` | *(required)* | Password for the admin gate; server refuses to start without it |
+| `--port` | `PORT` | `8080` | HTTP listen port |
+| `--domain` | `DOMAIN` | `localhost` | Base domain for subdomain routing |
+| `--super-admin-email` | `SUPER_ADMIN_EMAIL` | *(required)* | Email of the seeded super admin; bootstrap invite is logged at startup until enrolled |
+| `--insecure-cookies` | `INSECURE_COOKIES` | off | Allow non-Secure cookies; required for the cookie/session flow over plain HTTP locally |
 | `--s3-bucket` | `S3_BUCKET` | *(required)* | S3 bucket name |
 | `--s3-endpoint-url` | `AWS_ENDPOINT_URL` | | Override S3 endpoint (e.g. Minio) |
 | `--llm-model` | `LLM_MODEL` | | LLM model string |
 | `--llm-base-url` | `LLM_BASE_URL` | | LLM provider base URL |
-| `--llm-api-key` | | | LLM provider API key |
+| `--llm-api-key` | `LLM_API_KEY` | | LLM provider API key |
 | `--cache-size` | | `1024` | ARC cache entry limit |
 
 ## Development
@@ -121,7 +133,7 @@ Site edits propagate within the 5-minute `max-age` window. If you need a change 
 
 ## Agent Constraints
 
-The LLM agent operates under strict rules (defined in [static/agent_prompt.md](static/agent_prompt.md)):
+The LLM agent operates under strict rules (defined in [internal/agent/agent_prompt.md](internal/agent/agent_prompt.md)):
 
 - Only `.html` files — CSS and JS must be inlined
 - Every site requires an `index.html` entry point
