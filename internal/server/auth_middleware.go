@@ -5,7 +5,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/jtarchie/bloomhollow/internal/auth"
+	"github.com/jtarchie/topbanana/internal/auth"
 )
 
 // userContextKey is the Echo context slot that RequireUser populates.

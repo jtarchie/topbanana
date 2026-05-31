@@ -15,13 +15,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/jtarchie/bloomhollow/internal/auth"
-	"github.com/jtarchie/bloomhollow/internal/build"
-	"github.com/jtarchie/bloomhollow/internal/events"
-	"github.com/jtarchie/bloomhollow/internal/server"
-	"github.com/jtarchie/bloomhollow/internal/snapshot"
-	"github.com/jtarchie/bloomhollow/internal/state"
-	"github.com/jtarchie/bloomhollow/internal/store"
+	"github.com/jtarchie/topbanana/internal/auth"
+	"github.com/jtarchie/topbanana/internal/build"
+	"github.com/jtarchie/topbanana/internal/events"
+	"github.com/jtarchie/topbanana/internal/server"
+	"github.com/jtarchie/topbanana/internal/snapshot"
+	"github.com/jtarchie/topbanana/internal/state"
+	"github.com/jtarchie/topbanana/internal/store"
 )
 
 // minioStore mirrors the helper in internal/snapshot/snapshot_test.go: returns

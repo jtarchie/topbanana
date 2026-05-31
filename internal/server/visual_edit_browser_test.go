@@ -10,7 +10,7 @@ import (
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 
-	"github.com/jtarchie/bloomhollow/internal/snapshot"
+	"github.com/jtarchie/topbanana/internal/snapshot"
 )
 
 // TestVisualEditCanvasSelection_BridgesToAIPanel exercises the GrapesJS-side

@@ -1,4 +1,4 @@
-module github.com/jtarchie/bloomhollow
+module github.com/jtarchie/topbanana
 
 go 1.26
 

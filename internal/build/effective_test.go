@@ -3,8 +3,8 @@ package build_test
 import (
 	"testing"
 
-	"github.com/jtarchie/bloomhollow/internal/build"
-	"github.com/jtarchie/bloomhollow/internal/templates"
+	"github.com/jtarchie/topbanana/internal/build"
+	"github.com/jtarchie/topbanana/internal/templates"
 )
 
 // TestEffectiveTemplate walks the four (template-enables × meta-override)

@@ -16,14 +16,14 @@ import (
 	adkmodel "google.golang.org/adk/model"
 	"google.golang.org/genai"
 
-	"github.com/jtarchie/bloomhollow/internal/agent"
-	"github.com/jtarchie/bloomhollow/internal/editrec"
-	"github.com/jtarchie/bloomhollow/internal/events"
-	"github.com/jtarchie/bloomhollow/internal/lint"
-	"github.com/jtarchie/bloomhollow/internal/model"
-	"github.com/jtarchie/bloomhollow/internal/snapshot"
-	"github.com/jtarchie/bloomhollow/internal/store"
-	"github.com/jtarchie/bloomhollow/internal/templates"
+	"github.com/jtarchie/topbanana/internal/agent"
+	"github.com/jtarchie/topbanana/internal/editrec"
+	"github.com/jtarchie/topbanana/internal/events"
+	"github.com/jtarchie/topbanana/internal/lint"
+	"github.com/jtarchie/topbanana/internal/model"
+	"github.com/jtarchie/topbanana/internal/snapshot"
+	"github.com/jtarchie/topbanana/internal/store"
+	"github.com/jtarchie/topbanana/internal/templates"
 )
 
 const (
@@ -43,14 +43,16 @@ const (
 	// MetaFile holds the per-site sidecar (template id, creation time, custom
 	// domains). Stored alongside the HTML files in the same S3 prefix so it
 	// travels with the site.
-	MetaFile = ".bloomhollow.json"
-
-	// legacyMetaFile is the pre-rebrand sidecar name. ReadMeta falls through
-	// to it when MetaFile is absent so sites created before the Bloomhollow
-	// rebrand keep their template id, custom domains, and function flags.
-	// The next successful WriteMeta migrates the site to MetaFile.
-	legacyMetaFile = ".buildabear.json"
+	MetaFile = ".topbanana.json"
 )
+
+// legacyMetaFiles are pre-rebrand sidecar names, newest first. ReadMeta falls
+// through them in order when MetaFile is absent so sites created before a
+// rebrand keep their template id, custom domains, and function flags:
+// `.bloomhollow.json` predates the Top Banana rebrand, `.buildabear.json`
+// predates the Bloomhollow rebrand. The next successful WriteMeta migrates the
+// site to MetaFile.
+var legacyMetaFiles = []string{".bloomhollow.json", ".buildabear.json"}
 
 // SiteMeta is the per-site sidecar persisted at MetaFile.
 //
@@ -128,7 +130,7 @@ type agentRunner struct {
 }
 
 // NewAgentRunner constructs the production Runner around an already-resolved
-// LLM client. Exposed so cmd/bloomhollow can wire a per-model factory without
+// LLM client. Exposed so cmd/topbanana can wire a per-model factory without
 // internal/build needing to know about internal/model.
 func NewAgentRunner(llm adkmodel.LLM, reasoningEffort genai.ThinkingLevel, domain, port string, insecure bool) Runner {
 	return agentRunner{
@@ -286,7 +288,7 @@ func New(s *store.Store, llm adkmodel.LLM, t *events.Tracker, snap *snapshot.Ser
 	}
 }
 
-// NewWithConfig is the configurable constructor used by cmd/bloomhollow; New
+// NewWithConfig is the configurable constructor used by cmd/topbanana; New
 // stays around for tests and callers that don't care about retention.
 func NewWithConfig(cfg Config) *Service {
 	timeout := cfg.BuildTimeout
@@ -712,7 +714,7 @@ func (svc *Service) autoFixLint(ctx context.Context, slug string, errs []lint.Er
 }
 
 // seedTemplate writes the template's skeleton files (if any) and the
-// .bloomhollow.json sidecar recording the template id. The sidecar lets later
+// .topbanana.json sidecar recording the template id. The sidecar lets later
 // edits re-apply the same template addendum.
 func (svc *Service) seedTemplate(ctx context.Context, slug, ownerID string, tmpl *templates.SiteTemplate) error {
 	if tmpl == nil {
@@ -793,22 +795,25 @@ func NormalizeDomain(raw string) (string, error) {
 
 // ReadMeta returns the recorded sidecar for an existing site, or a zero value
 // if the sidecar is missing (older sites pre-date templates). Falls through
-// to legacyMetaFile for sites created before the Bloomhollow rebrand.
+// to legacyMetaFiles in order for sites created before a rebrand.
 func (svc *Service) ReadMeta(ctx context.Context, slug string) SiteMeta {
 	obj, err := svc.store.Read(ctx, slug, MetaFile)
 	if err != nil {
 		slog.Warn("site_meta.read_failed", "slug", slug, "err", err)
 		return SiteMeta{}
 	}
-	if obj.Content == "" {
-		obj, err = svc.store.Read(ctx, slug, legacyMetaFile)
+	for _, legacy := range legacyMetaFiles {
+		if obj.Content != "" {
+			break
+		}
+		obj, err = svc.store.Read(ctx, slug, legacy)
 		if err != nil {
 			slog.Warn("site_meta.read_failed", "slug", slug, "err", err)
 			return SiteMeta{}
 		}
-		if obj.Content == "" {
-			return SiteMeta{}
-		}
+	}
+	if obj.Content == "" {
+		return SiteMeta{}
 	}
 	var m SiteMeta
 	err = json.Unmarshal([]byte(obj.Content), &m)

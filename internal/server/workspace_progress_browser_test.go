@@ -12,7 +12,7 @@ import (
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 
-	"github.com/jtarchie/bloomhollow/internal/snapshot"
+	"github.com/jtarchie/topbanana/internal/snapshot"
 )
 
 // TestWorkspaceProgress_StatusStripUpdatesFromSSE drives the workspace

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jtarchie/bloomhollow/internal/build"
-	"github.com/jtarchie/bloomhollow/internal/events"
-	"github.com/jtarchie/bloomhollow/internal/snapshot"
+	"github.com/jtarchie/topbanana/internal/build"
+	"github.com/jtarchie/topbanana/internal/events"
+	"github.com/jtarchie/topbanana/internal/snapshot"
 )
 
 // TestRemixHandler_CopiesFilesAndRewritesMeta drives POST /manage/:slug/remix

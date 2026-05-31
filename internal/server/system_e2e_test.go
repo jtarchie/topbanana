@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jtarchie/bloomhollow/internal/model"
-	"github.com/jtarchie/bloomhollow/internal/server"
-	"github.com/jtarchie/bloomhollow/internal/snapshot"
+	"github.com/jtarchie/topbanana/internal/model"
+	"github.com/jtarchie/topbanana/internal/server"
+	"github.com/jtarchie/topbanana/internal/snapshot"
 )
 
 // TestSystem_Populated drives two builds through the stub runner then loads

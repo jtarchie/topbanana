@@ -31,22 +31,22 @@ import (
 
 	adkmodel "google.golang.org/adk/model"
 
-	"github.com/jtarchie/bloomhollow/internal/agent"
-	"github.com/jtarchie/bloomhollow/internal/auth"
-	"github.com/jtarchie/bloomhollow/internal/build"
-	"github.com/jtarchie/bloomhollow/internal/editrec"
-	"github.com/jtarchie/bloomhollow/internal/events"
-	"github.com/jtarchie/bloomhollow/internal/model"
-	"github.com/jtarchie/bloomhollow/internal/portable"
-	"github.com/jtarchie/bloomhollow/internal/sandbox"
-	"github.com/jtarchie/bloomhollow/internal/snapshot"
-	"github.com/jtarchie/bloomhollow/internal/state"
-	"github.com/jtarchie/bloomhollow/internal/store"
-	"github.com/jtarchie/bloomhollow/internal/templates"
+	"github.com/jtarchie/topbanana/internal/agent"
+	"github.com/jtarchie/topbanana/internal/auth"
+	"github.com/jtarchie/topbanana/internal/build"
+	"github.com/jtarchie/topbanana/internal/editrec"
+	"github.com/jtarchie/topbanana/internal/events"
+	"github.com/jtarchie/topbanana/internal/model"
+	"github.com/jtarchie/topbanana/internal/portable"
+	"github.com/jtarchie/topbanana/internal/sandbox"
+	"github.com/jtarchie/topbanana/internal/snapshot"
+	"github.com/jtarchie/topbanana/internal/state"
+	"github.com/jtarchie/topbanana/internal/store"
+	"github.com/jtarchie/topbanana/internal/templates"
 )
 
 // SystemInfo captures read-only platform configuration the system dashboard
-// surfaces. Populated from CLI flags in cmd/bloomhollow/main.go — these values
+// surfaces. Populated from CLI flags in cmd/topbanana/main.go — these values
 // don't live anywhere else on the wired-up server (build.Service and
 // store.Store keep them in private fields), so we hand them in directly
 // rather than threading getters through every package.
@@ -60,7 +60,7 @@ type SystemInfo struct {
 	EditsKeep          int
 }
 
-// Deps holds the dependencies the server needs. Wired up in cmd/bloomhollow.
+// Deps holds the dependencies the server needs. Wired up in cmd/topbanana.
 type Deps struct {
 	Store    *store.Store
 	Build    *build.Service
@@ -615,7 +615,7 @@ func (s *Server) siteURL(c *echo.Context, slug, path string) string {
 	return c.Scheme() + "://" + slug + "." + s.domain + s.publicPort(c) + path
 }
 
-// faviconHandler serves the embedded Bloomhollow sprout mark on the admin
+// faviconHandler serves the embedded Top Banana banana mark on the admin
 // host. Subdomain requests never reach here — subdomainMiddleware intercepts
 // them and proxies to S3, so user sites get their own favicon (or 404).
 func (s *Server) faviconHandler(c *echo.Context) error {
@@ -748,7 +748,7 @@ func notFound() *echo.HTTPError {
 	return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 }
 
-// errorData backs templates/error.html. The bear page is intentionally
+// errorData backs templates/error.html. The monkey page is intentionally
 // chrome-less — it works on subdomains where there's no logged-in user as
 // well as on admin pages where we'd rather not lean on injectChrome to
 // re-fetch session state during an error response.
@@ -759,7 +759,7 @@ type errorData struct {
 }
 
 // httpErrorHandler replaces Echo's default JSON serializer. Browser
-// navigations (Accept: text/html) get the bear page; everything else —
+// navigations (Accept: text/html) get the monkey page; everything else —
 // fetch() with default Accept, the SSE poller, /api/* function callers,
 // curl — keeps the original {"message": "..."} JSON so no client breaks.
 func (s *Server) httpErrorHandler(c *echo.Context, err error) {
@@ -784,8 +784,8 @@ func (s *Server) httpErrorHandler(c *echo.Context, err error) {
 	var buf bytes.Buffer
 	rErr := s.tpl.ExecuteTemplate(&buf, "error", errorData{
 		Status:  code,
-		Title:   "That's not in the toy box.",
-		Tagline: "We looked everywhere — under the bed, behind the dresser, even in the honey jar. Try heading home and we'll start fresh.",
+		Title:   "This bunch is missing a banana.",
+		Tagline: "We swung through every vine and peeled every page — no luck. Try heading home and we'll start fresh.",
 	})
 	if rErr != nil {
 		_ = c.String(code, msg)
@@ -1344,13 +1344,14 @@ func writeSSEWithID(w io.Writer, id int, event events.Event) error {
 // Slugs themselves can't start with "_" (validateSlug), so these only apply
 // to paths *within* a real slug — e.g. blocking GET /_state/data.json from
 // leaking persisted form data on a site at slug.example.com.
-var reservedProxyPrefixes = []string{"_state/", ".bloomhollow/", ".buildabear/"}
+var reservedProxyPrefixes = []string{"_state/", ".topbanana/", ".bloomhollow/", ".buildabear/"}
 
 // reservedProxyPaths are exact bucket paths the static proxy must never
-// serve. `.bloomhollow.json` is the per-site metadata sidecar;
-// `.buildabear.json` is the pre-rebrand name kept reserved so legacy sites
+// serve. `.topbanana.json` is the per-site metadata sidecar; `.bloomhollow.json`
+// and `.buildabear.json` are pre-rebrand names kept reserved so legacy sites
 // can't leak metadata if the new file is missing.
 var reservedProxyPaths = map[string]bool{
+	".topbanana.json":   true,
 	".bloomhollow.json": true,
 	".buildabear.json":  true,
 }

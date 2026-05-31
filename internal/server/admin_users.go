@@ -11,8 +11,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/jtarchie/bloomhollow/internal/auth"
-	"github.com/jtarchie/bloomhollow/internal/model"
+	"github.com/jtarchie/topbanana/internal/auth"
+	"github.com/jtarchie/topbanana/internal/model"
 )
 
 // adminUserRow is one row in the user table on /admin/users. ModelAuthor /

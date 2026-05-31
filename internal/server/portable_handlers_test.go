@@ -15,10 +15,10 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 
-	"github.com/jtarchie/bloomhollow/internal/build"
-	"github.com/jtarchie/bloomhollow/internal/events"
-	"github.com/jtarchie/bloomhollow/internal/portable"
-	"github.com/jtarchie/bloomhollow/internal/snapshot"
+	"github.com/jtarchie/topbanana/internal/build"
+	"github.com/jtarchie/topbanana/internal/events"
+	"github.com/jtarchie/topbanana/internal/portable"
+	"github.com/jtarchie/topbanana/internal/snapshot"
 )
 
 // TestExportHandler_DownloadsArchive drives GET /export/:slug end-to-end and

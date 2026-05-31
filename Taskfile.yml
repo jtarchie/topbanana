@@ -1,11 +1,11 @@
 version: '3'
 
 vars:
-  MINIO_DATA_DIR: /tmp/bloomhollow-minio
+  MINIO_DATA_DIR: /tmp/topbanana-minio
   MINIO_ENDPOINT: http://localhost:9000
   MINIO_USER: minioadmin
   MINIO_PASS: minioadmin
-  MINIO_BUCKET: bloomhollow
+  MINIO_BUCKET: topbanana
   LMSTUDIO_BASE_URL: http://localhost:1234/v1
   LMSTUDIO_MODEL: lmstudio/google/gemma-4-26b-a4b
   SUPER_ADMIN_EMAIL: admin@local
@@ -26,7 +26,7 @@ tasks:
       AWS_REGION: us-east-1
     cmds:
       - |
-        go run ./cmd/bloomhollow \
+        go run ./cmd/topbanana \
           --s3-bucket {{.MINIO_BUCKET}} \
           --s3-endpoint-url {{.MINIO_ENDPOINT}} \
           --llm-model {{.LMSTUDIO_MODEL}} \
@@ -44,16 +44,16 @@ tasks:
       - |
         MINIO_ROOT_USER={{.MINIO_USER}} MINIO_ROOT_PASSWORD={{.MINIO_PASS}} \
         minio server {{.MINIO_DATA_DIR}} --address :9000 &
-        echo $! > /tmp/bloomhollow-minio.pid
+        echo $! > /tmp/topbanana-minio.pid
       - sleep 1
 
   minio:stop:
     desc: Stop the background Minio server
     cmds:
       - |
-        if [ -f /tmp/bloomhollow-minio.pid ]; then
-          kill $(cat /tmp/bloomhollow-minio.pid) 2>/dev/null || true
-          rm /tmp/bloomhollow-minio.pid
+        if [ -f /tmp/topbanana-minio.pid ]; then
+          kill $(cat /tmp/topbanana-minio.pid) 2>/dev/null || true
+          rm /tmp/topbanana-minio.pid
         fi
 
   minio:ready:
@@ -65,7 +65,7 @@ tasks:
           mkdir -p {{.MINIO_DATA_DIR}}
           MINIO_ROOT_USER={{.MINIO_USER}} MINIO_ROOT_PASSWORD={{.MINIO_PASS}} \
             minio server {{.MINIO_DATA_DIR}} --address :9000 --quiet \
-            > /tmp/bloomhollow-minio.log 2>&1 &
-          echo $! > /tmp/bloomhollow-minio.pid
+            > /tmp/topbanana-minio.log 2>&1 &
+          echo $! > /tmp/topbanana-minio.pid
           sleep 2
         fi

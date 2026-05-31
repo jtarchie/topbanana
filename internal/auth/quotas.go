@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jtarchie/bloomhollow/internal/model"
+	"github.com/jtarchie/topbanana/internal/model"
 )
 
 // ErrMaxAppsReached is returned by CheckMaxApps when the user has

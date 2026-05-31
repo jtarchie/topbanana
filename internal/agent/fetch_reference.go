@@ -20,7 +20,7 @@ import (
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
 
-	"github.com/jtarchie/bloomhollow/internal/events"
+	"github.com/jtarchie/topbanana/internal/events"
 )
 
 type fetchReferenceArgs struct {
@@ -40,7 +40,7 @@ const (
 	fetchReferenceMaxBytes           = maxHTMLFileBytes
 	fetchReferenceMaxStylesheets     = 8
 	fetchReferenceMaxStylesheetBytes = 64 * 1024
-	fetchReferenceUserAgent          = "Bloomhollow/1.0 reference fetcher"
+	fetchReferenceUserAgent          = "Top Banana/1.0 reference fetcher"
 )
 
 // blockedIPCheck is the predicate validateReferenceURL consults to reject

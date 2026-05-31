@@ -1,4 +1,4 @@
-# Bloomhollow
+# Top Banana
 
 A "vibe coding" hosting platform where LLM agents build and host static HTML applications. Describe what you want, and an AI agent generates a self-contained site hosted under a unique subdomain.
 
@@ -43,7 +43,7 @@ auth.bootstrap.invite_pending email=admin@local url=https://lvh.me/register?invi
 
 For local HTTP dev, **rewrite the scheme and add the port** — turn that into `http://lvh.me:8080/register?invite=<token>` and open it in a browser. The `/register` page binds a passkey to the super-admin account; subsequent visits to `/login` use that passkey. The invite is reused on every restart until you finish enrolling, then it stops appearing in the logs.
 
-If you ever lose the passkey, delete the user from Minio (`rm -rf /tmp/bloomhollow-minio/bloomhollow/_auth/users/`) and restart — bootstrap will fire again.
+If you ever lose the passkey, delete the user from Minio (`rm -rf /tmp/topbanana-minio/topbanana/_auth/users/`) and restart — bootstrap will fire again.
 
 ## Configuration
 
@@ -74,9 +74,9 @@ task minio:ready  # Start Minio if not running
 
 ## Custom Domains with Cloudflare
 
-A Bloomhollow site can be served on any external domain (e.g. `myblog.com`) by attaching the hostname under **Settings → Custom domains** and pointing DNS at your origin. Putting Cloudflare in front gives you free TLS and a global cache; Bloomhollow already emits the right cache headers, so the Cloudflare config is small.
+A Top Banana site can be served on any external domain (e.g. `myblog.com`) by attaching the hostname under **Settings → Custom domains** and pointing DNS at your origin. Putting Cloudflare in front gives you free TLS and a global cache; Top Banana already emits the right cache headers, so the Cloudflare config is small.
 
-### 1. Add the domain in Bloomhollow
+### 1. Add the domain in Top Banana
 
 Open **Settings** for the site (e.g. `http://your-domain/settings/{slug}`) and add the hostnames you'll be using — one per line:
 
@@ -95,20 +95,20 @@ In the Cloudflare dashboard for the zone:
 - **`www.myblog.com`** — CNAME to the same origin hostname.
 - Set **Proxy status: Proxied** (orange cloud) on both records so traffic flows through Cloudflare's edge.
 
-If you're running Bloomhollow behind a bare IP, use `A` records instead of `CNAME` — same idea.
+If you're running Top Banana behind a bare IP, use `A` records instead of `CNAME` — same idea.
 
 ### 3. SSL/TLS
 
-Bloomhollow listens on plain HTTP. Terminate TLS at Cloudflare (or with a Caddy/nginx reverse proxy on the origin):
+Top Banana listens on plain HTTP. Terminate TLS at Cloudflare (or with a Caddy/nginx reverse proxy on the origin):
 
 - **SSL/TLS → Overview → Encryption mode**:
-  - `Full` (or `Full (strict)`) if you put a TLS-terminating proxy in front of Bloomhollow.
-  - `Flexible` if Bloomhollow is exposed over plain HTTP — Cloudflare ↔ visitor is HTTPS, Cloudflare ↔ origin is HTTP. Easier to set up; weaker than Full.
+  - `Full` (or `Full (strict)`) if you put a TLS-terminating proxy in front of Top Banana.
+  - `Flexible` if Top Banana is exposed over plain HTTP — Cloudflare ↔ visitor is HTTPS, Cloudflare ↔ origin is HTTP. Easier to set up; weaker than Full.
 - **SSL/TLS → Edge Certificates → Always Use HTTPS**: on.
 
 ### 4. Caching
 
-Bloomhollow sends explicit cache directives:
+Top Banana sends explicit cache directives:
 
 | Path on a custom domain | `Cache-Control` |
 | --- | --- |
@@ -118,7 +118,7 @@ Bloomhollow sends explicit cache directives:
 Cloudflare's default cache only stores certain file extensions, so extensionless URLs like `/` won't be cached unless you say so. Create **one** Cache Rule:
 
 - **Caching → Cache Rules → Create rule**
-- **Name**: `Bloomhollow — respect origin headers`
+- **Name**: `Top Banana — respect origin headers`
 - **When incoming requests match**: `Hostname` equals `myblog.com` (add a second `or` for `www.myblog.com`)
 - **Then**:
   - **Cache eligibility**: *Eligible for cache*

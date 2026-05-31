@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="lemonade">
 <head>
-<title>Workspace: {{ .SiteName }} — Bloomhollow</title>
+<title>Workspace: {{ .SiteName }} — Top Banana</title>
 {{ template "head" . }}
 </head>
 <body class="min-h-screen flex flex-col bg-base-100">
@@ -350,7 +350,7 @@
     });
 
     function postTheme(theme) {
-      try { frame.contentWindow.postMessage({ type: 'bloomhollow:settheme', theme: theme }, '*'); } catch (_) {}
+      try { frame.contentWindow.postMessage({ type: 'topbanana:settheme', theme: theme }, '*'); } catch (_) {}
     }
     function paint() {
       Array.prototype.forEach.call(gallery.querySelectorAll('.swatch'), function (el) {

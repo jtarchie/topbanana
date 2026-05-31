@@ -3,9 +3,9 @@
 //
 // The wire format is a tar+zstd stream with the same PAX records as
 // internal/snapshot — content-type and S3 user metadata travel inside each
-// entry — plus one synthetic `bloomhollow-export.json` entry at the top that
+// entry — plus one synthetic `topbanana-export.json` entry at the top that
 // captures the template id, title, and description from the source site's
-// SiteMeta. The full `.bloomhollow.json` sidecar is intentionally *not*
+// SiteMeta. The full `.topbanana.json` sidecar is intentionally *not*
 // included: OwnerID, Domains, EnablesPublicAPI, and Created are
 // instance-specific and must be re-derived from the importing user on the
 // destination instance.
@@ -30,16 +30,20 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 
-	"github.com/jtarchie/bloomhollow/internal/build"
-	"github.com/jtarchie/bloomhollow/internal/snapshot"
-	"github.com/jtarchie/bloomhollow/internal/store"
+	"github.com/jtarchie/topbanana/internal/build"
+	"github.com/jtarchie/topbanana/internal/snapshot"
+	"github.com/jtarchie/topbanana/internal/store"
 )
 
 const (
 	ArchiveContentType = "application/zstd"
 	ArchiveExt         = ".tar.zst"
-	ManifestPath       = "bloomhollow-export.json"
+	ManifestPath       = "topbanana-export.json"
 	ManifestVersion    = 1
+
+	// legacyManifestPath is the pre-Top-Banana manifest entry name. Imports
+	// recognise it so archives exported before the rebrand still restore.
+	legacyManifestPath = "bloomhollow-export.json"
 
 	MaxArchiveBytes   = 50 << 20  // 50 MiB compressed
 	MaxExtractedBytes = 100 << 20 // 100 MiB uncompressed (zip-bomb guard)
@@ -56,12 +60,14 @@ const stateDirPrefix = "_state/"
 // depth — the export-side filter already excludes them, but the import side
 // cannot trust the archive.
 var reservedPaths = map[string]bool{
-	build.MetaFile:     true,
-	".buildabear.json": true, // legacy meta name preserved for clarity
-	ManifestPath:       true, // handled separately as the manifest entry
+	build.MetaFile:      true,
+	".bloomhollow.json": true, // legacy meta name (pre Top Banana)
+	".buildabear.json":  true, // legacy meta name (pre Bloomhollow)
+	ManifestPath:        true, // handled separately as the manifest entry
+	legacyManifestPath:  true, // legacy manifest, also handled separately
 }
 
-// Manifest is the synthetic `bloomhollow-export.json` entry shipped at the
+// Manifest is the synthetic `topbanana-export.json` entry shipped at the
 // top of every archive. Unknown future fields are tolerated by the importer.
 type Manifest struct {
 	Version     int       `json:"version"`
@@ -222,7 +228,7 @@ func Import(ctx context.Context, st *store.Store, slug string, archive []byte) (
 			continue
 		}
 
-		if name == ManifestPath {
+		if name == ManifestPath || name == legacyManifestPath {
 			applyManifest(body, &manifest, &result)
 			continue
 		}
@@ -299,7 +305,7 @@ func writeTarEntry(tw *tar.Writer, name string, body []byte, contentType string,
 // `_state/` subtree from the archive so an importing instance cannot
 // inherit OwnerID, custom domains, or another user's form submissions.
 func shouldSkipOnExport(p string) bool {
-	if p == build.MetaFile || p == ".buildabear.json" {
+	if p == build.MetaFile || p == ".bloomhollow.json" || p == ".buildabear.json" {
 		return true
 	}
 	if strings.HasPrefix(p, stateDirPrefix) {
@@ -322,35 +328,17 @@ func applyManifest(body []byte, manifest *Manifest, result *ImportResult) {
 }
 
 // decodePAX extracts the content type and user metadata from a tar entry's
-// PAX records, falling back to the legacy BUILDABEAR.* prefix and to a
+// PAX records, falling back through the legacy prefixes and to a
 // MIME-by-extension lookup when the archive doesn't carry the content type
 // explicitly.
 func decodePAX(hdr *tar.Header, name string) (string, map[string]string) {
-	contentType := hdr.PAXRecords[snapshot.PAXContentTypeKey]
-	if contentType == "" {
-		contentType = hdr.PAXRecords[snapshot.LegacyPAXContentTypeKey]
-	}
+	contentType := snapshot.ContentTypeFromPAX(hdr.PAXRecords)
 	if contentType == "" {
 		if ext := path.Ext(name); ext != "" {
 			contentType = mime.TypeByExtension(ext)
 		}
 	}
-
-	var metadata map[string]string
-	for k, v := range hdr.PAXRecords {
-		rest, ok := strings.CutPrefix(k, snapshot.PAXMetaPrefix)
-		if !ok {
-			rest, ok = strings.CutPrefix(k, snapshot.LegacyPAXMetaPrefix)
-		}
-		if !ok {
-			continue
-		}
-		if metadata == nil {
-			metadata = map[string]string{}
-		}
-		metadata[rest] = v
-	}
-	return contentType, metadata
+	return contentType, snapshot.MetadataFromPAX(hdr.PAXRecords)
 }
 
 // cleanArchiveName trims a leading "./" and rejects names that try to escape

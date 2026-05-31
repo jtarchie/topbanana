@@ -12,9 +12,9 @@ import (
 	"github.com/labstack/echo/v5"
 	"golang.org/x/net/html"
 
-	"github.com/jtarchie/bloomhollow/internal/build"
-	"github.com/jtarchie/bloomhollow/internal/lint"
-	"github.com/jtarchie/bloomhollow/internal/snapshot"
+	"github.com/jtarchie/topbanana/internal/build"
+	"github.com/jtarchie/topbanana/internal/lint"
+	"github.com/jtarchie/topbanana/internal/snapshot"
 )
 
 // daisyTheme is one DaisyUI theme rendered as a card in the gallery. Swatch

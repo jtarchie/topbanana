@@ -12,8 +12,8 @@ import (
 
 	"golang.org/x/net/html"
 
-	"github.com/jtarchie/bloomhollow/internal/store"
-	"github.com/jtarchie/bloomhollow/internal/templates"
+	"github.com/jtarchie/topbanana/internal/store"
+	"github.com/jtarchie/topbanana/internal/templates"
 )
 
 // Kind classifies an Error so the build loop can decide whether to attempt

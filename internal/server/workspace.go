@@ -9,7 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/jtarchie/bloomhollow/internal/build"
+	"github.com/jtarchie/topbanana/internal/build"
 )
 
 // workspaceData backs the unified design surface at /workspace/:slug. It

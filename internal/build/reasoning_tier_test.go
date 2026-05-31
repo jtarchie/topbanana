@@ -8,7 +8,7 @@ import (
 
 	adkmodel "google.golang.org/adk/model"
 
-	"github.com/jtarchie/bloomhollow/internal/model"
+	"github.com/jtarchie/topbanana/internal/model"
 )
 
 func TestReasoningForTier_OnlyAuthorReasons(t *testing.T) {

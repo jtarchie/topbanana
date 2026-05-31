@@ -30,9 +30,9 @@ import (
 	"google.golang.org/adk/tool/functiontool"
 	"google.golang.org/genai"
 
-	"github.com/jtarchie/bloomhollow/internal/events"
-	"github.com/jtarchie/bloomhollow/internal/store"
-	"github.com/jtarchie/bloomhollow/internal/templates"
+	"github.com/jtarchie/topbanana/internal/events"
+	"github.com/jtarchie/topbanana/internal/store"
+	"github.com/jtarchie/topbanana/internal/templates"
 )
 
 //go:embed agent_prompt.md
@@ -350,7 +350,7 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 	guard.Add(cfg.Name, llm, contextguard.WithSlidingWindow(20))
 
 	r, err := runner.New(runner.Config{
-		AppName:           "bloomhollow",
+		AppName:           "topbanana",
 		Agent:             a,
 		SessionService:    sessSvc,
 		AutoCreateSession: false,
@@ -410,7 +410,7 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 // with synthetic tool-call/response pairs.
 func seedSession(ctx context.Context, sessSvc session.Service, slug string, seeds []SeedToolCall) (session.Session, error) {
 	createResp, err := sessSvc.Create(ctx, &session.CreateRequest{
-		AppName:   "bloomhollow",
+		AppName:   "topbanana",
 		UserID:    slug,
 		SessionID: slug,
 	})
@@ -1415,7 +1415,7 @@ func grepEligible(path string) bool {
 	if strings.HasPrefix(path, "assets/") {
 		return false
 	}
-	if path == ".bloomhollow.json" || path == ".buildabear.json" {
+	if path == ".topbanana.json" || path == ".bloomhollow.json" || path == ".buildabear.json" {
 		return false
 	}
 	return strings.HasSuffix(path, ".html") || strings.HasSuffix(path, ".js")
@@ -1740,6 +1740,7 @@ var reservedWritePrefixes = []string{"functions/", "assets/"}
 // current and legacy sidecar names are reserved so an agent on a legacy
 // site can't accidentally clobber pre-rebrand metadata.
 var reservedWritePaths = map[string]bool{
+	".topbanana.json":   true,
 	".bloomhollow.json": true,
 	".buildabear.json":  true,
 }

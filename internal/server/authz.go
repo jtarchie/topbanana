@@ -5,7 +5,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/jtarchie/bloomhollow/internal/auth"
+	"github.com/jtarchie/topbanana/internal/auth"
 )
 
 // requireSlugOwnership is the Echo middleware applied to every per-slug

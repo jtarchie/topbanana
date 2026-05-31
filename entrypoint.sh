@@ -5,4 +5,4 @@
 set -e
 export S3_BUCKET="${S3_BUCKET:-$BUCKET_NAME}"
 export AWS_ENDPOINT_URL="${AWS_ENDPOINT_URL:-$AWS_ENDPOINT_URL_S3}"
-exec /usr/local/bin/bloomhollow "$@"
+exec /usr/local/bin/topbanana "$@"

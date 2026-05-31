@@ -14,7 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"golang.org/x/crypto/acme/autocert"
 
-	"github.com/jtarchie/bloomhollow/internal/store"
+	"github.com/jtarchie/topbanana/internal/store"
 )
 
 // minioStore mirrors the snapshot_test helper: returns nil when the env vars

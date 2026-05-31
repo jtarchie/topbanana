@@ -1,11 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
   <style>
-    :root { color: #2d4a23; }
-    @media (prefers-color-scheme: dark) { :root { color: #d4e4cc; } }
+    :root { color: #e6a700; }
+    @media (prefers-color-scheme: dark) { :root { color: #ffe14d; } }
   </style>
-  <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M12 22 V10"/>
-    <path d="M12 14 C7 14, 4 11, 4 6 C9 6, 12 9, 12 14 Z"/>
-    <path d="M12 10 C17 10, 20 7, 20 2 C15 2, 12 5, 12 10 Z"/>
+  <g fill="currentColor" stroke="#000" stroke-opacity=".18" stroke-width="1" stroke-linejoin="round">
+    <!-- banana: a crescent body with a small stem at the upper tip -->
+    <path d="M6.2 2.6 C5.1 9 7.4 15.6 16 18.6 C17.6 19.1 19.6 18.9 20.6 17.6 C19 18 16.7 17.7 14.8 16.7 C9.7 14 7.6 8.6 8.7 3.4 Z"/>
+    <path d="M6.2 2.6 C6.1 3.4 6.8 4 7.7 3.9 C8.6 3.8 9 3 8.7 3.4" fill="none" stroke="currentColor" stroke-opacity="1" stroke-width="1.6" stroke-linecap="round"/>
   </g>
 </svg>

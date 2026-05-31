@@ -9,11 +9,11 @@ import (
 
 	adkmodel "google.golang.org/adk/model"
 
-	"github.com/jtarchie/bloomhollow/internal/agent"
-	"github.com/jtarchie/bloomhollow/internal/events"
-	"github.com/jtarchie/bloomhollow/internal/model"
-	"github.com/jtarchie/bloomhollow/internal/store"
-	"github.com/jtarchie/bloomhollow/internal/templates"
+	"github.com/jtarchie/topbanana/internal/agent"
+	"github.com/jtarchie/topbanana/internal/events"
+	"github.com/jtarchie/topbanana/internal/model"
+	"github.com/jtarchie/topbanana/internal/store"
+	"github.com/jtarchie/topbanana/internal/templates"
 )
 
 // fakeRunner is a Runner that records its identity but does no work. The

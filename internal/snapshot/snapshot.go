@@ -22,7 +22,7 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 
-	"github.com/jtarchie/bloomhollow/internal/store"
+	"github.com/jtarchie/topbanana/internal/store"
 )
 
 // snapshotPrefix is the bucket-level prefix under which all archives live.
@@ -34,16 +34,59 @@ const snapshotPrefix = "_snapshots/"
 const archiveContentType = "application/zstd"
 
 // PAX header key prefixes for per-file content type and S3 user metadata.
-// Tarballs written before the Bloomhollow rebrand carry the BUILDABEAR.*
-// prefix; ExtractArchive reads both prefixes so old archives still restore
-// cleanly. New archives are always written with the BLOOMHOLLOW.* prefix.
-// Exported so internal/portable can produce archives in the same wire format.
+// New archives are always written with the TOPBANANA.* prefix. Exported so
+// internal/portable can produce archives in the same wire format.
 const (
-	PAXContentTypeKey       = "BLOOMHOLLOW.content-type"
-	PAXMetaPrefix           = "BLOOMHOLLOW.meta."
-	LegacyPAXContentTypeKey = "BUILDABEAR.content-type"
-	LegacyPAXMetaPrefix     = "BUILDABEAR.meta."
+	PAXContentTypeKey = "TOPBANANA.content-type"
+	PAXMetaPrefix     = "TOPBANANA.meta."
 )
+
+// Legacy PAX prefixes from before each rebrand, newest first. ContentTypeFromPAX
+// and MetadataFromPAX fall through these so archives written before a rebrand
+// still restore cleanly: BLOOMHOLLOW.* predates Top Banana, BUILDABEAR.*
+// predates Bloomhollow.
+var (
+	LegacyPAXContentTypeKeys = []string{"BLOOMHOLLOW.content-type", "BUILDABEAR.content-type"}
+	LegacyPAXMetaPrefixes    = []string{"BLOOMHOLLOW.meta.", "BUILDABEAR.meta."}
+)
+
+// ContentTypeFromPAX returns the per-file content type recorded in a tar
+// header's PAX records, checking the current key then each legacy key in
+// order. Returns "" when none is present (caller should fall back to the file
+// extension).
+func ContentTypeFromPAX(rec map[string]string) string {
+	if ct := rec[PAXContentTypeKey]; ct != "" {
+		return ct
+	}
+	for _, k := range LegacyPAXContentTypeKeys {
+		if ct := rec[k]; ct != "" {
+			return ct
+		}
+	}
+	return ""
+}
+
+// MetadataFromPAX extracts S3 user metadata from a tar header's PAX records,
+// honouring the current meta prefix and each legacy prefix. Returns nil when
+// no metadata records are present.
+func MetadataFromPAX(rec map[string]string) map[string]string {
+	var metadata map[string]string
+	prefixes := append([]string{PAXMetaPrefix}, LegacyPAXMetaPrefixes...)
+	for k, v := range rec {
+		for _, p := range prefixes {
+			rest, ok := strings.CutPrefix(k, p)
+			if !ok {
+				continue
+			}
+			if metadata == nil {
+				metadata = map[string]string{}
+			}
+			metadata[rest] = v
+			break
+		}
+	}
+	return metadata
+}
 
 // Reasons that show up in the History UI. Free-form strings — these constants
 // just keep callers consistent.
@@ -325,30 +368,14 @@ func ExtractArchive(ctx context.Context, st *store.Store, slug, archive string) 
 			return fmt.Errorf("tar read %s: %w", hdr.Name, err)
 		}
 
-		contentType := hdr.PAXRecords[PAXContentTypeKey]
-		if contentType == "" {
-			contentType = hdr.PAXRecords[LegacyPAXContentTypeKey]
-		}
+		contentType := ContentTypeFromPAX(hdr.PAXRecords)
 		if contentType == "" {
 			if ext := path.Ext(hdr.Name); ext != "" {
 				contentType = mime.TypeByExtension(ext)
 			}
 		}
 
-		var metadata map[string]string
-		for k, v := range hdr.PAXRecords {
-			rest, ok := strings.CutPrefix(k, PAXMetaPrefix)
-			if !ok {
-				rest, ok = strings.CutPrefix(k, LegacyPAXMetaPrefix)
-			}
-			if !ok {
-				continue
-			}
-			if metadata == nil {
-				metadata = map[string]string{}
-			}
-			metadata[rest] = v
-		}
+		metadata := MetadataFromPAX(hdr.PAXRecords)
 
 		err = st.Write(ctx, slug, hdr.Name, string(body), contentType, metadata)
 		if err != nil {

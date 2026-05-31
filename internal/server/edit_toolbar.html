@@ -1,13 +1,13 @@
 <style>
-#_bab{position:fixed;bottom:1rem;right:1rem;z-index:9999;background:#fff;color:#1a1a1a;padding:.45rem .6rem;border-radius:9999px;font:13px/1.4 "Inter",system-ui,-apple-system,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.15);display:flex;gap:.35rem;align-items:center;border:1px solid rgba(0,0,0,.08);transition:opacity .2s}
-#_bab a,#_bab button{color:#1a1a1a;text-decoration:none;padding:.25rem .6rem;border-radius:9999px;border:0;background:transparent;font:inherit;cursor:pointer;line-height:1}
-#_bab a:hover,#_bab button:hover{background:rgba(0,0,0,.05)}
-#_bab .sep{color:rgba(0,0,0,.2)}
-#_bab[data-hidden="true"]{opacity:.25}
-#_bab[data-hidden="true"]:hover{opacity:.95}
-.in-frame #_bab{display:none}
+#_tb{position:fixed;bottom:1rem;right:1rem;z-index:9999;background:#fff;color:#1a1a1a;padding:.45rem .6rem;border-radius:9999px;font:13px/1.4 "Inter",system-ui,-apple-system,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.15);display:flex;gap:.35rem;align-items:center;border:1px solid rgba(0,0,0,.08);transition:opacity .2s}
+#_tb a,#_tb button{color:#1a1a1a;text-decoration:none;padding:.25rem .6rem;border-radius:9999px;border:0;background:transparent;font:inherit;cursor:pointer;line-height:1}
+#_tb a:hover,#_tb button:hover{background:rgba(0,0,0,.05)}
+#_tb .sep{color:rgba(0,0,0,.2)}
+#_tb[data-hidden="true"]{opacity:.25}
+#_tb[data-hidden="true"]:hover{opacity:.95}
+.in-frame #_tb{display:none}
 </style>
-<div id="_bab" role="toolbar" aria-label="Editor toolbar">
+<div id="_tb" role="toolbar" aria-label="Editor toolbar">
   <a target="_top" href="{{.EditURL}}">&#x270e; Edit</a>
   <span class="sep">·</span>
   <a target="_top" href="{{.VisualURL}}">&#x270e; Visual</a>
@@ -17,13 +17,13 @@
 <script>
 (function(){
   if(self!==top) document.body.classList.add('in-frame');
-  var bar = document.getElementById('_bab');
+  var bar = document.getElementById('_tb');
   var hide = document.getElementById('_bh_hide');
-  try { if (sessionStorage.getItem('_bh_hidden') === '1') bar.setAttribute('data-hidden','true'); } catch(_){}
+  try { if (sessionStorage.getItem('_tb_hidden') === '1') bar.setAttribute('data-hidden','true'); } catch(_){}
   hide.addEventListener('click', function(){
     var hidden = bar.getAttribute('data-hidden') === 'true';
     bar.setAttribute('data-hidden', hidden ? 'false' : 'true');
-    try { sessionStorage.setItem('_bh_hidden', hidden ? '0' : '1'); } catch(_){}
+    try { sessionStorage.setItem('_tb_hidden', hidden ? '0' : '1'); } catch(_){}
   });
 })();
 </script>

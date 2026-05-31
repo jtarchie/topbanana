@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jtarchie/bloomhollow/internal/templates"
+	"github.com/jtarchie/topbanana/internal/templates"
 )
 
 func TestApplyEdit(t *testing.T) {
@@ -562,7 +562,7 @@ func TestFormatBuildContext_FollowUpEdit(t *testing.T) {
 	got := formatBuildContext(BuildContext{
 		Now:     when,
 		Slug:    "myapp",
-		SiteURL: "https://myapp.bloomhollow.io",
+		SiteURL: "https://myapp.topbanana.io",
 		IsEdit:  true,
 	})
 	if !strings.Contains(got, "- Mode: follow-up edit") {
@@ -571,7 +571,7 @@ func TestFormatBuildContext_FollowUpEdit(t *testing.T) {
 	if !strings.Contains(got, "edit_file / replace_lines") {
 		t.Errorf("edit-mode rendering must nudge toward edit_file / replace_lines: %s", got)
 	}
-	if !strings.Contains(got, "- Site: myapp at https://myapp.bloomhollow.io") {
+	if !strings.Contains(got, "- Site: myapp at https://myapp.topbanana.io") {
 		t.Errorf("production-style site URL missing: %s", got)
 	}
 }

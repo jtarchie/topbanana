@@ -13,7 +13,7 @@ import (
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 
-	"github.com/jtarchie/bloomhollow/internal/snapshot"
+	"github.com/jtarchie/topbanana/internal/snapshot"
 )
 
 // chromeExecPath returns a working Chrome binary path, or "" when none is
@@ -135,12 +135,12 @@ func TestHappyPath_BrowserSmoke(t *testing.T) {
 	}
 
 	// Flip emulated media to dark, reload, and confirm the bootstrap script
-	// honors prefers-color-scheme=dark by swapping data-theme to forest.
+	// honors prefers-color-scheme=dark by swapping data-theme to cyberpunk.
 	// Reload via Navigate so the inline head script re-runs against the new
 	// emulated media query.
 	var darkTheme string
 	err = chromedp.Run(runCtx,
-		chromedp.Evaluate(`localStorage.removeItem('bh_theme')`, nil),
+		chromedp.Evaluate(`localStorage.removeItem('tb_theme')`, nil),
 		emulation.SetEmulatedMedia().WithFeatures([]*emulation.MediaFeature{{
 			Name:  "prefers-color-scheme",
 			Value: "dark",
@@ -152,7 +152,7 @@ func TestHappyPath_BrowserSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dark-mode re-navigate: %v", err)
 	}
-	if darkTheme != "forest" {
-		t.Errorf("dark-mode data-theme: got %q want %q", darkTheme, "forest")
+	if darkTheme != "cyberpunk" {
+		t.Errorf("dark-mode data-theme: got %q want %q", darkTheme, "cyberpunk")
 	}
 }

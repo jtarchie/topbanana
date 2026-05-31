@@ -37,19 +37,19 @@ func TestAgentRunner_SiteURL(t *testing.T) {
 		},
 		{
 			name:     "production: https, no port",
-			domain:   "bloomhollow.io",
+			domain:   "topbanana.io",
 			port:     "443",
 			insecure: false,
 			slug:     "myapp",
-			want:     "https://myapp.bloomhollow.io",
+			want:     "https://myapp.topbanana.io",
 		},
 		{
 			name:     "production ignores port even when set",
-			domain:   "bloomhollow.io",
+			domain:   "topbanana.io",
 			port:     "8443",
 			insecure: false,
 			slug:     "myapp",
-			want:     "https://myapp.bloomhollow.io",
+			want:     "https://myapp.topbanana.io",
 		},
 		{
 			name:     "empty domain yields empty URL (legacy test ctor)",

@@ -9,7 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/jtarchie/bloomhollow/internal/auth"
+	"github.com/jtarchie/topbanana/internal/auth"
 )
 
 // loginData backs templates/login.html. The page itself doesn't yet know

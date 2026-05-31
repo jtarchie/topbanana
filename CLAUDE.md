@@ -1,7 +1,9 @@
-# Agent Guide for Bloomhollow
+# Agent Guide for Top Banana
 
 ## Overview
-Bloomhollow is a "vibe coding" hosting platform that uses LLM agents to build and host static HTML applications. Each application is hosted under a unique subdomain, with files stored in an S3-compatible backend (e.g., Minio).
+Top Banana is a "vibe coding" hosting platform that uses LLM agents to build and host static HTML applications. Each application is hosted under a unique subdomain, with files stored in an S3-compatible backend (e.g., Minio).
+
+> **Naming history.** The project was BuildABear → Bloomhollow → **Top Banana**. The Go module is `github.com/jtarchie/topbanana` and the binary is `topbanana`. The workspace directory stays `/workspace/buildabear/`. The current per-site sidecar is `.topbanana.json` (PAX prefix `TOPBANANA.*`, export manifest `topbanana-export.json`); `.bloomhollow.json` / `BLOOMHOLLOW.*` / `bloomhollow-export.json` and `.buildabear.json` / `BUILDABEAR.*` remain **intentional legacy compat reads** so pre-rebrand sites and archives still resolve. Do not remove them.
 
 ## Architecture
 - **Multi-tenant Static Hosting**: The server uses subdomain routing. Requests to `*.localhost` are intercepted by the `subdomainMiddleware` and proxied to an S3 bucket where each site is a folder/prefix identified by its subdomain slug.

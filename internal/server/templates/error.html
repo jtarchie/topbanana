@@ -1,31 +1,37 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="lemonade">
 <head>
-<title>{{ .Status }} — Bloomhollow</title>
+<title>{{ .Status }} — Top Banana</title>
 {{ template "head" . }}
 </head>
 <body class="min-h-screen grid place-items-center bg-base-200 px-4 py-12">
 <main class="card bg-base-100 border border-base-300 max-w-md w-full">
   <div class="card-body items-center text-center gap-3">
     <svg viewBox="0 0 120 120" class="w-28 h-28 text-primary" fill="currentColor" aria-hidden="true">
+      <!-- friendly monkey -->
       <!-- ears -->
-      <circle cx="32" cy="30" r="14" />
-      <circle cx="88" cy="30" r="14" />
-      <circle cx="32" cy="30" r="6" fill="#fbcfe8" />
-      <circle cx="88" cy="30" r="6" fill="#fbcfe8" />
+      <circle cx="30" cy="48" r="15" />
+      <circle cx="90" cy="48" r="15" />
+      <circle cx="30" cy="48" r="8" fill="#fcd9b6" />
+      <circle cx="90" cy="48" r="8" fill="#fcd9b6" />
       <!-- head -->
       <circle cx="60" cy="62" r="38" />
-      <!-- muzzle -->
-      <ellipse cx="60" cy="78" rx="22" ry="16" fill="#fef3c7" />
-      <!-- nose -->
-      <ellipse cx="60" cy="70" rx="5" ry="4" fill="#1f2937" />
-      <!-- sad mouth -->
-      <path d="M50 86 Q60 78 70 86" stroke="#1f2937" stroke-width="2.5" fill="none" stroke-linecap="round" />
-      <!-- eyes (closed / sad arcs) -->
-      <path d="M44 56 Q48 50 52 56" stroke="#1f2937" stroke-width="2.5" fill="none" stroke-linecap="round" />
-      <path d="M68 56 Q72 50 76 56" stroke="#1f2937" stroke-width="2.5" fill="none" stroke-linecap="round" />
-      <!-- single tear -->
-      <path d="M46 60 Q44 66 46 70 Q48 66 46 60" fill="#60a5fa" />
+      <!-- light face patch -->
+      <path d="M60 42 C39 42 31 57 32 72 C33 89 46 99 60 99 C74 99 87 89 88 72 C89 57 81 42 60 42 Z" fill="#fde2c4" />
+      <!-- eyes (open, friendly) -->
+      <circle cx="49" cy="64" r="6" fill="#1f2937" />
+      <circle cx="71" cy="64" r="6" fill="#1f2937" />
+      <circle cx="51" cy="62" r="2" fill="#ffffff" />
+      <circle cx="73" cy="62" r="2" fill="#ffffff" />
+      <!-- nostrils -->
+      <ellipse cx="55" cy="80" rx="2.2" ry="1.6" fill="#9a6a3c" />
+      <ellipse cx="65" cy="80" rx="2.2" ry="1.6" fill="#9a6a3c" />
+      <!-- sheepish little smile -->
+      <path d="M51 87 Q60 93 69 87" stroke="#9a6a3c" stroke-width="2.5" fill="none" stroke-linecap="round" />
+      <!-- a little banana, because why not -->
+      <g transform="translate(86 90) rotate(20)">
+        <path d="M0 0 C-1.5 6 1 12 9 14.5 C10.6 15 12.4 14.7 13.2 13.6 C11.8 14 9.8 13.8 8.2 13 C3.6 10.6 1.6 6 2.6 1.2 Z" fill="#f5c542" stroke="#b8860b" stroke-width="0.8" stroke-linejoin="round" />
+      </g>
     </svg>
     <div class="text-6xl font-bold text-primary tracking-tight leading-none">{{ .Status }}</div>
     <h1 class="text-xl font-semibold">{{ .Title }}</h1>

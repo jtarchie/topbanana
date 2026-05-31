@@ -10,7 +10,7 @@ import (
 	"github.com/egregors/passkey"
 	"github.com/go-webauthn/webauthn/webauthn"
 
-	"github.com/jtarchie/bloomhollow/internal/store"
+	"github.com/jtarchie/topbanana/internal/store"
 )
 
 // defaultCookieNamePrefix is the prefix passed to the egregors/passkey
@@ -105,7 +105,7 @@ func New(cfg Config) (*Auth, error) {
 
 	pkey, err := passkey.New(passkey.Config{
 		WebauthnConfig: &webauthn.Config{
-			RPDisplayName: "Bloomhollow",
+			RPDisplayName: "Top Banana",
 			RPID:          cfg.Domain,
 			RPOrigins:     buildRPOrigins(cfg.Domain, cfg.Port, cfg.InsecureCookies),
 		},

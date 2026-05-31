@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jtarchie/bloomhollow/internal/build"
-	"github.com/jtarchie/bloomhollow/internal/snapshot"
+	"github.com/jtarchie/topbanana/internal/build"
+	"github.com/jtarchie/topbanana/internal/snapshot"
 )
 
 // postFileOps wraps the boilerplate for hitting the file_ops endpoints with a

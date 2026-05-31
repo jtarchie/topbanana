@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jtarchie/bloomhollow/internal/build"
-	"github.com/jtarchie/bloomhollow/internal/events"
-	"github.com/jtarchie/bloomhollow/internal/snapshot"
+	"github.com/jtarchie/topbanana/internal/build"
+	"github.com/jtarchie/topbanana/internal/events"
+	"github.com/jtarchie/topbanana/internal/snapshot"
 )
 
 // TestSelectionListener_AlwaysInjected pins the iframe-selection bridge to
@@ -93,7 +93,7 @@ func TestSelectionListener_AlwaysInjected(t *testing.T) {
 	if !strings.Contains(anonBody, "window.parent === window") {
 		t.Errorf("cookie-less response missing parent-window guard; direct visitors would postMessage to themselves")
 	}
-	if strings.Contains(anonBody, `id="_bab"`) {
+	if strings.Contains(anonBody, `id="_tb"`) {
 		t.Errorf("cookie-less response leaks edit toolbar UI to anonymous visitors")
 	}
 
@@ -102,7 +102,7 @@ func TestSelectionListener_AlwaysInjected(t *testing.T) {
 	if !strings.Contains(authedBody, "_bh_sel") {
 		t.Errorf("authed response missing selection bridge")
 	}
-	if !strings.Contains(authedBody, `id="_bab"`) {
+	if !strings.Contains(authedBody, `id="_tb"`) {
 		t.Errorf("authed response missing edit toolbar UI")
 	}
 
@@ -112,10 +112,10 @@ func TestSelectionListener_AlwaysInjected(t *testing.T) {
 	if strings.Contains(customBody, "_bh_sel") {
 		t.Errorf("custom-domain response includes selection bridge; CDN would cache admin chrome.\nbody=%q", trim(customBody, 400))
 	}
-	if strings.Contains(customBody, "bloomhollow:settheme") {
+	if strings.Contains(customBody, "topbanana:settheme") {
 		t.Errorf("custom-domain response includes theme listener; CDN would cache admin chrome")
 	}
-	if strings.Contains(customBody, `id="_bab"`) {
+	if strings.Contains(customBody, `id="_tb"`) {
 		t.Errorf("custom-domain response includes edit toolbar UI")
 	}
 }

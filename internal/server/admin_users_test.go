@@ -3,7 +3,7 @@ package server
 import (
 	"testing"
 
-	"github.com/jtarchie/bloomhollow/internal/model"
+	"github.com/jtarchie/topbanana/internal/model"
 )
 
 // makeFormLookup returns a func(string) string that matches values from a

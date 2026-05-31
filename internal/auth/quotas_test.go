@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/jtarchie/bloomhollow/internal/model"
+	"github.com/jtarchie/topbanana/internal/model"
 )
 
 func TestQuotas_UnmarshalJSON_LegacyArrayForm(t *testing.T) {

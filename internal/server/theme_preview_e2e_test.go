@@ -8,13 +8,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jtarchie/bloomhollow/internal/snapshot"
+	"github.com/jtarchie/topbanana/internal/snapshot"
 )
 
 // TestThemePreviewListener_AlwaysInjected pins down the regression where the
 // workspace Themes panel's live Preview stopped updating the iframe.
 //
-// The workspace fires postMessage({type:'bloomhollow:settheme', theme}) at the
+// The workspace fires postMessage({type:'topbanana:settheme', theme}) at the
 // iframe loading slug.<domain>; the iframe needs the matching listener
 // spliced into its HTML to act on it. Before this test landed,
 // injectEditToolbar short-circuited the whole splice when canEdit returned
@@ -75,19 +75,19 @@ func TestThemePreviewListener_AlwaysInjected(t *testing.T) {
 	// Preview works; the toolbar UI must not, since anonymous visitors
 	// shouldn't see edit chrome.
 	anonBody := get(t, nil)
-	if !strings.Contains(anonBody, "bloomhollow:settheme") {
+	if !strings.Contains(anonBody, "topbanana:settheme") {
 		t.Errorf("cookie-less response missing theme-preview listener; Preview will not work.\nbody=%q", trim(anonBody, 400))
 	}
-	if strings.Contains(anonBody, `id="_bab"`) {
+	if strings.Contains(anonBody, `id="_tb"`) {
 		t.Errorf("cookie-less response leaks edit toolbar UI to anonymous visitors")
 	}
 
 	// Authed request — admin sees both the listener and the visible toolbar.
 	authedBody := get(t, testSessionCookie)
-	if !strings.Contains(authedBody, "bloomhollow:settheme") {
+	if !strings.Contains(authedBody, "topbanana:settheme") {
 		t.Errorf("authed response missing theme-preview listener")
 	}
-	if !strings.Contains(authedBody, `id="_bab"`) {
+	if !strings.Contains(authedBody, `id="_tb"`) {
 		t.Errorf("authed response missing edit toolbar UI")
 	}
 }

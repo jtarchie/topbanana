@@ -8,7 +8,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/jtarchie/bloomhollow/internal/auth"
+	"github.com/jtarchie/topbanana/internal/auth"
 )
 
 // transferAppHandler moves ownership of an app to another user. Gated by
