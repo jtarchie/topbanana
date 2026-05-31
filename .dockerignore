@@ -1,10 +1,5 @@
-.git
-.gitignore
-.claude
-.crush
-.fly
-crush.json
-README.md
-CLAUDE.md
-/topbanana
-*.test
+# Local build artifact — the compiled binary. Everything else (including
+# go.sum and the .md files embedded via //go:embed, e.g.
+# internal/agent/agent_prompt.md and the template prompt.md/README.md under
+# internal/templates/sites) must reach the build context or `go build` fails.
+topbanana
