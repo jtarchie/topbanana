@@ -14,9 +14,10 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/imroc/req/v3"
+	"github.com/go-resty/resty/v2"
 	"github.com/tdewolff/minify/v2"
 	mincss "github.com/tdewolff/minify/v2/css"
+	"google.golang.org/adk/agent"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
 
@@ -101,13 +102,17 @@ func isBlockedIP(ip net.IP) bool {
 		ip.IsMulticast()
 }
 
-// newFetchReferenceClient builds a req client that re-validates every redirect
-// target so a 302 to an internal IP can't bypass the initial SSRF guard.
-func newFetchReferenceClient() *req.Client {
-	return req.C().
+// newFetchReferenceClient builds an HTTP client that re-validates every
+// redirect target so a 302 to an internal IP can't bypass the initial SSRF
+// guard. DoNotParseResponse keeps the body as a stream so fetchPage /
+// fetchStylesheet can cap it with an io.LimitReader instead of buffering an
+// attacker-controlled response whole.
+func newFetchReferenceClient() *resty.Client {
+	return resty.New().
 		SetTimeout(fetchReferenceTimeout).
-		SetUserAgent(fetchReferenceUserAgent).
-		SetRedirectPolicy(func(r *http.Request, via []*http.Request) error {
+		SetHeader("User-Agent", fetchReferenceUserAgent).
+		SetDoNotParseResponse(true).
+		SetRedirectPolicy(resty.RedirectPolicyFunc(func(r *http.Request, via []*http.Request) error {
 			if len(via) >= 10 {
 				return errors.New("too many redirects")
 			}
@@ -116,25 +121,25 @@ func newFetchReferenceClient() *req.Client {
 				return fmt.Errorf("redirect blocked: %w", err)
 			}
 			return nil
-		})
+		}))
 }
 
 // fetchPage GETs target and returns the parsed body, the post-redirect URL,
 // and whether the body was truncated to fit fetchReferenceMaxBytes. Non-HTML
 // content types and 4xx/5xx statuses are surfaced as errors.
-func fetchPage(ctx context.Context, client *req.Client, target string) ([]byte, *url.URL, bool, error) {
+func fetchPage(ctx context.Context, client *resty.Client, target string) ([]byte, *url.URL, bool, error) {
 	resp, err := client.R().SetContext(ctx).Get(target)
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("fetch page: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode >= 400 {
-		return nil, nil, false, fmt.Errorf("fetch page: status %d", resp.StatusCode)
+	defer func() { _ = resp.RawBody().Close() }()
+	if resp.StatusCode() >= 400 {
+		return nil, nil, false, fmt.Errorf("fetch page: status %d", resp.StatusCode())
 	}
-	if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.HasPrefix(ct, "text/html") {
+	if ct := resp.Header().Get("Content-Type"); ct != "" && !strings.HasPrefix(ct, "text/html") {
 		return nil, nil, false, fmt.Errorf("page content-type %q is not text/html", ct)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, fetchReferenceMaxBytes+1))
+	body, err := io.ReadAll(io.LimitReader(resp.RawBody(), fetchReferenceMaxBytes+1))
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("read page body: %w", err)
 	}
@@ -142,17 +147,28 @@ func fetchPage(ctx context.Context, client *req.Client, target string) ([]byte, 
 	if truncated {
 		body = body[:fetchReferenceMaxBytes]
 	}
-	finalURL, perr := url.Parse(resp.Request.RawURL)
-	if perr != nil {
-		return nil, nil, false, fmt.Errorf("parse final url: %w", perr)
-	}
+	finalURL := finalRequestURL(resp, target)
 	return body, finalURL, truncated, nil
+}
+
+// finalRequestURL returns the post-redirect URL of a response. resty exposes
+// the underlying *http.Response, whose Request.URL is the last URL fetched.
+// Falls back to parsing the original target if anything is unexpectedly nil.
+func finalRequestURL(resp *resty.Response, target string) *url.URL {
+	if raw := resp.RawResponse; raw != nil && raw.Request != nil && raw.Request.URL != nil {
+		return raw.Request.URL
+	}
+	parsed, err := url.Parse(target)
+	if err != nil {
+		return &url.URL{}
+	}
+	return parsed
 }
 
 // inlineOneStylesheet validates href against the SSRF guard, fetches the
 // stylesheet, minifies it, and replaces sel with the resulting <style> tag.
 // Errors are non-fatal: the original <link> is left in place.
-func inlineOneStylesheet(ctx context.Context, client *req.Client, m *minify.M, base *url.URL, sel *goquery.Selection) bool {
+func inlineOneStylesheet(ctx context.Context, client *resty.Client, m *minify.M, base *url.URL, sel *goquery.Selection) bool {
 	href, ok := sel.Attr("href")
 	if !ok || strings.TrimSpace(href) == "" {
 		return false
@@ -184,7 +200,7 @@ func inlineOneStylesheet(ctx context.Context, client *req.Client, m *minify.M, b
 
 // fetchAndInline GETs target, parses it as HTML, and replaces each
 // <link rel="stylesheet"> with an inline <style> containing the minified CSS.
-func fetchAndInline(ctx context.Context, client *req.Client, target string) (string, string, bool, error) {
+func fetchAndInline(ctx context.Context, client *resty.Client, target string) (string, string, bool, error) {
 	body, finalURL, pageTruncated, err := fetchPage(ctx, client, target)
 	if err != nil {
 		return "", "", false, err
@@ -215,21 +231,21 @@ func fetchAndInline(ctx context.Context, client *req.Client, target string) (str
 	return html, finalURL.String(), truncated, nil
 }
 
-func fetchStylesheet(ctx context.Context, client *req.Client, target string) (string, error) {
+func fetchStylesheet(ctx context.Context, client *resty.Client, target string) (string, error) {
 	rctx, cancel := context.WithTimeout(ctx, fetchReferenceRequestTimeout)
 	defer cancel()
 	resp, err := client.R().SetContext(rctx).Get(target)
 	if err != nil {
 		return "", fmt.Errorf("get stylesheet: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("status %d", resp.StatusCode)
+	defer func() { _ = resp.RawBody().Close() }()
+	if resp.StatusCode() >= 400 {
+		return "", fmt.Errorf("status %d", resp.StatusCode())
 	}
-	if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.HasPrefix(ct, "text/css") {
+	if ct := resp.Header().Get("Content-Type"); ct != "" && !strings.HasPrefix(ct, "text/css") {
 		return "", fmt.Errorf("content-type %q is not text/css", ct)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, fetchReferenceMaxStylesheetBytes+1))
+	body, err := io.ReadAll(io.LimitReader(resp.RawBody(), fetchReferenceMaxStylesheetBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("read stylesheet body: %w", err)
 	}
@@ -250,7 +266,7 @@ func newFetchReferenceTool(emit func(events.Event)) (tool.Tool, error) {
 			Name:        "fetch_reference",
 			Description: "Fetch an external URL as design inspiration. GETs the page, inlines linked stylesheets (minified), and returns the resulting HTML (line-numbered, same convention as read_file/read_attachment). JavaScript is NOT executed — single-page-app shells come back mostly empty, so prefer server-rendered or static pages. Use sparingly (one or two URLs per session). Treat the result as a reference for layout, palette, and typography; never copy markup verbatim, and keep your output inline-only with no external CDNs other than the design substrate.",
 		},
-		func(tctx tool.Context, args fetchReferenceArgs) (fetchReferenceResult, error) {
+		func(tctx agent.ToolContext, args fetchReferenceArgs) (fetchReferenceResult, error) {
 			em.start(args.URL)
 			parsed, err := validateReferenceURL(args.URL, nil)
 			if err != nil {

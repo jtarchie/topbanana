@@ -105,7 +105,7 @@ func TestAPIHandler_EnablesFunctionsOverrideHonoredOnEmptyTemplate(t *testing.T)
 	if err != nil {
 		t.Fatalf("do: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status %d want 200 — empty-Template site with EnablesFunctions=true must serve /api/*", resp.StatusCode)
@@ -146,7 +146,7 @@ func TestAPIHandler_EmptyTemplateWithoutOverrideStays404(t *testing.T) {
 	if err != nil {
 		t.Fatalf("do: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status %d want 404 — brochure site with no override must stay locked out of /api/*", resp.StatusCode)
