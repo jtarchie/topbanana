@@ -67,6 +67,12 @@ var cli struct {
 	TLSPort         string `default:"443"        env:"TLS_PORT"                                                                                                                                                                                        help:"Port for the HTTPS listener (when --acme-email is set)."                                        name:"tls-port"`
 	HTTPPort        string `default:"80"         env:"HTTP_PORT"                                                                                                                                                                                       help:"Port for the HTTP listener that serves ACME challenges + redirects (when --acme-email is set)." name:"http-port"`
 	ProxyProtocol   bool   `env:"PROXY_PROTOCOL" help:"Parse PROXY protocol v1/v2 headers on incoming connections. Required on Fly Machines services declared with handlers=[\"proxy_proto\"] (the only way to get raw-TCP pass-through on port 443)." name:"proxy-protocol"`
+
+	// MCP server. When set, enables the Model Context Protocol endpoint at
+	// /mcp plus its OAuth authorization server (so Claude Code can author
+	// sites on behalf of a logged-in user). The value is the HMAC secret that
+	// signs bearer tokens — keep it stable and private. Empty disables MCP.
+	MCPSecret string `env:"MCP_SECRET" help:"HMAC secret that signs MCP bearer tokens. When set, enables the MCP server + OAuth endpoints at /mcp. Empty disables MCP." name:"mcp-secret"`
 }
 
 func main() {
@@ -182,15 +188,16 @@ func main() {
 	}
 
 	deps := server.Deps{
-		Store:    s,
-		Build:    buildSvc,
-		Events:   tracker,
-		Sandbox:  sb,
-		State:    stateStore,
-		Snapshot: snapshotSvc,
-		Auth:     authSvc,
-		Domain:   cli.Domain,
-		Port:     cli.Port,
+		Store:     s,
+		Build:     buildSvc,
+		Events:    tracker,
+		Sandbox:   sb,
+		State:     stateStore,
+		Snapshot:  snapshotSvc,
+		Auth:      authSvc,
+		Domain:    cli.Domain,
+		Port:      cli.Port,
+		MCPSecret: cli.MCPSecret,
 		SystemInfo: server.SystemInfo{
 			LLMTiers:           tierMap,
 			LLMBaseURL:         cli.LLMBaseURL,

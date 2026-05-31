@@ -81,6 +81,11 @@ type Deps struct {
 	// before the first visitor arrives. Set by main when --acme-email is on;
 	// left nil in plain-HTTP / dev mode.
 	PreWarmCert func(host string)
+
+	// MCPSecret signs MCP bearer tokens. When non-empty it enables the MCP
+	// server plus its OAuth endpoints at /mcp and /oauth/*; empty leaves the
+	// whole surface unmounted. Wired from --mcp-secret.
+	MCPSecret string
 }
 
 // Server is the wired-up state shared across handlers.
@@ -122,6 +127,13 @@ type Server struct {
 	// preWarmCert is the deps callback, captured here so settingsSubmitHandler
 	// can fire it without threading the function through every signature.
 	preWarmCert func(host string)
+
+	// mcpSecret signs MCP bearer tokens; empty leaves the MCP + OAuth routes
+	// unmounted. mcpOAuth holds the in-memory OAuth authorization-server state
+	// (registered clients + pending authorization codes), created in New only
+	// when the secret is set.
+	mcpSecret string
+	mcpOAuth  *mcpOAuthState
 }
 
 // fallThroughHosts are hosts that should bypass subdomain proxying and hit
@@ -186,8 +198,12 @@ func New(d Deps) (*echo.Echo, *Server) {
 		ownerIndex:   map[string]string{},
 		privateIndex: map[string]bool{},
 		preWarmCert:  d.PreWarmCert,
+		mcpSecret:    d.MCPSecret,
 	}
 	s.initialRebuildDomainIndex(context.Background())
+	if s.mcpSecret != "" {
+		s.mcpOAuth = newMCPOAuthState()
+	}
 
 	e := echo.New()
 	e.HTTPErrorHandler = s.httpErrorHandler
@@ -234,6 +250,13 @@ func New(d Deps) (*echo.Echo, *Server) {
 		e.GET("/register", s.registerHandler)
 		e.POST("/register/finish", s.registerFinishHandler)
 		e.POST("/logout", s.logoutHandler)
+	}
+
+	// MCP surface (bearer-protected /mcp + its OAuth authorization server).
+	// Mounted on the main domain, outside the admin session gate — it carries
+	// its own bearer-token auth and OAuth flow. Opt-in via --mcp-secret.
+	if s.mcpSecret != "" {
+		s.mountMCP(e)
 	}
 
 	admin := e.Group("", s.requireUser)
