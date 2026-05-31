@@ -29,6 +29,11 @@ type Chrome struct {
 	// from the session role; handlers should NOT set it themselves —
 	// any value they pass gets overwritten.
 	IsSuperAdmin bool
+
+	// Year is the current calendar year, injected by render() so the
+	// shared footer can render `© {{ .Year }} Top Banana` without each
+	// handler threading time.Now() through its page-data struct.
+	Year int
 }
 
 // chromePtr exposes the embedded Chrome for in-place mutation. Defined

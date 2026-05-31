@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="lemonade">
+<head>
+<title>Terms of Service &mdash; Top Banana</title>
+{{ template "head" . }}
+</head>
+<body class="min-h-screen flex flex-col bg-base-100">
+{{ template "brand" . }}
+<main class="flex-1 max-w-3xl w-full mx-auto px-4 sm:px-6 py-10">
+  <header class="mb-6">
+    <h1 class="text-3xl sm:text-4xl font-semibold tracking-tight mb-2">Terms of Service</h1>
+    <p class="text-sm text-base-content/60">Last updated 2026-05-31</p>
+  </header>
+
+  <div class="alert alert-success mb-8" role="note">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 shrink-0" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+    <div>
+      <p class="font-semibold">You own your data.</p>
+      <p class="text-sm">The HTML the agent writes for your prompt is yours. The branding and platform are ours. Nothing in these terms says otherwise.</p>
+    </div>
+  </div>
+
+  <section class="text-base-content/80 leading-relaxed">
+    <p class="mb-4">These terms cover your use of Top Banana. By creating an account or building a site, you&rsquo;re agreeing to them.</p>
+
+    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">The service</h2>
+    <p class="mb-4">Top Banana lets you describe a website in plain English and an AI agent builds it as static HTML, hosted under a subdomain or your own custom domain. Sites are static-only: no databases, no server-side code beyond a small set of template-provided functions.</p>
+
+    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">Your account</h2>
+    <p class="mb-4">One passkey-bound account per person. Passkeys can&rsquo;t really be shared &mdash; please don&rsquo;t try. Don&rsquo;t impersonate someone else when you sign up.</p>
+
+    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">Your content, your responsibility</h2>
+    <p class="mb-3">You&rsquo;re responsible for the prompts you submit and the sites those prompts produce. Don&rsquo;t use Top Banana to host or publish:</p>
+    <ul class="list-disc pl-6 space-y-2 mb-4">
+      <li>illegal content;</li>
+      <li>malware, phishing pages, or scams;</li>
+      <li>spam;</li>
+      <li>harassment or targeted abuse;</li>
+      <li>content that infringes someone else&rsquo;s copyright, trademark, or privacy.</li>
+    </ul>
+
+    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">Acceptable use</h2>
+    <ul class="list-disc pl-6 space-y-2 mb-4">
+      <li>No automated scraping or abuse of the build API.</li>
+      <li>Respect quotas. They exist so one account can&rsquo;t starve the rest.</li>
+      <li>Don&rsquo;t try to break out of the sandbox, attack other tenants, or probe for vulnerabilities. Responsible-disclosure reports to <a class="link link-primary" href="mailto:hello@topbanana.dev">hello@topbanana.dev</a> are welcome.</li>
+    </ul>
+
+    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">Who owns what</h2>
+    <ul class="list-disc pl-6 space-y-2 mb-4">
+      <li><strong class="text-base-content">Your output is yours.</strong> The HTML, CSS, JavaScript, and uploaded assets that make up your site belong to you. You can export them, take them elsewhere, and we have no claim on them.</li>
+      <li><strong class="text-base-content">The platform is ours.</strong> The Top Banana name, logo, source-available platform code, and templates belong to us or the upstream open-source projects we depend on.</li>
+    </ul>
+
+    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">About AI-generated output</h2>
+    <p class="mb-4">The build agent is an AI. It will sometimes write code that&rsquo;s wrong, ugly, insecure, or that hallucinates a feature you didn&rsquo;t ask for. Review the result before you ship a site to a real audience. We don&rsquo;t guarantee correctness or fitness for any particular purpose.</p>
+
+    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">Availability</h2>
+    <p class="mb-4">Best effort. We may rate-limit, change quotas, or take the service down for maintenance. We&rsquo;ll try to give notice for planned downtime.</p>
+
+    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">Termination</h2>
+    <p class="mb-4">You can delete your account at any time by emailing <a class="link link-primary" href="mailto:hello@topbanana.dev">hello@topbanana.dev</a>. We can suspend or close accounts that break these terms &mdash; we&rsquo;ll tell you why, and we&rsquo;ll give you a chance to export your sites unless the violation makes that unsafe.</p>
+
+    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">No warranty</h2>
+    <p class="mb-4">Top Banana is provided &ldquo;as is.&rdquo; We make no warranties, express or implied, about availability, accuracy, or fitness for any particular purpose.</p>
+
+    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">Limitation of liability</h2>
+    <p class="mb-4">To the extent allowed by law, our total liability to you for anything related to the service is limited to the amount you&rsquo;ve paid us in the prior twelve months (which, for a free account, is zero).</p>
+
+    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">Changes</h2>
+    <p class="mb-4">If we make a material change to these terms, we&rsquo;ll surface it before it takes effect. The &ldquo;last updated&rdquo; date above always reflects the most recent revision.</p>
+
+    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">Contact</h2>
+    <p class="mb-6">Questions about these terms: <a class="link link-primary" href="mailto:hello@topbanana.dev">hello@topbanana.dev</a>.</p>
+
+    <p class="text-sm text-base-content/60 mt-10 pt-4 border-t border-base-300">See also: <a class="link link-hover font-medium" href="/privacy">Privacy Policy</a>.</p>
+  </section>
+</main>
+{{ template "footer" . }}
+</body>
+</html>

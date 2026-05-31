@@ -161,6 +161,8 @@ func New(d Deps) (*echo.Echo, *Server) {
 		{"account", accountTemplate},
 		{"admin_users", adminUsersTemplate},
 		{"error", errorTemplate},
+		{"privacy", privacyTemplate},
+		{"terms", termsTemplate},
 	} {
 		template.Must(tpl.New(t.name).Parse(t.body))
 	}
@@ -203,6 +205,11 @@ func New(d Deps) (*echo.Echo, *Server) {
 	e.GET("/status/:slug", s.statusHandler, s.requireUser, s.requireSlugOwnership)
 	e.GET("/events/:slug", s.eventsHandler, s.requireUser, s.requireSlugOwnership)
 	e.GET("/favicon.svg", s.faviconHandler)
+
+	// Legal pages: always-public, unauthenticated. Prospective users need to
+	// read these before signing up, so they can't sit behind requireUser.
+	e.GET("/privacy", s.privacyHandler)
+	e.GET("/terms", s.termsHandler)
 
 	// Path-based access to a hosted site, mirroring the subdomain route. The
 	// subdomain form (slug.<domain>) is canonical and what production uses;
@@ -729,7 +736,9 @@ func (s *Server) injectChrome(c *echo.Context, data any) any {
 		}
 	}
 	if ch, ok := data.(chromed); ok {
-		ch.chromePtr().IsSuperAdmin = isSuper
+		cp := ch.chromePtr()
+		cp.IsSuperAdmin = isSuper
+		cp.Year = time.Now().Year()
 	}
 	return data
 }
@@ -815,6 +824,22 @@ func (s *Server) landingHandler(c *echo.Context) error {
 		Templates: templates.All(),
 		Domain:    s.domain,
 	})
+}
+
+// legalData backs templates/privacy.html and templates/terms.html. Both pages
+// are unauthenticated but still embed Chrome so the brand partial and footer
+// render with the current Year and (when a session is present) the super-admin
+// nav link.
+type legalData struct {
+	Chrome
+}
+
+func (s *Server) privacyHandler(c *echo.Context) error {
+	return s.render(c, "privacy", legalData{})
+}
+
+func (s *Server) termsHandler(c *echo.Context) error {
+	return s.render(c, "terms", legalData{})
 }
 
 type appLink struct {

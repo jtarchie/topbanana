@@ -61,3 +61,9 @@ var adminUsersTemplate string
 
 //go:embed templates/error.html
 var errorTemplate string
+
+//go:embed templates/privacy.html
+var privacyTemplate string
+
+//go:embed templates/terms.html
+var termsTemplate string

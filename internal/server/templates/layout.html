@@ -106,10 +106,19 @@
 {{- end }}
 
 {{ define "footer" -}}
-<footer class="footer footer-center bg-base-200 text-base-content/60 p-4 mt-auto text-sm">
-  <aside>
-    <p>Top Banana · <a class="link link-hover" href="/">Home</a> · <a class="link link-hover" href="/apps">Your apps</a></p>
+<footer class="footer footer-center bg-base-200 text-base-content/60 p-4 mt-auto text-sm gap-1">
+  <aside class="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+    <span>&copy; {{ if .Year }}{{ .Year }}{{ else }}2026{{ end }} Top Banana</span>
+    <span aria-hidden="true">&middot;</span>
+    <a class="link link-hover" href="/">Home</a>
+    <span aria-hidden="true">&middot;</span>
+    <a class="link link-hover" href="/apps">Your apps</a>
+    <span aria-hidden="true">&middot;</span>
+    <a class="link link-hover" href="/privacy">Privacy</a>
+    <span aria-hidden="true">&middot;</span>
+    <a class="link link-hover" href="/terms">Terms</a>
   </aside>
+  <aside><span class="text-base-content/50">Your data is yours. Export it anytime.</span></aside>
 </footer>
 {{- end }}
 
