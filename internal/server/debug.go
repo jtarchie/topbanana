@@ -64,6 +64,7 @@ type debugDetailData struct {
 	Duration        string
 	Model           string
 	ReasoningEffort string
+	Template        string
 	UserPrompt      string
 	Page            string
 	SelectionLen    int
@@ -139,6 +140,7 @@ func (s *Server) debugDetailHandler(c *echo.Context) error {
 		LogKey:          t.LogKey,
 		Model:           t.Model,
 		ReasoningEffort: t.ReasoningEffort,
+		Template:        t.Template,
 		UserPrompt:      t.UserPrompt,
 		Page:            t.Page,
 		SelectionLen:    t.SelectionLen,

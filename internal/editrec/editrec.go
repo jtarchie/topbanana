@@ -74,6 +74,7 @@ type Transcript struct {
 	FinishedAt      time.Time    `json:"finished_at,omitempty"`
 	Model           string       `json:"model,omitempty"`
 	ReasoningEffort string       `json:"reasoning_effort,omitempty"`
+	Template        string       `json:"template,omitempty"`
 	UserPrompt      string       `json:"user_prompt,omitempty"`
 	Page            string       `json:"page,omitempty"`
 	SelectionLen    int          `json:"selection_len,omitempty"`
@@ -176,6 +177,18 @@ func (r *Recorder) SetModel(model, reasoningEffort string) {
 	defer r.mu.Unlock()
 	r.transcript.Model = model
 	r.transcript.ReasoningEffort = reasoningEffort
+}
+
+// SetTemplate stamps the recorder with the site-template id this run used
+// (e.g. "landing-page"). Separate from New so non-template callers and tests
+// keep their signature, matching the SetModel pattern.
+func (r *Recorder) SetTemplate(template string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.transcript.Template = template
 }
 
 // AddUsage folds one agent run's token tally into the transcript total. Called

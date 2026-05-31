@@ -455,14 +455,33 @@ type Params struct {
 	Tiers model.TierMap
 }
 
+// newRecorder builds the transcript recorder for one run, or nil when
+// transcript capture is disabled. It stamps the Author-tier model — the "main"
+// creative model for this build (Editor / Utility resolutions are visible in
+// the retry / describe transcripts themselves) — and the site template id so a
+// transcript records which template's skeleton + prompt addendum shaped it.
+func (svc *Service) newRecorder(p Params, authorID string) *editrec.Recorder {
+	if !svc.recordEdit {
+		return nil
+	}
+	userPrompt := p.UserPrompt
+	if userPrompt == "" {
+		userPrompt = p.Prompt
+	}
+	rec := editrec.New(p.Slug, p.LogKey, userPrompt, p.Page, p.SelectionLen)
+	rec.SetModel(authorID, string(svc.reasoningEffort))
+	if p.Template != nil {
+		rec.SetTemplate(p.Template.ID)
+	}
+	return rec
+}
+
 // Start records the build as in-flight and runs it asynchronously. The
 // goroutine emits status events through the tracker; callers render the
 // progress page and subscribe via the events handler.
 //
-// step-by-step; splitting it into helpers fragments the failure-handling
-// paths without making the flow clearer.
-//
-//nolint:gocognit // procedural goroutine that walks the build lifecycle
+// The goroutine walks the build lifecycle step-by-step; splitting it into
+// helpers fragments the failure-handling paths without making the flow clearer.
 func (svc *Service) Start(p Params) {
 	svc.events.Start(p.Slug)
 
@@ -512,18 +531,7 @@ func (svc *Service) Start(p Params) {
 				slog.Warn(p.LogKey+".snapshot_failed", "slug", p.Slug, "err", err)
 			}
 		}
-		var rec *editrec.Recorder
-		if svc.recordEdit {
-			userPrompt := p.UserPrompt
-			if userPrompt == "" {
-				userPrompt = p.Prompt
-			}
-			rec = editrec.New(p.Slug, p.LogKey, userPrompt, p.Page, p.SelectionLen)
-			// Stamp the Author tier model — the "main" creative model for
-			// this build. Editor / Utility resolutions are visible in the
-			// retry / describe transcripts themselves.
-			rec.SetModel(authorID, string(svc.reasoningEffort))
-		}
+		rec := svc.newRecorder(p, authorID)
 		err = svc.buildAndLint(ctx, authorRunner, editorRunner, p.Slug, p.Prompt, p.Template, p.Attachments, p.Seeds, !p.SeedSkeleton, rec)
 		// Persist the transcript before emitting the terminal SSE event.
 		// Consumers (the progress strip, /system, /debug) treat "completed"
