@@ -51,8 +51,9 @@ func setAPICacheHeaders(c *echo.Context) {
 }
 
 // apiHandler dispatches GET/POST/etc. to functions/{name}.js inside the slug's
-// store. Per-template opt-in: returns 404 for slugs whose template did not
-// enable functions, so brochure sites stay byte-for-byte unchanged.
+// store. Opt-in per site: returns 404 unless the resolved template enables
+// functions, either natively or via the per-site EnablesFunctions override
+// the settings page exposes. Brochure sites stay byte-for-byte unchanged.
 func (s *Server) apiHandler(c *echo.Context, slug, name string) error {
 	// /api/* responses are dynamic per-call (CAS reads/writes against the KV
 	// store). Set no-store unconditionally — even on 404s — so a CDN never
@@ -67,11 +68,6 @@ func (s *Server) apiHandler(c *echo.Context, slug, name string) error {
 	ctx := c.Request().Context()
 
 	meta := s.build.ReadMeta(ctx, slug)
-	if meta.Template == "" {
-		// No metadata sidecar — sites created before templates existed don't
-		// have functions. Treat as not-found.
-		return notFound()
-	}
 	tmpl := build.EffectiveTemplate(meta)
 	if tmpl == nil || !tmpl.EnablesFunctions {
 		return notFound()
