@@ -243,7 +243,48 @@ type BuildContext struct {
 	IsEdit  bool
 }
 
-func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []Attachment, seeds []SeedToolCall, reasoningEffort genai.ThinkingLevel, bctx BuildContext, emit func(events.Event)) error {
+// Usage accumulates the token counts the model reports across one agent run.
+// Gemini-style usage metadata reports a per-response total, so we sum across
+// the model-response events of the run. Cached comes straight from the
+// provider's prompt cache, which makes CacheHitRatio a direct readout of
+// whether the cache-stable instruction prefix is actually being reused — the
+// single most useful signal for telling if the prompt-ordering work is
+// paying off. A run that errors mid-flight still returns whatever was spent
+// up to that point.
+type Usage struct {
+	Prompt     int64 // total prompt tokens (includes the cached portion)
+	Cached     int64 // prompt tokens served from the provider's cache
+	Candidates int64 // generated output tokens
+	Thoughts   int64 // reasoning tokens (0 when reasoning is off)
+	ToolUse    int64 // tokens billed for tool-result inputs
+	Total      int64 // provider-reported grand total across the run
+	Responses  int   // model responses that carried usage metadata
+}
+
+func (u Usage) add(m *genai.GenerateContentResponseUsageMetadata) Usage {
+	if m == nil {
+		return u
+	}
+	u.Prompt += int64(m.PromptTokenCount)
+	u.Cached += int64(m.CachedContentTokenCount)
+	u.Candidates += int64(m.CandidatesTokenCount)
+	u.Thoughts += int64(m.ThoughtsTokenCount)
+	u.ToolUse += int64(m.ToolUsePromptTokenCount)
+	u.Total += int64(m.TotalTokenCount)
+	u.Responses++
+	return u
+}
+
+// CacheHitRatio is the fraction of prompt tokens served from cache. Zero when
+// nothing was prompted yet (avoids a divide-by-zero on empty runs).
+func (u Usage) CacheHitRatio() float64 {
+	if u.Prompt == 0 {
+		return 0
+	}
+	return float64(u.Cached) / float64(u.Prompt)
+}
+
+func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []Attachment, seeds []SeedToolCall, reasoningEffort genai.ThinkingLevel, bctx BuildContext, emit func(events.Event)) (Usage, error) {
 	if emit == nil {
 		emit = func(events.Event) {}
 	}
@@ -254,7 +295,7 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 	// under per-invocation contexts from the runner; passing ctx would be wrong.
 	tools, err := buildAgentTools(s, slug, tmpl, attachments, emit, state) //nolint:contextcheck
 	if err != nil {
-		return err
+		return Usage{}, err
 	}
 
 	cfg := llmagent.Config{
@@ -280,7 +321,7 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 
 	a, err := llmagent.New(cfg)
 	if err != nil {
-		return fmt.Errorf("create agent: %w", err)
+		return Usage{}, fmt.Errorf("create agent: %w", err)
 	}
 
 	// Examples first (aspirational references the model should see before
@@ -295,7 +336,7 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 	sessSvc := session.InMemoryService()
 	sess, err := seedSession(ctx, sessSvc, slug, allSeeds)
 	if err != nil {
-		return err
+		return Usage{}, err
 	}
 
 	// History compaction: cap the conversation at ~20 entries so a long
@@ -316,7 +357,7 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 		PluginConfig:      guard.PluginConfig(),
 	})
 	if err != nil {
-		return fmt.Errorf("create runner: %w", err)
+		return Usage{}, fmt.Errorf("create runner: %w", err)
 	}
 
 	userMsg := &genai.Content{
@@ -324,14 +365,30 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 		Role:  "user",
 	}
 
+	// usage sums the per-response token counts the provider reports. Logged
+	// once on the way out (any exit point — clean finish, iteration cap, or
+	// mid-run error) so a forensic reader always sees what the run actually
+	// cost, even when it bailed.
+	var usage Usage
+	defer func() {
+		slog.Info("agent.usage", "slug", slug,
+			"prompt", usage.Prompt, "cached", usage.Cached,
+			"candidates", usage.Candidates, "thoughts", usage.Thoughts,
+			"tool_use", usage.ToolUse, "total", usage.Total,
+			"responses", usage.Responses, "cache_hit_ratio", usage.CacheHitRatio())
+	}()
+
 	for event, err := range r.Run(ctx, sess.UserID(), sess.ID(), userMsg, agent.RunConfig{}) {
 		if err != nil {
-			return fmt.Errorf("agent error: %w", err)
+			return usage, fmt.Errorf("agent error: %w", err)
+		}
+		if event != nil {
+			usage = usage.add(event.UsageMetadata)
 		}
 		iters := state.iters.Add(1)
 		if iters > maxAgentIterations {
 			slog.Warn("agent.iteration_cap", "slug", slug, "iterations", iters, "max", maxAgentIterations)
-			return fmt.Errorf("agent exceeded %d iterations without finalizing", maxAgentIterations)
+			return usage, fmt.Errorf("agent exceeded %d iterations without finalizing", maxAgentIterations)
 		}
 		// Surface multi-tool-call batches so we can confirm the model is
 		// actually fanning out and that the writeMu serialization isn't
@@ -346,7 +403,7 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 		}
 	}
 
-	return nil
+	return usage, nil
 }
 
 // seedSession creates a fresh session for the given slug and pre-populates it

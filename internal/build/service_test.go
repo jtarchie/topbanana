@@ -201,15 +201,16 @@ type scriptedRunner struct {
 	calls    atomic.Int32
 	describe agent.SiteDescription
 	runDelay time.Duration // optional pause to exercise timeout path
+	usage    agent.Usage   // returned from every Run call (zero value is fine)
 }
 
-func (r *scriptedRunner) Run(ctx context.Context, s *store.Store, slug, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, _ time.Time, _ bool, emit func(events.Event)) error {
+func (r *scriptedRunner) Run(ctx context.Context, s *store.Store, slug, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, _ time.Time, _ bool, emit func(events.Event)) (agent.Usage, error) {
 	idx := int(r.calls.Add(1)) - 1
 	if r.runDelay > 0 {
 		select {
 		case <-time.After(r.runDelay):
 		case <-ctx.Done():
-			return ctx.Err() //nolint:wrapcheck
+			return r.usage, ctx.Err() //nolint:wrapcheck
 		}
 	}
 	body := validIndexHTML
@@ -219,10 +220,10 @@ func (r *scriptedRunner) Run(ctx context.Context, s *store.Store, slug, _ string
 	emit(events.Event{Type: events.TypeTool, Tool: "write_file", Phase: events.PhaseStart, Path: "/index.html"})
 	err := s.Write(ctx, slug, "index.html", body, "text/html; charset=utf-8", nil)
 	if err != nil {
-		return fmt.Errorf("scriptedRunner write: %w", err)
+		return r.usage, fmt.Errorf("scriptedRunner write: %w", err)
 	}
 	emit(events.Event{Type: events.TypeTool, Tool: "write_file", Phase: events.PhaseDone, Path: "/index.html"})
-	return nil
+	return r.usage, nil
 }
 
 func (r *scriptedRunner) Describe(_ context.Context, _ *store.Store, _, _ string) (agent.SiteDescription, error) {

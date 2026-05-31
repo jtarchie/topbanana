@@ -69,6 +69,9 @@ type debugDetailData struct {
 	SelectionLen    int
 	FinalStatus     string
 	Error           string
+	Usage           editrec.Usage
+	HasUsage        bool
+	CacheHitPct     string
 	ToolCalls       []debugToolRow
 	FileChanges     []debugFileRow
 	Empty           bool
@@ -141,6 +144,13 @@ func (s *Server) debugDetailHandler(c *echo.Context) error {
 		SelectionLen:    t.SelectionLen,
 		FinalStatus:     t.FinalStatus,
 		Error:           t.Error,
+		Usage:           t.Usage,
+	}
+	if t.Usage.Responses > 0 {
+		data.HasUsage = true
+		if t.Usage.Prompt > 0 {
+			data.CacheHitPct = fmt.Sprintf("%.0f%%", 100*float64(t.Usage.Cached)/float64(t.Usage.Prompt))
+		}
 	}
 	if t.StartedAt.IsZero() && len(t.ToolCalls) == 0 && len(t.FileChanges) == 0 {
 		data.Empty = true

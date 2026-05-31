@@ -33,6 +33,13 @@
           {{ if .SelectionLen }}<dt class="text-base-content/60">Selection</dt><dd>{{ .SelectionLen }} bytes</dd>{{ end }}
           {{ if .UserPrompt }}<dt class="text-base-content/60">Prompt</dt><dd class="break-words">{{ .UserPrompt }}</dd>{{ end }}
           {{ if .Error }}<dt class="text-base-content/60">Error</dt><dd class="text-error">{{ .Error }}</dd>{{ end }}
+          {{ if .HasUsage }}
+          <dt class="text-base-content/60">Tokens</dt><dd class="font-mono">
+            {{ .Usage.Total }} total
+            <span class="text-base-content/60">({{ .Usage.Prompt }} prompt · {{ .Usage.Candidates }} output{{ if .Usage.Thoughts }} · {{ .Usage.Thoughts }} reasoning{{ end }})</span>
+          </dd>
+          {{ if .CacheHitPct }}<dt class="text-base-content/60">Cache hits</dt><dd class="font-mono">{{ .CacheHitPct }} of prompt <span class="text-base-content/60">({{ .Usage.Cached }} tokens)</span></dd>{{ end }}
+          {{ end }}
         </dl>
       </div>
     </section>

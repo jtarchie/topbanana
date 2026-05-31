@@ -21,7 +21,7 @@ import (
 // them — they only assert which Runner runnerForTier returns.
 type fakeRunner struct{ id string }
 
-func (f *fakeRunner) Run(_ context.Context, _ *store.Store, _, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, _ time.Time, _ bool, _ func(events.Event)) error {
+func (f *fakeRunner) Run(_ context.Context, _ *store.Store, _, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, _ time.Time, _ bool, _ func(events.Event)) (agent.Usage, error) {
 	panic("fakeRunner.Run should not be called in cache tests")
 }
 

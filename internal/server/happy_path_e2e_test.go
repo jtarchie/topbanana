@@ -49,16 +49,16 @@ const stubIndexHTML = `<!DOCTYPE html>
 </html>
 `
 
-func (r *stubRunner) Run(ctx context.Context, s *store.Store, slug, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, _ time.Time, _ bool, emit func(events.Event)) error {
+func (r *stubRunner) Run(ctx context.Context, s *store.Store, slug, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, _ time.Time, _ bool, emit func(events.Event)) (agent.Usage, error) {
 	now := time.Now().UTC()
 	emit(events.Event{Type: events.TypeTool, Tool: "write_file", Phase: events.PhaseStart, Path: "/index.html", Time: now})
 	err := s.Write(ctx, slug, "index.html", stubIndexHTML, "text/html; charset=utf-8", nil)
 	if err != nil {
 		emit(events.Event{Type: events.TypeTool, Tool: "write_file", Phase: events.PhaseError, Path: "/index.html", Message: err.Error(), Time: time.Now().UTC()})
-		return fmt.Errorf("stub write: %w", err)
+		return agent.Usage{}, fmt.Errorf("stub write: %w", err)
 	}
 	emit(events.Event{Type: events.TypeTool, Tool: "write_file", Phase: events.PhaseDone, Path: "/index.html", Time: time.Now().UTC()})
-	return nil
+	return agent.Usage{}, nil
 }
 
 func (r *stubRunner) Describe(_ context.Context, _ *store.Store, _ string, _ string) (agent.SiteDescription, error) {

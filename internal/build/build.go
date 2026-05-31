@@ -110,7 +110,7 @@ func EffectiveTemplate(meta SiteMeta) *templates.SiteTemplate {
 // flows unchanged into every retry, so the agent sees the same "today" all
 // the way through a single build. isEdit comes from !Params.SeedSkeleton.
 type Runner interface {
-	Run(ctx context.Context, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, buildStart time.Time, isEdit bool, emit func(events.Event)) error
+	Run(ctx context.Context, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, buildStart time.Time, isEdit bool, emit func(events.Event)) (agent.Usage, error)
 	Describe(ctx context.Context, s *store.Store, slug, userPrompt string) (agent.SiteDescription, error)
 }
 
@@ -161,18 +161,18 @@ func (r agentRunner) siteURL(slug string) string {
 	return fmt.Sprintf("%s://%s.%s%s", scheme, slug, r.domain, port)
 }
 
-func (r agentRunner) Run(ctx context.Context, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, buildStart time.Time, isEdit bool, emit func(events.Event)) error {
+func (r agentRunner) Run(ctx context.Context, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, buildStart time.Time, isEdit bool, emit func(events.Event)) (agent.Usage, error) {
 	bctx := agent.BuildContext{
 		Now:     buildStart,
 		Slug:    slug,
 		SiteURL: r.siteURL(slug),
 		IsEdit:  isEdit,
 	}
-	err := agent.Run(ctx, r.llm, s, slug, prompt, tmpl, attachments, seeds, r.reasoningEffort, bctx, emit)
+	usage, err := agent.Run(ctx, r.llm, s, slug, prompt, tmpl, attachments, seeds, r.reasoningEffort, bctx, emit)
 	if err != nil {
-		return fmt.Errorf("agent run: %w", err)
+		return usage, fmt.Errorf("agent run: %w", err)
 	}
-	return nil
+	return usage, nil
 }
 
 func (r agentRunner) Describe(ctx context.Context, s *store.Store, slug, userPrompt string) (agent.SiteDescription, error) {
@@ -335,9 +335,18 @@ func (svc *Service) runnerForTier(ctx context.Context, override model.TierMap, t
 		return nil, "", fmt.Errorf("build: no model configured for tier %q", t)
 	}
 
+	effort := svc.reasoningForTier(t)
+
 	svc.cacheMu.Lock()
 	defer svc.cacheMu.Unlock()
-	if r, ok := svc.runners[id]; ok {
+	// Runners are keyed by (model ID, reasoning effort): two tiers on the
+	// same model but different reasoning levels (author reasons, editor /
+	// utility don't) need distinct runner wrappers. The underlying LLM client
+	// is still shared via the per-ID llms cache inside resolveLLMLocked, so
+	// the factory fires once per model regardless of how many reasoning
+	// variants wrap it — the cost the cache exists to avoid.
+	key := id + "\x00" + string(effort)
+	if r, ok := svc.runners[key]; ok {
 		return r, id, nil
 	}
 	llm, err := svc.resolveLLMLocked(ctx, id)
@@ -346,13 +355,28 @@ func (svc *Service) runnerForTier(ctx context.Context, override model.TierMap, t
 	}
 	r := agentRunner{
 		llm:             llm,
-		reasoningEffort: svc.reasoningEffort,
+		reasoningEffort: effort,
 		domain:          svc.domain,
 		port:            svc.port,
 		insecure:        svc.insecure,
 	}
-	svc.runners[id] = r
+	svc.runners[key] = r
 	return r, id, nil
+}
+
+// reasoningForTier picks the reasoning effort a tier should run at. Only the
+// Author tier — open-ended creative generation — benefits from reasoning. The
+// Editor tier applies deterministic mechanical lint fixes (LintFixPrompt) and
+// the Utility tier writes a short title/description summary; neither gains
+// from spending reasoning tokens, so they always run with reasoning off no
+// matter what level the operator configured. This is a fixed policy today; if
+// it ever needs to be operator-tunable it can grow into a per-tier config map
+// the same way model selection did.
+func (svc *Service) reasoningForTier(t model.Tier) genai.ThinkingLevel {
+	if t == model.TierAuthor {
+		return svc.reasoningEffort
+	}
+	return ""
 }
 
 // LLMForTier returns the raw ADK LLM for a tier — the path the caption
@@ -567,7 +591,8 @@ func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slu
 	// dates mid-flight and invalidate the per-build prefix.
 	buildStart := time.Now()
 
-	err := author.Run(ctx, svc.store, slug, prompt, tmpl, attachments, seeds, buildStart, isEdit, emit)
+	usage, err := author.Run(ctx, svc.store, slug, prompt, tmpl, attachments, seeds, buildStart, isEdit, emit)
+	recordUsage(rec, usage)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("build timed out after %s", svc.buildTimeout)
@@ -609,7 +634,8 @@ func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slu
 
 		slog.Info("build.lint_retry", "slug", slug, "attempt", attempt+1, "issues", len(residual))
 		emit(events.Event{Type: events.TypeStatus, Status: events.StatusRetry, Message: fmt.Sprintf("fixing %d issue(s)", len(residual))})
-		err := editor.Run(ctx, svc.store, slug, LintFixPrompt(residual), tmpl, attachments, nil, buildStart, isEdit, emit)
+		usage, err := editor.Run(ctx, svc.store, slug, LintFixPrompt(residual), tmpl, attachments, nil, buildStart, isEdit, emit)
+		recordUsage(rec, usage)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				return fmt.Errorf("build timed out after %s", svc.buildTimeout)
@@ -619,6 +645,22 @@ func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slu
 	}
 
 	return nil
+}
+
+// recordUsage folds one agent run's token tally into the transcript. Separate
+// helper because both the author run and every lint-fix retry feed the same
+// recorder, and the agent.Usage → editrec.Usage mapping shouldn't be repeated
+// inline. Nil recorder (tests that opt out of transcripts) is a no-op.
+func recordUsage(rec *editrec.Recorder, u agent.Usage) {
+	rec.AddUsage(editrec.Usage{
+		Prompt:     u.Prompt,
+		Cached:     u.Cached,
+		Candidates: u.Candidates,
+		Thoughts:   u.Thoughts,
+		ToolUse:    u.ToolUse,
+		Total:      u.Total,
+		Responses:  u.Responses,
+	})
 }
 
 // autoFixLint rewrites files in-place for any error whose Kind has a

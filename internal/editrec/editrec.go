@@ -79,8 +79,25 @@ type Transcript struct {
 	SelectionLen    int          `json:"selection_len,omitempty"`
 	FinalStatus     string       `json:"final_status,omitempty"`
 	Error           string       `json:"error,omitempty"`
+	Usage           Usage        `json:"usage,omitempty"`
 	ToolCalls       []ToolCall   `json:"tool_calls"`
 	FileChanges     []FileChange `json:"file_changes"`
+}
+
+// Usage is the per-run token tally summed across every agent turn that fed
+// this transcript — the initial author run plus any lint-fix retries. Mirrors
+// agent.Usage as a stable on-disk shape (editrec is a persistence package and
+// deliberately does not import the agent runtime). Cached vs Prompt is the
+// signal that tells whether the cache-stable instruction prefix is being
+// reused across builds.
+type Usage struct {
+	Prompt     int64 `json:"prompt_tokens,omitempty"`
+	Cached     int64 `json:"cached_tokens,omitempty"`
+	Candidates int64 `json:"candidates_tokens,omitempty"`
+	Thoughts   int64 `json:"thoughts_tokens,omitempty"`
+	ToolUse    int64 `json:"tool_use_tokens,omitempty"`
+	Total      int64 `json:"total_tokens,omitempty"`
+	Responses  int   `json:"responses,omitempty"`
 }
 
 // ToolCall is one start/done/error event in the agent run.
@@ -159,6 +176,24 @@ func (r *Recorder) SetModel(model, reasoningEffort string) {
 	defer r.mu.Unlock()
 	r.transcript.Model = model
 	r.transcript.ReasoningEffort = reasoningEffort
+}
+
+// AddUsage folds one agent run's token tally into the transcript total. Called
+// once per run (author plus each lint-fix retry), so the recorded figure is
+// the full cost of producing the site, not just the last turn.
+func (r *Recorder) AddUsage(u Usage) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.transcript.Usage.Prompt += u.Prompt
+	r.transcript.Usage.Cached += u.Cached
+	r.transcript.Usage.Candidates += u.Candidates
+	r.transcript.Usage.Thoughts += u.Thoughts
+	r.transcript.Usage.ToolUse += u.ToolUse
+	r.transcript.Usage.Total += u.Total
+	r.transcript.Usage.Responses += u.Responses
 }
 
 // Wrap returns an emit callback that records each event into the transcript
