@@ -50,6 +50,8 @@ var cli struct {
 
 	BuildTimeout time.Duration `default:"15m" env:"BUILD_TIMEOUT" help:"Wall-clock cap per build (initial agent run plus any lint retries). Bump for slower local models; lower for cloud-only deployments." name:"build-timeout"`
 
+	TailwindCLI string `env:"TAILWIND_CLI" help:"Path to the Tailwind standalone binary used for the post-build per-site CSS compile. Empty falls back to a 'tailwindcss' or 'npx @tailwindcss/cli' on PATH; if none resolves, sites keep the CDN substrate tags." name:"tailwind-cli"`
+
 	LLMModel        string `default:"lmstudio/google/gemma-4-26b-a4b" env:"LLM_MODEL"                                                                                                                                         help:"LLM model as provider/model-name. Used for the Author tier (initial site generation) and as the fallback for any tier-specific flag left unset."    name:"llm-model"`
 	LLMEditorModel  string `env:"LLM_EDITOR_MODEL"                    help:"Model for the Editor tier: /edit, /relint, and lint-retry passes inside a build. Falls back to --llm-model when empty."                           name:"llm-editor-model"`
 	LLMUtilityModel string `env:"LLM_UTILITY_MODEL"                   help:"Model for the Utility tier: post-build site-description summary. Falls back to --llm-model when empty."                                           name:"llm-utility-model"`
@@ -154,6 +156,7 @@ func main() {
 		Domain:          cli.Domain,
 		Port:            cli.Port,
 		Insecure:        cli.InsecureCookies,
+		TailwindCLI:     cli.TailwindCLI,
 	})
 	sb := sandbox.New(sandbox.Config{})
 	stateStore := state.NewS3(s3Client, cli.S3Bucket)

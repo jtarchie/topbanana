@@ -121,10 +121,15 @@ const (
 	tailwindHost    = "cdn.jsdelivr.net/npm/@tailwindcss/browser"
 )
 
+// localStylesheetHref is the self-hosted stylesheet that the post-build CSS
+// compile injects in place of the three CDN substrate tags. A page linking it
+// has the full substrate baked in, so the CDN-tag checks below don't apply.
+const localStylesheetHref = "/app.css"
+
 // substratePresence tracks which design-substrate elements the walker found
 // as well-formed DOM nodes during one pass over a document.
 type substratePresence struct {
-	daisy, daisyThemes, tailwind bool
+	daisy, daisyThemes, tailwind, local bool
 }
 
 func (p *substratePresence) inspect(n *html.Node) {
@@ -138,6 +143,8 @@ func (p *substratePresence) inspect(n *html.Node) {
 				continue
 			}
 			switch {
+			case a.Val == localStylesheetHref:
+				p.local = true
 			case strings.Contains(a.Val, daisyThemesPath):
 				p.daisyThemes = true
 			case strings.Contains(a.Val, daisyHost):
@@ -170,6 +177,12 @@ func checkDesignSubstrate(file string, doc *html.Node) []Error {
 		}
 	}
 	walk(doc)
+
+	// A page that links the self-hosted /app.css has the compiled substrate
+	// baked in — the CDN tags are intentionally absent post-optimize.
+	if p.local {
+		return nil
+	}
 
 	var errs []Error
 	if !p.daisy {
@@ -220,7 +233,7 @@ func AutoFixDesignSubstrate(content string) (string, bool) {
 		}
 	}
 	walk(doc)
-	if p.daisy && p.daisyThemes && p.tailwind {
+	if p.local || (p.daisy && p.daisyThemes && p.tailwind) {
 		return content, false
 	}
 	lower := strings.ToLower(content)

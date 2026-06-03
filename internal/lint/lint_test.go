@@ -173,6 +173,34 @@ func TestCheckDesignSubstrate_WellFormedPasses(t *testing.T) {
 	}
 }
 
+// TestCheckDesignSubstrate_LocalStylesheetPasses confirms a page that links
+// the self-hosted /app.css (the post-build CSS compile output) is treated as
+// having the full substrate — the CDN tags are intentionally absent. Without
+// this, a re-lint of an optimized site would try to re-inject CDN tags.
+func TestCheckDesignSubstrate_LocalStylesheetPasses(t *testing.T) {
+	t.Parallel()
+
+	src := `<!DOCTYPE html>
+<html data-theme="synthwave"><head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/app.css">
+<title>x</title>
+</head><body><h1>hi</h1></body></html>`
+
+	doc, err := html.Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	if errs := checkDesignSubstrate("index.html", doc); len(errs) != 0 {
+		t.Fatalf("optimized page (links /app.css) should pass substrate lint, got: %+v", errs)
+	}
+
+	// And AutoFix must leave it alone (no CDN tags re-injected).
+	if out, changed := AutoFixDesignSubstrate(src); changed {
+		t.Errorf("AutoFixDesignSubstrate must not touch a /app.css page:\n%s", out)
+	}
+}
+
 // TestCheckDesignSubstrate_MissingThemesFailsLint locks in the themes.css
 // requirement: a page that only loads the base daisyui@5 stylesheet is
 // missing 20+ themes' palettes, so any data-theme beyond light/dark renders

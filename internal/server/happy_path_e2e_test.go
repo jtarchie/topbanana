@@ -172,7 +172,7 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	// bootstrap script reads; `theme-toggle` is the input id wired up to
 	// flip the data-theme attribute.
 	for _, want := range []string{
-		`data-theme="lemonade"`, "Top Banana", "Build a new app", "daisyui@5",
+		`data-theme="lemonade"`, "Top Banana", "Build a new app", `href="/app.css"`,
 		"tb_theme", `id="theme-toggle"`,
 	} {
 		if !strings.Contains(body, want) {

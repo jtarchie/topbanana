@@ -23,6 +23,8 @@ Use `task` for development automation.
 | --- | --- |
 | `task fmt` | Runs linters on the codebase |
 | `task local` | Starts the application locally, ensuring Minio is ready and pointing to LM Studio. |
+| `task css` | Recompiles the embedded admin-UI stylesheet (`internal/assets/app.css`) from `app.input.css`. Run after editing the admin templates or input CSS. |
+| `task vendor:daisyui` | Re-vendors the daisyUI npm package into `internal/assets/daisyui` (then bump `DaisyUIVersion` in `internal/assets/embed.go` + run `task css`). |
 | `task minio:start` | Starts a background Minio server. |
 | `task minio:stop` | Stops the running Minio server. |
 | `task minio:ready` | Verifies or starts Minio if it's not currently running. |
@@ -67,6 +69,19 @@ Every directory under `internal/templates/sites/` must contain:
    ## Gotchas
    ```
 3. **`skeleton/`** (optional) — files seeded onto the filesystem before the agent runs.
+
+## CSS pipeline (self-hosted Tailwind + daisyUI — no CDN)
+The design substrate is **compiled, not CDN-loaded**. daisyUI v5 is vendored in `internal/assets/daisyui/` and the Tailwind v4 **standalone CLI** (Node-free) compiles it:
+
+- **Admin UI**: a single sheet `internal/assets/app.css` is precompiled (`task css`) from `internal/assets/app.input.css`, embedded via `internal/assets/embed.go`, and served at `/app.css` by `appCSSHandler`. Committed so `go run` works without the CLI. `layout.html` / `visual_edit.html` link `/app.css`.
+- **User sites**: after every build/edit, `build.Service.optimizeCSS` (`internal/build/css_compile.go`) runs the CLI over the site's actual HTML (`@plugin "daisyui" { themes: all }`), writes `{slug}/app.css`, and rewrites pages to swap the CDN tags for `<link href="/app.css">`. Best-effort — on no CLI / compile error it logs and leaves the CDN tags so the page still renders.
+- **CDN tags are the "source form"**: the agent prompt, lint, and the skeleton/example HTML still emit the three `cdn.jsdelivr.net` substrate tags. `optimizeCSS` converts them in prod; lint accepts *either* the CDN tags or the `/app.css` link.
+- **CLI resolution**: `--tailwind-cli` / `TAILWIND_CLI`, else `tailwindcss` on PATH, else `npx @tailwindcss/cli`, else skip. The Docker image carries the `tailwindcss-linux-*-musl` standalone binary at `/usr/local/bin/tailwindcss`.
+
+**Gotchas:**
+- The `*-musl` standalone binary is **not fully static** — the runtime image must install `libstdc++ libgcc` or it fails with relocation errors.
+- daisyUI v5 components are a fixed layer (**not** content-purged); only the Tailwind utility layer is purged, and `@source not <daisyui dir>` is required or the output balloons (~52 KB vs ~260 KB+).
+- `themes: all` is intentional so Theme Studio can switch themes without a recompile.
 
 ## Implementation Details (for developers)
 - **Subdomain Proxying**: The `subdomainMiddleware` in `server.go` is the heart of the routing. It strips the domain part to find the "slug" and uses that slug to query S3.

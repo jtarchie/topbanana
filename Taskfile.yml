@@ -17,6 +17,25 @@ tasks:
       - golangci-lint run ./... --fix
       - go test -race ./...
 
+  css:
+    desc: Recompile the embedded admin-UI stylesheet (internal/assets/app.css) from app.input.css + vendored daisyUI. Run after editing the admin templates or the input CSS.
+    dir: internal/assets
+    cmds:
+      - tailwindcss -i app.input.css -o app.css --minify
+
+  vendor:daisyui:
+    desc: Re-vendor the daisyUI npm package into internal/assets/daisyui. After bumping, update DaisyUIVersion in internal/assets/embed.go and rerun `task css`.
+    cmds:
+      - |
+        set -e
+        tmp="$(mktemp -d)"
+        ( cd "$tmp" && npm pack daisyui@5 >/dev/null && tar xzf daisyui-*.tgz )
+        rm -f "$tmp"/package/README.md
+        rm -rf internal/assets/daisyui
+        mv "$tmp"/package internal/assets/daisyui
+        rm -rf "$tmp"
+        node -e 'console.log("vendored daisyui", require("./internal/assets/daisyui/package.json").version)'
+
   local:
     desc: Run the app locally using LM Studio and Minio
     deps: [minio:ready]

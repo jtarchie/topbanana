@@ -222,6 +222,15 @@ type Service struct {
 	cacheMu    sync.Mutex
 	runners    map[string]Runner
 	llms       map[string]adkmodel.LLM
+
+	// tailwindCLI overrides how the per-site CSS compile finds the Tailwind
+	// standalone binary. Empty falls back to PATH lookup (tailwindcss, then
+	// npx @tailwindcss/cli); when nothing resolves, optimizeCSS is a no-op and
+	// pages keep their CDN substrate tags. See css_compile.go.
+	tailwindCLI string
+	daisyOnce   sync.Once
+	daisyDir    string
+	daisyErr    error
 }
 
 // LLMFactory resolves a model identifier (typically "provider/name") to an
@@ -267,6 +276,11 @@ type Config struct {
 	Domain   string
 	Port     string
 	Insecure bool
+
+	// TailwindCLI overrides the path to the Tailwind standalone binary used
+	// for the post-build per-site CSS compile. Empty falls back to PATH /
+	// npx, then to a no-op (pages keep CDN tags). See css_compile.go.
+	TailwindCLI string
 }
 
 // New is the legacy constructor used by tests that just want a Service
@@ -309,6 +323,7 @@ func NewWithConfig(cfg Config) *Service {
 		domain:          cfg.Domain,
 		port:            cfg.Port,
 		insecure:        cfg.Insecure,
+		tailwindCLI:     cfg.TailwindCLI,
 		llmFactory:      cfg.LLMFactory,
 		runners:         map[string]Runner{},
 		llms:            map[string]adkmodel.LLM{},
@@ -551,6 +566,12 @@ func (svc *Service) Start(p Params) {
 			svc.events.Fail(p.Slug, err)
 			return
 		}
+		// Compile a minimal, self-contained stylesheet for the finished site
+		// and rewrite its pages to link it instead of the CDN substrate.
+		// Best-effort, exactly like refreshDescription: a failure (no CLI,
+		// compile error) logs and leaves the CDN tags in place so the site
+		// still renders. Runs for edits too — Start is the shared entry point.
+		svc.optimizeCSS(ctx, p.Slug)
 		svc.refreshDescription(ctx, utilityRunner, p.Slug, p.Prompt)
 		slog.Info(p.LogKey+".done", "slug", p.Slug)
 		if rec != nil {

@@ -23,28 +23,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css">
-<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-<style type="text/tailwindcss">
-  @theme {
-    --font-sans: "Inter", system-ui, -apple-system, sans-serif;
-  }
-  :root { font-size: 16px; }
-  body { font-family: "Inter", system-ui, -apple-system, sans-serif; }
-  :focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
-  .btn { min-height: 2.5rem; }
-
-  /* Shared side-panel pattern: any page that opts into the panel_js partial
-     can place an <aside class="side-panel"> + matching <div class="side-scrim">
-     and they'll slide in from the right with a backdrop. Pair each panel
-     with id="panel-<name>" + id="scrim-<name>" and a button carrying
-     data-panel="<name>" to open. */
-  .side-panel { position: fixed; top: 0; right: 0; height: 100vh; width: min(420px, 100vw); transform: translateX(100%); transition: transform .2s ease; z-index: 50; }
-  .side-panel[data-open="true"] { transform: translateX(0); }
-  .side-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.3); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 40; }
-  .side-scrim[data-open="true"] { opacity: 1; pointer-events: auto; }
-</style>
+<!-- Self-hosted Tailwind + daisyUI, precompiled from internal/assets/app.input.css
+     (which carries the @theme + side-panel rules formerly inlined here) and
+     served by appCSSHandler. No CDN, no in-browser JIT compiler. -->
+<link rel="stylesheet" href="/app.css">
 {{- end }}
 
 {{ define "brand" -}}

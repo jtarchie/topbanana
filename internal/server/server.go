@@ -32,6 +32,7 @@ import (
 	adkmodel "google.golang.org/adk/model"
 
 	"github.com/jtarchie/topbanana/internal/agent"
+	"github.com/jtarchie/topbanana/internal/assets"
 	"github.com/jtarchie/topbanana/internal/auth"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/editrec"
@@ -221,6 +222,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 	e.GET("/status/:slug", s.statusHandler, s.requireUser, s.requireSlugOwnership)
 	e.GET("/events/:slug", s.eventsHandler, s.requireUser, s.requireSlugOwnership)
 	e.GET("/favicon.svg", s.faviconHandler)
+	e.GET("/app.css", s.appCSSHandler)
 
 	// Legal pages: always-public, unauthenticated. Prospective users need to
 	// read these before signing up, so they can't sit behind requireUser.
@@ -651,6 +653,15 @@ func (s *Server) siteURL(c *echo.Context, slug, path string) string {
 func (s *Server) faviconHandler(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "public, max-age=86400")
 	return c.Blob(http.StatusOK, "image/svg+xml", []byte(faviconSVG)) //nolint:wrapcheck
+}
+
+// appCSSHandler serves the precompiled admin-UI stylesheet (Tailwind + daisyUI,
+// embedded — no CDN) on the main app host. User sites carry their own /app.css
+// in S3, served by proxyHandler; subdomainMiddleware routes those before they
+// reach this handler.
+func (s *Server) appCSSHandler(c *echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "public, max-age=86400")
+	return c.Blob(http.StatusOK, "text/css; charset=utf-8", assets.AppCSS) //nolint:wrapcheck
 }
 
 // adminURL builds an absolute URL on the main app domain. Used by the toolbar

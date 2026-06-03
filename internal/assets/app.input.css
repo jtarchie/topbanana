@@ -1,0 +1,49 @@
+/*
+ * Tailwind + daisyUI input for Top Banana's OWN admin UI.
+ *
+ * Compiled to app.css by `task css` (and the Docker builder stage) using the
+ * vendored daisyUI plugin in ./daisyui. The output is embedded via embed.go
+ * and served at /app.css on the platform domain (see appCSSHandler) — there is
+ * no CDN dependency at runtime.
+ *
+ * Content is scanned from the server templates so only the utilities the admin
+ * chrome actually uses are emitted. The custom block below is lifted verbatim
+ * from the former <style type="text/tailwindcss"> in templates/layout.html.
+ */
+@import "tailwindcss";
+
+/* Scan the admin templates + partials for utility classes. */
+@source "../server/templates/*.html";
+@source "../server/*.html";
+
+/* Never scan the vendored daisyUI source — its class-like tokens would
+   otherwise be treated as "used" and balloon the utility layer — nor the
+   compiled output, so the build is independent of a prior app.css. */
+@source not "./daisyui";
+@source not "./app.css";
+
+/* daisyUI as a plugin so only the components/themes we configure ship. The
+   admin chrome uses lemonade (light) + cyberpunk (dark, prefers-color-scheme);
+   keep every theme available so the theme studio preview works. */
+@plugin "./daisyui/index.js" {
+  themes: all;
+}
+
+@theme {
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+:root { font-size: 16px; }
+body { font-family: "Inter", system-ui, -apple-system, sans-serif; }
+:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.btn { min-height: 2.5rem; }
+
+/* Shared side-panel pattern: any page that opts into the panel_js partial can
+   place an <aside class="side-panel"> + matching <div class="side-scrim"> and
+   they'll slide in from the right with a backdrop. Pair each panel with
+   id="panel-<name>" + id="scrim-<name>" and a button carrying
+   data-panel="<name>" to open. */
+.side-panel { position: fixed; top: 0; right: 0; height: 100vh; width: min(420px, 100vw); transform: translateX(100%); transition: transform .2s ease; z-index: 50; }
+.side-panel[data-open="true"] { transform: translateX(0); }
+.side-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.3); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 40; }
+.side-scrim[data-open="true"] { opacity: 1; pointer-events: auto; }
