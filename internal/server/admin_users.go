@@ -91,11 +91,14 @@ func (s *Server) adminUsersHandler(c *echo.Context) error {
 			continue
 		}
 		inviteRows = append(inviteRows, adminInviteRow{
-			Token:   inv.Token,
-			Email:   inv.Email,
-			Role:    string(inv.Role),
+			Token: inv.Token,
+			Email: inv.Email,
+			Role:  string(inv.Role),
+			// Full absolute URL (scheme + host + port match the admin's
+			// current request) so the operator can copy a ready-to-share
+			// link instead of a bare /register?invite=<token> path.
 			Expires: inv.Expires.UTC().Format("2006-01-02 15:04"),
-			URL:     "/register?invite=" + inv.Token,
+			URL:     s.adminURL(c, "/register?invite="+inv.Token),
 		})
 	}
 	sort.SliceStable(inviteRows, func(i, j int) bool { return inviteRows[i].Email < inviteRows[j].Email })
