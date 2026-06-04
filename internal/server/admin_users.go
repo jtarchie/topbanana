@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -151,7 +152,7 @@ func (s *Server) adminInviteRevokeHandler(c *echo.Context) error {
 // to disable the caller themselves so a super admin can't accidentally
 // lock themselves out.
 func (s *Server) adminUserDisableHandler(c *echo.Context) error {
-	email := auth.NormalizeEmail(c.Param("email"))
+	email := emailParam(c)
 	if email == "" {
 		return notFound()
 	}
@@ -185,7 +186,7 @@ func (s *Server) adminUserDisableHandler(c *echo.Context) error {
 
 // adminUserEnableHandler clears the Disabled bit. Symmetric to disable.
 func (s *Server) adminUserEnableHandler(c *echo.Context) error {
-	email := auth.NormalizeEmail(c.Param("email"))
+	email := emailParam(c)
 	if email == "" {
 		return notFound()
 	}
@@ -205,11 +206,33 @@ func (s *Server) adminUserEnableHandler(c *echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/admin/users?flash=user+enabled") //nolint:wrapcheck
 }
 
+// emailParam reads the :email route parameter and resolves it to a canonical
+// address via normalizeEmailParam.
+func emailParam(c *echo.Context) string {
+	return normalizeEmailParam(c.Param("email"))
+}
+
+// normalizeEmailParam URL-unescapes a raw :email path segment before
+// normalizing. Server-rendered forms put the address in the path literally
+// (e.g. .../bradarchie@gmail.com/disable), but the shared quotas panel builds
+// its action in JS with encodeURIComponent, so the same address can arrive
+// percent-encoded (.../bradarchie%40gmail.com/quotas). Echo does not decode
+// path params, so without this the lookup misses and the handler 404s.
+// PathUnescape is a no-op on the already-literal forms, so both encodings
+// resolve to the same record.
+func normalizeEmailParam(raw string) string {
+	decoded, err := url.PathUnescape(raw)
+	if err == nil {
+		raw = decoded
+	}
+	return auth.NormalizeEmail(raw)
+}
+
 // adminUserRevokeSessionsHandler drops every session for the target
 // user without changing the Disabled bit. Useful when a device is lost
 // and the user is about to re-enroll.
 func (s *Server) adminUserRevokeSessionsHandler(c *echo.Context) error {
-	email := auth.NormalizeEmail(c.Param("email"))
+	email := emailParam(c)
 	if email == "" {
 		return notFound()
 	}
@@ -224,7 +247,7 @@ func (s *Server) adminUserRevokeSessionsHandler(c *echo.Context) error {
 // + per-tier model overrides. Empty MaxApps means "use system default";
 // each empty model field means "inherit the system default for that tier".
 func (s *Server) adminUserQuotasHandler(c *echo.Context) error {
-	email := auth.NormalizeEmail(c.Param("email"))
+	email := emailParam(c)
 	if email == "" {
 		return notFound()
 	}

@@ -83,3 +83,25 @@ func TestParseTierForm_AllEmptyReturnsNil(t *testing.T) {
 		t.Errorf("expected nil for all-empty form, got %v", got)
 	}
 }
+
+// TestNormalizeEmailParam guards the :email path-param decoding. The quotas
+// panel builds its action with JS encodeURIComponent, so '@' arrives as
+// '%40'; the server-rendered disable/enable forms send '@' literally. Both
+// must resolve to the same canonical address, or the user lookup 404s.
+func TestNormalizeEmailParam(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"bradarchie%40gmail.com":  "bradarchie@gmail.com",  // encoded (quotas panel)
+		"bradarchie@gmail.com":    "bradarchie@gmail.com",  // literal (disable/enable)
+		"Brad.Archie%40Gmail.com": "brad.archie@gmail.com", // encoded + mixed case
+		"brad%2Btag%40gmail.com":  "brad+tag@gmail.com",    // plus-addressed, fully encoded
+		"brad+tag@gmail.com":      "brad+tag@gmail.com",    // plus stays literal (not a space)
+		"":                        "",
+	}
+	for raw, want := range cases {
+		if got := normalizeEmailParam(raw); got != want {
+			t.Errorf("normalizeEmailParam(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
