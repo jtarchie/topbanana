@@ -145,19 +145,12 @@ func (s *Server) themeStudioApplyHandler(c *echo.Context) error {
 	})
 }
 
-// daisyThemesHref is the CDN URL for DaisyUI's full theme palette. The base
-// daisyui@5 stylesheet only ships light/dark; without this companion every
-// other data-theme value (synthwave, cupcake, …) renders with default
-// colors because its CSS variables are never defined.
-const daisyThemesHref = "https://cdn.jsdelivr.net/npm/daisyui@5/themes.css"
-
 // setThemeAttribute returns content with the <html> element's data-theme
-// attribute set to theme. If the attribute is absent it's added. If the
-// page already loads the base daisyui@5 stylesheet but is missing the
-// themes companion, the themes <link> is inserted immediately after the
-// base — older sites built before that link was required get fixed up the
-// first time Theme Studio touches them. The rest of the document (doctype,
-// head, body, scripts, attribute order on other tags) is preserved.
+// attribute set to theme. If the attribute is absent it's added. Every theme's
+// palette ships in the self-hosted /app.css (compiled with all themes), so
+// switching data-theme is all that's needed — no per-theme stylesheet to wire
+// up. The rest of the document (doctype, head, body, scripts, attribute order
+// on other tags) is preserved.
 func setThemeAttribute(content, theme string) (string, error) {
 	doc, err := html.Parse(strings.NewReader(content))
 	if err != nil {
@@ -181,68 +174,12 @@ func setThemeAttribute(content, theme string) (string, error) {
 		htmlNode.Attr = append(htmlNode.Attr, html.Attribute{Key: "data-theme", Val: theme})
 	}
 
-	ensureDaisyThemesLink(doc)
-
 	var out bytes.Buffer
 	err = html.Render(&out, doc)
 	if err != nil {
 		return "", fmt.Errorf("render document: %w", err)
 	}
 	return out.String(), nil
-}
-
-// ensureDaisyThemesLink inserts a themes.css <link> immediately after the
-// base daisyui@5 <link> when the page is missing it. No-op when the themes
-// link is already present, or when the base daisyui link is absent (that's
-// a separate problem the lint flags — Theme Studio shouldn't bootstrap the
-// design substrate from scratch).
-func ensureDaisyThemesLink(doc *html.Node) {
-	var baseLink *html.Node
-	var hasThemes bool
-
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if hasThemes {
-			return
-		}
-		if n.Type == html.ElementNode && n.Data == "link" {
-			for _, a := range n.Attr {
-				if a.Key != "href" {
-					continue
-				}
-				switch {
-				case strings.Contains(a.Val, "daisyui@5/themes.css"):
-					hasThemes = true
-					return
-				case strings.Contains(a.Val, "cdn.jsdelivr.net/npm/daisyui") && baseLink == nil:
-					baseLink = n
-				}
-			}
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
-	}
-	walk(doc)
-
-	if hasThemes || baseLink == nil {
-		return
-	}
-
-	themesLink := &html.Node{
-		Type: html.ElementNode,
-		Data: "link",
-		Attr: []html.Attribute{
-			{Key: "href", Val: daisyThemesHref},
-			{Key: "rel", Val: "stylesheet"},
-			{Key: "type", Val: "text/css"},
-		},
-	}
-	parent := baseLink.Parent
-	if parent == nil {
-		return
-	}
-	parent.InsertBefore(themesLink, baseLink.NextSibling)
 }
 
 // readThemeAttribute returns the data-theme value on the <html> element, or

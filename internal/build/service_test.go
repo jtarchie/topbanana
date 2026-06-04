@@ -168,9 +168,7 @@ const validIndexHTML = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Test</title>
-<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css">
+<link rel="stylesheet" href="/app.css">
 </head>
 <body>
 <main class="p-6"><h1>Hello</h1></main>
@@ -185,9 +183,7 @@ const brokenIndexHTML = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <title>Broken</title>
-<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css">
+<link rel="stylesheet" href="/app.css">
 </head>
 <body><a href="missing.html">go nowhere</a></body>
 </html>`

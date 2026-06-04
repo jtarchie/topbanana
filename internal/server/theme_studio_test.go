@@ -88,64 +88,23 @@ func TestSetThemeAttribute_HandlesUppercaseAttribute(t *testing.T) {
 	}
 }
 
-func TestSetThemeAttribute_AddsMissingThemesCSS(t *testing.T) {
-	// A page from before themes.css was required: base daisy + tailwind
-	// only. Applying a theme should also bolt on the themes companion.
-	src := `<!DOCTYPE html><html data-theme="light"><head>` +
-		`<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />` +
-		`<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>` +
-		`</head><body></body></html>`
-
-	got, err := setThemeAttribute(src, "synthwave")
-	if err != nil {
-		t.Fatalf("setThemeAttribute: %v", err)
-	}
-	if !strings.Contains(got, `data-theme="synthwave"`) {
-		t.Errorf("new theme not set; got:\n%s", got)
-	}
-	if !strings.Contains(got, "daisyui@5/themes.css") {
-		t.Errorf("themes.css link not injected; got:\n%s", got)
-	}
-	// The themes link must follow (not precede) the base link so the
-	// cascade order matches the agent prompt.
-	baseIdx := strings.Index(got, `npm/daisyui@5"`)
-	themesIdx := strings.Index(got, "daisyui@5/themes.css")
-	if baseIdx < 0 || themesIdx < 0 || themesIdx < baseIdx {
-		t.Errorf("themes link must come after base link; got:\n%s", got)
-	}
-}
-
-func TestSetThemeAttribute_DoesNotDuplicateThemesCSS(t *testing.T) {
-	src := `<!DOCTYPE html><html data-theme="light"><head>` +
-		`<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />` +
-		`<link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />` +
-		`<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>` +
-		`</head><body></body></html>`
-
-	got, err := setThemeAttribute(src, "cupcake")
-	if err != nil {
-		t.Fatalf("setThemeAttribute: %v", err)
-	}
-	if c := strings.Count(got, "daisyui@5/themes.css"); c != 1 {
-		t.Errorf("expected exactly one themes link, got %d; output:\n%s", c, got)
-	}
-}
-
-func TestSetThemeAttribute_LeavesDaisylessPagesAlone(t *testing.T) {
-	// If the base daisyui link is missing the page isn't built on the
-	// design substrate; Theme Studio swaps the attribute but doesn't try
-	// to bootstrap the missing scaffolding.
-	src := `<!DOCTYPE html><html data-theme="light"><head><title>t</title></head><body></body></html>`
+func TestSetThemeAttribute_SwapsOnSubstrateLessPage(t *testing.T) {
+	// Every theme's palette ships in /app.css, so Theme Studio only swaps the
+	// data-theme attribute — it never bootstraps any stylesheet link.
+	src := `<!DOCTYPE html><html data-theme="light"><head><link rel="stylesheet" href="/app.css"><title>t</title></head><body></body></html>`
 
 	got, err := setThemeAttribute(src, "dark")
 	if err != nil {
 		t.Fatalf("setThemeAttribute: %v", err)
 	}
-	if strings.Contains(got, "daisyui@5/themes.css") {
-		t.Errorf("themes link bootstrapped without a base daisy link; got:\n%s", got)
-	}
 	if !strings.Contains(got, `data-theme="dark"`) {
-		t.Errorf("theme attribute swap still failed; got:\n%s", got)
+		t.Errorf("theme attribute swap failed; got:\n%s", got)
+	}
+	if strings.Contains(got, "cdn.jsdelivr.net") {
+		t.Errorf("setThemeAttribute must not introduce any CDN link; got:\n%s", got)
+	}
+	if c := strings.Count(got, `href="/app.css"`); c != 1 {
+		t.Errorf("expected exactly one /app.css link, got %d; output:\n%s", c, got)
 	}
 }
 

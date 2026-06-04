@@ -61,7 +61,7 @@ func TestSuspiciousAttrValues_SwallowedLink(t *testing.T) {
 	src := `<!DOCTYPE html>
 <html><head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale        <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+<meta name="viewport" content="width=device-width, initial-scale        <link rel="stylesheet" href="/app.css" />
 <title>x</title>
 </head><body></body></html>`
 
@@ -110,19 +110,18 @@ func TestSuspiciousAttrValues_LegitContent(t *testing.T) {
 	}
 }
 
-// TestCheckDesignSubstrate_SwallowedTagsFailLint complements the parser
-// fix: when DaisyUI's bytes appear inside a malformed meta's attribute
-// value (no real <link> element in the DOM), checkDesignSubstrate must
-// still flag the page as missing the substrate.
+// TestCheckDesignSubstrate_SwallowedTagsFailLint complements the parser fix:
+// when the /app.css href appears inside a malformed meta's attribute value (no
+// real <link> element in the DOM), checkDesignSubstrate must still flag the
+// page as missing the substrate.
 func TestCheckDesignSubstrate_SwallowedTagsFailLint(t *testing.T) {
 	t.Parallel()
 
-	// DaisyUI URL is present as text but the link tag is swallowed by the
-	// broken meta. Tailwind script is well-formed (separate line, intact).
+	// The href is present as text but the <link> is swallowed by the broken
+	// meta whose content="..." never closes its quote.
 	src := `<!DOCTYPE html>
 <html><head>
-<meta name="viewport" content="width=device-width, initial-scale        <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
-<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<meta name="viewport" content="width=device-width, initial-scale        <link rel="stylesheet" href="/app.css">
 <title>x</title>
 </head><body></body></html>`
 
@@ -130,59 +129,21 @@ func TestCheckDesignSubstrate_SwallowedTagsFailLint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("html.Parse: %v", err)
 	}
-
-	errs := checkDesignSubstrate("index.html", doc)
-	if len(errs) == 0 {
-		t.Fatal("checkDesignSubstrate passed when DaisyUI <link> was swallowed by malformed meta")
-	}
-	found := false
-	for _, e := range errs {
-		if strings.Contains(e.Message, "DaisyUI") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("expected a DaisyUI-specific error, got: %+v", errs)
+	if errs := checkDesignSubstrate("index.html", doc); len(errs) == 0 {
+		t.Fatal("checkDesignSubstrate passed when the /app.css <link> was swallowed by a malformed meta")
 	}
 }
 
-// TestCheckDesignSubstrate_WellFormedPasses confirms a correctly authored
-// page with both substrate tags as real elements passes lint.
+// TestCheckDesignSubstrate_WellFormedPasses confirms a page that links the
+// self-hosted /app.css as a real element passes lint, and AutoFix leaves it
+// untouched.
 func TestCheckDesignSubstrate_WellFormedPasses(t *testing.T) {
-	t.Parallel()
-
-	src := `<!DOCTYPE html>
-<html><head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
-<link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />
-<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-<title>x</title>
-</head><body><h1>hi</h1></body></html>`
-
-	doc, err := html.Parse(strings.NewReader(src))
-	if err != nil {
-		t.Fatalf("html.Parse: %v", err)
-	}
-
-	errs := checkDesignSubstrate("index.html", doc)
-	if len(errs) != 0 {
-		t.Fatalf("checkDesignSubstrate flagged a well-formed page: %+v", errs)
-	}
-}
-
-// TestCheckDesignSubstrate_LocalStylesheetPasses confirms a page that links
-// the self-hosted /app.css (the post-build CSS compile output) is treated as
-// having the full substrate — the CDN tags are intentionally absent. Without
-// this, a re-lint of an optimized site would try to re-inject CDN tags.
-func TestCheckDesignSubstrate_LocalStylesheetPasses(t *testing.T) {
 	t.Parallel()
 
 	src := `<!DOCTYPE html>
 <html data-theme="synthwave"><head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="/app.css">
 <title>x</title>
 </head><body><h1>hi</h1></body></html>`
@@ -192,95 +153,40 @@ func TestCheckDesignSubstrate_LocalStylesheetPasses(t *testing.T) {
 		t.Fatalf("html.Parse: %v", err)
 	}
 	if errs := checkDesignSubstrate("index.html", doc); len(errs) != 0 {
-		t.Fatalf("optimized page (links /app.css) should pass substrate lint, got: %+v", errs)
+		t.Fatalf("checkDesignSubstrate flagged a well-formed page: %+v", errs)
 	}
-
-	// And AutoFix must leave it alone (no CDN tags re-injected).
 	if out, changed := AutoFixDesignSubstrate(src); changed {
-		t.Errorf("AutoFixDesignSubstrate must not touch a /app.css page:\n%s", out)
-	}
-}
-
-// TestCheckDesignSubstrate_MissingThemesFailsLint locks in the themes.css
-// requirement: a page that only loads the base daisyui@5 stylesheet is
-// missing 20+ themes' palettes, so any data-theme beyond light/dark renders
-// flat. The lint must call this out so the agent (or Theme Studio) fixes it.
-func TestCheckDesignSubstrate_MissingThemesFailsLint(t *testing.T) {
-	t.Parallel()
-
-	src := `<!DOCTYPE html>
-<html><head>
-<meta charset="UTF-8">
-<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
-<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-<title>x</title>
-</head><body></body></html>`
-
-	doc, err := html.Parse(strings.NewReader(src))
-	if err != nil {
-		t.Fatalf("html.Parse: %v", err)
-	}
-
-	errs := checkDesignSubstrate("index.html", doc)
-	found := false
-	for _, e := range errs {
-		if strings.Contains(e.Message, "themes stylesheet") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("expected a themes-stylesheet error, got: %+v", errs)
+		t.Errorf("AutoFixDesignSubstrate must not touch a page already linking /app.css:\n%s", out)
 	}
 }
 
 func TestAutoFixDesignSubstrate(t *testing.T) {
 	t.Parallel()
 
-	const wantDaisy = `cdn.jsdelivr.net/npm/daisyui@5"`
-	const wantThemes = `daisyui@5/themes.css`
-	const wantTailwind = `@tailwindcss/browser@4`
+	const want = `href="/app.css"`
 
-	t.Run("injects all three when head is empty", func(t *testing.T) {
+	t.Run("injects the stylesheet when head lacks it", func(t *testing.T) {
 		in := `<!DOCTYPE html><html><head><title>x</title></head><body></body></html>`
 		out, changed := AutoFixDesignSubstrate(in)
 		if !changed {
 			t.Fatal("expected changed=true")
 		}
-		if !strings.Contains(out, wantDaisy) || !strings.Contains(out, wantThemes) || !strings.Contains(out, wantTailwind) {
-			t.Errorf("missing substrate tags in output: %s", out)
+		if !strings.Contains(out, want) {
+			t.Errorf("missing /app.css link in output: %s", out)
 		}
-		if !strings.Contains(out, "</head>") || strings.Index(out, "</head>") < strings.Index(out, wantTailwind) {
-			t.Errorf("substrate must be injected before </head>: %s", out)
-		}
-	})
-
-	t.Run("idempotent when all present", func(t *testing.T) {
-		in := `<!DOCTYPE html><html><head>` +
-			`<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />` +
-			`<link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />` +
-			`<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>` +
-			`</head><body></body></html>`
-		_, changed := AutoFixDesignSubstrate(in)
-		if changed {
-			t.Fatal("expected changed=false when substrate already present")
+		if strings.Index(out, want) > strings.Index(out, "</head>") {
+			t.Errorf("link must be injected before </head>: %s", out)
 		}
 	})
 
-	t.Run("injects only the missing tag", func(t *testing.T) {
-		in := `<!DOCTYPE html><html><head>` +
-			`<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />` +
-			`<link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />` +
-			`</head><body></body></html>`
+	t.Run("idempotent when already present", func(t *testing.T) {
+		in := `<!DOCTYPE html><html><head><link rel="stylesheet" href="/app.css"></head><body></body></html>`
 		out, changed := AutoFixDesignSubstrate(in)
-		if !changed {
-			t.Fatal("expected changed=true (tailwind is missing)")
+		if changed {
+			t.Fatalf("expected changed=false when /app.css already present:\n%s", out)
 		}
-		if strings.Count(out, "daisyui@5\"") != 1 || strings.Count(out, "daisyui@5/themes.css") != 1 {
-			t.Errorf("existing tags must not be duplicated: %s", out)
-		}
-		if !strings.Contains(out, wantTailwind) {
-			t.Errorf("tailwind tag must be injected: %s", out)
+		if strings.Count(out, want) != 1 {
+			t.Errorf("must not duplicate the link: %s", out)
 		}
 	})
 
@@ -299,7 +205,7 @@ func TestAutoFixDesignSubstrate(t *testing.T) {
 func TestErrorKindClassification(t *testing.T) {
 	t.Parallel()
 
-	// Bare doc → all three substrate errors must have the auto-fix kind.
+	// Bare doc → the substrate error must carry the auto-fix kind.
 	doc, err := html.Parse(strings.NewReader(`<!DOCTYPE html><html><head></head><body></body></html>`))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -314,7 +220,7 @@ func TestErrorKindClassification(t *testing.T) {
 	// content swallows the next <link>.
 	doc, err = html.Parse(strings.NewReader(
 		`<!DOCTYPE html><html><head>` +
-			`<meta name="viewport" content="<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />` +
+			`<meta name="viewport" content="<link rel="stylesheet" href="/app.css" />` +
 			`</head><body></body></html>`))
 	if err != nil {
 		t.Fatalf("parse: %v", err)

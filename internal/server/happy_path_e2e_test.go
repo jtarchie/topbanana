@@ -39,9 +39,7 @@ const stubIndexHTML = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hello from the stub agent</title>
-<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css">
+<link rel="stylesheet" href="/app.css">
 </head>
 <body>
 <main class="p-6"><h1 class="text-3xl">Hello, world.</h1></main>

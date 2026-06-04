@@ -23,8 +23,8 @@ import (
 type Kind string
 
 const (
-	// KindDesignSubstrate identifies a missing DaisyUI/Tailwind <link> or
-	// <script> tag — purely mechanical, AutoFixDesignSubstrate handles it.
+	// KindDesignSubstrate identifies a page missing the self-hosted /app.css
+	// stylesheet link — purely mechanical, AutoFixDesignSubstrate handles it.
 	KindDesignSubstrate Kind = "design_substrate"
 	// KindSuspiciousAttr identifies an unclosed quoted attribute that
 	// swallowed a following element. Auto-fix is unsafe here because
@@ -110,63 +110,39 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 // kill. Match the host (not the full URL) so version bumps in the agent's
 // output don't make the lint flake.
 //
-// daisyHost matches the base stylesheet OR the themes companion via
-// substring; daisyThemesPath is the suffix that distinguishes "all themes
-// loaded" from "only light + dark loaded." Without the themes link, every
-// `data-theme="synthwave"` (and the other 20+ stock themes) renders as the
-// default palette — the attribute is set but the variables are absent.
-const (
-	daisyHost       = "cdn.jsdelivr.net/npm/daisyui"
-	daisyThemesPath = "daisyui@5/themes.css"
-	tailwindHost    = "cdn.jsdelivr.net/npm/@tailwindcss/browser"
-)
-
-// localStylesheetHref is the self-hosted stylesheet that the post-build CSS
-// compile injects in place of the three CDN substrate tags. A page linking it
-// has the full substrate baked in, so the CDN-tag checks below don't apply.
+// localStylesheetHref is the self-hosted stylesheet every page must link. It
+// is compiled per site by the post-build CSS step (build.optimizeCSS) and
+// served at /app.css — it bundles DaisyUI, every theme, and the Tailwind
+// utilities the page uses. There is no CDN substrate anymore.
 const localStylesheetHref = "/app.css"
 
-// substratePresence tracks which design-substrate elements the walker found
-// as well-formed DOM nodes during one pass over a document.
+// localStylesheetTag is the canonical form AutoFixDesignSubstrate injects.
+const localStylesheetTag = `<link rel="stylesheet" href="/app.css">`
+
+// substratePresence records whether the self-hosted stylesheet link was found
+// as a well-formed DOM node during one pass over a document.
 type substratePresence struct {
-	daisy, daisyThemes, tailwind, local bool
+	local bool
 }
 
 func (p *substratePresence) inspect(n *html.Node) {
-	if n.Type != html.ElementNode {
+	if n.Type != html.ElementNode || n.Data != "link" {
 		return
 	}
-	switch n.Data {
-	case "link":
-		for _, a := range n.Attr {
-			if a.Key != "href" {
-				continue
-			}
-			switch {
-			case a.Val == localStylesheetHref:
-				p.local = true
-			case strings.Contains(a.Val, daisyThemesPath):
-				p.daisyThemes = true
-			case strings.Contains(a.Val, daisyHost):
-				p.daisy = true
-			}
-		}
-	case "script":
-		for _, a := range n.Attr {
-			if a.Key == "src" && strings.Contains(a.Val, tailwindHost) {
-				p.tailwind = true
-			}
+	for _, a := range n.Attr {
+		if a.Key == "href" && a.Val == localStylesheetHref {
+			p.local = true
 		}
 	}
 }
 
-// checkDesignSubstrate verifies a page links every part of the design
-// substrate as well-formed DOM elements — not just bytes that appear
-// somewhere in the file. Substring matching missed the failure where a
-// previous attribute (typically a <meta> viewport whose content="" lost
-// its closing quote) swallows the next tag during parser recovery: the
-// substrate URL still appears in the file but no <link>/<script> exists
-// in the DOM and the page renders without DaisyUI.
+// checkDesignSubstrate verifies a page links the self-hosted /app.css
+// stylesheet as a well-formed DOM element — not just bytes that appear
+// somewhere in the file. Substring matching would miss the failure where a
+// previous attribute (typically a <meta> viewport whose content="" lost its
+// closing quote) swallows the <link> during parser recovery: the href still
+// appears in the file but no <link> exists in the DOM and the page renders
+// unstyled.
 func checkDesignSubstrate(file string, doc *html.Node) []Error {
 	var p substratePresence
 	var walk func(*html.Node)
@@ -178,47 +154,26 @@ func checkDesignSubstrate(file string, doc *html.Node) []Error {
 	}
 	walk(doc)
 
-	// A page that links the self-hosted /app.css has the compiled substrate
-	// baked in — the CDN tags are intentionally absent post-optimize.
 	if p.local {
 		return nil
 	}
-
-	var errs []Error
-	if !p.daisy {
-		errs = append(errs, Error{
-			File:    file,
-			Kind:    KindDesignSubstrate,
-			Message: "missing DaisyUI stylesheet — every page must include `<link href=\"https://cdn.jsdelivr.net/npm/daisyui@5\" rel=\"stylesheet\" type=\"text/css\" />` in <head> as a well-formed element. If the URL appears in the file but this check still fires, an earlier attribute (often a <meta> viewport) is missing a closing quote and is consuming the <link> tag.",
-		})
-	}
-	if !p.daisyThemes {
-		errs = append(errs, Error{
-			File:    file,
-			Kind:    KindDesignSubstrate,
-			Message: "missing DaisyUI themes stylesheet — every page must also include `<link href=\"https://cdn.jsdelivr.net/npm/daisyui@5/themes.css\" rel=\"stylesheet\" type=\"text/css\" />` in <head> directly after the base daisyui link. Without it the base stylesheet only ships `light` and `dark`, so a `data-theme` value like `synthwave` falls back to the default palette.",
-		})
-	}
-	if !p.tailwind {
-		errs = append(errs, Error{
-			File:    file,
-			Kind:    KindDesignSubstrate,
-			Message: "missing Tailwind browser script — every page must include `<script src=\"https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4\"></script>` in <head> as a well-formed element.",
-		})
-	}
-	return errs
+	return []Error{{
+		File:    file,
+		Kind:    KindDesignSubstrate,
+		Message: "missing stylesheet — every page must include `<link rel=\"stylesheet\" href=\"/app.css\">` in <head> as a well-formed element. /app.css is the self-hosted DaisyUI + Tailwind sheet (no CDN). If the href appears in the file but this check still fires, an earlier attribute (often a <meta> viewport) is missing a closing quote and is consuming the <link> tag.",
+	}}
 }
 
-// AutoFixDesignSubstrate injects any missing DaisyUI + Tailwind substrate
-// tags right before the closing </head>. Idempotent: an already-present
-// tag (per the same DOM walk checkDesignSubstrate uses) is not
-// re-injected. Returns the new content and whether anything changed.
+// AutoFixDesignSubstrate injects the self-hosted stylesheet link right before
+// the closing </head> when it's missing. Idempotent: a page that already
+// links /app.css (per the same DOM walk checkDesignSubstrate uses) is left
+// untouched. Returns the new content and whether anything changed.
 //
 // Callers must NOT invoke this on a file that also produced a
-// KindSuspiciousAttr error — a parser-recovery bug there means the
-// substrate URL may appear in the bytes but be swallowed by a broken
-// attribute, and adding more tags would compound the corruption rather
-// than repair it. The build loop checks for that before calling in.
+// KindSuspiciousAttr error — a parser-recovery bug there means the href may
+// appear in the bytes but be swallowed by a broken attribute, and adding more
+// tags would compound the corruption rather than repair it. The build loop
+// checks for that before calling in.
 func AutoFixDesignSubstrate(content string) (string, bool) {
 	doc, err := html.Parse(strings.NewReader(content))
 	if err != nil {
@@ -233,7 +188,7 @@ func AutoFixDesignSubstrate(content string) (string, bool) {
 		}
 	}
 	walk(doc)
-	if p.local || (p.daisy && p.daisyThemes && p.tailwind) {
+	if p.local {
 		return content, false
 	}
 	lower := strings.ToLower(content)
@@ -241,17 +196,7 @@ func AutoFixDesignSubstrate(content string) (string, bool) {
 	if closeIdx == -1 {
 		return content, false
 	}
-	var b strings.Builder
-	if !p.daisy {
-		b.WriteString(`<link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />` + "\n")
-	}
-	if !p.daisyThemes {
-		b.WriteString(`<link href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" rel="stylesheet" type="text/css" />` + "\n")
-	}
-	if !p.tailwind {
-		b.WriteString(`<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>` + "\n")
-	}
-	return content[:closeIdx] + b.String() + content[closeIdx:], true
+	return content[:closeIdx] + localStylesheetTag + "\n" + content[closeIdx:], true
 }
 
 // suspiciousAttrValues flags an attribute value that contains an embedded
@@ -422,6 +367,12 @@ func checkLink(filename, dir, rawVal string, fileSet map[string]bool, enablesFns
 	// has no way to know which {name} handlers the agent has authored, and
 	// functions/{name}.js may not yet be written when the page is linted.
 	if enablesFns && strings.HasPrefix(link, "/api/") {
+		return nil
+	}
+	// /app.css is the self-hosted design substrate — compiled per site by the
+	// post-build CSS step (so it isn't in the bucket when the page is linted)
+	// and served by the platform. Always valid, never a broken link.
+	if link == localStylesheetHref {
 		return nil
 	}
 	resolved := path.Join(dir, link)

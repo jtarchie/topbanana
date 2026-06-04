@@ -73,15 +73,17 @@ Every directory under `internal/templates/sites/` must contain:
 ## CSS pipeline (self-hosted Tailwind + daisyUI — no CDN)
 The design substrate is **compiled, not CDN-loaded**. daisyUI v5 is vendored in `internal/assets/daisyui/` and the Tailwind v4 **standalone CLI** (Node-free) compiles it:
 
+- **The canonical substrate is `/app.css`** — a single `<link rel="stylesheet" href="/app.css">`. There are **no** CDN tags anywhere: the agent prompt, lint, and every skeleton/example HTML emit `/app.css`. (`internal/build/css_compile.go` still keeps regexes to *strip* legacy `cdn.jsdelivr.net` tags from old stored pages on re-edit.)
 - **Admin UI**: a single sheet `internal/assets/app.css` is precompiled (`task css`) from `internal/assets/app.input.css`, embedded via `internal/assets/embed.go`, and served at `/app.css` by `appCSSHandler`. Committed so `go run` works without the CLI. `layout.html` / `visual_edit.html` link `/app.css`.
-- **User sites**: after every build/edit, `build.Service.optimizeCSS` (`internal/build/css_compile.go`) runs the CLI over the site's actual HTML (`@plugin "daisyui" { themes: all }`), writes `{slug}/app.css`, and rewrites pages to swap the CDN tags for `<link href="/app.css">`. Best-effort — on no CLI / compile error it logs and leaves the CDN tags so the page still renders.
-- **CDN tags are the "source form"**: the agent prompt, lint, and the skeleton/example HTML still emit the three `cdn.jsdelivr.net` substrate tags. `optimizeCSS` converts them in prod; lint accepts *either* the CDN tags or the `/app.css` link.
+- **User sites**: after every build/edit, `build.Service.optimizeCSS` (`internal/build/css_compile.go`) runs the CLI over the site's actual HTML (`@plugin "daisyui" { themes: all }`) and writes `{slug}/app.css`, served at `/app.css` on the site host. **No fallback**: if the compile is skipped (no CLI) or fails, `/app.css` 404s and the page is unstyled — so the CLI must be present wherever sites are built (it's in the Docker image; dev needs `tailwindcss`/`npx`).
+- **Lint**: `checkDesignSubstrate` requires the `/app.css` link (auto-fixed by `AutoFixDesignSubstrate`); `checkLink` exempts `/app.css` from the broken-link check since it's created post-lint by `optimizeCSS`.
 - **CLI resolution**: `--tailwind-cli` / `TAILWIND_CLI`, else `tailwindcss` on PATH, else `npx @tailwindcss/cli`, else skip. The Docker image carries the `tailwindcss-linux-*-musl` standalone binary at `/usr/local/bin/tailwindcss`.
 
 **Gotchas:**
 - The `*-musl` standalone binary is **not fully static** — the runtime image must install `libstdc++ libgcc` or it fails with relocation errors.
 - daisyUI v5 components are a fixed layer (**not** content-purged); only the Tailwind utility layer is purged, and `@source not <daisyui dir>` is required or the output balloons (~52 KB vs ~260 KB+).
 - `themes: all` is intentional so Theme Studio can switch themes without a recompile.
+- `optimizeCSS` runs *after* lint, so a page links `/app.css` before the file exists — both the lint broken-link check and the proxy must tolerate that ordering.
 
 ## Implementation Details (for developers)
 - **Subdomain Proxying**: The `subdomainMiddleware` in `server.go` is the heart of the routing. It strips the domain part to find the "slug" and uses that slug to query S3.
