@@ -1693,20 +1693,38 @@ func (s *Server) relintHandler(c *echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/workspace/"+slug+"?flash=lint-clean") //nolint:wrapcheck
 	}
 
-	// Relint should run entirely on the Editor tier — the prompt is a
-	// deterministic lint-fix patch, well within reach of the smaller
-	// model that already handles per-build retries. Promoting the
-	// resolved Editor model into the Author slot of the override flips
-	// every phase of the build over without having to teach build.Service
-	// a per-call tier flag.
+	// Clear deterministically fixable issues in-code before reaching for the
+	// agent. AutoFix injects the /app.css substrate link (preserving all
+	// existing content) and OptimizeCSS recompiles the stylesheet. A purely
+	// mechanical relint — by far the common case — then re-lints clean and
+	// never spawns an LLM. This matters beyond cost: the agent path has
+	// regenerated pages from the error text alone and wiped site content.
+	s.build.AutoFix(ctx, slug, lintErrs)
+	s.build.OptimizeCSS(ctx, slug)
+	residual := s.build.Lint(ctx, slug, tmpl)
+	if len(residual) == 0 {
+		slog.Info("relint.autofixed", "slug", slug, "fixed", len(lintErrs))
+		return c.Redirect(http.StatusSeeOther, "/workspace/"+slug+"?flash=lint-autofixed") //nolint:wrapcheck
+	}
+
+	// Residual, non-mechanical issues need the agent. Relint should run
+	// entirely on the Editor tier — the prompt is a lint-fix patch, well
+	// within reach of the smaller model that already handles per-build
+	// retries. Promoting the resolved Editor model into the Author slot of
+	// the override flips every phase of the build over without having to
+	// teach build.Service a per-call tier flag. Seed the agent with the
+	// affected files (LintFixPrompt names them) so it edits in place rather
+	// than writing blind.
 	resolved := s.effectiveTiersFor(userFromContext(c))
 	tiers := model.TierMap{model.TierAuthor: resolved.Resolve(model.TierEditor)}
-	slog.Info("relint.start", "slug", slug, "issues", len(lintErrs), "template", tmpl.ID, "tiers", tiers)
+	prompt := build.LintFixPrompt(residual)
+	slog.Info("relint.start", "slug", slug, "issues", len(residual), "template", tmpl.ID, "tiers", tiers)
 	return s.startBuild(c, build.Params{
 		Slug:     slug,
-		Prompt:   build.LintFixPrompt(lintErrs),
+		Prompt:   prompt,
 		LogKey:   "relint",
 		Template: tmpl,
+		Seeds:    s.build.EditSeeds(ctx, slug, prompt),
 		Tiers:    tiers,
 	})
 }

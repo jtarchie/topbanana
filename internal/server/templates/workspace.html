@@ -30,6 +30,9 @@
   {{ if eq .Flash "lint-clean" }}
   <div class="alert alert-success mb-4" role="status"><span>Validation passed — no issues found.</span></div>
   {{ end }}
+  {{ if eq .Flash "lint-autofixed" }}
+  <div class="alert alert-success mb-4" role="status"><span>Issues fixed automatically — no agent run was needed.</span></div>
+  {{ end }}
 
   <div class="grid grid-cols-1 lg:grid-cols-[14rem_1fr] gap-4">
     <aside class="space-y-4 text-sm" aria-label="Workspace tools">

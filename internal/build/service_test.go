@@ -74,8 +74,16 @@ func TestLintFixPrompt_FormatsEachError(t *testing.T) {
 		{File: "about.html", Message: "broken link"},
 	}
 	got := LintFixPrompt(errs)
-	if !strings.HasPrefix(got, "Fix these issues") {
+	if !strings.Contains(got, "Fix these issues in the site:") {
 		t.Errorf("prompt missing header: %q", got)
+	}
+	// The edit-in-place guardrail must be present so the agent reads files
+	// before editing instead of regenerating them from the error text alone
+	// (the failure mode that wiped a site during relint).
+	for _, want := range []string{"read_file", "in place", "do not rewrite"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("prompt missing guardrail phrase %q in:\n%s", want, got)
+		}
 	}
 	for _, want := range []string{"index.html: missing daisyui", "about.html: broken link"} {
 		if !strings.Contains(got, want) {
@@ -326,6 +334,70 @@ func TestService_Start_LintRetryFixesAndCompletes(t *testing.T) {
 	}
 	if !sawRetry {
 		t.Errorf("expected a status=retry event in the SSE stream; got %d events", len(history))
+	}
+}
+
+// substrateMissingHTML is valid except it lacks the /app.css link, so it
+// trips exactly one lint error (KindDesignSubstrate) — the deterministic,
+// in-code-fixable kind. The body carries marker text we assert survives.
+const substrateMissingHTML = `<!DOCTYPE html>
+<html lang="en" data-theme="cupcake">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keepers</title>
+</head>
+<body>
+<main class="p-6"><h1>Keep this heading</h1><p>And this paragraph.</p></main>
+</body>
+</html>`
+
+// TestService_AutoFix_DesignSubstratePreservesContent locks in the relint
+// data-loss fix: a missing-/app.css error is repaired in-code with the
+// existing content intact, leaving zero residual errors for the agent.
+func TestService_AutoFix_DesignSubstratePreservesContent(t *testing.T) {
+	t.Parallel()
+
+	st := minioStoreForBuild(t)
+	if st == nil {
+		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
+	}
+
+	svc := NewWithConfig(Config{Store: st})
+	slug := buildSlug(t)
+	cleanupSlug(t, st, slug)
+
+	ctx := context.Background()
+	err := st.Write(ctx, slug, "index.html", substrateMissingHTML, "text/html; charset=utf-8", nil)
+	if err != nil {
+		t.Fatalf("seed write: %v", err)
+	}
+
+	tmpl := templates.Get("blank")
+	errs := svc.Lint(ctx, slug, tmpl)
+	if len(errs) == 0 {
+		t.Fatalf("expected a design-substrate lint error for a page missing /app.css")
+	}
+
+	residual := svc.AutoFix(ctx, slug, errs)
+	if len(residual) != 0 {
+		t.Errorf("AutoFix residual = %d, want 0 (all deterministically fixable): %v", len(residual), residual)
+	}
+	if got := svc.Lint(ctx, slug, tmpl); len(got) != 0 {
+		t.Errorf("re-lint after AutoFix = %d errors, want 0: %v", len(got), got)
+	}
+
+	obj, err := st.Read(ctx, slug, "index.html")
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if !strings.Contains(obj.Content, `href="/app.css"`) {
+		t.Errorf("AutoFix did not inject the /app.css link:\n%s", obj.Content)
+	}
+	for _, want := range []string{"Keep this heading", "And this paragraph.", `data-theme="cupcake"`} {
+		if !strings.Contains(obj.Content, want) {
+			t.Errorf("AutoFix dropped original content %q:\n%s", want, obj.Content)
+		}
 	}
 }
 

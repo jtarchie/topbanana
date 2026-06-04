@@ -590,6 +590,24 @@ func (svc *Service) Lint(ctx context.Context, slug string, tmpl *templates.SiteT
 	return lint.App(ctx, svc.store, slug, tmpl)
 }
 
+// AutoFix applies the in-code fixes for deterministically fixable lint errors
+// (currently KindDesignSubstrate — injecting the /app.css link) and returns the
+// residual errors that still need the agent. It reuses the exact path the build
+// retry loop runs before falling back to the LLM, so callers like the relint
+// endpoint can clear mechanical issues without spending an agent turn (and
+// without risking the agent regenerating a page from scratch). Fixes preserve
+// existing content.
+func (svc *Service) AutoFix(ctx context.Context, slug string, errs []lint.Error) []lint.Error {
+	return svc.autoFixLint(ctx, slug, errs)
+}
+
+// lintFixGuardrail prefaces every LintFixPrompt with the same edit-in-place
+// contract the visual editor uses (see EditPrompt). Without it the agent has
+// historically treated a terse "fix this" instruction as license to rewrite a
+// whole page from the error text alone — issuing write_file without ever
+// reading the file and wiping all unrelated content.
+const lintFixGuardrail = "You are fixing lint issues on an existing site. Use read_file to see each affected file's current content first, edit it in place, and do not rewrite pages from scratch or delete content unrelated to the issues listed below."
+
 // LintFixPrompt formats lint errors as a prompt the agent can act on. Shared
 // between the retry loop and any caller (e.g. a force-relint button) that
 // wants to kick off a build to fix observed issues.
@@ -598,7 +616,7 @@ func LintFixPrompt(errs []lint.Error) string {
 	for _, e := range errs {
 		msgs = append(msgs, e.Error())
 	}
-	return "Fix these issues in the site:\n" + strings.Join(msgs, "\n")
+	return lintFixGuardrail + "\n\nFix these issues in the site:\n" + strings.Join(msgs, "\n")
 }
 
 // buildAndLint runs the agent then lints with up to maxLintRetries fix-up
@@ -664,7 +682,11 @@ func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slu
 
 		slog.Info("build.lint_retry", "slug", slug, "attempt", attempt+1, "issues", len(residual))
 		emit(events.Event{Type: events.TypeStatus, Status: events.StatusRetry, Message: fmt.Sprintf("fixing %d issue(s)", len(residual))})
-		usage, err := editor.Run(ctx, svc.store, slug, LintFixPrompt(residual), tmpl, attachments, nil, buildStart, isEdit, emit)
+		// Seed the retry agent with the affected files' current content (the
+		// LintFixPrompt names them) so the fix-up edits in place rather than
+		// writing blind.
+		fixPrompt := LintFixPrompt(residual)
+		usage, err := editor.Run(ctx, svc.store, slug, fixPrompt, tmpl, attachments, svc.EditSeeds(ctx, slug, fixPrompt), buildStart, isEdit, emit)
 		recordUsage(rec, usage)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
