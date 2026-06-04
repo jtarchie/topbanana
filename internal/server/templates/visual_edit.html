@@ -84,6 +84,8 @@
   var initialHTML = {{.HTMLJSON}};
   var initialCSS = {{.CSSJSON}};
   var assets = {{.AssetsJSON}};
+  var canvasCSS = {{.CanvasCSSJSON}};
+  var pageTheme = {{.ThemeJSON}};
 
   var editor = grapesjs.init({
     container: '#gjs',
@@ -94,10 +96,21 @@
     plugins: ['grapesjs-preset-webpage'],
     pluginsOpts: { 'grapesjs-preset-webpage': {} },
     assetManager: { assets: assets, upload: '/upload/' + slug, uploadName: 'file', autoAdd: true },
+    // Load the site's compiled Tailwind + daisyUI sheet into the canvas iframe
+    // so components render exactly as published. The canvas is a separate
+    // document, so the editor page's own /app.css doesn't reach it.
+    canvas: { styles: canvasCSS ? [canvasCSS] : [] },
     components: initialHTML,
     style: initialCSS,
   });
   window.editor = editor;
+
+  // Mirror the page's data-theme onto the canvas <html> so daisyUI resolves the
+  // right palette (the canvas iframe starts themeless).
+  editor.on('load', function(){
+    var cdoc = editor.Canvas.getDocument();
+    if (cdoc && cdoc.documentElement && pageTheme) cdoc.documentElement.setAttribute('data-theme', pageTheme);
+  });
 
   var statusEl = document.getElementById('status');
   function setStatus(msg, kind){

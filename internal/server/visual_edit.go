@@ -20,13 +20,15 @@ import (
 const maxVisualSaveBytes = 2 << 20 // 2 MiB
 
 type visualEditData struct {
-	Slug       string
-	Page       string
-	SlugJSON   template.JS
-	PageJSON   template.JS
-	HTMLJSON   template.JS
-	CSSJSON    template.JS
-	AssetsJSON template.JS
+	Slug          string
+	Page          string
+	SlugJSON      template.JS
+	PageJSON      template.JS
+	HTMLJSON      template.JS
+	CSSJSON       template.JS
+	AssetsJSON    template.JS
+	CanvasCSSJSON template.JS
+	ThemeJSON     template.JS
 }
 
 type visualAsset struct {
@@ -71,6 +73,13 @@ func (s *Server) visualEditHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "parse page", err)
 	}
 
+	// The GrapesJS canvas is its own iframe, so it needs the site's compiled
+	// stylesheet loaded explicitly (the editor page's own /app.css only styles
+	// the chrome). Load it from the site's own host and mirror the page's
+	// data-theme so the canvas renders exactly like the published page.
+	theme, _ := readThemeAttribute(obj.Content)
+	canvasCSS := s.siteURL(c, slug, "/app.css")
+
 	files, err := s.store.List(ctx, slug)
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "list files", err)
@@ -86,13 +95,15 @@ func (s *Server) visualEditHandler(c *echo.Context) error {
 	}
 
 	return s.render(c, "visual_edit", visualEditData{
-		Slug:       slug,
-		Page:       page,
-		SlugJSON:   toJSONLiteral(slug),
-		PageJSON:   toJSONLiteral(page),
-		HTMLJSON:   toJSONLiteral(bodyHTML),
-		CSSJSON:    toJSONLiteral(css),
-		AssetsJSON: toJSONLiteral(assets),
+		Slug:          slug,
+		Page:          page,
+		SlugJSON:      toJSONLiteral(slug),
+		PageJSON:      toJSONLiteral(page),
+		HTMLJSON:      toJSONLiteral(bodyHTML),
+		CSSJSON:       toJSONLiteral(css),
+		AssetsJSON:    toJSONLiteral(assets),
+		CanvasCSSJSON: toJSONLiteral(canvasCSS),
+		ThemeJSON:     toJSONLiteral(theme),
 	})
 }
 

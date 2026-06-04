@@ -46,6 +46,51 @@ func TestAppCSSHandler_ServesEmbeddedSheet(t *testing.T) {
 	}
 }
 
+// TestVisualEditorLoadsSiteAppCSSIntoCanvas confirms the GrapesJS editor wires
+// the site's compiled /app.css and the page's data-theme into the canvas — so
+// the editor renders components as published, not unstyled.
+func TestVisualEditorLoadsSiteAppCSSIntoCanvas(t *testing.T) {
+	st := minioStore(t)
+	if st == nil {
+		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
+	}
+	ctx := context.Background()
+	slug := "vised-" + freshSlug(t)
+	snapSvc := snapshot.New(st, 0)
+	cleanupSlug(t, ctx, st, snapSvc, slug)
+
+	mustWrite(t, ctx, st, slug, "index.html",
+		`<!DOCTYPE html><html data-theme="synthwave"><head><title>v</title><link rel="stylesheet" href="/app.css"></head><body><h1>hi</h1></body></html>`,
+		"text/html; charset=utf-8")
+
+	handler := buildServer(t, st, snapSvc)
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/edit/"+slug+"/visual?page=index.html", nil)
+	req.Host = "localhost"
+	req.AddCookie(testSessionCookie)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET editor: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	got := string(body)
+
+	// canvasCSS must point at the site's own /app.css, and the theme must flow
+	// through so the canvas <html> can be set.
+	if !strings.Contains(got, slug+".localhost") || !strings.Contains(got, "/app.css") {
+		t.Errorf("editor did not wire the site /app.css URL into the canvas; body:\n%s", got)
+	}
+	if !strings.Contains(got, `pageTheme = "synthwave"`) {
+		t.Errorf("editor did not pass the page data-theme; want pageTheme = \"synthwave\"")
+	}
+}
+
 // TestProxyServesSiteAppCSS confirms a per-site app.css in S3 is served on the
 // site subdomain as text/css and is not blocked by the reserved-prefix guard.
 func TestProxyServesSiteAppCSS(t *testing.T) {
