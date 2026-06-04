@@ -40,6 +40,11 @@ type accountData struct {
 	Email       string
 	Role        string
 	Credentials []accountCredential
+	// MCPCommand is the full `claude mcp add ...` line, prebuilt with this
+	// server's public URL so the user can copy-paste verbatim. Empty when
+	// MCP is disabled on this deploy (mcpSecret unset), in which case the
+	// template skips the section entirely.
+	MCPCommand string
 }
 
 // loginHandler renders the email-entry form. Available unauthenticated;
@@ -144,11 +149,16 @@ func (s *Server) accountHandler(c *echo.Context) error {
 			Created: time.Now().UTC().Format("2006-01-02"),
 		})
 	}
+	mcpCmd := ""
+	if s.mcpSecret != "" {
+		mcpCmd = "claude mcp add --transport http topbanana " + s.adminURL(c, "/mcp")
+	}
 	return s.render(c, "account", accountData{
 		Chrome:      Chrome{Active: "account"},
 		Email:       user.Email,
 		Role:        string(user.Role),
 		Credentials: creds,
+		MCPCommand:  mcpCmd,
 	})
 }
 
