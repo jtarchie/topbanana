@@ -13,7 +13,7 @@
       <input type="hidden" name="from" value="functions/{{ .Name }}.js">
       <span class="font-mono">functions/</span>
       <input type="text" name="to_name" value="{{ .Name }}" pattern="[a-zA-Z][a-zA-Z0-9_-]{0,63}"
-             class="input input-bordered input-sm font-mono text-base w-48"
+             class="input input-sm font-mono text-base w-48"
              autocomplete="off"
              aria-label="Function name">
       <span class="font-mono">.js</span>
@@ -48,26 +48,26 @@
       <div class="card-body">
         <p class="text-base-content/70">Run the function with a custom request without affecting the live site (though any stored data is shared with production).</p>
         <form id="test-form" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div class="form-control">
-            <label for="method" class="label"><span class="label-text">Method</span></label>
-            <select id="method" name="method" class="select select-bordered">
+          <div class="flex flex-col">
+            <label for="method" class="label"><span class="text-sm">Method</span></label>
+            <select id="method" name="method" class="select">
               <option>GET</option><option selected>POST</option><option>PUT</option><option>DELETE</option>
             </select>
           </div>
-          <div class="form-control sm:col-span-2">
-            <label for="content_type" class="label"><span class="label-text">Content-Type</span></label>
-            <input id="content_type" name="content_type" value="application/x-www-form-urlencoded" class="input input-bordered">
+          <div class="flex flex-col sm:col-span-2">
+            <label for="content_type" class="label"><span class="text-sm">Content-Type</span></label>
+            <input id="content_type" name="content_type" value="application/x-www-form-urlencoded" class="input">
           </div>
-          <div class="form-control sm:col-span-3">
-            <label for="body" class="label"><span class="label-text">Body</span></label>
-            <textarea id="body" name="body" rows="4" placeholder="key=value&amp;other=value" class="textarea textarea-bordered font-mono text-sm"></textarea>
+          <div class="flex flex-col sm:col-span-3">
+            <label for="body" class="label"><span class="text-sm">Body</span></label>
+            <textarea id="body" name="body" rows="4" placeholder="key=value&amp;other=value" class="textarea font-mono text-sm"></textarea>
           </div>
           <div class="sm:col-span-3">
             <button type="submit" class="btn btn-primary">Run</button>
           </div>
         </form>
         <div class="mt-4">
-          <label class="label"><span class="label-text font-semibold">Result</span></label>
+          <label class="label"><span class="text-sm font-semibold">Result</span></label>
           <pre id="result" class="bg-base-100 border border-base-300 rounded-box p-3 font-mono text-sm whitespace-pre-wrap min-h-16">(no run yet)</pre>
         </div>
       </div>

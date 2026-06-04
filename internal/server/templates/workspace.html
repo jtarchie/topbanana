@@ -93,7 +93,7 @@
           <input type="hidden" name="from" value="{{ .Page }}">
           <label for="rename-to" class="text-xs text-base-content/60">Path</label>
           <input id="rename-to" type="text" name="to" value="{{ .Page }}"
-                 class="input input-sm input-bordered font-mono text-xs w-64"
+                 class="input input-sm font-mono text-xs w-64"
                  autocomplete="off">
           <button type="submit" class="btn btn-sm btn-ghost">Rename</button>
         </form>
@@ -126,15 +126,15 @@
             <button type="button" id="selection-clear" class="text-base-content/60 hover:text-base-content" aria-label="Clear selection">×</button>
           </div>
           <label for="prompt" class="label pb-1 px-0">
-            <span class="label-text font-medium">{{ if .Page }}Describe a change to <span class="font-mono">{{ .Page }}</span>{{ else }}Describe a change to the whole site{{ end }}</span>
+            <span class="text-sm font-medium">{{ if .Page }}Describe a change to <span class="font-mono">{{ .Page }}</span>{{ else }}Describe a change to the whole site{{ end }}</span>
           </label>
           <textarea name="prompt" id="prompt" rows="3" maxlength="4096" required {{ if .Building }}disabled{{ end }}
-                    class="textarea textarea-bordered w-full text-base"
+                    class="textarea w-full text-base"
                     placeholder="Make the heading larger and add a contact section."></textarea>
           <details class="text-sm">
             <summary class="cursor-pointer text-base-content/70 hover:text-base-content">Attach reference documents</summary>
             <div class="mt-2 space-y-1">
-              <input type="file" name="attachment" id="attachment" accept=".md,.markdown,.html,.htm,text/markdown,text/html" multiple class="file-input file-input-bordered file-input-sm w-full">
+              <input type="file" name="attachment" id="attachment" accept=".md,.markdown,.html,.htm,text/markdown,text/html" multiple class="file-input file-input-sm w-full">
               <p class="text-xs text-base-content/60">Markdown or HTML files (up to 10, 64 KB each).</p>
             </div>
           </details>

@@ -20,13 +20,13 @@
         Default expiry is 7 days; consumed invites become inert immediately.
       </p>
       <form method="POST" action="/admin/users/invite" class="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-3 mt-3 items-end">
-        <label class="form-control">
-          <span class="label-text font-medium">Email</span>
-          <input type="email" name="email" required class="input input-bordered mt-1" placeholder="them@example.com">
+        <label class="flex flex-col">
+          <span class="text-sm font-medium">Email</span>
+          <input type="email" name="email" required class="input mt-1" placeholder="them@example.com">
         </label>
-        <label class="form-control">
-          <span class="label-text font-medium">Role</span>
-          <select name="role" class="select select-bordered mt-1">
+        <label class="flex flex-col">
+          <span class="text-sm font-medium">Role</span>
+          <select name="role" class="select mt-1">
             {{ range .Roles }}<option value="{{ . }}"{{ if eq . "admin" }} selected{{ end }}>{{ . }}</option>{{ end }}
           </select>
         </label>
@@ -133,33 +133,54 @@
     </div>
     <button type="button" class="btn btn-ghost btn-sm btn-square" data-close="quotas" aria-label="Close quotas panel">×</button>
   </header>
-  <form id="quotas-form" method="POST" action="" class="p-4 space-y-4 flex-1 overflow-y-auto">
-    <label class="form-control">
-      <span class="label-text font-medium">Max apps</span>
-      <input id="quotas-max-apps" type="number" min="0" name="max_apps" class="input input-bordered input-sm mt-1">
-      <span class="label-text-alt text-base-content/60">0 = use server default</span>
-    </label>
-    <fieldset class="form-control space-y-2">
-      <legend class="label-text font-medium">Per-tier model overrides</legend>
-      <p class="label-text-alt text-base-content/60">Blank fields inherit the system default for that tier. Vision needs a multimodal model for image captions.</p>
-      <label class="form-control">
-        <span class="label-text">Author <span class="text-base-content/60 font-normal">— /build initial generation</span></span>
-        <input id="quotas-model-author" type="text" name="model_author" class="input input-bordered input-sm mt-1" placeholder="provider/model">
-      </label>
-      <label class="form-control">
-        <span class="label-text">Editor <span class="text-base-content/60 font-normal">— /edit, /relint, lint retries</span></span>
-        <input id="quotas-model-editor" type="text" name="model_editor" class="input input-bordered input-sm mt-1" placeholder="provider/model">
-      </label>
-      <label class="form-control">
-        <span class="label-text">Utility <span class="text-base-content/60 font-normal">— post-build site description</span></span>
-        <input id="quotas-model-utility" type="text" name="model_utility" class="input input-bordered input-sm mt-1" placeholder="provider/model">
-      </label>
-      <label class="form-control">
-        <span class="label-text">Vision <span class="text-base-content/60 font-normal">— image alt-text (multimodal)</span></span>
-        <input id="quotas-model-vision" type="text" name="model_vision" class="input input-bordered input-sm mt-1" placeholder="provider/model">
-      </label>
-    </fieldset>
-    <div class="flex justify-end gap-2 pt-2">
+  <form id="quotas-form" method="POST" action="" class="flex flex-col min-h-0 flex-1">
+    <div class="flex-1 overflow-y-auto p-4 space-y-5">
+      <fieldset class="fieldset">
+        <legend class="fieldset-legend">Max apps</legend>
+        <input id="quotas-max-apps" type="number" min="0" name="max_apps" class="input input-sm w-full">
+        <p class="fieldset-label">0 = use server default</p>
+      </fieldset>
+
+      <div class="divider my-0"></div>
+
+      <fieldset class="fieldset">
+        <legend class="fieldset-legend">Per-tier model overrides</legend>
+        <p class="fieldset-label leading-snug">Blank fields inherit the system default for that tier. Vision needs a multimodal model for image captions.</p>
+
+        <div class="mt-1 space-y-3 rounded-box border border-base-300 bg-base-200/40 p-3">
+          <div>
+            <label for="quotas-model-author" class="flex items-baseline justify-between gap-2">
+              <span class="text-sm font-medium">Author</span>
+              <span class="text-xs text-base-content/60 font-mono">/build · initial generation</span>
+            </label>
+            <input id="quotas-model-author" type="text" name="model_author" class="input input-sm w-full mt-1 font-mono" placeholder="provider/model">
+          </div>
+          <div>
+            <label for="quotas-model-editor" class="flex items-baseline justify-between gap-2">
+              <span class="text-sm font-medium">Editor</span>
+              <span class="text-xs text-base-content/60 font-mono">/edit · /relint · retries</span>
+            </label>
+            <input id="quotas-model-editor" type="text" name="model_editor" class="input input-sm w-full mt-1 font-mono" placeholder="provider/model">
+          </div>
+          <div>
+            <label for="quotas-model-utility" class="flex items-baseline justify-between gap-2">
+              <span class="text-sm font-medium">Utility</span>
+              <span class="text-xs text-base-content/60 font-mono">site description</span>
+            </label>
+            <input id="quotas-model-utility" type="text" name="model_utility" class="input input-sm w-full mt-1 font-mono" placeholder="provider/model">
+          </div>
+          <div>
+            <label for="quotas-model-vision" class="flex items-baseline justify-between gap-2">
+              <span class="text-sm font-medium">Vision</span>
+              <span class="text-xs text-base-content/60 font-mono">image alt-text · multimodal</span>
+            </label>
+            <input id="quotas-model-vision" type="text" name="model_vision" class="input input-sm w-full mt-1 font-mono" placeholder="provider/model">
+          </div>
+        </div>
+      </fieldset>
+    </div>
+
+    <div class="flex justify-end gap-2 border-t border-base-300 p-4">
       <button type="button" class="btn btn-ghost btn-sm" data-close="quotas">Cancel</button>
       <button type="submit" class="btn btn-primary btn-sm">Save</button>
     </div>

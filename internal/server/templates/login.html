@@ -11,10 +11,10 @@
       <h1 class="text-xl font-semibold tracking-tight mb-1">Sign in</h1>
       <p class="text-sm text-base-content/70 mb-4">Sign in with the passkey bound to your account.</p>
       <form id="login-form" novalidate>
-        <label class="form-control w-full">
-          <span class="label-text font-medium">Email</span>
+        <label class="flex flex-col w-full">
+          <span class="text-sm font-medium">Email</span>
           <input id="login-email" name="email" type="email" autocomplete="username webauthn" required
-                 class="input input-bordered w-full mt-1" placeholder="you@example.com" />
+                 class="input w-full mt-1" placeholder="you@example.com" />
         </label>
         <button type="submit" class="btn btn-primary w-full mt-4">Continue with passkey</button>
       </form>

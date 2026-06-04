@@ -39,10 +39,10 @@
           <dd><a class="link link-primary font-mono break-all" href="{{ .SiteURL }}" target="_blank" rel="noopener">{{ .SiteURL }}</a></dd>
         </dl>
 
-        <div class="form-control mt-4">
-          <label for="domains" class="label pb-1"><span class="label-text font-medium">Custom web address</span></label>
+        <div class="flex flex-col mt-4">
+          <label for="domains" class="label pb-1"><span class="text-sm font-medium">Custom web address</span></label>
           <textarea name="domains" id="domains" rows="3"
-                    class="textarea textarea-bordered w-full font-mono text-sm"
+                    class="textarea w-full font-mono text-sm"
                     placeholder="example.com&#10;www.example.com">{{ .Domains }}</textarea>
           <p class="text-sm text-base-content/70 mt-2">One address per line. Add a <strong>CNAME</strong> record at your domain provider pointing here; a TLS certificate is issued on first visit. Don't use Cloudflare's orange-cloud proxy — set the record to "DNS only" or certificate issuance will fail.</p>
         </div>
@@ -57,10 +57,10 @@
           <p class="text-sm text-base-content/70">This site uses a template that already accepts visitor input (forms, RSVPs, counters). Always on.</p>
           <input type="hidden" name="enable_functions" value="on">
         {{ else }}
-          <div class="form-control">
+          <div class="flex flex-col">
             <label class="label cursor-pointer justify-start gap-3">
               <input type="checkbox" name="enable_functions" {{ if .FunctionsEnabled }}checked{{ end }} class="toggle toggle-primary">
-              <span class="label-text">
+              <span class="text-sm">
                 <span class="font-medium">Accept visitor input</span>
                 <span class="block text-xs text-base-content/60">Allows forms, RSVPs, counters, and other submissions on your site.</span>
               </span>
@@ -68,20 +68,20 @@
           </div>
         {{ end }}
 
-        <div class="form-control">
+        <div class="flex flex-col">
           <label class="label cursor-pointer justify-start gap-3">
             <input type="checkbox" name="enable_public_api" {{ if .PublicAPIEnabled }}checked{{ end }} class="toggle toggle-primary">
-            <span class="label-text">
+            <span class="text-sm">
               <span class="font-medium">Allow other websites to post data here</span>
               <span class="block text-xs text-base-content/60">Off by default. Turn on only if another site needs to send data (e.g. a webhook).</span>
             </span>
           </label>
         </div>
 
-        <div class="form-control">
+        <div class="flex flex-col">
           <label class="label cursor-pointer justify-start gap-3">
             <input type="checkbox" name="private" {{ if .Private }}checked{{ end }} class="toggle toggle-primary">
-            <span class="label-text">
+            <span class="text-sm">
               <span class="font-medium">Keep this site private</span>
               <span class="block text-xs text-base-content/60">Hides the site from the public web. Only you (and super admins) can open it.</span>
             </span>
@@ -187,9 +187,9 @@
             data-confirm-title="Transfer this app?"
             data-confirm="The new owner takes over editing immediately. You'll lose access unless you're a super admin."
             data-confirm-ok="Transfer">
-        <label class="form-control grow">
-          <span class="label-text font-medium">New owner email</span>
-          <input type="email" name="new_owner_email" required class="input input-bordered mt-1" placeholder="them@example.com">
+        <label class="flex flex-col grow">
+          <span class="text-sm font-medium">New owner email</span>
+          <input type="email" name="new_owner_email" required class="input mt-1" placeholder="them@example.com">
         </label>
         <button type="submit" class="btn btn-primary btn-sm">Transfer</button>
       </form>
@@ -200,10 +200,10 @@
     <div class="card-body">
       <h2 id="danger-heading" class="card-title text-error text-lg">Delete this app</h2>
       <p class="text-sm text-base-content/70">Permanently removes every page, file, and the entire version history. <strong>This cannot be undone.</strong></p>
-      <form method="POST" action="/settings/{{ .Slug }}/delete" class="form-control gap-3 mt-2">
+      <form method="POST" action="/settings/{{ .Slug }}/delete" class="flex flex-col gap-3 mt-2">
         <div>
-          <label for="confirm" class="label pb-1"><span class="label-text">Type <code class="font-mono">{{ .Slug }}</code> to confirm</span></label>
-          <input type="text" name="confirm" id="confirm" autocomplete="off" required class="input input-bordered w-full" placeholder="{{ .Slug }}">
+          <label for="confirm" class="label pb-1"><span class="text-sm">Type <code class="font-mono">{{ .Slug }}</code> to confirm</span></label>
+          <input type="text" name="confirm" id="confirm" autocomplete="off" required class="input w-full" placeholder="{{ .Slug }}">
         </div>
         <div>
           <button type="submit" class="btn btn-error btn-sm">Delete permanently</button>

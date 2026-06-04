@@ -18,21 +18,21 @@
 
     <form method="POST" action="/api/order" class="card bg-base-100 shadow-xl">
       <div class="card-body space-y-3">
-        <div class="form-control">
-          <label class="label" for="product"><span class="label-text font-semibold">Product</span></label>
-          <select id="product" name="product" required class="select select-bordered w-full"></select>
+        <div class="flex flex-col">
+          <label class="label" for="product"><span class="text-sm font-semibold">Product</span></label>
+          <select id="product" name="product" required class="select w-full"></select>
         </div>
-        <div class="form-control">
-          <label class="label" for="qty"><span class="label-text font-semibold">Quantity</span></label>
-          <input id="qty" name="qty" type="number" min="1" value="1" required class="input input-bordered w-full">
+        <div class="flex flex-col">
+          <label class="label" for="qty"><span class="text-sm font-semibold">Quantity</span></label>
+          <input id="qty" name="qty" type="number" min="1" value="1" required class="input w-full">
         </div>
-        <div class="form-control">
-          <label class="label" for="name"><span class="label-text font-semibold">Your name</span></label>
-          <input id="name" name="name" type="text" autocomplete="name" required class="input input-bordered w-full">
+        <div class="flex flex-col">
+          <label class="label" for="name"><span class="text-sm font-semibold">Your name</span></label>
+          <input id="name" name="name" type="text" autocomplete="name" required class="input w-full">
         </div>
-        <div class="form-control">
-          <label class="label" for="email"><span class="label-text font-semibold">Email</span></label>
-          <input id="email" name="email" type="email" autocomplete="email" required class="input input-bordered w-full">
+        <div class="flex flex-col">
+          <label class="label" for="email"><span class="text-sm font-semibold">Email</span></label>
+          <input id="email" name="email" type="email" autocomplete="email" required class="input w-full">
         </div>
         <button type="submit" class="btn btn-primary btn-block mt-2">Place order</button>
       </div>

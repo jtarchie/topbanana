@@ -16,15 +16,15 @@
     <div class="card-body gap-6">
       <div>
         <label for="prompt" class="label pb-1">
-          <span class="label-text font-medium">Describe your site</span>
+          <span class="text-sm font-medium">Describe your site</span>
         </label>
         <textarea name="prompt" id="prompt" rows="6" maxlength="4096" required
-                  class="textarea textarea-bordered w-full text-base leading-relaxed"
+                  class="textarea w-full text-base leading-relaxed"
                   placeholder="A small site for my book club where members share what they're reading each month. Include a page for upcoming books and a page for past picks."></textarea>
       </div>
 
       <div>
-        <span class="label-text font-medium block mb-2">Template</span>
+        <span class="text-sm font-medium block mb-2">Template</span>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2" id="template-cards">
           {{- range $i, $t := .Templates }}
           <label class="card bg-base-100 border border-base-300 cursor-pointer hover:border-primary transition has-[:checked]:border-primary has-[:checked]:ring-1 has-[:checked]:ring-primary">
@@ -45,7 +45,7 @@
         <div class="collapse-content">
           <p class="text-sm text-base-content/70 mb-2">Lowercase letters, digits, and hyphens. 3–30 characters. Your site will live at <code class="font-mono text-sm bg-base-200 px-1 rounded">{slug}.{{ .Domain }}</code>.</p>
           <input type="text" name="slug" id="slug" pattern="[a-z0-9]([a-z0-9\-]{1,28}[a-z0-9])?" minlength="3" maxlength="30"
-                 class="input input-bordered w-full" placeholder="auto-generated if left blank">
+                 class="input w-full" placeholder="auto-generated if left blank">
         </div>
       </details>
 
@@ -55,7 +55,7 @@
           <p class="text-sm text-base-content/70 mb-2">Markdown or HTML files used as content reference (up to 10 files, 64 KB each).</p>
           <input type="file" name="attachment" id="attachment"
                  accept=".md,.markdown,.html,.htm,text/markdown,text/html" multiple
-                 class="file-input file-input-bordered w-full">
+                 class="file-input w-full">
         </div>
       </details>
 
@@ -71,8 +71,8 @@
       <div class="collapse-content">
         <p class="text-sm text-base-content/70 mb-3">Upload a <code class="font-mono text-sm bg-base-200 px-1 rounded">.tar.zst</code> archive previously exported from Top Banana. We'll create a new site in your account using its contents.</p>
         <form method="POST" action="/import" enctype="multipart/form-data" class="space-y-3">
-          <input type="file" name="archive" accept=".tar.zst,application/zstd" required class="file-input file-input-bordered w-full">
-          <input type="text" name="slug" pattern="[a-z0-9]([a-z0-9\-]{1,28}[a-z0-9])?" minlength="3" maxlength="30" class="input input-bordered w-full" placeholder="Custom slug (optional, auto-generated if blank)">
+          <input type="file" name="archive" accept=".tar.zst,application/zstd" required class="file-input w-full">
+          <input type="text" name="slug" pattern="[a-z0-9]([a-z0-9\-]{1,28}[a-z0-9])?" minlength="3" maxlength="30" class="input w-full" placeholder="Custom slug (optional, auto-generated if blank)">
           <div class="flex justify-end"><button type="submit" class="btn btn-secondary">Import site</button></div>
         </form>
       </div>
