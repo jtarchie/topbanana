@@ -8,6 +8,9 @@ vars:
   MINIO_BUCKET: topbanana
   LMSTUDIO_BASE_URL: http://localhost:1234/v1
   LMSTUDIO_MODEL: lmstudio/google/gemma-4-26b-a4b
+  LLM_E2E_MODEL: lmstudio/google/gemma-4-12b
+  LLM_E2E_MODEL_NAME: google/gemma-4-12b
+  LLM_E2E_CONTEXT: 16384
   SUPER_ADMIN_EMAIL: admin@local
 
 tasks:
@@ -88,3 +91,36 @@ tasks:
           echo $! > /tmp/topbanana-minio.pid
           sleep 2
         fi
+
+  lmstudio:ready:
+    desc: Ensure LM Studio is reachable and the e2e model is loaded with enough context (for test:llm)
+    cmds:
+      - |
+        if ! curl -sf {{.LMSTUDIO_BASE_URL}}/models > /dev/null 2>&1; then
+          echo "LM Studio not reachable at {{.LMSTUDIO_BASE_URL}} — run 'lms server start' first" >&2
+          exit 1
+        fi
+        # The build agent's system prompt is ~4-7K tokens; LM Studio's default
+        # 4096 context starves it (no room left to call write_file). Load with a
+        # generous context. Reloads only if not already loaded at this context.
+        if ! lms ps 2>/dev/null | grep -q "{{.LLM_E2E_MODEL_NAME}}.*{{.LLM_E2E_CONTEXT}}"; then
+          lms load {{.LLM_E2E_MODEL_NAME}} -c {{.LLM_E2E_CONTEXT}} --gpu max -y || true
+        fi
+
+  test:llm:
+    desc: Run the opt-in real-LLM integration tests (LM Studio + Minio); excluded from the default `go test`/`task fmt` run
+    deps: [minio:ready, lmstudio:ready]
+    env:
+      AWS_ACCESS_KEY_ID: "{{.MINIO_USER}}"
+      AWS_SECRET_ACCESS_KEY: "{{.MINIO_PASS}}"
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: "{{.MINIO_ENDPOINT}}"
+      S3_BUCKET: "{{.MINIO_BUCKET}}"
+      TOPBANANA_LLM_E2E: "1"
+      LLM_MODEL: "{{.LLM_E2E_MODEL}}"
+      LLM_BASE_URL: "{{.LMSTUDIO_BASE_URL}}"
+      LLM_API_KEY: lm-studio
+    cmds:
+      # Local models are slow: each scenario self-caps at 20m and the build-then-
+      # edit case is two runs, so budget generously for all three in sequence.
+      - go test -run 'TestLLM_' -timeout 100m -v ./internal/build/

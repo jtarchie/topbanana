@@ -70,7 +70,24 @@ task local        # Start app with Minio + LM Studio
 task minio:start  # Start Minio in background
 task minio:stop   # Stop Minio
 task minio:ready  # Start Minio if not running
+task test:llm     # Opt-in real-model integration tests (see below)
 ```
+
+### Real-model integration tests
+
+Every other test stubs the agent. `task test:llm` instead drives the **real**
+agent loop (prompt → tools → lint/retry → CSS → describe) against a local model,
+catching prompt/tool/lint-loop regressions the stubs can't. It requires LM Studio
+running plus Minio, is **opt-in** (gated by `TOPBANANA_LLM_E2E=1`), is slow
+(minutes), and is **excluded from the default `go test`/`task fmt` run** — without
+the gate the tests skip. Assertions are structural invariants (build completes,
+`index.html` non-empty, lint clean, a `write_file` call happened), not exact model
+output.
+
+`task lmstudio:ready` loads `google/gemma-4-12b` with a **16K context** — this
+matters: the build agent's system prompt is ~4–7K tokens, so LM Studio's default
+4096 context starves the model (it never gets room to call `write_file`). If you
+load a model by hand, give it at least a 16K context.
 
 ## Custom Domains with Cloudflare
 

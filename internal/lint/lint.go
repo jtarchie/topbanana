@@ -91,6 +91,7 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 	}
 
 	errs = append(errs, checkTemplateInvariants(ctx, s, slug, tmpl)...)
+	errs = append(errs, checkEntryPoint(ctx, s, slug)...)
 
 	if len(errs) > 0 {
 		slog.Warn("lint.app.errors", "slug", slug, "count", len(errs))
@@ -102,6 +103,25 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 	}
 
 	return errs
+}
+
+// checkEntryPoint enforces the one invariant every site shares regardless of
+// template: a non-empty index.html. Without it, a build where the agent wrote
+// no HTML at all — e.g. a weaker model that answered in prose instead of
+// calling write_file — would lint clean (there are no HTML files to find fault
+// with) and report success while serving nothing. store.Read returns an empty
+// object with no error for a missing key, so the empty-content test also
+// covers "index.html absent". Surfaced into the build retry loop so the agent
+// gets a concrete instruction; if it still produces nothing, the build fails.
+func checkEntryPoint(ctx context.Context, s *store.Store, slug string) []Error {
+	obj, err := s.Read(ctx, slug, "index.html")
+	if err != nil {
+		return []Error{{File: "index.html", Message: fmt.Sprintf("could not read index.html: %s", err)}}
+	}
+	if strings.TrimSpace(obj.Content) == "" {
+		return []Error{{File: "index.html", Message: "site is missing a non-empty index.html (every site needs an entry point)"}}
+	}
+	return nil
 }
 
 // The DaisyUI + Tailwind JIT pair is the design substrate every generated

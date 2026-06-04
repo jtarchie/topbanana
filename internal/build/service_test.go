@@ -234,6 +234,101 @@ func (r *scriptedRunner) Describe(_ context.Context, _ *store.Store, _, _ string
 	return r.describe, nil
 }
 
+// noopRunner writes nothing — it models an agent turn that produced no tool
+// calls (the failure mode where a weaker model answers in prose instead of
+// calling write_file). Used to lock in that a build leaving no index.html
+// fails loudly rather than reporting success on an empty site.
+type noopRunner struct{ calls atomic.Int32 }
+
+func (r *noopRunner) Run(_ context.Context, _ *store.Store, _, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, _ time.Time, _ bool, _ func(events.Event)) (agent.Usage, error) {
+	r.calls.Add(1)
+	return agent.Usage{}, nil
+}
+
+func (r *noopRunner) Describe(_ context.Context, _ *store.Store, _, _ string) (agent.SiteDescription, error) {
+	return agent.SiteDescription{}, nil
+}
+
+// TestService_Lint_FlagsMissingIndexHTML is the focused check: a site with HTML
+// pages but no index.html must not lint clean. Without checkEntryPoint, a site
+// with zero HTML files lints clean and a "successful" build serves nothing.
+func TestService_Lint_FlagsMissingIndexHTML(t *testing.T) {
+	t.Parallel()
+
+	st := minioStoreForBuild(t)
+	if st == nil {
+		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
+	}
+
+	svc := NewWithConfig(Config{Store: st})
+	slug := buildSlug(t)
+	cleanupSlug(t, st, slug)
+
+	ctx := context.Background()
+	// A site with only the meta sidecar (as seedTemplate leaves a blank
+	// template) — no index.html at all.
+	err := st.Write(ctx, slug, ".topbanana.json", "{}", "application/json", nil)
+	if err != nil {
+		t.Fatalf("seed write: %v", err)
+	}
+
+	errs := svc.Lint(ctx, slug, templates.Get("blank"))
+	if len(errs) == 0 {
+		t.Fatal("expected a lint error for a site with no index.html, got none")
+	}
+	var found bool
+	for _, e := range errs {
+		if e.File == "index.html" && strings.Contains(e.Message, "entry point") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a missing-index.html entry-point error, got: %v", errs)
+	}
+}
+
+// TestService_Start_FailsWhenNoIndexHTML locks in the product fix end-to-end: a
+// build whose agent never writes index.html (noopRunner) must reach the failed
+// terminal state, not completed — even with the check-less blank template.
+func TestService_Start_FailsWhenNoIndexHTML(t *testing.T) {
+	t.Parallel()
+
+	st := minioStoreForBuild(t)
+	if st == nil {
+		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
+	}
+
+	tracker := events.NewTracker()
+	runner := &noopRunner{}
+	svc := NewWithConfig(Config{
+		Store:        st,
+		Events:       tracker,
+		Runner:       runner,
+		BuildTimeout: 30 * time.Second,
+	})
+
+	slug := buildSlug(t)
+	cleanupSlug(t, st, slug)
+
+	svc.Start(Params{
+		Slug:         slug,
+		Prompt:       "build me something",
+		LogKey:       "test.build.noindex",
+		Template:     templates.Get("blank"),
+		SeedSkeleton: true,
+		OwnerID:      "tester@example.com",
+	})
+
+	status := waitForTerminal(t, tracker, slug, 60*time.Second)
+	if status != events.StatusFailed {
+		t.Fatalf("status = %q, want failed (a build that writes no index.html must fail)", status)
+	}
+	// Author run + maxLintRetries editor runs, all no-ops, before giving up.
+	if got := runner.calls.Load(); got < 2 {
+		t.Errorf("Runner.Run calls = %d, want >= 2 (author + at least one retry)", got)
+	}
+}
+
 func TestService_Start_HappyPathSeedsSkeletonWritesMetaCompletes(t *testing.T) {
 	t.Parallel()
 
