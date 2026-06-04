@@ -33,10 +33,13 @@ const (
 	mcpInstructions = "Tools to manage and author static HTML sites hosted on Top Banana, " +
 		"on behalf of the authenticated user. Typical flow: call list_sites to see existing " +
 		"sites, or create_site to start a new one (you choose the slug). Then author the site " +
-		"with write_file — create only self-contained .html files with CSS and JavaScript " +
-		"inlined, an index.html entry point, and relative links between pages; no external " +
-		"CDNs or frameworks. Use read_file / list_files to inspect, delete_file to remove a " +
-		"page, and lint_site to check your work and fix anything it reports. list_runs and " +
+		"with write_file — .html files with an index.html entry point and relative links " +
+		"between pages. For styling, link the self-hosted stylesheet with " +
+		"`<link rel=\"stylesheet\" href=\"/app.css\">` in <head> and use Tailwind utility + " +
+		"daisyUI component classes (set the palette with <html data-theme>); the platform " +
+		"compiles and serves /app.css per site. Inline any extra JS; no external CDNs. Use " +
+		"read_file / list_files to inspect, delete_file to remove a page, and lint_site when " +
+		"you finish — it compiles /app.css and reports anything to fix. list_runs and " +
 		"get_run_transcript surface read-only transcripts of prior web-UI builds. All tools " +
 		"are scoped to sites the caller owns."
 )
@@ -459,12 +462,18 @@ type lintSiteInput struct {
 func (s *Server) registerLintSite(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "lint_site",
-		Description: "Run the deterministic lint checks (no LLM) against a site the caller owns and return any problems to fix. An empty list means the site passed.",
+		Description: "Compile the site's self-hosted /app.css (Tailwind + daisyUI) and run the deterministic lint checks (no LLM) against a site the caller owns, returning any problems to fix. An empty list means the site passed. Run this when you finish authoring — it's also what publishes the compiled stylesheet.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in lintSiteInput) (*mcp.CallToolResult, any, error) {
 		_, err := s.mcpUserAndAuthorize(ctx, in.Slug)
 		if err != nil {
 			return nil, nil, err
 		}
+		// Compile + self-host /app.css before linting, mirroring the web build
+		// flow (Service.Start). This also injects the /app.css link into pages
+		// that lack it, so the design-substrate check below passes. Without it,
+		// MCP-authored sites would link a stylesheet nothing ever compiles.
+		s.build.OptimizeCSS(ctx, in.Slug)
+
 		meta := s.build.ReadMeta(ctx, in.Slug)
 		var tmpl *templates.SiteTemplate
 		if meta.Template != "" {

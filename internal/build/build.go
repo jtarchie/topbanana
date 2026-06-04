@@ -567,11 +567,10 @@ func (svc *Service) Start(p Params) {
 			return
 		}
 		// Compile a minimal, self-contained stylesheet for the finished site
-		// and rewrite its pages to link it instead of the CDN substrate.
-		// Best-effort, exactly like refreshDescription: a failure (no CLI,
-		// compile error) logs and leaves the CDN tags in place so the site
-		// still renders. Runs for edits too — Start is the shared entry point.
-		svc.optimizeCSS(ctx, p.Slug)
+		// and rewrite its pages to link /app.css. Best-effort, exactly like
+		// refreshDescription: a failure (no CLI, compile error) logs and moves
+		// on. Runs for edits too — Start is the shared entry point.
+		svc.OptimizeCSS(ctx, p.Slug)
 		svc.refreshDescription(ctx, utilityRunner, p.Slug, p.Prompt)
 		slog.Info(p.LogKey+".done", "slug", p.Slug)
 		if rec != nil {

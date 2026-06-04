@@ -107,7 +107,7 @@ func TestOptimizeCSS_WithStubCLI(t *testing.T) {
 	}
 
 	svc := NewWithConfig(Config{Store: st, TailwindCLI: writeStubCLI(t, false)})
-	svc.optimizeCSS(ctx, slug)
+	svc.OptimizeCSS(ctx, slug)
 
 	css, err := st.Read(ctx, slug, "app.css")
 	if err != nil {
@@ -161,7 +161,7 @@ func TestOptimizeCSS_RealCompile(t *testing.T) {
 
 	// No TailwindCLI override -> resolves the tailwindcss on PATH.
 	svc := NewWithConfig(Config{Store: st})
-	svc.optimizeCSS(ctx, slug)
+	svc.OptimizeCSS(ctx, slug)
 
 	css, err := st.Read(ctx, slug, "app.css")
 	if err != nil || css == nil || css.Content == "" {
@@ -174,6 +174,45 @@ func TestOptimizeCSS_RealCompile(t *testing.T) {
 	}
 	if strings.Contains(css.Content, "cdn.jsdelivr.net") {
 		t.Error("compiled app.css must not reference the CDN")
+	}
+}
+
+// TestOptimizeCSS_InjectsLinkForSubstrateLessPage mirrors the MCP lint_site
+// path: a page authored without any stylesheet link gets /app.css injected and
+// compiled, so the design-substrate lint then passes.
+func TestOptimizeCSS_InjectsLinkForSubstrateLessPage(t *testing.T) {
+	st := minioStoreForBuild(t)
+	if st == nil {
+		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run optimizeCSS integration tests")
+	}
+	_, err := exec.LookPath("tailwindcss")
+	if err != nil {
+		t.Skip("no tailwindcss on PATH for the real-compile test")
+	}
+	ctx := context.Background()
+	slug := buildSlug(t)
+	cleanupSlug(t, st, slug)
+
+	// No stylesheet link at all — the shape an MCP author might write.
+	page := `<!DOCTYPE html><html data-theme="light"><head><title>x</title></head>
+<body class="min-h-screen"><button class="btn btn-primary">Go</button></body></html>`
+	err = st.Write(ctx, slug, "index.html", page, "text/html; charset=utf-8", nil)
+	if err != nil {
+		t.Fatalf("seed page: %v", err)
+	}
+
+	svc := NewWithConfig(Config{Store: st})
+	svc.OptimizeCSS(ctx, slug)
+
+	got, err := st.Read(ctx, slug, "index.html")
+	if err != nil {
+		t.Fatalf("read index.html: %v", err)
+	}
+	if !strings.Contains(got.Content, `href="/app.css"`) {
+		t.Errorf("OptimizeCSS should inject the /app.css link; got:\n%s", got.Content)
+	}
+	if css, _ := st.Read(ctx, slug, "app.css"); css == nil || !strings.Contains(css.Content, ".btn") {
+		t.Error("app.css should be compiled with the page's daisyUI components")
 	}
 }
 
@@ -192,7 +231,7 @@ func TestOptimizeCSS_GracefulWhenCompileFails(t *testing.T) {
 	}
 
 	svc := NewWithConfig(Config{Store: st, TailwindCLI: writeStubCLI(t, true)})
-	svc.optimizeCSS(ctx, slug)
+	svc.OptimizeCSS(ctx, slug)
 
 	// No stylesheet should have been published.
 	if css, _ := st.Read(ctx, slug, "app.css"); css != nil && css.Content != "" {

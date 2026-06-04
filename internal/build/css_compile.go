@@ -32,15 +32,17 @@ var (
 	cdnTailwindScriptRE = regexp.MustCompile(`(?i)<script\b[^>]*@tailwindcss/browser[^>]*>\s*</script>`)
 )
 
-// optimizeCSS compiles a minimal, self-contained stylesheet for the slug's
-// pages and rewrites each page to link it instead of the CDN substrate.
+// OptimizeCSS compiles a minimal, self-contained stylesheet for the slug's
+// pages, writes it to {slug}/app.css, and rewrites each page to link it
+// (stripping any legacy CDN substrate tags). Called both by the post-build
+// step (Service.Start) and by the MCP lint_site tool so directly-authored
+// sites get the same self-hosted sheet.
 //
 // It is best-effort: any failure (no Tailwind CLI available, compile error,
-// store error) is logged and returns without mutating the site, so the CDN
-// substrate tags survive and the page still renders. The store write of
-// app.css happens before any page rewrite, so a page never points at a
-// stylesheet that isn't there.
-func (svc *Service) optimizeCSS(ctx context.Context, slug string) {
+// store error) is logged and returns without mutating the site. The store
+// write of app.css happens before any page rewrite, so a page never points at
+// a stylesheet that isn't there.
+func (svc *Service) OptimizeCSS(ctx context.Context, slug string) {
 	cli, args, ok := svc.resolveTailwindCLI()
 	if !ok {
 		slog.Warn("css.optimize.skipped", "slug", slug, "reason", "no tailwind cli on PATH; set --tailwind-cli")
