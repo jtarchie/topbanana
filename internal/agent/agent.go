@@ -5,6 +5,7 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -223,6 +224,19 @@ type deleteFunctionResult struct {
 	Error string `json:"error,omitempty"`
 }
 
+type askUserArgs struct {
+	Question       string   `json:"question"`
+	Recommendation string   `json:"recommendation"`
+	Why            string   `json:"why"`
+	Options        []string `json:"options,omitempty"`
+}
+
+type askUserResult struct {
+	Answer string `json:"answer"`
+	Source string `json:"source"` // "user" | "recommendation_timeout" | "limit_reached"
+	Error  string `json:"error,omitempty"`
+}
+
 // Run invokes the agent against the given slug. emit may be nil. attachments
 // are inlined into the session as seeded read_attachment(name) call/response
 // pairs ahead of the caller-supplied seeds. reasoningEffort, when non-empty,
@@ -284,7 +298,7 @@ func (u Usage) CacheHitRatio() float64 {
 	return float64(u.Cached) / float64(u.Prompt)
 }
 
-func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []Attachment, seeds []SeedToolCall, reasoningEffort genai.ThinkingLevel, bctx BuildContext, emit func(events.Event)) (Usage, error) {
+func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []Attachment, seeds []SeedToolCall, reasoningEffort genai.ThinkingLevel, bctx BuildContext, emit func(events.Event), tracker *events.Tracker) (Usage, error) {
 	if emit == nil {
 		emit = func(events.Event) {}
 	}
@@ -293,7 +307,7 @@ func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt str
 
 	// contextcheck flags this because Run has a ctx, but the tools fire later
 	// under per-invocation contexts from the runner; passing ctx would be wrong.
-	tools, err := buildAgentTools(s, slug, tmpl, attachments, emit, state) //nolint:contextcheck
+	tools, err := buildAgentTools(s, slug, tmpl, attachments, emit, state, tracker) //nolint:contextcheck
 	if err != nil {
 		return Usage{}, err
 	}
@@ -482,7 +496,7 @@ func (e emitter) fail(path string, err error) {
 // The function-authoring tools (write_function, read_function, list_functions)
 // are only registered when the template opts in via EnablesFunctions. Older
 // brochure templates see no behavioural change.
-func buildAgentTools(s *store.Store, slug string, tmpl *templates.SiteTemplate, attachments []Attachment, emit func(events.Event), state *buildState) ([]tool.Tool, error) {
+func buildAgentTools(s *store.Store, slug string, tmpl *templates.SiteTemplate, attachments []Attachment, emit func(events.Event), state *buildState, tracker *events.Tracker) ([]tool.Tool, error) {
 	// guardedBuilders read/update buildState (anti-loop ring + iteration
 	// counter for the budget hint); plain builders don't need it.
 	guardedBuilders := []func(*store.Store, string, func(events.Event), *buildState) (tool.Tool, error){
@@ -552,7 +566,18 @@ func buildAgentTools(s *store.Store, slug string, tmpl *templates.SiteTemplate, 
 			tools = append(tools, t)
 		}
 	}
-	return tools, nil
+	return appendAskUserTool(tools, slug, tracker, emit, state)
+}
+
+func appendAskUserTool(tools []tool.Tool, slug string, tracker *events.Tracker, emit func(events.Event), state *buildState) ([]tool.Tool, error) {
+	if tracker == nil {
+		return tools, nil
+	}
+	askTool, err := newAskUserTool(slug, tracker, emit, state)
+	if err != nil {
+		return nil, err
+	}
+	return append(tools, askTool), nil
 }
 
 // newReadAttachmentTool exposes user-attached files (markdown or HTML) to the
@@ -1630,6 +1655,9 @@ const (
 	maxHTMLPathLen     = 200
 	maxAgentIterations = 60
 	toolGuardRingLen   = 3
+
+	maxQuestionsPerBuild = 3
+	askQuestionTimeout   = 5 * time.Minute
 )
 
 // buildState bundles per-run state that the runner loop and tool closures
@@ -1645,9 +1673,10 @@ const (
 // drops work. Reads stay lock-free so the model still gets fan-out wins on
 // list_files / read_file / grep_files batches.
 type buildState struct {
-	guard   *toolGuard
-	iters   atomic.Int64
-	writeMu sync.Mutex
+	guard          *toolGuard
+	iters          atomic.Int64
+	writeMu        sync.Mutex
+	questionsAsked atomic.Int32
 }
 
 func newBuildState() *buildState {
@@ -2037,4 +2066,112 @@ func newListFunctionsTool(s *store.Store, slug string, emit func(events.Event)) 
 		return nil, fmt.Errorf("create list_functions tool: %w", err)
 	}
 	return t, nil
+}
+
+// invokeAskUser contains the core ask_user logic, extracted so tests can call
+// it directly without going through the ADK tool framework.
+func invokeAskUser(ctx context.Context, args askUserArgs, slug string, tracker *events.Tracker, emit func(events.Event), state *buildState, timeout time.Duration) (askUserResult, error) {
+	// Per-build cap: short-circuit immediately when exceeded.
+	n := state.questionsAsked.Add(1)
+	if n > maxQuestionsPerBuild {
+		slog.Info("agent.ask_user.cap_reached", "slug", slug, "n", n)
+		return askUserResult{Answer: args.Recommendation, Source: "limit_reached"}, nil
+	}
+
+	// Validation — surface errors as data so the agent can self-correct.
+	switch {
+	case strings.TrimSpace(args.Question) == "":
+		return askUserResult{Error: "question is required"}, nil
+	case strings.TrimSpace(args.Recommendation) == "":
+		return askUserResult{Error: "recommendation is required"}, nil
+	case strings.TrimSpace(args.Why) == "":
+		return askUserResult{Error: "why is required"}, nil
+	case len(args.Options) > 4:
+		return askUserResult{Error: "options must have at most 4 entries"}, nil
+	}
+
+	// Truncate to keep SSE payloads bounded.
+	q := truncate(args.Question, 200)
+	rec := truncate(args.Recommendation, 200)
+	why := truncate(args.Why, 400)
+	opts := make([]string, len(args.Options))
+	for i, o := range args.Options {
+		opts[i] = truncate(o, 80)
+	}
+
+	// Generate a short random question ID.
+	var raw [8]byte
+	_, randErr := rand.Read(raw[:])
+	if randErr != nil {
+		return askUserResult{Error: "failed to generate question id: " + randErr.Error()}, nil
+	}
+	qid := hex.EncodeToString(raw[:])
+
+	ev := events.Event{
+		Type:           events.TypeQuestion,
+		Phase:          events.PhaseAsk,
+		QuestionID:     qid,
+		Question:       q,
+		Recommendation: rec,
+		Why:            why,
+		Options:        opts,
+	}
+
+	emit(events.Event{Type: events.TypeTool, Tool: "ask_user", Phase: events.PhaseStart})
+
+	ch := tracker.Ask(slug, ev)
+
+	select {
+	case answer, ok := <-ch:
+		if !ok {
+			// Channel closed by terminal-status cleanup — return recommendation.
+			emit(events.Event{Type: events.TypeTool, Tool: "ask_user", Phase: events.PhaseDone})
+			return askUserResult{Answer: rec, Source: "recommendation_timeout"}, nil
+		}
+		slog.Info("agent.ask_user.answered", "slug", slug, "qid", qid)
+		emit(events.Event{Type: events.TypeTool, Tool: "ask_user", Phase: events.PhaseDone})
+		return askUserResult{Answer: answer, Source: "user"}, nil
+	case <-time.After(timeout):
+		// Emit timeout event so workspace removes the question card.
+		tracker.EmitTimeout(slug, qid, rec)
+		slog.Info("agent.ask_user.timeout", "slug", slug, "qid", qid)
+		emit(events.Event{Type: events.TypeTool, Tool: "ask_user", Phase: events.PhaseDone})
+		return askUserResult{Answer: rec, Source: "recommendation_timeout"}, nil
+	case <-ctx.Done():
+		emit(events.Event{Type: events.TypeTool, Tool: "ask_user", Phase: events.PhaseError, Message: "build cancelled"})
+		return askUserResult{}, fmt.Errorf("ask_user cancelled: %w", ctx.Err())
+	}
+}
+
+// newAskUserTool creates the ask_user tool that lets the agent pause and ask a
+// plain-language question. The agent goroutine blocks on a channel until the
+// workspace POSTs an answer, the timeout fires, or the build context is
+// cancelled. On timeout the recommendation is returned so the build
+// self-completes even if the user wandered off.
+func newAskUserTool(slug string, tracker *events.Tracker, emit func(events.Event), state *buildState) (tool.Tool, error) {
+	t, err := functiontool.New(
+		functiontool.Config{
+			Name: "ask_user",
+			Description: "Pause the build and ask the user a plain-language content or design question. " +
+				"Only use when the prompt is silent on something that materially changes what you build. " +
+				"Never ask about technical details (components, file names, themes). " +
+				"At most 3 questions per build — make a reasonable choice instead whenever possible.",
+		},
+		func(tctx agent.ToolContext, args askUserArgs) (askUserResult, error) {
+			return invokeAskUser(tctx, args, slug, tracker, emit, state, askQuestionTimeout)
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create ask_user tool: %w", err)
+	}
+	return t, nil
+}
+
+// truncate shortens s to at most n runes (not bytes).
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }

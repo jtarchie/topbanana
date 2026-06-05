@@ -74,3 +74,26 @@ The page must never scroll horizontally — clipped content has no scrollbar aff
 - Single-column page with bare `<section>` blocks alternating background colors.
 - `border-bottom: 2px solid #0056b3` headers — use `navbar` or hero.
 - Inline `<style>` reinventing buttons, cards, spacing scales.
+
+## Asking the user for help
+
+Use the `ask_user` tool only when the prompt is silent on something that **materially changes what you build** — for example, the focus of a memorial site (photos vs. stories vs. timeline) or the tone of a landing page (playful vs. professional).
+
+**Hard rules:**
+- **At most 3 questions per build.** Prefer zero — make a reasonable choice and proceed.
+- **Plain language only.** Imagine you are talking to your grandmother. No jargon, no DaisyUI/Tailwind/HTML terms, no internal labels.
+- **Always provide `recommendation` and `why`.** The recommendation is what you would do if the user did not answer. `why` is one short sentence explaining your reasoning.
+- **Keep options to 2–4 short phrases**, or omit them entirely (the user can type a custom answer).
+- If you receive `source: "recommendation_timeout"` or `source: "limit_reached"`, accept the recommendation and continue — do not ask again.
+
+Never ask about: which DaisyUI component to use, color names, file names, theme names, or any other technical implementation detail.
+
+Example:
+```
+ask_user(
+  question: "What feeling should the home page give visitors?",
+  recommendation: "Warm and welcoming, like a friendly bakery",
+  why: "Your prompt mentioned 'cozy', so a soft, warm tone fits best.",
+  options: ["Warm and welcoming", "Calm and quiet", "Bright and playful"]
+)
+```

@@ -1,11 +1,13 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/templates"
 )
 
@@ -668,5 +670,149 @@ func TestTruncateSnippet(t *testing.T) {
 	// Visible portion equals the cap; the ellipsis is one extra rune.
 	if len([]rune(out))-1 != grepSnippetMax {
 		t.Fatalf("expected %d visible chars before ellipsis, got %d", grepSnippetMax, len([]rune(out))-1)
+	}
+}
+
+// --- ask_user tests ----------------------------------------------------------
+
+func newAskState() *buildState { return newBuildState() }
+
+func TestAskUser_ValidationErrors(t *testing.T) {
+	t.Parallel()
+
+	tr := events.NewTracker()
+	tr.Start("s")
+	noEmit := func(events.Event) {}
+
+	cases := []struct {
+		name string
+		args askUserArgs
+		want string
+	}{
+		{"missing question", askUserArgs{Recommendation: "r", Why: "w"}, "question is required"},
+		{"missing recommendation", askUserArgs{Question: "q?", Why: "w"}, "recommendation is required"},
+		{"missing why", askUserArgs{Question: "q?", Recommendation: "r"}, "why is required"},
+		{"too many options", askUserArgs{Question: "q?", Recommendation: "r", Why: "w", Options: []string{"a", "b", "c", "d", "e"}}, "options must have at most 4"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Fresh state per case so questionsAsked never exceeds the cap.
+			state := newAskState()
+			res, err := invokeAskUser(context.Background(), tc.args, "s", tr, noEmit, state, time.Millisecond)
+			if err != nil {
+				t.Fatalf("unexpected Go error: %v", err)
+			}
+			if res.Error == "" {
+				t.Fatal("expected Error field to be set, got empty")
+			}
+			if !strings.Contains(res.Error, tc.want) {
+				t.Errorf("Error = %q, want substring %q", res.Error, tc.want)
+			}
+		})
+	}
+}
+
+func TestAskUser_CapReached(t *testing.T) {
+	t.Parallel()
+
+	tr := events.NewTracker()
+	tr.Start("s")
+	state := newAskState()
+	// Exhaust the cap.
+	for i := 0; i < maxQuestionsPerBuild; i++ {
+		state.questionsAsked.Add(1)
+	}
+
+	args := askUserArgs{Question: "q?", Recommendation: "rec", Why: "because"}
+	res, err := invokeAskUser(context.Background(), args, "s", tr, func(events.Event) {}, state, time.Millisecond)
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if res.Source != "limit_reached" {
+		t.Errorf("Source = %q, want limit_reached", res.Source)
+	}
+	if res.Answer != "rec" {
+		t.Errorf("Answer = %q, want recommendation %q", res.Answer, "rec")
+	}
+}
+
+func TestAskUser_Timeout(t *testing.T) {
+	t.Parallel()
+
+	tr := events.NewTracker()
+	tr.Start("s")
+	state := newAskState()
+
+	args := askUserArgs{Question: "q?", Recommendation: "default", Why: "because"}
+	// Pass a very short timeout so the test runs in milliseconds.
+	res, err := invokeAskUser(context.Background(), args, "s", tr, func(events.Event) {}, state, 5*time.Millisecond)
+	if err != nil {
+		t.Fatalf("unexpected Go error: %v", err)
+	}
+	if res.Source != "recommendation_timeout" {
+		t.Errorf("Source = %q, want recommendation_timeout", res.Source)
+	}
+	if res.Answer != "default" {
+		t.Errorf("Answer = %q, want %q", res.Answer, "default")
+	}
+}
+
+func TestAskUser_UserAnswer(t *testing.T) {
+	t.Parallel()
+
+	tr := events.NewTracker()
+	tr.Start("s")
+	state := newAskState()
+
+	// Subscribe BEFORE invoking so we receive the PhaseAsk event.
+	_, subCh, _ := tr.Subscribe("s")
+
+	args := askUserArgs{Question: "Tone?", Recommendation: "warm", Why: "prompt said cozy"}
+
+	resultCh := make(chan askUserResult, 1)
+	go func() {
+		res, _ := invokeAskUser(context.Background(), args, "s", tr, func(events.Event) {}, state, 5*time.Second)
+		resultCh <- res
+	}()
+
+	// Wait for the PhaseAsk event on the subscriber channel to get the qid.
+	var qid string
+	deadline := time.After(500 * time.Millisecond)
+	for qid == "" {
+		select {
+		case ev := <-subCh:
+			if ev.Type == events.TypeQuestion && ev.Phase == events.PhaseAsk {
+				qid = ev.QuestionID
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for PhaseAsk event on tracker subscriber")
+		}
+	}
+
+	tr.Resolve("s", qid, "playful")
+
+	select {
+	case res := <-resultCh:
+		if res.Source != "user" {
+			t.Errorf("Source = %q, want user", res.Source)
+		}
+		if res.Answer != "playful" {
+			t.Errorf("Answer = %q, want playful", res.Answer)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("invokeAskUser did not return after Resolve")
+	}
+}
+
+func TestTruncate(t *testing.T) {
+	t.Parallel()
+
+	if truncate("hello", 10) != "hello" {
+		t.Error("short string should pass through unchanged")
+	}
+	long := strings.Repeat("x", 300)
+	out := truncate(long, 200)
+	if len([]rune(out)) != 200 {
+		t.Errorf("truncated length = %d, want 200", len([]rune(out)))
 	}
 }

@@ -350,3 +350,151 @@ func TestTracker_EmitOnUnknownSlugCreatesEntry(t *testing.T) {
 		t.Fatal("Emit on unknown slug did not create entry")
 	}
 }
+
+func TestTracker_AskEmitsEvent(t *testing.T) {
+	t.Parallel()
+
+	tr := NewTracker()
+	tr.Start("s")
+	_, subs, _ := tr.Subscribe("s")
+
+	q := Event{
+		Type:       TypeQuestion,
+		Phase:      PhaseAsk,
+		QuestionID: "q1",
+		Question:   "Which colour?",
+	}
+	tr.Ask("s", q)
+
+	select {
+	case ev := <-subs:
+		if ev.Type != TypeQuestion || ev.Phase != PhaseAsk || ev.QuestionID != "q1" {
+			t.Errorf("unexpected event from Ask: %+v", ev)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Ask did not emit event to subscriber")
+	}
+}
+
+func TestTracker_ResolveDeliversAnswer(t *testing.T) {
+	t.Parallel()
+
+	tr := NewTracker()
+	tr.Start("s")
+	_, subs, _ := tr.Subscribe("s")
+
+	ch := tr.Ask("s", Event{Type: TypeQuestion, Phase: PhaseAsk, QuestionID: "q1"})
+	<-subs // drain the ask event
+
+	if !tr.Resolve("s", "q1", "Green") {
+		t.Fatal("Resolve returned false for known question")
+	}
+
+	select {
+	case answer, open := <-ch:
+		if !open {
+			t.Fatal("channel was closed before answer arrived")
+		}
+		if answer != "Green" {
+			t.Errorf("got answer %q, want %q", answer, "Green")
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Ask channel did not receive answer")
+	}
+
+	select {
+	case ev := <-subs:
+		if ev.Type != TypeQuestion || ev.Phase != PhaseAnswer || ev.Answer != "Green" {
+			t.Errorf("unexpected PhaseAnswer event: %+v", ev)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Resolve did not emit PhaseAnswer event")
+	}
+}
+
+func TestTracker_ResolveStaleFalse(t *testing.T) {
+	t.Parallel()
+
+	tr := NewTracker()
+	tr.Start("s")
+
+	// Resolve on unknown question_id returns false.
+	if tr.Resolve("s", "no-such-id", "x") {
+		t.Error("Resolve on unknown question_id returned true")
+	}
+	// Resolve on unknown slug also returns false.
+	if tr.Resolve("nope", "q1", "x") {
+		t.Error("Resolve on unknown slug returned true")
+	}
+}
+
+func TestTracker_TerminalStatusClosesPending(t *testing.T) {
+	t.Parallel()
+
+	tr := NewTracker()
+	tr.Start("s")
+
+	ch := tr.Ask("s", Event{
+		Type:       TypeQuestion,
+		Phase:      PhaseAsk,
+		QuestionID: "q1",
+		Question:   "Test?",
+	})
+
+	// Completing the build should close the pending channel.
+	tr.Complete("s")
+
+	select {
+	case _, open := <-ch:
+		if open {
+			t.Error("pending channel should be closed on terminal status")
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("pending channel was not closed after Complete")
+	}
+}
+
+func TestTracker_EmitTimeout(t *testing.T) {
+	t.Parallel()
+
+	tr := NewTracker()
+	tr.Start("s")
+
+	_, subs, _ := tr.Subscribe("s")
+
+	ch := tr.Ask("s", Event{
+		Type:       TypeQuestion,
+		Phase:      PhaseAsk,
+		QuestionID: "q2",
+		Question:   "Timeout test?",
+	})
+	// drain the ask event
+	<-subs
+
+	tr.EmitTimeout("s", "q2", "default answer")
+
+	// channel must be closed (agent treats closed channel as timeout)
+	select {
+	case _, open := <-ch:
+		if open {
+			t.Error("channel should be closed after EmitTimeout")
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("channel not closed after EmitTimeout")
+	}
+
+	// PhaseTimeout event should have been emitted.
+	select {
+	case ev := <-subs:
+		if ev.Type != TypeQuestion || ev.Phase != PhaseTimeout || ev.Answer != "default answer" {
+			t.Errorf("unexpected timeout event: %+v", ev)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("EmitTimeout did not emit PhaseTimeout event")
+	}
+
+	// A subsequent Resolve on the same question_id must return false.
+	if tr.Resolve("s", "q2", "late answer") {
+		t.Error("Resolve after EmitTimeout should return false")
+	}
+}

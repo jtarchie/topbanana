@@ -445,6 +445,7 @@
         case 'list_assets':
         case 'read_function':
         case 'list_functions': return null;
+        case 'ask_user': return null;
         default: return 'Working…';
       }
     }
@@ -459,7 +460,111 @@
       }
     }
     var seen = new Set();
-    function evKey(ev) { return [ev.type || '', ev.status || '', ev.tool || '', ev.phase || '', ev.path || '', ev.time || '', ev.message || ''].join('|'); }
+    function evKey(ev) { return [ev.type || '', ev.status || '', ev.tool || '', ev.phase || '', ev.path || '', ev.time || '', ev.message || '', ev.question_id || ''].join('|'); }
+
+    // question_id → card element, for removal on answer/timeout.
+    var questionCards = {};
+
+    function removeQuestionCard(qid) {
+      var card = questionCards[qid];
+      if (card) { card.remove(); delete questionCards[qid]; }
+    }
+
+    function postClarify(qid, answer) {
+      return fetch('/clarify/' + encodeURIComponent(slug), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question_id: qid, answer: answer })
+      }).then(function (r) {
+        if (!r.ok) { r.json().then(function (j) { toast((j && j.message) || 'Failed to submit answer.', 'error'); }); }
+      }).catch(function (err) { toast('Failed to submit answer: ' + err, 'error'); });
+    }
+
+    function renderQuestionCard(ev) {
+      var qid = ev.question_id;
+      if (!qid || questionCards[qid]) return;
+
+      var card = document.createElement('div');
+      card.className = 'border-t border-info/30 bg-base-100 p-4';
+      card.dataset.qid = qid;
+
+      var h = document.createElement('h3');
+      h.className = 'text-base font-semibold mb-2';
+      h.textContent = ev.question || 'The builder has a question for you.';
+      card.appendChild(h);
+
+      if (ev.recommendation) {
+        var suggestion = document.createElement('div');
+        suggestion.className = 'alert alert-info text-sm mb-3 py-2 px-3';
+        suggestion.innerHTML = '<span><strong>Our suggestion:</strong> ' + escHtml(ev.recommendation) +
+          (ev.why ? ' <span class="text-base-content/70">— ' + escHtml(ev.why) + '</span>' : '') + '</span>';
+        card.appendChild(suggestion);
+      }
+
+      var btnRow = document.createElement('div');
+      btnRow.className = 'flex flex-wrap gap-2 mb-2';
+
+      function disableAll() {
+        btnRow.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+        customSubmit && (customSubmit.disabled = true);
+      }
+
+      function makeBtn(label, cls, answer) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn btn-sm ' + cls;
+        b.textContent = label;
+        b.addEventListener('click', function () {
+          disableAll();
+          postClarify(qid, answer);
+        });
+        return b;
+      }
+
+      if (ev.recommendation) {
+        btnRow.appendChild(makeBtn('Use this suggestion', 'btn-primary', ev.recommendation));
+      }
+      (ev.options || []).forEach(function (opt) {
+        if (opt !== ev.recommendation) {
+          btnRow.appendChild(makeBtn(opt, 'btn-ghost btn-outline', opt));
+        }
+      });
+      card.appendChild(btnRow);
+
+      var details = document.createElement('details');
+      details.className = 'text-sm mt-1';
+      var summary = document.createElement('summary');
+      summary.className = 'cursor-pointer text-base-content/60 hover:text-base-content';
+      summary.textContent = 'Or tell us in your own words…';
+      details.appendChild(summary);
+      var customRow = document.createElement('div');
+      customRow.className = 'flex gap-2 mt-2';
+      var customInput = document.createElement('textarea');
+      customInput.className = 'textarea textarea-bordered textarea-sm flex-1';
+      customInput.rows = 2;
+      customInput.placeholder = 'Type your answer here…';
+      var customSubmit = document.createElement('button');
+      customSubmit.type = 'button';
+      customSubmit.className = 'btn btn-sm btn-secondary self-end';
+      customSubmit.textContent = 'Submit';
+      customSubmit.addEventListener('click', function () {
+        var val = customInput.value.trim();
+        if (!val) return;
+        disableAll();
+        postClarify(qid, val);
+      });
+      customRow.appendChild(customInput);
+      customRow.appendChild(customSubmit);
+      details.appendChild(customRow);
+      card.appendChild(details);
+
+      questionCards[qid] = card;
+      strip.appendChild(card);
+    }
+
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
 
     var es = new EventSource('/events/' + slug);
     es.onmessage = function (e) {
@@ -467,6 +572,15 @@
       var k = evKey(ev);
       if (seen.has(k)) return;
       seen.add(k);
+
+      if (ev.type === 'question') {
+        if (ev.phase === 'ask') {
+          renderQuestionCard(ev);
+        } else if (ev.phase === 'answer' || ev.phase === 'timeout') {
+          removeQuestionCard(ev.question_id);
+        }
+        return;
+      }
 
       if (ev.type === 'status') {
         if (ev.status === 'building') setStep('design');

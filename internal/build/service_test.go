@@ -208,7 +208,7 @@ type scriptedRunner struct {
 	usage    agent.Usage   // returned from every Run call (zero value is fine)
 }
 
-func (r *scriptedRunner) Run(ctx context.Context, s *store.Store, slug, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, _ time.Time, _ bool, emit func(events.Event)) (agent.Usage, error) {
+func (r *scriptedRunner) Run(ctx context.Context, s *store.Store, slug, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, _ time.Time, _ bool, emit func(events.Event), _ *events.Tracker) (agent.Usage, error) {
 	idx := int(r.calls.Add(1)) - 1
 	if r.runDelay > 0 {
 		select {
@@ -240,7 +240,7 @@ func (r *scriptedRunner) Describe(_ context.Context, _ *store.Store, _, _ string
 // fails loudly rather than reporting success on an empty site.
 type noopRunner struct{ calls atomic.Int32 }
 
-func (r *noopRunner) Run(_ context.Context, _ *store.Store, _, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, _ time.Time, _ bool, _ func(events.Event)) (agent.Usage, error) {
+func (r *noopRunner) Run(_ context.Context, _ *store.Store, _, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, _ time.Time, _ bool, _ func(events.Event), _ *events.Tracker) (agent.Usage, error) {
 	r.calls.Add(1)
 	return agent.Usage{}, nil
 }

@@ -112,7 +112,7 @@ func EffectiveTemplate(meta SiteMeta) *templates.SiteTemplate {
 // flows unchanged into every retry, so the agent sees the same "today" all
 // the way through a single build. isEdit comes from !Params.SeedSkeleton.
 type Runner interface {
-	Run(ctx context.Context, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, buildStart time.Time, isEdit bool, emit func(events.Event)) (agent.Usage, error)
+	Run(ctx context.Context, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, buildStart time.Time, isEdit bool, emit func(events.Event), tracker *events.Tracker) (agent.Usage, error)
 	Describe(ctx context.Context, s *store.Store, slug, userPrompt string) (agent.SiteDescription, error)
 }
 
@@ -163,14 +163,14 @@ func (r agentRunner) siteURL(slug string) string {
 	return fmt.Sprintf("%s://%s.%s%s", scheme, slug, r.domain, port)
 }
 
-func (r agentRunner) Run(ctx context.Context, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, buildStart time.Time, isEdit bool, emit func(events.Event)) (agent.Usage, error) {
+func (r agentRunner) Run(ctx context.Context, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, buildStart time.Time, isEdit bool, emit func(events.Event), tracker *events.Tracker) (agent.Usage, error) {
 	bctx := agent.BuildContext{
 		Now:     buildStart,
 		Slug:    slug,
 		SiteURL: r.siteURL(slug),
 		IsEdit:  isEdit,
 	}
-	usage, err := agent.Run(ctx, r.llm, s, slug, prompt, tmpl, attachments, seeds, r.reasoningEffort, bctx, emit)
+	usage, err := agent.Run(ctx, r.llm, s, slug, prompt, tmpl, attachments, seeds, r.reasoningEffort, bctx, emit, tracker)
 	if err != nil {
 		return usage, fmt.Errorf("agent run: %w", err)
 	}
@@ -639,7 +639,7 @@ func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slu
 	// dates mid-flight and invalidate the per-build prefix.
 	buildStart := time.Now()
 
-	usage, err := author.Run(ctx, svc.store, slug, prompt, tmpl, attachments, seeds, buildStart, isEdit, emit)
+	usage, err := author.Run(ctx, svc.store, slug, prompt, tmpl, attachments, seeds, buildStart, isEdit, emit, svc.events)
 	recordUsage(rec, usage)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -686,7 +686,7 @@ func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slu
 		// LintFixPrompt names them) so the fix-up edits in place rather than
 		// writing blind.
 		fixPrompt := LintFixPrompt(residual)
-		usage, err := editor.Run(ctx, svc.store, slug, fixPrompt, tmpl, attachments, svc.EditSeeds(ctx, slug, fixPrompt), buildStart, isEdit, emit)
+		usage, err := editor.Run(ctx, svc.store, slug, fixPrompt, tmpl, attachments, svc.EditSeeds(ctx, slug, fixPrompt), buildStart, isEdit, emit, svc.events)
 		recordUsage(rec, usage)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {

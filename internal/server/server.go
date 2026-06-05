@@ -319,6 +319,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 	admin.GET("/debug/:slug", s.debugHandler, owns)
 	admin.GET("/debug/:slug/edit", s.debugDetailHandler, owns)
 	admin.GET("/debug/:slug/cache-check", s.debugCacheCheckHandler, owns)
+	admin.POST("/clarify/:slug", s.clarifyHandler, owns, promptBodyCap)
 
 	return e, s
 }

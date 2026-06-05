@@ -9,6 +9,13 @@ import (
 	"time"
 )
 
+// Question event phases (used with TypeQuestion events).
+const (
+	PhaseAsk     = "ask"     // agent asked, waiting for user
+	PhaseAnswer  = "answer"  // user replied
+	PhaseTimeout = "timeout" // user didn't reply; recommendation auto-accepted
+)
+
 const (
 	// TerminalTTL is how long a completed/failed Status stays in the tracker
 	// after termination. The progress page polls every few seconds, so this
@@ -31,6 +38,7 @@ const (
 	TypeStatus   = "status"
 	TypeTool     = "tool"
 	TypeFunction = "function"
+	TypeQuestion = "question"
 )
 
 // Tool phases (also used for TypeFunction).
@@ -45,13 +53,21 @@ const (
 // Event is the payload streamed to subscribers and recorded for replay on
 // reconnect.
 type Event struct {
-	Type    string    `json:"type"`              // "status" | "tool"
+	Type    string    `json:"type"`              // "status" | "tool" | "question"
 	Status  string    `json:"status,omitempty"`  // for type=status: building|completed|failed|linting|retry
 	Tool    string    `json:"tool,omitempty"`    // for type=tool: write_file|read_file|list_files|list_assets
-	Phase   string    `json:"phase,omitempty"`   // for type=tool: start|done|error
+	Phase   string    `json:"phase,omitempty"`   // for type=tool: start|done|error; for type=question: ask|answer|timeout
 	Path    string    `json:"path,omitempty"`    // for type=tool: file path the tool acted on
 	Message string    `json:"message,omitempty"` // optional human-readable detail (errors, retry reason)
 	Time    time.Time `json:"time"`
+
+	// Question fields — only set when Type == TypeQuestion.
+	QuestionID     string   `json:"question_id,omitempty"`
+	Question       string   `json:"question,omitempty"`
+	Recommendation string   `json:"recommendation,omitempty"`
+	Why            string   `json:"why,omitempty"`
+	Options        []string `json:"options,omitempty"`
+	Answer         string   `json:"answer,omitempty"` // set on PhaseAnswer / PhaseTimeout
 }
 
 // Status is the per-slug record of build state plus event history. Events and
@@ -62,8 +78,9 @@ type Status struct {
 	Error    string    `json:"error,omitempty"`
 	Finished time.Time `json:"-"`
 
-	Events []Event                 `json:"-"`
-	subs   map[chan Event]struct{} `json:"-"`
+	Events  []Event                 `json:"-"`
+	subs    map[chan Event]struct{} `json:"-"`
+	pending map[string]chan string  `json:"-"` // keyed by question_id; buffered 1
 }
 
 // Tracker holds the active build map. The zero value is not usable; call
@@ -117,9 +134,11 @@ func (t *Tracker) Emit(slug string, event Event) {
 		case StatusCompleted:
 			s.Finished = event.Time
 			s.Error = ""
+			s.closePending()
 		case StatusFailed:
 			s.Finished = event.Time
 			s.Error = event.Message
+			s.closePending()
 		}
 	}
 	for sub := range s.subs {
@@ -176,6 +195,88 @@ func (t *Tracker) Forget(slug string) {
 		close(ch)
 	}
 	delete(t.m, slug)
+}
+
+// closePending closes and removes all pending question channels. Must be called
+// with t.mu held. Prevents goroutine leaks when a build reaches a terminal
+// state before the user answers a question.
+func (s *Status) closePending() {
+	for id, ch := range s.pending {
+		close(ch)
+		delete(s.pending, id)
+	}
+}
+
+// Ask stores a buffered channel for the given question event, emits the event,
+// and returns the channel. The agent goroutine reads from it (with a timeout).
+// q.QuestionID must be non-empty and unique within the slug.
+func (t *Tracker) Ask(slug string, q Event) <-chan string {
+	ch := make(chan string, 1)
+	t.mu.Lock()
+	s, ok := t.m[slug]
+	if !ok {
+		s = &Status{Slug: slug, subs: map[chan Event]struct{}{}}
+		t.m[slug] = s
+	}
+	if s.pending == nil {
+		s.pending = map[string]chan string{}
+	}
+	s.pending[q.QuestionID] = ch
+	t.mu.Unlock()
+
+	t.Emit(slug, q)
+	return ch
+}
+
+// Resolve delivers an answer to the pending question identified by questionID.
+// It emits a PhaseAnswer event and returns true. Returns false if no pending
+// question with that ID exists (stale or already answered).
+func (t *Tracker) Resolve(slug, questionID, answer string) bool {
+	t.mu.Lock()
+	s, ok := t.m[slug]
+	if !ok {
+		t.mu.Unlock()
+		return false
+	}
+	ch, exists := s.pending[questionID]
+	if !exists {
+		t.mu.Unlock()
+		return false
+	}
+	delete(s.pending, questionID)
+	t.mu.Unlock()
+
+	ch <- answer
+	close(ch)
+
+	t.Emit(slug, Event{
+		Type:       TypeQuestion,
+		Phase:      PhaseAnswer,
+		QuestionID: questionID,
+		Answer:     answer,
+	})
+	return true
+}
+
+// EmitTimeout removes the pending question channel (preventing a stale Resolve)
+// and emits a PhaseTimeout event so the workspace can remove the question card.
+// It is called by the agent when the user-response timer fires.
+func (t *Tracker) EmitTimeout(slug, questionID, recommendation string) {
+	t.mu.Lock()
+	if s, ok := t.m[slug]; ok {
+		if ch, exists := s.pending[questionID]; exists {
+			delete(s.pending, questionID)
+			close(ch)
+		}
+	}
+	t.mu.Unlock()
+
+	t.Emit(slug, Event{
+		Type:       TypeQuestion,
+		Phase:      PhaseTimeout,
+		QuestionID: questionID,
+		Answer:     recommendation,
+	})
 }
 
 func (t *Tracker) Unsubscribe(slug string, ch chan Event) {

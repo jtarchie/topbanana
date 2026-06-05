@@ -47,7 +47,7 @@ const stubIndexHTML = `<!DOCTYPE html>
 </html>
 `
 
-func (r *stubRunner) Run(ctx context.Context, s *store.Store, slug, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, _ time.Time, _ bool, emit func(events.Event)) (agent.Usage, error) {
+func (r *stubRunner) Run(ctx context.Context, s *store.Store, slug, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, _ time.Time, _ bool, emit func(events.Event), _ *events.Tracker) (agent.Usage, error) {
 	now := time.Now().UTC()
 	emit(events.Event{Type: events.TypeTool, Tool: "write_file", Phase: events.PhaseStart, Path: "/index.html", Time: now})
 	err := s.Write(ctx, slug, "index.html", stubIndexHTML, "text/html; charset=utf-8", nil)
