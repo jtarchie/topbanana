@@ -38,24 +38,37 @@
     </div>
   </section>
 
-  {{ if .MCPCommand }}
   <section class="card bg-base-100 border border-base-300 mb-6">
     <div class="card-body">
       <h2 class="text-lg font-semibold">Connect Claude Code</h2>
       <p class="text-sm text-base-content/70">
         Top Banana exposes a Model Context Protocol endpoint so
         <a class="link" href="https://docs.claude.com/en/docs/claude-code" target="_blank" rel="noopener">Claude Code</a>
-        can author and manage your sites directly. Run the command below in your terminal; Claude Code opens
-        a browser to authorize using your existing passkey.
+        can author and manage your sites directly.
+      </p>
+      {{ if .MCPEnabled }}
+      <p class="text-sm text-base-content/70 mt-2">
+        Run the command below in your terminal; Claude Code opens a browser to authorize using your existing passkey.
       </p>
       <div class="mt-3 flex items-start gap-2">
         <code class="text-xs sm:text-sm break-all flex-1 bg-base-200 rounded-box px-3 py-2 font-mono">{{ .MCPCommand }}</code>
         <button type="button" class="btn btn-ghost btn-sm js-copy shrink-0"
                 data-copy="{{ .MCPCommand }}" data-copied-label="Copied!" aria-label="Copy connect command">Copy</button>
       </div>
+      {{ else }}
+      <div class="alert alert-warning mt-3" role="status">
+        <span>MCP isn't enabled on this server yet, so there's nothing to connect to.</span>
+      </div>
+      {{ if .IsSuperAdmin }}
+      <p class="text-sm text-base-content/70 mt-3">
+        To enable it, set the <code class="bg-base-200 rounded px-1 font-mono">MCP_SECRET</code> environment variable
+        (or pass <code class="bg-base-200 rounded px-1 font-mono">--mcp-secret</code>) to a long random string and
+        restart the server. See <code class="bg-base-200 rounded px-1 font-mono">docs/mcp-server.md</code> for details.
+      </p>
+      {{ end }}
+      {{ end }}
     </div>
   </section>
-  {{ end }}
 
   <form method="POST" action="/logout">
     <button type="submit" class="btn btn-ghost btn-sm">Sign out</button>

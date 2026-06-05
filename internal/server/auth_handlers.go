@@ -40,11 +40,19 @@ type accountData struct {
 	Email       string
 	Role        string
 	Credentials []accountCredential
+	// MCPEnabled reports whether the MCP endpoint is mounted on this deploy
+	// (mcpSecret set). Drives which state the "Connect Claude Code" card
+	// renders: the copy-paste command when true, a disabled-state note when
+	// false.
+	MCPEnabled bool
 	// MCPCommand is the full `claude mcp add ...` line, prebuilt with this
 	// server's public URL so the user can copy-paste verbatim. Empty when
-	// MCP is disabled on this deploy (mcpSecret unset), in which case the
-	// template skips the section entirely.
+	// MCP is disabled on this deploy (mcpSecret unset).
 	MCPCommand string
+	// IsSuperAdmin gates the operator-facing "set MCP_SECRET to enable" hint
+	// shown in the disabled state — only an operator can change server config,
+	// so regular users just see that MCP isn't enabled.
+	IsSuperAdmin bool
 }
 
 // loginHandler renders the email-entry form. Available unauthenticated;
@@ -149,16 +157,19 @@ func (s *Server) accountHandler(c *echo.Context) error {
 			Created: time.Now().UTC().Format("2006-01-02"),
 		})
 	}
+	mcpEnabled := s.mcpSecret != ""
 	mcpCmd := ""
-	if s.mcpSecret != "" {
+	if mcpEnabled {
 		mcpCmd = "claude mcp add --transport http topbanana " + s.adminURL(c, "/mcp")
 	}
 	return s.render(c, "account", accountData{
-		Chrome:      Chrome{Active: "account"},
-		Email:       user.Email,
-		Role:        string(user.Role),
-		Credentials: creds,
-		MCPCommand:  mcpCmd,
+		Chrome:       Chrome{Active: "account"},
+		Email:        user.Email,
+		Role:         string(user.Role),
+		Credentials:  creds,
+		MCPEnabled:   mcpEnabled,
+		MCPCommand:   mcpCmd,
+		IsSuperAdmin: user.Role == auth.RoleSuperAdmin,
 	})
 }
 
