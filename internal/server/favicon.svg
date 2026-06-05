@@ -1,11 +1,25 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <style>
-    :root { color: #e6a700; }
-    @media (prefers-color-scheme: dark) { :root { color: #ffe14d; } }
-  </style>
-  <g fill="currentColor" stroke="#000" stroke-opacity=".18" stroke-width="1" stroke-linejoin="round">
-    <!-- banana: a crescent body with a small stem at the upper tip -->
-    <path d="M6.2 2.6 C5.1 9 7.4 15.6 16 18.6 C17.6 19.1 19.6 18.9 20.6 17.6 C19 18 16.7 17.7 14.8 16.7 C9.7 14 7.6 8.6 8.7 3.4 Z"/>
-    <path d="M6.2 2.6 C6.1 3.4 6.8 4 7.7 3.9 C8.6 3.8 9 3 8.7 3.4" fill="none" stroke="currentColor" stroke-opacity="1" stroke-width="1.6" stroke-linecap="round"/>
+  <!-- Top Banana mascot: a cartoony curved banana with a face and a thumbs-up. -->
+  <g stroke="#5a3a18" stroke-width="0.8" stroke-linejoin="round" stroke-linecap="round">
+    <!-- arm reaching up to the raised hand -->
+    <path d="M16.2 14 C 17.8 13.6 19 12.4 19.4 11 L 20.8 11.6 C 20.2 13.6 18.6 15 16.7 15.5 Z" fill="#ffd33a"/>
+    <!-- banana body: a curved crescent that swings to the bottom-right -->
+    <path d="M9.5 2.8 C 6.8 5 6 10.5 7 15 C 7.6 18 9 20.4 11.4 20.9 C 12.4 21.1 13.6 20.8 14.2 19.8 C 16.4 16.4 17 11 16.2 7 C 15.6 4 13 2.6 9.5 2.8 Z" fill="#ffd33a"/>
+    <!-- brown bottom tip -->
+    <path d="M12.9 19.4 C 13.2 20.6 14.3 21.1 15 20.2 C 14.7 19.6 14 19.2 13.3 19 Z" fill="#5a3a18" stroke="none"/>
+    <!-- stem -->
+    <path d="M9 3 C 8.5 1.6 9.4 0.8 10.6 1.3 C 9.7 1.9 9.9 2.7 10.5 3.2 Z" fill="#7a5a2a"/>
+    <!-- raised gloved hand giving a thumbs-up -->
+    <path d="M19 12 C 18.5 12 18.2 11.6 18.2 11.1 L 18.2 10 C 18.2 9.4 18.6 9 19.2 9.1 C 18.9 8.8 18.9 8.3 19.3 8.1 L 19.6 5.6 C 19.7 4.9 20.7 4.9 20.8 5.6 L 21 8.3 L 21.8 8.5 C 22.3 8.6 22.6 9 22.5 9.6 L 22.4 11 C 22.4 11.6 22 12 21.4 12 Z" fill="#fffdf5"/>
   </g>
+  <!-- cheeks -->
+  <circle cx="9.8" cy="13" r="0.9" fill="#ff9aa2" fill-opacity="0.7"/>
+  <circle cx="15" cy="12.7" r="0.9" fill="#ff9aa2" fill-opacity="0.7"/>
+  <!-- eyes -->
+  <circle cx="11" cy="10.2" r="1.5" fill="#fff" stroke="#5a3a18" stroke-width="0.5"/>
+  <circle cx="14.2" cy="10" r="1.5" fill="#fff" stroke="#5a3a18" stroke-width="0.5"/>
+  <circle cx="11.3" cy="10.4" r="0.7" fill="#1a1a1a"/>
+  <circle cx="14.5" cy="10.2" r="0.7" fill="#1a1a1a"/>
+  <!-- smile -->
+  <path d="M10.6 12.8 C 11.6 14.6 14 14.4 14.8 12.6 C 13.6 13.6 11.8 13.7 10.6 12.8 Z" fill="#5a2a2a"/>
 </svg>
