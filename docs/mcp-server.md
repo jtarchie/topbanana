@@ -42,8 +42,8 @@ re-runs the OAuth flow to refresh.
 
 | Tool | Purpose |
 | --- | --- |
-| `list_sites` | List the sites you own (title, template, created, URL). |
-| `get_site` | Metadata + file list for one site. |
+| `list_sites` | List the sites you own (title, template, created, custom domains, URL). |
+| `get_site` | Metadata (including any custom domains) + file list for one site. |
 | `create_site` | Create a new empty site you own (no build agent). Enforces your app quota. |
 | `read_file` | Read a file from a site. |
 | `write_file` | Create/overwrite a file (`.html` stored with the right content type). |

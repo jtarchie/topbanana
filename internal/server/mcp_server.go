@@ -191,13 +191,14 @@ type siteSummary struct {
 	Template    string    `json:"template,omitempty"`
 	Created     time.Time `json:"created,omitempty"`
 	Private     bool      `json:"private,omitempty"`
+	Domains     []string  `json:"domains,omitempty"`
 	URL         string    `json:"url"`
 }
 
 func (s *Server) registerListSites(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_sites",
-		Description: "List the sites the authenticated user owns, with title, template, creation time, privacy flag, and public URL.",
+		Description: "List the sites the authenticated user owns, with title, template, creation time, privacy flag, any custom domains, and public URL.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listSitesInput) (*mcp.CallToolResult, any, error) {
 		user, err := s.mcpUserAndAuthorize(ctx, "")
 		if err != nil {
@@ -221,6 +222,7 @@ func (s *Server) registerListSites(srv *mcp.Server) {
 				Template:    meta.Template,
 				Created:     meta.Created,
 				Private:     meta.Private,
+				Domains:     meta.Domains,
 				URL:         s.mcpSiteURL(slug),
 			})
 		}
@@ -235,7 +237,7 @@ type getSiteInput struct {
 func (s *Server) registerGetSite(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "get_site",
-		Description: "Get metadata and the file list for one site the caller owns.",
+		Description: "Get metadata (including any custom domains) and the file list for one site the caller owns.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getSiteInput) (*mcp.CallToolResult, any, error) {
 		_, err := s.mcpUserAndAuthorize(ctx, in.Slug)
 		if err != nil {
@@ -255,6 +257,7 @@ func (s *Server) registerGetSite(srv *mcp.Server) {
 			"created":           meta.Created,
 			"private":           meta.Private,
 			"enables_functions": meta.EnablesFunctions,
+			"domains":           meta.Domains,
 			"url":               s.mcpSiteURL(in.Slug),
 			"files":             files,
 		})
