@@ -382,12 +382,17 @@ func checkLink(filename, dir, rawVal string, fileSet map[string]bool, enablesFns
 	if link == "" {
 		return nil
 	}
-	// Dynamic API routes are served by apiHandler, not by static files. When
-	// the template enables functions, treat /api/* as always valid — the lint
-	// has no way to know which {name} handlers the agent has authored, and
-	// functions/{name}.js may not yet be written when the page is linted.
-	if enablesFns && strings.HasPrefix(link, "/api/") {
-		return nil
+	// Dynamic API routes are served by apiHandler (internal/server/api.go), not
+	// by static files: /api/{name} is backed by functions/{name}.js. Treat such
+	// a link as valid when that backing file exists in the site, or when
+	// functions are enabled (the {name} handler may not be authored yet at lint
+	// time). The file-presence check keeps template-less sites — which report
+	// enablesFns=false — from false-positiving real function-backed forms.
+	if strings.HasPrefix(link, "/api/") {
+		name := strings.TrimPrefix(link, "/api/")
+		if enablesFns || fileSet["functions/"+name+".js"] {
+			return nil
+		}
 	}
 	// /app.css is the self-hosted design substrate — compiled per site by the
 	// post-build CSS step (so it isn't in the bucket when the page is linted)

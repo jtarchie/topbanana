@@ -10,11 +10,13 @@ import (
 func TestCheckLinkAPIRoutes(t *testing.T) {
 	t.Parallel()
 
-	// File set is intentionally empty: /api/* routes don't have backing files,
-	// the test only verifies the enablesFns gate.
+	// /api/{name} is served by functions/{name}.js. The lint accepts such a link
+	// when functions are enabled OR a backing functions/{name}.js exists, so a
+	// template-less site (enablesFns=false) with a real function still passes.
 	fileSet := map[string]bool{
-		"index.html": true,
-		"about.html": true,
+		"index.html":          true,
+		"about.html":          true,
+		"functions/submit.js": true,
 	}
 
 	cases := []struct {
@@ -29,6 +31,10 @@ func TestCheckLinkAPIRoutes(t *testing.T) {
 		{"static link to existing file passes either way", "about.html", true, false},
 		{"static link to existing file passes either way (off)", "about.html", false, false},
 		{"deep /api/ subpath allowed", "/api/cart/add", true, false},
+		// The fix: a function-backed route passes even on a template-less site
+		// where functions report disabled, because functions/submit.js exists.
+		{"/api/ backed by functions file passes when functions disabled", "/api/submit", false, false},
+		{"/api/ without backing file still rejected when disabled", "/api/ghost", false, true},
 		// Relative "api/foo" is not a dynamic route — it'd resolve to a static
 		// file under the page's directory. We do NOT skip those.
 		{"relative api/ still validated when functions enabled", "api/sign", true, true},
