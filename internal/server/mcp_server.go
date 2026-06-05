@@ -34,7 +34,9 @@ const (
 		"on behalf of the authenticated user. Typical flow: call list_sites to see existing " +
 		"sites, or create_site to start a new one (you choose the slug). Then author the site " +
 		"with write_file — .html files with an index.html entry point and relative links " +
-		"between pages. For styling, link the self-hosted stylesheet with " +
+		"between pages. Image assets (.svg/.png/.jpg/.gif/.webp), such as a favicon.svg " +
+		"linked from <head>, can also be written with write_file and are served with the " +
+		"right content type. For styling, link the self-hosted stylesheet with " +
 		"`<link rel=\"stylesheet\" href=\"/app.css\">` in <head> and use Tailwind utility + " +
 		"daisyUI component classes (set the palette with <html data-theme>); the platform " +
 		"compiles and serves /app.css per site. Inline any extra JS; no external CDNs. Use " +
@@ -391,14 +393,14 @@ func (s *Server) registerReadFile(srv *mcp.Server) {
 
 type writeFileInput struct {
 	Slug    string `json:"slug"    jsonschema:"The site slug"`
-	Path    string `json:"path"    jsonschema:"File path within the site, e.g. index.html or about.html. Create only .html files with inlined CSS/JS."`
+	Path    string `json:"path"    jsonschema:"File path within the site, e.g. index.html, about.html, or an asset like favicon.svg. HTML pages must be self-contained (inline CSS/JS, no external CDNs); image assets (.svg/.png/.jpg/.gif/.webp) are also supported and served with the right content type."`
 	Content string `json:"content" jsonschema:"Full file contents to write (overwrites any existing file at this path)."`
 }
 
 func (s *Server) registerWriteFile(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "write_file",
-		Description: "Create or overwrite a file in a site the caller owns. Use for authoring pages; .html is stored with the correct content type.",
+		Description: "Create or overwrite a file in a site the caller owns. Use for HTML pages and image assets (e.g. favicon.svg); each is stored and served with the content type inferred from its extension.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in writeFileInput) (*mcp.CallToolResult, any, error) {
 		_, err := s.mcpUserAndAuthorize(ctx, in.Slug)
 		if err != nil {

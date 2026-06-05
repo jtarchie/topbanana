@@ -46,7 +46,7 @@ re-runs the OAuth flow to refresh.
 | `get_site` | Metadata (including any custom domains) + file list for one site. |
 | `create_site` | Create a new empty site you own (no build agent). Enforces your app quota. |
 | `read_file` | Read a file from a site. |
-| `write_file` | Create/overwrite a file (`.html` stored with the right content type). |
+| `write_file` | Create/overwrite an HTML page or image asset (content type inferred from the extension; e.g. `favicon.svg` is served as `image/svg+xml`). |
 | `list_files` | List file paths in a site. |
 | `delete_file` | Delete a file. |
 | `lint_site` | Run the deterministic lint checks and report problems to fix. |
@@ -54,8 +54,11 @@ re-runs the OAuth flow to refresh.
 | `get_run_transcript` | Read one build/edit transcript (read-only). |
 
 Authoring rules the connecting agent should follow (same as `static/agent_prompt.md`):
-create only self-contained `.html` files with CSS/JS inlined, an `index.html`
+author self-contained `.html` files with CSS/JS inlined, an `index.html`
 entry point, relative links between pages, and no external CDNs or frameworks.
+Image assets (`.svg`, `.png`, `.jpg`, `.gif`, `.webp`) — for example a
+`favicon.svg` linked from `<head>` — can also be uploaded with `write_file`;
+each is served with the content type inferred from its extension.
 
 ## OAuth endpoints
 
