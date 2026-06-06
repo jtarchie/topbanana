@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="lemonade">
 <head>
-<title>{{ .Status }} — Top Banana</title>
+<title>{{ .Status }} · {{ .Title }} — Top Banana</title>
 {{ template "head" . }}
 </head>
 <body class="min-h-screen grid place-items-center bg-base-200 px-4 py-12">
@@ -25,8 +25,22 @@
     <div class="text-5xl font-semibold tracking-tight leading-none">{{ .Status }}</div>
     <h1 class="text-xl font-semibold">{{ .Title }}</h1>
     <p class="text-base-content/70">{{ .Tagline }}</p>
-    <a href="/" class="btn btn-primary mt-2">Take me home</a>
+    <div class="flex flex-wrap items-center justify-center gap-2 mt-2">
+      <button type="button" id="error-back" class="btn btn-ghost">Go back</button>
+      <a href="{{ if .HomeURL }}{{ .HomeURL }}{{ else }}/{{ end }}" class="btn btn-primary">Take me home</a>
+    </div>
   </div>
 </main>
+<script>
+  // history.back() does nothing when the page was opened via direct URL
+  // (no referrer in the back stack). Hide the Go-back button in that case
+  // so the user isn't given a no-op affordance.
+  (function () {
+    var btn = document.getElementById('error-back');
+    if (!btn) return;
+    if (window.history.length <= 1) { btn.remove(); return; }
+    btn.addEventListener('click', function () { history.back(); });
+  })();
+</script>
 </body>
 </html>

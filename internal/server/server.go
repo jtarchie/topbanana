@@ -792,14 +792,18 @@ func notFound() *echo.HTTPError {
 	return echo.NewHTTPError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 }
 
-// errorData backs templates/error.html. The monkey page is intentionally
-// chrome-less — it works on subdomains where there's no logged-in user as
-// well as on admin pages where we'd rather not lean on injectChrome to
-// re-fetch session state during an error response.
+// errorData backs templates/error.html. The page is intentionally chrome-
+// less — it works on subdomains where there's no logged-in user as well
+// as on admin pages where we'd rather not lean on injectChrome to re-fetch
+// session state during an error response. HomeURL is an absolute URL
+// pointing at the admin host, so the "Take me home" CTA gets the user out
+// of a broken subdomain (where bare "/" is the user's own site root) and
+// back to Top Banana proper.
 type errorData struct {
 	Status  int
 	Title   string
 	Tagline string
+	HomeURL string
 }
 
 // httpErrorHandler replaces Echo's default JSON serializer. Browser
@@ -825,17 +829,41 @@ func (s *Server) httpErrorHandler(c *echo.Context, err error) {
 		return
 	}
 
+	title, tagline := errorCopyForStatus(code)
 	var buf bytes.Buffer
 	rErr := s.tpl.ExecuteTemplate(&buf, "error", errorData{
 		Status:  code,
-		Title:   "This bunch is missing a banana.",
-		Tagline: "We swung through every vine and peeled every page — no luck. Try heading home and we'll start fresh.",
+		Title:   title,
+		Tagline: tagline,
+		HomeURL: s.adminURL(c, "/"),
 	})
 	if rErr != nil {
 		_ = c.String(code, msg)
 		return
 	}
 	_ = c.HTML(code, buf.String())
+}
+
+// errorCopyForStatus picks a title + tagline pair that matches the status
+// family. 4xx is the user found a stale or wrong URL; 5xx is the platform
+// stumbled; 401/403 are authorization-class. Keeps the banana wordplay
+// for 404 (the "missing banana" line is the brand joke working as
+// intended) and lands on sober copy for 5xx where wit reads as glib.
+func errorCopyForStatus(code int) (title, tagline string) {
+	switch {
+	case code == http.StatusUnauthorized:
+		return "Sign in to continue.", "You'll need to sign in before opening that page."
+	case code == http.StatusForbidden:
+		return "You don't have access to that.", "If this is your site, check that you're signed in with the right account."
+	case code == http.StatusNotFound:
+		return "This bunch is missing a banana.", "We couldn't find that page. The link may be stale, or the site may have been renamed."
+	case code >= 500:
+		return "We slipped on a peel.", "Something on our side broke. Try again in a moment, or head home and start fresh."
+	case code >= 400:
+		return "We couldn't process that.", "The request didn't quite land. Try going back, or head home."
+	default:
+		return "Something went sideways.", "Try going back, or head home and start fresh."
+	}
 }
 
 // wantsHTML returns true for plain browser navigations. fetch(), curl, and
