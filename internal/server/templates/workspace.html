@@ -73,7 +73,7 @@
           <a href="/edit/{{ .Slug }}/visual?page={{ .Page }}" class="btn btn-ghost btn-sm justify-start font-normal">Visual editor</a>
           {{ end }}
           <form method="POST" action="/relint/{{ .Slug }}" class="contents">
-            <button type="submit" class="btn btn-ghost btn-sm justify-start font-normal">Re-run checks</button>
+            <button type="submit" class="btn btn-ghost btn-sm justify-start font-normal">Validate site</button>
           </form>
           <a href="/export/{{ .Slug }}" class="btn btn-ghost btn-sm justify-start font-normal">Export site</a>
         </div>
@@ -255,7 +255,7 @@
 
   // Bridge selection text from the live preview into the edit form.
   window.addEventListener('message', function (e) {
-    if (!e.data || e.data.type !== '_bh_sel') return;
+    if (!e.data || e.data.type !== 'topbanana:selection') return;
     var sel = document.getElementById('selection');
     var chip = document.getElementById('selection-chip');
     var txt = document.getElementById('selection-text');
@@ -322,8 +322,8 @@
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
         .then(function (res) {
           if (!res.ok) { status.textContent = ''; toast('Upload failed: ' + ((res.body && res.body.message) || 'unknown error'), 'error'); return; }
-          status.textContent = 'Image added: ' + res.body.path;
-          toast('Image added.');
+          status.textContent = 'Image at ' + res.body.path;
+          toast('Image saved as ' + res.body.path + '.');
         })
         .catch(function (err) { status.textContent = ''; toast('Upload failed: ' + err, 'error'); });
     }
