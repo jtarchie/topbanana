@@ -7,16 +7,18 @@
 <script>
 // Pre-paint theme bootstrap — mirrors the layout.html head partial. The
 // visual editor rolls its own chrome around GrapesJS so it can't share the
-// partial verbatim; keep the two in sync if either changes.
+// partial verbatim; keep the two in sync if either changes. Cyberpunk is
+// accepted as a stored value (legacy + Theme Studio) but the auto-dark
+// target is lemonade-dark, matching the rest of the app.
 (function () {
   try {
     var stored = localStorage.getItem('tb_theme');
-    if (stored === 'lemonade' || stored === 'cyberpunk') {
+    if (stored === 'lemonade' || stored === 'lemonade-dark' || stored === 'cyberpunk') {
       document.documentElement.dataset.theme = stored;
       return;
     }
     var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    if (dark) document.documentElement.dataset.theme = 'cyberpunk';
+    if (dark) document.documentElement.dataset.theme = 'lemonade-dark';
   } catch (_) {}
 })();
 </script>
