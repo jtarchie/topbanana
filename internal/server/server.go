@@ -799,6 +799,10 @@ type errorData struct {
 	Title   string
 	Tagline string
 	HomeURL string
+	// Detail carries the specific, actionable reason for a client (4xx) error
+	// — e.g. "attachment ... must end in .md, .html" — so the user can fix it.
+	// Left empty for 5xx so we never leak wrapped internal error text.
+	Detail string
 }
 
 // httpErrorHandler replaces Echo's default JSON serializer. Browser
@@ -825,12 +829,20 @@ func (s *Server) httpErrorHandler(c *echo.Context, err error) {
 	}
 
 	title, tagline := errorCopyForStatus(code)
+	// Surface the specific reason only for client errors, and only when it
+	// carries information beyond the generic status text. 5xx messages often
+	// wrap internal error chains (via httpErr), so they stay hidden.
+	detail := ""
+	if code >= 400 && code < 500 && msg != http.StatusText(code) {
+		detail = msg
+	}
 	var buf bytes.Buffer
 	rErr := s.tpl.ExecuteTemplate(&buf, "error", errorData{
 		Status:  code,
 		Title:   title,
 		Tagline: tagline,
 		HomeURL: s.adminURL(c, "/"),
+		Detail:  detail,
 	})
 	if rErr != nil {
 		_ = c.String(code, msg)

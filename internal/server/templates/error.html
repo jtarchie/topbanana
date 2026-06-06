@@ -25,6 +25,7 @@
     <div class="text-5xl font-semibold tracking-tight leading-none">{{ .Status }}</div>
     <h1 class="text-xl font-semibold">{{ .Title }}</h1>
     <p class="text-base-content/70">{{ .Tagline }}</p>
+    {{ if .Detail }}<p class="text-sm text-base-content/60 font-mono break-all max-w-full bg-base-200 rounded px-3 py-2">{{ .Detail }}</p>{{ end }}
     <div class="flex flex-wrap items-center justify-center gap-2 mt-2">
       <button type="button" id="error-back" class="btn btn-ghost">Go back</button>
       <a href="{{ if .HomeURL }}{{ .HomeURL }}{{ else }}/{{ end }}" class="btn btn-primary">Take me home</a>
