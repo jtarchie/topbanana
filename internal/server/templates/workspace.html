@@ -21,7 +21,9 @@
     </ul>
   </div>
   <div id="status-error" class="hidden border-t border-error/30 bg-error/10">
-    <div class="max-w-6xl mx-auto px-4 sm:px-6 py-2 text-sm text-error" id="status-error-msg"></div>
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 py-2 text-sm text-error flex items-center gap-3 flex-wrap">
+      <span id="status-error-msg" class="flex-1"></span>
+    </div>
   </div>
 </div>
 {{ end }}
@@ -97,7 +99,12 @@
       </header>
       {{ if .Page }}
       <div class="flex flex-wrap items-center gap-2 text-sm">
-        <form method="POST" action="/files/{{ .Slug }}/rename" class="flex items-center gap-1">
+        <form method="POST" action="/files/{{ .Slug }}/rename"
+              class="flex items-center gap-1 js-confirm"
+              data-confirm-title="Rename this page?"
+              data-confirm="Links and bookmarks pointing at /{{ .Page }} will break. There's no automatic redirect."
+              data-confirm-ok="Rename"
+              data-confirm-tone="primary">
           <input type="hidden" name="from" value="{{ .Page }}">
           <label for="rename-to" class="text-xs text-base-content/60">Path</label>
           <input id="rename-to" type="text" name="to" value="{{ .Page }}"
@@ -232,7 +239,7 @@
 
 {{ template "footer" . }}
 {{ template "confirm_dialog" . }}
-<div id="toast" class="toast toast-end z-[60]"></div>
+<div id="toast" class="toast toast-end z-[60]" role="status" aria-live="polite" aria-atomic="false"></div>
 
 <script>
   // Drop the cursor into the composer on load so the page opens in editing
@@ -271,7 +278,8 @@
     });
   })();
 
-  // Toast helper.
+  // Toast helper. 8-second lifetime so screen readers have time to announce;
+  // hover pauses the timer so users with motor delay can read longer.
   function toast(msg, kind) {
     var t = document.getElementById('toast');
     if (!t) return;
@@ -280,8 +288,22 @@
     card.innerHTML = '<span></span>';
     card.querySelector('span').textContent = msg;
     t.appendChild(card);
-    setTimeout(function () { card.remove(); }, 4500);
+    var timer = setTimeout(function () { card.remove(); }, 8000);
+    card.addEventListener('mouseenter', function () { clearTimeout(timer); });
+    card.addEventListener('mouseleave', function () {
+      timer = setTimeout(function () { card.remove(); }, 3000);
+    });
   }
+
+  // Cache the last submitted prompt so a failed build can offer to replay it.
+  (function () {
+    var form = document.getElementById('edit-form');
+    var textarea = document.getElementById('prompt');
+    if (!form || !textarea) return;
+    form.addEventListener('submit', function () {
+      try { sessionStorage.setItem('tb_last_prompt', textarea.value); } catch (_) {}
+    });
+  })();
 
   // Side panel open/close is shared with /admin/users via the panel_js partial
   // included at the bottom of <body>.
@@ -615,6 +637,35 @@
           errorMsg.textContent = ev.message || 'Unknown error.';
           errorEl.classList.remove('hidden');
           toast(ev.message || 'Build failed.', 'error');
+          // Re-arm the form so the user can edit the prompt and retry without
+          // a refresh, then surface a Try-again button that restores the last
+          // prompt and focuses the composer.
+          var form = document.getElementById('edit-form');
+          if (form) {
+            form.querySelectorAll('[disabled]').forEach(function (el) { el.disabled = false; });
+          }
+          if (preview) preview.classList.remove('opacity-30', 'pointer-events-none');
+          if (overlay) overlay.remove();
+          if (!document.getElementById('build-retry')) {
+            var retry = document.createElement('button');
+            retry.id = 'build-retry';
+            retry.type = 'button';
+            retry.className = 'btn btn-sm btn-error btn-outline ml-auto';
+            retry.textContent = 'Try again';
+            retry.addEventListener('click', function () {
+              var pt = document.getElementById('prompt');
+              if (pt) {
+                try {
+                  var last = sessionStorage.getItem('tb_last_prompt');
+                  if (last && !pt.value) pt.value = last;
+                } catch (_) {}
+                pt.focus();
+              }
+              try { history.replaceState(null, '', location.pathname); } catch (_) {}
+              if (strip) strip.remove();
+            });
+            errorEl.querySelector('.max-w-6xl').appendChild(retry);
+          }
         }
       } else if (ev.type === 'tool' && ev.phase === 'start') {
         var m = startMsg(ev);
@@ -641,7 +692,14 @@
         }
       }
     };
-    es.onerror = function () { /* auto-reconnect */ };
+    es.onerror = function () {
+      // EventSource retries automatically. Surface that to the user so the
+      // spinner doesn't read as a hung build. The next successful message
+      // overwrites this text.
+      if (statusEl && es.readyState !== 2) {
+        statusEl.textContent = 'Lost connection. Reconnecting…';
+      }
+    };
   })();
   {{ end }}
 </script>
