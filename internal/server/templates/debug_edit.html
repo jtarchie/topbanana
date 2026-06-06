@@ -14,26 +14,32 @@
   {{ if .Empty }}
     <div class="alert alert-warning"><span>Transcript not found or empty.</span></div>
   {{ else }}
+    {{/* Status ribbon: the load-bearing diagnostic facts (status, duration,
+         error message) ride above the rest so an admin scanning for "what
+         broke" doesn't have to read 11 dl rows to find row 11. */}}
+    <div class="flex items-center gap-3 flex-wrap mb-4 pb-4 border-b border-base-300">
+      {{ if eq .FinalStatus "completed" }}<span class="badge badge-success">{{ .FinalStatus }}</span>
+      {{ else if eq .FinalStatus "failed" }}<span class="badge badge-error">{{ .FinalStatus }}</span>
+      {{ else }}<span class="badge">{{ .FinalStatus }}</span>{{ end }}
+      {{ if .Duration }}<span class="text-sm text-base-content/70 font-mono">{{ .Duration }}</span>{{ end }}
+      <span class="text-sm text-base-content/60 font-mono">{{ .LogKey }}</span>
+      {{ if .Error }}
+      <p class="text-sm text-error flex-1 min-w-0 truncate" title="{{ .Error }}">{{ .Error }}</p>
+      {{ end }}
+    </div>
+
     <section class="card bg-base-100 border border-base-300 mb-6">
       <div class="card-body">
-        <h2 class="card-title text-lg">Run details</h2>
+        <h2 class="card-title text-base">Run details</h2>
         <dl class="grid grid-cols-[8rem_1fr] gap-y-1 gap-x-4 text-sm">
-          <dt class="text-base-content/60">Kind</dt><dd class="font-mono">{{ .LogKey }}</dd>
-          <dt class="text-base-content/60">Status</dt><dd>
-            {{ if eq .FinalStatus "completed" }}<span class="badge badge-success">{{ .FinalStatus }}</span>
-            {{ else if eq .FinalStatus "failed" }}<span class="badge badge-error">{{ .FinalStatus }}</span>
-            {{ else }}<span class="badge">{{ .FinalStatus }}</span>{{ end }}
-          </dd>
           <dt class="text-base-content/60">Started</dt><dd class="font-mono">{{ .StartedAt }}</dd>
           <dt class="text-base-content/60">Finished</dt><dd class="font-mono">{{ .FinishedAt }}</dd>
-          {{ if .Duration }}<dt class="text-base-content/60">Duration</dt><dd class="font-mono">{{ .Duration }}</dd>{{ end }}
           {{ if .Model }}<dt class="text-base-content/60">Model</dt><dd class="font-mono">{{ .Model }}</dd>{{ end }}
           {{ if .ReasoningEffort }}<dt class="text-base-content/60">Reasoning</dt><dd class="font-mono">{{ .ReasoningEffort }}</dd>{{ end }}
           {{ if .Template }}<dt class="text-base-content/60">Template</dt><dd class="font-mono">{{ .Template }}</dd>{{ end }}
           {{ if .Page }}<dt class="text-base-content/60">Page</dt><dd class="font-mono">{{ .Page }}</dd>{{ end }}
           {{ if .SelectionLen }}<dt class="text-base-content/60">Selection</dt><dd>{{ .SelectionLen }} bytes</dd>{{ end }}
           {{ if .UserPrompt }}<dt class="text-base-content/60">Prompt</dt><dd class="break-words">{{ .UserPrompt }}</dd>{{ end }}
-          {{ if .Error }}<dt class="text-base-content/60">Error</dt><dd class="text-error">{{ .Error }}</dd>{{ end }}
           {{ if .HasUsage }}
           <dt class="text-base-content/60">Tokens</dt><dd class="font-mono">
             {{ .Usage.Total }} total
@@ -73,25 +79,27 @@
         {{ range .FileChanges }}
           <details class="collapse collapse-arrow bg-base-100 border border-base-300 mt-2">
             <summary class="collapse-title text-sm font-mono flex items-center gap-2 flex-wrap">
-              <strong>{{ .Path }}</strong>
-              <span class="text-base-content/60">via <code>{{ .Tool }}</code></span>
-              {{ if .Created }}<span class="badge badge-success badge-sm">created</span>
-              {{ else if .Deleted }}<span class="badge badge-error badge-sm">deleted</span>
-              {{ else if .Changed }}<span class="badge badge-warning badge-sm">changed</span>
-              {{ else }}<span class="badge badge-sm">unchanged</span>{{ end }}
-              <span class="text-base-content/60">{{ .BeforeSize }} → {{ .AfterSize }} bytes</span>
-              <button class="ml-auto link link-primary cache-check-btn" type="button" onclick="event.preventDefault(); event.stopPropagation(); checkCache('{{ $.Slug }}', '{{ .Path }}', this)">Check cache</button>
+              <strong class="min-w-0 truncate" title="{{ .Path }}">{{ .Path }}</strong>
+              <span class="text-base-content/60 shrink-0">via <code>{{ .Tool }}</code></span>
+              {{ if .Created }}<span class="badge badge-success badge-sm shrink-0">created</span>
+              {{ else if .Deleted }}<span class="badge badge-error badge-sm shrink-0">deleted</span>
+              {{ else if .Changed }}<span class="badge badge-warning badge-sm shrink-0">changed</span>
+              {{ else }}<span class="badge badge-sm shrink-0">unchanged</span>{{ end }}
+              <span class="text-base-content/60 shrink-0">{{ .BeforeSize }} → {{ .AfterSize }} bytes</span>
             </summary>
             <div class="collapse-content">
-              <div class="cache-check-result text-xs"></div>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+              <div class="flex items-center gap-3 mb-3">
+                <button class="btn btn-ghost btn-xs cache-check-btn" type="button" onclick="checkCache('{{ $.Slug }}', '{{ .Path }}', this)">Check cache for this path</button>
+                <div class="cache-check-result text-xs flex-1 min-w-0"></div>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <h4 class="text-xs text-base-content/60 font-bold mb-1">Before (sha {{ .BeforeSHA }}{{ if .BeforeTruncated }}, truncated{{ end }})</h4>
-                  <pre class="bg-base-100 rounded p-2 text-xs max-h-80 overflow-auto whitespace-pre-wrap">{{ .BeforeContent }}</pre>
+                  <h4 class="text-xs text-base-content/60 font-semibold mb-1">Before (sha {{ .BeforeSHA }}{{ if .BeforeTruncated }}, truncated{{ end }})</h4>
+                  <pre class="bg-base-200 rounded p-2 text-xs max-h-80 overflow-auto whitespace-pre-wrap">{{ .BeforeContent }}</pre>
                 </div>
                 <div>
-                  <h4 class="text-xs text-base-content/60 font-bold mb-1">After (sha {{ .AfterSHA }}{{ if .AfterTruncated }}, truncated{{ end }})</h4>
-                  <pre class="bg-base-100 rounded p-2 text-xs max-h-80 overflow-auto whitespace-pre-wrap">{{ .AfterContent }}</pre>
+                  <h4 class="text-xs text-base-content/60 font-semibold mb-1">After (sha {{ .AfterSHA }}{{ if .AfterTruncated }}, truncated{{ end }})</h4>
+                  <pre class="bg-base-200 rounded p-2 text-xs max-h-80 overflow-auto whitespace-pre-wrap">{{ .AfterContent }}</pre>
                 </div>
               </div>
             </div>
@@ -104,12 +112,12 @@
 <script>
 async function checkCache(slug, path, btn) {
   const result = btn.closest('details').querySelector('.cache-check-result');
-  result.innerHTML = '<pre class="bg-base-100 rounded p-2">checking…</pre>';
+  result.innerHTML = '<pre class="bg-base-200 rounded p-2">checking…</pre>';
   try {
     const url = '/debug/' + encodeURIComponent(slug) + '/cache-check?path=' + encodeURIComponent(path);
     const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
     const data = await resp.json();
-    result.innerHTML = '<pre class="bg-base-100 rounded p-2 whitespace-pre-wrap">' + escapeHTML(JSON.stringify(data, null, 2)) + '</pre>';
+    result.innerHTML = '<pre class="bg-base-200 rounded p-2 whitespace-pre-wrap">' + escapeHTML(JSON.stringify(data, null, 2)) + '</pre>';
   } catch (e) {
     result.innerHTML = '<pre class="text-error">' + escapeHTML(String(e)) + '</pre>';
   }
