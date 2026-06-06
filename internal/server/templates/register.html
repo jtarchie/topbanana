@@ -4,7 +4,14 @@
 <title>Create your passkey — Top Banana</title>
 {{ template "head" . }}
 </head>
-<body class="min-h-screen flex flex-col bg-base-100" data-email="{{ .Email }}" data-invite="{{ .InviteToken }}">
+<body class="min-h-screen flex flex-col bg-base-100">
+{{/* Email + invite token live on a hidden config element rather than on
+     <body> so they aren't trivially scraped by document.body.outerHTML or
+     casual devtools viewing. The script reads them and removes the node.
+     The real "no secrets in the DOM" fix is server-side: move the invite
+     token into a short-lived HttpOnly cookie at render time and have
+     /register/finish read it from the cookie. Tracked as a follow-up. */}}
+<div id="register-config" hidden data-email="{{ .Email }}" data-invite="{{ .InviteToken }}"></div>
 <main class="flex-1 grid place-items-center px-4 py-12">
   <div class="card w-full max-w-md bg-base-100 border border-base-300 shadow-sm">
     <div class="card-body">
@@ -29,70 +36,119 @@
 </main>
 {{ template "webauthn_js" . }}
 <script>
-  (async function () {
+  (function () {
     var btn = document.getElementById('register-button');
     var errEl = document.getElementById('register-error');
     var okEl = document.getElementById('register-success');
-    var email = document.body.dataset.email;
-    var inviteToken = document.body.dataset.invite;
+    var cfg = document.getElementById('register-config');
+    var email = cfg ? cfg.dataset.email : '';
+    var inviteToken = cfg ? cfg.dataset.invite : '';
+    if (cfg) cfg.remove();
+
+    // Track whether the device-side credential is already created. If the
+    // invite-consume step fails AFTER the passkey was created, re-clicking
+    // must NOT re-run registerBegin (the server rejects because the
+    // credential already exists). The retry path runs only the consume hop.
+    var credentialCreated = false;
+
+    // Map known HTTP statuses to user-facing copy. Raw server bodies go to
+    // the console instead of into the UI.
+    function statusMessage(status, fallback) {
+      switch (status) {
+        case 400: return "Something didn't add up. Refresh and try again.";
+        case 401: return 'Your session expired. Try opening the invite link again.';
+        case 403: return "This invite doesn't belong to this account.";
+        case 404: return "We couldn't find that invite.";
+        case 409: return 'A passkey for this account already exists on this device.';
+        case 410: return 'This invite expired. Ask your admin for a new one.';
+        case 429: return 'Too many tries. Wait a minute and try again.';
+        default:
+          if (status >= 500) return 'Something on our side broke. Try again in a moment.';
+          return fallback || 'Something went wrong. Try again.';
+      }
+    }
 
     function showError(msg) {
       errEl.textContent = msg;
       errEl.classList.remove('hidden');
     }
+    function clearError() { errEl.classList.add('hidden'); }
+    function setBusy(busy) { btn.disabled = busy; }
+    async function logBody(res) {
+      try { console.warn('register error body:', res.status, await res.text()); } catch (_) {}
+    }
 
-    btn.addEventListener('click', async function () {
-      errEl.classList.add('hidden');
-      btn.disabled = true;
-      try {
-        var beginRes = await fetch('/auth/passkey/registerBegin', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({username: email}),
-          credentials: 'same-origin',
-        });
-        if (!beginRes.ok) {
-          var berr = await beginRes.text();
-          showError('Could not start registration: ' + berr);
-          btn.disabled = false;
-          return;
-        }
-        var options = await beginRes.json();
-        var pubKey = window.babWebAuthn.parseCreationOptions(options.publicKey);
-        var credential = await navigator.credentials.create({publicKey: pubKey});
-        var payload = window.babWebAuthn.serializeAttestation(credential);
-
-        var finishRes = await fetch('/auth/passkey/registerFinish', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(payload),
-          credentials: 'same-origin',
-        });
-        if (!finishRes.ok) {
-          var ferr = await finishRes.text();
-          showError('Registration failed: ' + ferr);
-          btn.disabled = false;
-          return;
-        }
-        // After register, ask the server to mark the invite consumed and
-        // sign the user in. Both ride through /register/finish.
-        var consumeRes = await fetch('/register/finish?invite=' + encodeURIComponent(inviteToken), {
-          method: 'POST',
-          credentials: 'same-origin',
-        });
-        if (!consumeRes.ok) {
-          var cerr = await consumeRes.text();
-          showError('Could not finalize: ' + cerr);
-          btn.disabled = false;
-          return;
-        }
-        okEl.classList.remove('hidden');
-        setTimeout(function () { window.location.href = '/apps'; }, 800);
-      } catch (err) {
-        showError(err.message || String(err));
-        btn.disabled = false;
+    async function consumeInvite() {
+      var consumeRes = await fetch('/register/finish?invite=' + encodeURIComponent(inviteToken), {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+      if (!consumeRes.ok) {
+        await logBody(consumeRes);
+        showError(
+          "Your passkey was created, but we couldn't finalize the invite. " +
+          statusMessage(consumeRes.status, 'Try again, or email hello@topbanana.dev if it keeps failing.')
+        );
+        btn.textContent = 'Retry';
+        setBusy(false);
+        return false;
       }
-    });
+      return true;
+    }
+
+    async function run() {
+      clearError();
+      setBusy(true);
+      try {
+        if (!credentialCreated) {
+          var beginRes = await fetch('/auth/passkey/registerBegin', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({username: email}),
+            credentials: 'same-origin',
+          });
+          if (!beginRes.ok) {
+            await logBody(beginRes);
+            showError(statusMessage(beginRes.status, "We couldn't start registration. Refresh and try again."));
+            setBusy(false);
+            return;
+          }
+          var options = await beginRes.json();
+          var pubKey = window.babWebAuthn.parseCreationOptions(options.publicKey);
+          var credential = await navigator.credentials.create({publicKey: pubKey});
+          var payload = window.babWebAuthn.serializeAttestation(credential);
+          var finishRes = await fetch('/auth/passkey/registerFinish', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+            credentials: 'same-origin',
+          });
+          if (!finishRes.ok) {
+            await logBody(finishRes);
+            showError(statusMessage(finishRes.status, "We couldn't save your passkey. Try again."));
+            setBusy(false);
+            return;
+          }
+          credentialCreated = true;
+        }
+        var ok = await consumeInvite();
+        if (!ok) return;
+        okEl.classList.remove('hidden');
+        setTimeout(function () { window.location.href = '/apps'; }, 1500);
+      } catch (err) {
+        // The OS-level cancel path lands here as NotAllowedError. Don't
+        // blame the user; tell them what they can do next.
+        if (err && err.name === 'NotAllowedError') {
+          showError("Your device didn't confirm. Try again when you're ready.");
+        } else {
+          console.warn('register js error:', err);
+          showError("Something went wrong on this device. Try again, or open the invite link in a fresh tab.");
+        }
+        setBusy(false);
+      }
+    }
+
+    btn.addEventListener('click', run);
   })();
 </script>
 </body>
