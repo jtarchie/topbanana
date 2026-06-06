@@ -22,8 +22,24 @@
     </ul>
   </aside>
 
+  <nav class="rounded-box border border-base-300 p-4 mb-10" aria-label="On this page">
+    <p class="text-sm font-semibold mb-2">On this page</p>
+    <ol class="text-sm space-y-1 list-decimal list-inside marker:text-base-content/40 columns-1 sm:columns-2">
+      <li><a href="#what-we-collect" class="link link-hover">What we collect</a></li>
+      <li><a href="#where-it-goes" class="link link-hover">Where it goes</a></li>
+      <li><a href="#who-we-share" class="link link-hover">Who we share it with</a></li>
+      <li><a href="#public-by-default" class="link link-hover">Sites are public by default</a></li>
+      <li><a href="#your-controls" class="link link-hover">Your controls</a></li>
+      <li><a href="#data-retention" class="link link-hover">Data retention</a></li>
+      <li><a href="#cookies" class="link link-hover">Cookies</a></li>
+      <li><a href="#children" class="link link-hover">Children</a></li>
+      <li><a href="#changes" class="link link-hover">Changes</a></li>
+      <li><a href="#contact" class="link link-hover">Contact</a></li>
+    </ol>
+  </nav>
+
   <section class="text-base-content/80 leading-relaxed">
-    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-2 mb-3">What we collect</h2>
+    <h2 id="what-we-collect" class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content scroll-mt-8 mt-2 mb-3">What we collect</h2>
     <ul class="list-disc pl-6 space-y-2 mb-4">
       <li><strong class="text-base-content">Account.</strong> Your email address and the public half of your passkey. Top Banana uses WebAuthn passkeys, so we never see or store a password &mdash; there isn&rsquo;t one to store.</li>
       <li><strong class="text-base-content">Sites.</strong> The HTML, CSS, and JavaScript the build agent writes for you, plus any images you upload and any form data your published site collects from its visitors.</li>
@@ -32,7 +48,7 @@
       <li><strong class="text-base-content">Logs.</strong> Standard request metadata &mdash; method, URL, status code, response time, host header &mdash; for debugging and abuse prevention.</li>
     </ul>
 
-    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">Where it goes</h2>
+    <h2 id="where-it-goes" class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content scroll-mt-8 mt-10 mb-3">Where it goes</h2>
     <ul class="list-disc pl-6 space-y-2 mb-4">
       <li><strong class="text-base-content">Site files</strong> live in our S3-compatible object store, scoped to your account.</li>
       <li><strong class="text-base-content">Prompts</strong> are sent to the configured LLM provider so the agent can respond. If we ever change which provider that is, we&rsquo;ll update this page.</li>
@@ -40,7 +56,7 @@
       <li><strong class="text-base-content">HTTPS certificates</strong> for custom domains are issued through Let&rsquo;s Encrypt, which means the certificate authority sees the domain name you&rsquo;re binding.</li>
     </ul>
 
-    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">Who we share it with</h2>
+    <h2 id="who-we-share" class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content scroll-mt-8 mt-10 mb-3">Who we share it with</h2>
     <p class="mb-3">Nobody, beyond what&rsquo;s strictly required to deliver the service:</p>
     <ul class="list-disc pl-6 space-y-2 mb-4">
       <li>The LLM provider sees your prompt and reference files so it can generate a response.</li>
@@ -49,29 +65,29 @@
     </ul>
     <p class="mb-4">That&rsquo;s the whole list. No advertisers, no analytics resellers, no data brokers, no model-training partners.</p>
 
-    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">Sites are public by default</h2>
-    <p class="mb-4">When you publish a site at <code class="font-mono text-sm bg-base-200 px-1 rounded">{slug}.topbanana.dev</code> or your own custom domain, anyone who knows the URL can view it. That&rsquo;s the product. You can flip a site to private from its Manage page if you&rsquo;d rather it require a session to view.</p>
+    <h2 id="public-by-default" class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content scroll-mt-8 mt-10 mb-3">Sites are public by default</h2>
+    <p class="mb-4">When you publish a site at <code class="font-mono bg-base-200 px-1 rounded">{slug}.topbanana.dev</code> or your own custom domain, anyone who knows the URL can view it. That&rsquo;s the product. You can flip a site to private from its Manage page if you&rsquo;d rather it require a session to view.</p>
 
-    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">Your controls</h2>
+    <h2 id="your-controls" class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content scroll-mt-8 mt-10 mb-3">Your controls</h2>
     <ul class="list-disc pl-6 space-y-2 mb-4">
-      <li><strong class="text-base-content">Export.</strong> Download any site as a <code class="font-mono text-sm bg-base-200 px-1 rounded">.tar.zst</code> archive from <code class="font-mono text-sm bg-base-200 px-1 rounded">/export/{slug}</code> at any time. The archive is a complete copy you can keep, import elsewhere, or re-import here.</li>
+      <li><strong class="text-base-content">Export.</strong> Download any site as a <code class="font-mono bg-base-200 px-1 rounded">.tar.zst</code> archive from <code class="font-mono bg-base-200 px-1 rounded">/export/{slug}</code> at any time. The archive is a complete copy you can keep, import elsewhere, or re-import here.</li>
       <li><strong class="text-base-content">Delete a site.</strong> The Manage page has a delete button. Snapshots for that site go away with it.</li>
       <li><strong class="text-base-content">Delete your account.</strong> Email <a class="link link-primary" href="mailto:hello@topbanana.dev">hello@topbanana.dev</a> and we&rsquo;ll purge your sites, snapshots, and account metadata.</li>
     </ul>
 
-    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">Data retention</h2>
+    <h2 id="data-retention" class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content scroll-mt-8 mt-10 mb-3">Data retention</h2>
     <p class="mb-4">Active sites stick around as long as your account does. Edit-history snapshots are kept so you can restore previous versions; they&rsquo;re deleted when the site is. Request logs are kept short-term for debugging and abuse prevention.</p>
 
-    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">Cookies</h2>
+    <h2 id="cookies" class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content scroll-mt-8 mt-10 mb-3">Cookies</h2>
     <p class="mb-4">One session cookie after passkey login. No third-party tracking, no analytics pixels, no ad networks.</p>
 
-    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">Children</h2>
+    <h2 id="children" class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content scroll-mt-8 mt-10 mb-3">Children</h2>
     <p class="mb-4">Top Banana is not directed at children under 13. If you believe a child has signed up, contact us and we&rsquo;ll remove the account.</p>
 
-    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">Changes</h2>
+    <h2 id="changes" class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content scroll-mt-8 mt-10 mb-3">Changes</h2>
     <p class="mb-4">If we make a material change to this policy, we&rsquo;ll surface it before it takes effect. The &ldquo;last updated&rdquo; date above always reflects the most recent revision.</p>
 
-    <h2 class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content mt-10 mb-3">Contact</h2>
+    <h2 id="contact" class="text-xl sm:text-2xl font-semibold tracking-tight text-base-content scroll-mt-8 mt-10 mb-3">Contact</h2>
     <p class="mb-6">Privacy questions, deletion requests, or anything else: <a class="link link-primary" href="mailto:hello@topbanana.dev">hello@topbanana.dev</a>.</p>
 
     <p class="text-sm text-base-content/60 mt-10 pt-4 border-t border-base-300">See also: <a class="link link-hover font-medium" href="/terms">Terms of Service</a>.</p>
