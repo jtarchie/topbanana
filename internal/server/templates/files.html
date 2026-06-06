@@ -12,19 +12,30 @@
   <p class="text-sm text-base-content/70 mb-4">All objects stored for this site. Pages and server functions have an <strong>edit</strong> link into the editor; public files also have <strong>open</strong> to view them live.</p>
 
   {{ if .Rows }}
+  {{ if gt (len .Rows) 8 }}
+  <div class="mb-3">
+    <label class="flex flex-col max-w-md">
+      <span class="sr-only">Filter files</span>
+      <input type="search" id="files-filter" placeholder="Filter by path"
+             autocomplete="off" autocapitalize="off" spellcheck="false"
+             class="input input-sm w-full">
+    </label>
+  </div>
+  {{ end }}
   <div class="overflow-x-auto rounded-box border border-base-300">
-    <table class="table table-zebra">
+    <table class="table table-zebra" id="files-table">
+      <caption class="sr-only">All files stored for {{ .Slug }}, by path, size, and last-changed timestamp.</caption>
       <thead>
         <tr>
-          <th>file</th>
-          <th class="w-28">size</th>
-          <th class="w-44">last changed</th>
-          <th class="w-40">actions</th>
+          <th scope="col">file</th>
+          <th scope="col" class="w-28">size</th>
+          <th scope="col" class="w-44">last changed</th>
+          <th scope="col" class="w-40"><span class="sr-only">actions</span></th>
         </tr>
       </thead>
       <tbody>
         {{ range .Rows }}
-        <tr>
+        <tr data-path="{{ .Path }}" data-size="{{ .SizeBytes }}">
           <td class="font-mono break-all">{{ .Path }}</td>
           <td class="text-base-content/70">{{ .Size }}</td>
           <td class="text-base-content/70">{{ .Modified }}</td>
@@ -34,12 +45,13 @@
               {{ if .LinkURL }}<a class="link link-hover" href="{{ .LinkURL }}"{{ if eq .LinkLabel "open" }} target="_blank" rel="noopener"{{ end }}>{{ .LinkLabel }}</a>{{ end }}
               {{ if .Deletable }}
               <form method="POST" action="/files/{{ $.Slug }}/delete" class="inline js-confirm"
-                    data-confirm-title="Delete {{ .Path }}?"
-                    data-confirm="{{ if .IsHomepage }}This is your homepage — your site will be unreachable until you create a new index.html. {{ end }}This permanently removes the file. There's no undo."
-                    data-confirm-ok="Delete">
+                    data-confirm-title="Delete this file permanently?"
+                    data-confirm="{{ if .IsHomepage }}This is your homepage. Your site will be unreachable until you create a new index.html. {{ end }}This removes {{ .Path }} from storage. There's no undo."
+                    data-confirm-ok="Delete file"
+                    data-confirm-slug="{{ .Path }}">
                 <input type="hidden" name="path" value="{{ .Path }}">
-                <input type="hidden" name="confirm" value="{{ .Path }}">
-                <button type="submit" class="link link-error">delete</button>
+                <input type="hidden" name="confirm" value="">
+                <button type="submit" class="btn btn-ghost btn-xs text-error" aria-label="Delete {{ .Path }}">delete</button>
               </form>
               {{ end }}
             </div>
@@ -47,16 +59,74 @@
         </tr>
         {{ end }}
       </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="4" class="text-xs text-base-content/60">
+            <span id="files-summary" data-total-size="{{ .TotalSize }}">{{ len .Rows }} files · {{ .TotalSize }}</span>
+          </td>
+        </tr>
+      </tfoot>
     </table>
   </div>
   {{ else }}
   <div class="card bg-base-100 border border-base-300 border-dashed">
-    <div class="card-body items-center text-center">
+    <div class="card-body items-start py-8">
       <h2 class="card-title text-lg">No files yet</h2>
+      <p class="text-sm text-base-content/70">Files arrive three ways:</p>
+      <ul class="list-disc pl-6 text-sm text-base-content/70 space-y-1">
+        <li><strong>Agent build.</strong> Start one from the <a class="link link-primary" href="/">build form</a>; the agent writes pages, server functions, and assets here.</li>
+        <li><strong>Manual upload.</strong> Add images from the workspace editor on any page.</li>
+        <li><strong>MCP.</strong> External clients writing through the MCP server land here too.</li>
+      </ul>
     </div>
   </div>
   {{ end }}
 </main>
 {{ template "footer" . }}
+{{ template "confirm_dialog" . }}
+{{ if .Rows }}
+<script>
+// Client-side filter for the files table. Initializes only when the
+// filter input was server-rendered (>8 files). Matches the pattern in
+// apps.html and admin_users.html. Updates the tfoot summary as filtering
+// changes the visible set and the visible-bytes total.
+(function () {
+  var input = document.getElementById('files-filter');
+  var table = document.getElementById('files-table');
+  var summary = document.getElementById('files-summary');
+  if (!input || !table || !summary) return;
+
+  var total = {{ len .Rows }};
+  var totalLabel = summary.dataset.totalSize || '';
+
+  function formatSize(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function apply() {
+    var q = input.value.trim().toLowerCase();
+    var visible = 0;
+    var visibleBytes = 0;
+    table.querySelectorAll('tbody tr').forEach(function (tr) {
+      var hay = (tr.dataset.path || '').toLowerCase();
+      var match = !q || hay.indexOf(q) !== -1;
+      tr.hidden = !match;
+      if (match) {
+        visible++;
+        visibleBytes += parseInt(tr.dataset.size || '0', 10);
+      }
+    });
+    if (!q) {
+      summary.textContent = total + ' files · ' + totalLabel;
+    } else {
+      summary.textContent = visible + ' of ' + total + ' files · ' + formatSize(visibleBytes);
+    }
+  }
+  input.addEventListener('input', apply);
+})();
+</script>
+{{ end }}
 </body>
 </html>

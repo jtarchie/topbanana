@@ -12,9 +12,13 @@ import (
 
 // fileRow is one row of the explorer table.
 type fileRow struct {
-	Path     string
-	Size     string
-	Modified string
+	Path string
+	// Size is the human-readable label ("12 KB"). SizeBytes is the raw
+	// value, exposed via data-size on the row so the client-side filter
+	// can recompute the visible-total in the footer.
+	Size      string
+	SizeBytes int64
+	Modified  string
 	// EditURL points to the editor surface for this file when one exists —
 	// /workspace/:slug?page=… for HTML pages, /edit/:slug/function/:name for
 	// server functions. Empty for files that aren't user-editable (assets,
@@ -36,7 +40,8 @@ type fileRow struct {
 
 type filesView struct {
 	Chrome
-	Rows []fileRow
+	Rows      []fileRow
+	TotalSize string
 }
 
 func (s *Server) filesHandler(c *echo.Context) error {
@@ -56,12 +61,14 @@ func (s *Server) filesHandler(c *echo.Context) error {
 
 	siteURL := s.siteURL(c, slug, "/")
 	rows := make([]fileRow, 0, len(entries))
+	var totalBytes int64
 	for _, e := range entries {
 		editURL, openURL, openLabel := actionsFor(c, s, slug, e.Path)
 		_, classifyErr := classifyUserPath(e.Path)
 		rows = append(rows, fileRow{
 			Path:       e.Path,
 			Size:       formatSize(e.Size),
+			SizeBytes:  e.Size,
 			Modified:   e.LastModified.UTC().Format("2006-01-02 15:04"),
 			EditURL:    editURL,
 			LinkURL:    openURL,
@@ -69,6 +76,7 @@ func (s *Server) filesHandler(c *echo.Context) error {
 			Deletable:  classifyErr == nil,
 			IsHomepage: e.Path == "index.html",
 		})
+		totalBytes += e.Size
 	}
 
 	meta := s.build.ReadMeta(c.Request().Context(), slug)
@@ -83,7 +91,8 @@ func (s *Server) filesHandler(c *echo.Context) error {
 			SiteURL:  siteURL,
 			Active:   "files",
 		},
-		Rows: rows,
+		Rows:      rows,
+		TotalSize: formatSize(totalBytes),
 	})
 }
 
