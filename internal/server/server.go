@@ -1174,14 +1174,17 @@ func parseAttachments(c *echo.Context) ([]agent.Attachment, error) {
 				fmt.Sprintf("attachments exceed combined size limit (%d bytes)", maxAttachmentsTotalBytes))
 		}
 		// On duplicate basenames, suffix -2, -3, ... so the agent's seed loop
-		// still gets distinct lookup keys.
+		// still gets distinct lookup keys. Sanitizing collapses more names
+		// together (e.g. "a b.md" and "a-b.md" both → "a-b.md"), so loop until
+		// the candidate is genuinely unused — including against a literal name
+		// a later upload might carry (e.g. someone also uploads "a-b-2.md").
+		ext := path.Ext(name)
+		stem := strings.TrimSuffix(name, ext)
 		uniq := name
-		if n := seen[name]; n > 0 {
-			ext := path.Ext(name)
-			stem := strings.TrimSuffix(name, ext)
-			uniq = fmt.Sprintf("%s-%d%s", stem, n+1, ext)
+		for i := 2; seen[uniq] > 0; i++ {
+			uniq = fmt.Sprintf("%s-%d%s", stem, i, ext)
 		}
-		seen[name]++
+		seen[uniq]++
 		out = append(out, agent.Attachment{Name: uniq, Content: string(body)})
 	}
 	return out, nil
@@ -1193,54 +1196,68 @@ func parseAttachments(c *echo.Context) ([]agent.Attachment, error) {
 var allowedAttachmentExts = []string{".md", ".markdown", ".html", ".htm"}
 
 // sanitizeAttachmentName returns a safe basename for an uploaded reference
-// file. Rejects empty, path-bearing, non-markdown/HTML, or syntactically
-// suspicious names. The result is always lowercase and limited to [a-z0-9._-].
+// file. The extension must be one of allowedAttachmentExts (we can't invent
+// one), but the rest of the name is sanitized rather than rejected — spaces,
+// punctuation, and non-ASCII (e.g. "Caroline & Paweł.html") collapse to
+// dashes so the upload just works ("caroline-pawe.html"). Always lowercase
+// and limited to [a-z0-9_-] plus the extension.
 func sanitizeAttachmentName(raw string) (string, error) {
 	base := path.Base(strings.TrimSpace(raw))
 	if base == "" || base == "." || base == "/" {
 		return "", errors.New("attachment filename is empty")
 	}
 	lower := strings.ToLower(base)
-	if !hasAnySuffix(lower, allowedAttachmentExts) {
+	ext, ok := matchAttachmentExt(lower)
+	if !ok {
 		return "", fmt.Errorf("attachment %q must end in %s", raw, strings.Join(allowedAttachmentExts, ", "))
 	}
-	if len(lower) > 80 {
-		return "", fmt.Errorf("attachment name %q is too long (max 80 chars)", raw)
-	}
-	if bad, ok := firstDisallowedRune(lower); ok {
-		return "", fmt.Errorf("attachment name %q contains unsupported character %q (allowed: a-z, 0-9, . _ -)", raw, bad)
-	}
-	return lower, nil
-}
-
-func hasAnySuffix(s string, suffixes []string) bool {
-	for _, suf := range suffixes {
-		if strings.HasSuffix(s, suf) {
-			return true
+	stem := sanitizeStem(strings.TrimSuffix(lower, ext))
+	// Enforce the 80-char total cap by trimming the stem so the extension —
+	// which the agent's seed loop keys off — is always preserved.
+	if maxStem := 80 - len(ext); len(stem) > maxStem {
+		stem = strings.Trim(stem[:maxStem], "-")
+		if stem == "" {
+			stem = "asset"
 		}
 	}
-	return false
+	return stem + ext, nil
 }
 
-func firstDisallowedRune(name string) (rune, bool) {
-	for _, r := range name {
-		if !markdownNameRuneAllowed(r) {
-			return r, true
+// matchAttachmentExt reports the allowed extension a lowercased name ends in.
+func matchAttachmentExt(lower string) (string, bool) {
+	for _, ext := range allowedAttachmentExts {
+		if strings.HasSuffix(lower, ext) {
+			return ext, true
 		}
 	}
-	return 0, false
+	return "", false
 }
 
-func markdownNameRuneAllowed(r rune) bool {
-	switch {
-	case r >= 'a' && r <= 'z':
-		return true
-	case r >= '0' && r <= '9':
-		return true
-	case r == '.' || r == '_' || r == '-':
-		return true
+// sanitizeStem maps an arbitrary filename stem to a filesystem-safe slug:
+// lowercased, every run of characters outside [a-z0-9_-] (spaces, dots,
+// punctuation, non-ASCII) collapsed to a single dash, leading/trailing dashes
+// trimmed, and an empty result replaced with "asset". Collapsing dots also
+// blocks "../" path shenanigans.
+func sanitizeStem(stem string) string {
+	stem = strings.ToLower(stem)
+	var b strings.Builder
+	prevDash := false
+	for _, r := range stem {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' {
+			b.WriteRune(r)
+			prevDash = false
+			continue
+		}
+		if !prevDash {
+			b.WriteRune('-')
+			prevDash = true
+		}
 	}
-	return false
+	cleaned := strings.Trim(b.String(), "-")
+	if cleaned == "" {
+		cleaned = "asset"
+	}
+	return cleaned
 }
 
 func (s *Server) buildHandler(c *echo.Context) error {
@@ -2087,29 +2104,15 @@ func (s *Server) captionUpload(ctx context.Context, body []byte, contentType str
 
 // safeAssetName produces a filesystem-safe filename derived from the
 // upload's basename, forcing the extension to match the sniffed content
-// type. Anything outside [a-z0-9._-] becomes a dash; empty stems become
-// "asset".
+// type. Shares sanitizeStem with attachment names: anything outside
+// [a-z0-9_-] collapses to a dash and empty stems become "asset".
 func safeAssetName(original, ext string) (string, error) {
-	stem := strings.TrimSuffix(path.Base(original), path.Ext(original))
-	stem = strings.ToLower(stem)
-	var b strings.Builder
-	for _, r := range stem {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
-			b.WriteRune(r)
-		case r == '.':
-			// collapse dots so we don't end up with a/../ shenanigans
-			b.WriteRune('-')
-		default:
-			b.WriteRune('-')
+	stem := sanitizeStem(strings.TrimSuffix(path.Base(original), path.Ext(original)))
+	if len(stem) > 60 {
+		stem = strings.Trim(stem[:60], "-")
+		if stem == "" {
+			stem = "asset"
 		}
 	}
-	cleaned := strings.Trim(b.String(), "-")
-	if cleaned == "" {
-		cleaned = "asset"
-	}
-	if len(cleaned) > 60 {
-		cleaned = cleaned[:60]
-	}
-	return cleaned + ext, nil
+	return stem + ext, nil
 }
