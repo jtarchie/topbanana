@@ -5,8 +5,9 @@
 {{ template "head" . }}
 </head>
 <body class="min-h-screen flex flex-col bg-base-100">
+{{ template "brand_minimal" . }}
 <main class="flex-1 grid place-items-center px-4 py-12">
-  <div class="card w-full max-w-md bg-base-100 border border-base-300 shadow-sm">
+  <div class="card w-full max-w-md bg-base-100 border border-base-300">
     <div class="card-body">
       <h1 class="text-xl font-semibold tracking-tight mb-1">Sign in</h1>
       <p class="text-sm text-base-content/70 mb-4">Sign in with the passkey bound to your account.</p>
@@ -26,6 +27,7 @@
     </div>
   </div>
 </main>
+{{ template "footer" . }}
 {{ template "webauthn_js" . }}
 <script>
   (function () {
