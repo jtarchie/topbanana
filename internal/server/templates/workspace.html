@@ -169,7 +169,7 @@
 
 <!-- Themes side panel -->
 <div class="side-scrim" id="scrim-themes" data-scrim="themes"></div>
-<aside class="side-panel bg-base-100 border-l border-base-300 shadow-xl flex flex-col" id="panel-themes" aria-label="Themes" aria-hidden="true">
+<aside class="side-panel bg-base-100 border-l border-base-300 shadow-lg flex flex-col" id="panel-themes" aria-label="Themes" aria-hidden="true">
   <header class="flex items-center justify-between p-4 border-b border-base-300">
     <h2 class="font-semibold">Themes</h2>
     <button type="button" class="btn btn-ghost btn-sm btn-square" data-close="themes" aria-label="Close themes panel">×</button>
@@ -192,7 +192,7 @@
 
 <!-- History side panel -->
 <div class="side-scrim" id="scrim-history" data-scrim="history"></div>
-<aside class="side-panel bg-base-100 border-l border-base-300 shadow-xl flex flex-col" id="panel-history" aria-label="Version history" aria-hidden="true">
+<aside class="side-panel bg-base-100 border-l border-base-300 shadow-lg flex flex-col" id="panel-history" aria-label="Version history" aria-hidden="true">
   <header class="flex items-center justify-between p-4 border-b border-base-300">
     <h2 class="font-semibold">Version history</h2>
     <button type="button" class="btn btn-ghost btn-sm btn-square" data-close="history" aria-label="Close history panel">×</button>
@@ -239,7 +239,7 @@
 
 {{ template "footer" . }}
 {{ template "confirm_dialog" . }}
-<div id="toast" class="toast toast-end z-[60]" role="status" aria-live="polite" aria-atomic="false"></div>
+<div id="toast" class="toast toast-end z-toast" role="status" aria-live="polite" aria-atomic="false"></div>
 
 <script>
   // Drop the cursor into the composer on load so the page opens in editing

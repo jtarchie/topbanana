@@ -239,11 +239,27 @@ The two exceptions, both narrow:
 1. The apps-list dropdown menu (`.dropdown-content`) carries daisyUI's default `shadow` token because it has to read as floating over the row underneath. This is the only stationary `shadow` use in the admin UI.
 2. The native `<dialog>` confirm modal renders the browser's default `::backdrop` overlay (`rgba(0,0,0,.3)` via the `side-scrim` analog). This is system chrome, not authored elevation.
 
+### Z-index scale
+
+A named scale lives in `app.input.css`. Use the tokens, never arbitrary values like `z-[60]` or `z-[999]`. The stack is reserved with gaps so a new tier can land between two existing ones without renumbering:
+
+- `--z-scrim` (40): backdrop scrim for side panels.
+- `--z-panel` (50): side panels themselves (`.side-panel`).
+- `--z-dropdown` (55): floating menus and popovers.
+- `--z-modal-backdrop` (58): native `<dialog>` backdrop.
+- `--z-modal` (60): native `<dialog>` content.
+- `--z-toast` (65): toast container (`.z-toast`).
+- `--z-tooltip` (70): tooltips and helper popups.
+
+Utility classes are available at `.z-scrim`, `.z-panel`, `.z-toast`, `.z-tooltip` (and any not-yet-materialized tier can be added the same way). The `.side-panel` and `.side-scrim` patterns in `app.input.css` reference the variables directly.
+
 ### Named Rules
 
-**The Flat Rule.** New components default to `border border-base-300` for separation. Reach for shadow only when the element is genuinely floating over content the user is mid-task in (popovers, dropdowns, side panels with backdrops). Decorative shadows are prohibited.
+**The Flat Rule.** New components default to `border border-base-300` for separation. Reach for shadow only when the element is genuinely floating over content the user is mid-task in (popovers, dropdowns, side panels with backdrops). Decorative shadows are prohibited. When floating IS the answer, reach gently: `shadow-lg` is the heaviest the system uses on a side panel; `shadow-md` is preferred for dropdowns.
 
 **The Ladder Rule.** When two surfaces are adjacent and you need to distinguish them, lighten one step on the base ladder (Rind → Pith → Lemonade Sky) before introducing a border or a shadow. Footer-on-page, table-zebra rows, sidebar-on-content all use this lever.
+
+**The Named Depth Rule.** No arbitrary z-index values. Use a token from the z-index scale above. If your element doesn't fit any tier, add a new token to the scale rather than reaching for `z-[999]`.
 
 ## 5. Components
 

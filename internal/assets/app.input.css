@@ -40,6 +40,24 @@ body { font-family: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Aria
 :focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .btn { min-height: 2.5rem; }
 
+/* Named z-index scale. Floating UI follows scrim < panel < dropdown <
+   modal-backdrop < modal < toast < tooltip. Only the stack we actually use
+   is materialized below; the rest are reserved values so a future modal or
+   tooltip lands in the right tier without thinking. */
+:root {
+  --z-scrim: 40;
+  --z-panel: 50;
+  --z-dropdown: 55;
+  --z-modal-backdrop: 58;
+  --z-modal: 60;
+  --z-toast: 65;
+  --z-tooltip: 70;
+}
+.z-scrim   { z-index: var(--z-scrim); }
+.z-panel   { z-index: var(--z-panel); }
+.z-toast   { z-index: var(--z-toast); }
+.z-tooltip { z-index: var(--z-tooltip); }
+
 /* Custom brand dark variant of lemonade. Inverts the base ladder, keeps
    Lemonade Pulp as the primary verb-color, and stays flat (--depth: 0)
    with hairline borders. Used when prefers-color-scheme: dark; cyberpunk
@@ -82,9 +100,9 @@ body { font-family: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Aria
    they'll slide in from the right with a backdrop. Pair each panel with
    id="panel-<name>" + id="scrim-<name>" and a button carrying
    data-panel="<name>" to open. */
-.side-panel { position: fixed; top: 0; right: 0; height: 100vh; width: min(420px, 100vw); transform: translateX(100%); transition: transform .2s ease; z-index: 50; }
+.side-panel { position: fixed; top: 0; right: 0; height: 100vh; width: min(420px, 100vw); transform: translateX(100%); transition: transform .2s ease; z-index: var(--z-panel); }
 .side-panel[data-open="true"] { transform: translateX(0); }
-.side-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.3); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 40; }
+.side-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.3); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: var(--z-scrim); }
 .side-scrim[data-open="true"] { opacity: 1; pointer-events: auto; }
 
 /* Brand mascot celebration beat. Fired by workspace.html when a build
