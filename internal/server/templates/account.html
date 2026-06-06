@@ -79,9 +79,38 @@
     </section>
   </details>
 
-  <form method="POST" action="/logout">
-    <button type="submit" class="btn btn-ghost btn-sm">Sign out</button>
-  </form>
+  <section class="pt-8 border-t border-error/40 mb-6" aria-labelledby="danger-heading">
+    <h2 id="danger-heading" class="text-lg font-semibold tracking-tight text-error mb-2">Danger zone</h2>
+    <p class="text-sm text-base-content/70 mb-4">Actions that sign you out, lock other devices out, or remove your account.</p>
+
+    <div class="flex flex-col divide-y divide-base-300 border border-base-300 rounded-box">
+      <div class="px-4 py-3 flex items-start justify-between gap-3 flex-wrap">
+        <div class="min-w-0">
+          <p class="text-sm font-medium">Sign out</p>
+          <p class="text-xs text-base-content/60 mt-0.5">Ends this browser's session. Your other devices stay signed in.</p>
+        </div>
+        <form method="POST" action="/logout">
+          <button type="submit" class="btn btn-ghost btn-sm">Sign out</button>
+        </form>
+      </div>
+
+      <div class="px-4 py-3 flex items-start justify-between gap-3 flex-wrap">
+        <div class="min-w-0">
+          <p class="text-sm font-medium">Sign out everywhere</p>
+          <p class="text-xs text-base-content/60 mt-0.5">Revokes every active session on every device. Use this if you lost a laptop or phone. Coming soon as a button; for now we handle it manually.</p>
+        </div>
+        <a href="mailto:hello@topbanana.dev?subject=Sign%20out%20everywhere%20for%20{{ .Email | urlquery }}" class="btn btn-outline btn-error btn-sm">Email support</a>
+      </div>
+
+      <div class="px-4 py-3 flex items-start justify-between gap-3 flex-wrap">
+        <div class="min-w-0">
+          <p class="text-sm font-medium">Delete account</p>
+          <p class="text-xs text-base-content/60 mt-0.5">Permanently removes your account and every site you own. There's no undo. Coming soon as a button; for now we handle it manually.</p>
+        </div>
+        <a href="mailto:hello@topbanana.dev?subject=Delete%20account%20for%20{{ .Email | urlquery }}" class="btn btn-outline btn-error btn-sm">Email support</a>
+      </div>
+    </div>
+  </section>
 </main>
 {{ template "footer" . }}
 {{ template "webauthn_js" . }}
