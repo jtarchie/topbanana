@@ -36,11 +36,12 @@
   </section>
 
   {{ if .Invites }}
-  <section class="card bg-base-100 border border-base-300 mb-6">
-    <div class="card-body">
-      <h2 class="text-lg font-semibold">Pending invites</h2>
-      <div class="overflow-x-auto rounded-box border border-base-300">
-        <table class="table table-zebra">
+  <section class="mt-8" aria-labelledby="invites-heading">
+    <h2 id="invites-heading" class="text-lg font-semibold tracking-tight mb-3">
+      Pending invites <span class="text-sm font-normal text-base-content/60 ml-1">· {{ len .Invites }}</span>
+    </h2>
+    <div class="overflow-x-auto rounded-box border border-base-300">
+      <table class="table table-zebra">
           <thead><tr><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Expires</th><th scope="col">Invite URL</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
           <tbody>
             {{ range .Invites }}
@@ -64,17 +65,17 @@
             </tr>
             {{ end }}
           </tbody>
-        </table>
-      </div>
+      </table>
     </div>
   </section>
   {{ end }}
 
-  <section class="card bg-base-100 border border-base-300">
-    <div class="card-body">
-      <h2 class="text-lg font-semibold">All users</h2>
-      <div class="overflow-x-auto rounded-box border border-base-300">
-        <table class="table table-zebra">
+  <section class="mt-8" aria-labelledby="users-heading">
+    <h2 id="users-heading" class="text-lg font-semibold tracking-tight mb-3">
+      All users <span class="text-sm font-normal text-base-content/60 ml-1">· {{ len .Users }}</span>
+    </h2>
+    <div class="overflow-x-auto rounded-box border border-base-300">
+      <table class="table table-zebra">
           <thead><tr><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Max apps</th><th scope="col">Passkeys</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
           <tbody>
             {{ range .Users }}
@@ -118,8 +119,7 @@
             </tr>
             {{ end }}
           </tbody>
-        </table>
-      </div>
+      </table>
     </div>
   </section>
 </main>
