@@ -28,6 +28,11 @@ var cli struct {
 	Port   string `default:"8080"      env:"PORT"   help:"HTTP port to listen on."`
 	Domain string `default:"localhost" env:"DOMAIN" help:"Base domain for subdomains."`
 
+	// CustomDomainCNAME is the hostname shown on the manage page as the target
+	// for a customer's CNAME record. Empty falls back to --domain (the base
+	// domain is where the server terminates TLS + routes custom domains).
+	CustomDomainCNAME string `env:"CUSTOM_DOMAIN_CNAME" help:"CNAME target shown on the manage page for custom domains. Empty falls back to --domain." name:"custom-domain-cname"`
+
 	// Multi-tenancy / passkeys. Required: every admin route is gated by a
 	// passkey session bound to a user record, and the super admin is the
 	// seeded role with platform-wide access.
@@ -209,6 +214,7 @@ func main() {
 			S3Bucket:           cli.S3Bucket,
 			SnapshotKeep:       cli.SnapshotKeep,
 			EditsKeep:          cli.EditsKeep,
+			CustomDomainCNAME:  cli.CustomDomainCNAME,
 		},
 	}
 

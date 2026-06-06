@@ -57,6 +57,9 @@ type SystemInfo struct {
 	S3Bucket           string
 	SnapshotKeep       int
 	EditsKeep          int
+	// CustomDomainCNAME is the hostname the manage page tells users to point a
+	// custom-domain CNAME record at. Empty means "use the base domain".
+	CustomDomainCNAME string
 }
 
 // Deps holds the dependencies the server needs. Wired up in cmd/topbanana.

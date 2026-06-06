@@ -46,6 +46,10 @@ type manageData struct {
 	// handler so the manage template can drop them in without escaping logic.
 	TemplateLabel string
 	SetupNotes    template.HTML
+	// DNSCNAMETarget is the hostname a custom-domain CNAME record should point
+	// at — the configured CustomDomainCNAME, or the base domain when unset.
+	// Rendered verbatim into the copy-paste DNS instructions.
+	DNSCNAMETarget string
 }
 
 // urlPattern matches bare http/https URLs anywhere in setup-notes text. Kept
@@ -127,6 +131,11 @@ func (s *Server) manageHandler(c *echo.Context) error {
 		siteName = slug
 	}
 
+	cnameTarget := s.systemInfo.CustomDomainCNAME
+	if cnameTarget == "" {
+		cnameTarget = s.domain
+	}
+
 	return s.render(c, "manage", manageData{
 		Chrome: Chrome{
 			Slug:     slug,
@@ -149,5 +158,6 @@ func (s *Server) manageHandler(c *echo.Context) error {
 		Flash:            c.QueryParam("flash"),
 		TemplateLabel:    tmplLabel,
 		SetupNotes:       setupNotes,
+		DNSCNAMETarget:   cnameTarget,
 	})
 }

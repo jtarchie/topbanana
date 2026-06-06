@@ -96,7 +96,21 @@
           <textarea name="domains" id="domains" rows="3"
                     class="textarea w-full font-mono text-sm"
                     placeholder="example.com&#10;www.example.com">{{ .Domains }}</textarea>
-          <p class="text-sm text-base-content/70 mt-2">One address per line. Add a <strong>CNAME</strong> record at your domain provider pointing here; a TLS certificate is issued on first visit. Don't use Cloudflare's orange-cloud proxy: set the record to <code class="font-mono bg-base-200 px-1 rounded">DNS only</code> or certificate issuance will fail.</p>
+          <p class="text-sm text-base-content/70 mt-2">One address per line. After adding an address here, create this DNS record at your domain provider:</p>
+          <div class="mt-2 rounded-lg border border-base-300 bg-base-200/40 p-3 text-sm">
+            <dl class="grid grid-cols-[5rem_1fr] gap-x-3 gap-y-1.5 items-center">
+              <dt class="text-base-content/60">Type</dt>
+              <dd class="font-mono">CNAME</dd>
+              <dt class="text-base-content/60">Name</dt>
+              <dd class="font-mono text-base-content/70">your subdomain (e.g. <span class="text-base-content">www</span>)</dd>
+              <dt class="text-base-content/60">Value</dt>
+              <dd class="flex items-center gap-2 min-w-0">
+                <code class="font-mono bg-base-100 px-1.5 py-0.5 rounded break-all">{{ .DNSCNAMETarget }}</code>
+                <button type="button" class="btn btn-ghost btn-xs js-copy shrink-0" data-copy="{{ .DNSCNAMETarget }}" data-copied-label="Copied!" aria-label="Copy CNAME target">Copy</button>
+              </dd>
+            </dl>
+          </div>
+          <p class="text-xs text-base-content/60 mt-2">A TLS certificate is issued automatically on the first visit. For a root/apex domain (<span class="font-mono">example.com</span>), use your provider's CNAME flattening / ALIAS record. On Cloudflare, set the record to <code class="font-mono bg-base-200 px-1 rounded">DNS only</code> (grey cloud) or certificate issuance will fail.</p>
         </div>
       </div>
     </section>
@@ -229,5 +243,44 @@
 </main>
 {{ template "footer" . }}
 {{ template "confirm_dialog" . }}
+<script>
+  // Copy-to-clipboard for the DNS CNAME target. Buttons opt in with `.js-copy`
+  // + `data-copy="<text>"`; on success we flash `data-copied-label` for ~1.5s.
+  // Falls back to a hidden <textarea> + execCommand where navigator.clipboard
+  // is unavailable (non-secure contexts). Mirrors admin_users.html.
+  (function () {
+    function flash(btn) {
+      var original = btn.textContent;
+      btn.textContent = btn.dataset.copiedLabel || 'Copied!';
+      btn.disabled = true;
+      setTimeout(function () {
+        btn.textContent = original;
+        btn.disabled = false;
+      }, 1500);
+    }
+    function legacyCopy(text) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'absolute';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) { /* best effort */ }
+      document.body.removeChild(ta);
+    }
+    document.querySelectorAll('.js-copy').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var text = btn.dataset.copy || '';
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function () { flash(btn); }, function () { legacyCopy(text); flash(btn); });
+        } else {
+          legacyCopy(text);
+          flash(btn);
+        }
+      });
+    });
+  })();
+</script>
 </body>
 </html>
