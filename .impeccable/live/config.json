@@ -1,0 +1,15 @@
+{
+  "files": [
+    "internal/server/templates/landing.html",
+    "internal/server/templates/apps.html",
+    "internal/server/templates/workspace.html",
+    "internal/server/templates/manage.html",
+    "internal/server/templates/account.html",
+    "internal/server/templates/visual_edit.html",
+    "internal/server/templates/files.html",
+    "internal/server/templates/system.html"
+  ],
+  "insertBefore": "</body>",
+  "commentSyntax": "html",
+  "cspChecked": true
+}
