@@ -61,7 +61,7 @@
             {{ if .LastEdited }}<span class="text-xs text-base-content/60 shrink-0">Edited {{ .LastEdited }}</span>{{ end }}
           </div>
           {{ if .Description }}<p class="text-sm text-base-content/70 line-clamp-1 mt-1">{{ .Description }}</p>{{ end }}
-          <p class="text-xs text-base-content/60 mt-1.5">
+          <p class="text-xs text-base-content/60 mt-1.5 truncate">
             <span class="font-mono">{{ .Name }}</span>
             {{ if .PrimaryDomain }}<span class="mx-1 text-base-content/40">·</span><span class="font-mono">{{ .PrimaryDomain }}</span>{{ end }}
           </p>
