@@ -94,7 +94,8 @@ func buildAttachmentForm(t *testing.T, files map[string]string, order []string) 
 		}
 		_, _ = fw.Write([]byte(files[name]))
 	}
-	if err := mw.Close(); err != nil {
+	err := mw.Close()
+	if err != nil {
 		t.Fatalf("close writer: %v", err)
 	}
 	req := httptest.NewRequest(http.MethodPost, "/build", &body)
