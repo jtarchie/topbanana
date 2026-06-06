@@ -45,11 +45,30 @@ type adminInviteRow struct {
 // adminUsersData backs templates/admin_users.html.
 type adminUsersData struct {
 	Chrome
-	Users   []adminUserRow
-	Invites []adminInviteRow
-	Flash   string
-	Error   string
-	Roles   []string
+	Users           []adminUserRow
+	Invites         []adminInviteRow
+	Flash           string
+	Error           string
+	Roles           []string
+	SuggestedModels []string
+}
+
+// suggestedModels feeds the <datalist> on the Quotas panel's per-tier
+// model inputs so a super-admin gets autocomplete on the common cases
+// instead of recalling exact provider/model strings (the page's biggest
+// recall cost, surfaced by the impeccable critique). Not exhaustive
+// and not enforced: the field stays free-text so admins can paste a
+// model id this list doesn't know yet. Update by hand when new model
+// generations ship.
+var suggestedModels = []string{
+	"anthropic/claude-opus-4-7",
+	"anthropic/claude-sonnet-4-6",
+	"anthropic/claude-haiku-4-5",
+	"openai/gpt-4o",
+	"openai/gpt-4o-mini",
+	"openrouter/anthropic/claude-sonnet-4-6",
+	"openrouter/openai/gpt-4o-mini",
+	"lmstudio/google/gemma-4-12b",
 }
 
 // adminUsersHandler renders the super-admin user/invite page. Filters
@@ -105,12 +124,13 @@ func (s *Server) adminUsersHandler(c *echo.Context) error {
 	sort.SliceStable(inviteRows, func(i, j int) bool { return inviteRows[i].Email < inviteRows[j].Email })
 
 	return s.render(c, "admin_users", adminUsersData{
-		Chrome:  Chrome{Active: "admin_users"},
-		Users:   rows,
-		Invites: inviteRows,
-		Flash:   c.QueryParam("flash"),
-		Error:   c.QueryParam("error"),
-		Roles:   []string{string(auth.RoleAdmin), string(auth.RoleSuperAdmin)},
+		Chrome:          Chrome{Active: "admin_users"},
+		Users:           rows,
+		Invites:         inviteRows,
+		Flash:           c.QueryParam("flash"),
+		Error:           c.QueryParam("error"),
+		Roles:           []string{string(auth.RoleAdmin), string(auth.RoleSuperAdmin)},
+		SuggestedModels: suggestedModels,
 	})
 }
 

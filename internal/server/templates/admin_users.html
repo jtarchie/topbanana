@@ -145,7 +145,11 @@
 
       <fieldset class="fieldset">
         <legend class="fieldset-legend">Per-tier model overrides</legend>
-        <p class="fieldset-label leading-snug">Blank fields inherit the system default for that tier. Vision needs a multimodal model for image captions.</p>
+        <p class="fieldset-label leading-snug">Blank fields inherit the system default for that tier. Vision needs a multimodal model for image captions. Common ids autocomplete; any <span class="font-mono">provider/model</span> string also works.</p>
+
+        <datalist id="quotas-known-models">
+          {{ range .SuggestedModels }}<option value="{{ . }}"></option>{{ end }}
+        </datalist>
 
         <div class="mt-1 space-y-3 rounded-box border border-base-300 bg-base-200/40 p-3">
           <div>
@@ -153,28 +157,36 @@
               <span class="text-sm font-medium">Author</span>
               <span class="text-xs text-base-content/60 font-mono">/build · initial generation</span>
             </label>
-            <input id="quotas-model-author" type="text" name="model_author" class="input input-sm w-full mt-1 font-mono" placeholder="provider/model">
+            <input id="quotas-model-author" type="text" name="model_author" list="quotas-known-models"
+                   autocomplete="off" autocapitalize="off" spellcheck="false"
+                   class="input input-sm w-full mt-1 font-mono" placeholder="provider/model">
           </div>
           <div>
             <label for="quotas-model-editor" class="flex items-baseline justify-between gap-2">
               <span class="text-sm font-medium">Editor</span>
               <span class="text-xs text-base-content/60 font-mono">/edit · /relint · retries</span>
             </label>
-            <input id="quotas-model-editor" type="text" name="model_editor" class="input input-sm w-full mt-1 font-mono" placeholder="provider/model">
+            <input id="quotas-model-editor" type="text" name="model_editor" list="quotas-known-models"
+                   autocomplete="off" autocapitalize="off" spellcheck="false"
+                   class="input input-sm w-full mt-1 font-mono" placeholder="provider/model">
           </div>
           <div>
             <label for="quotas-model-utility" class="flex items-baseline justify-between gap-2">
               <span class="text-sm font-medium">Utility</span>
               <span class="text-xs text-base-content/60 font-mono">site description</span>
             </label>
-            <input id="quotas-model-utility" type="text" name="model_utility" class="input input-sm w-full mt-1 font-mono" placeholder="provider/model">
+            <input id="quotas-model-utility" type="text" name="model_utility" list="quotas-known-models"
+                   autocomplete="off" autocapitalize="off" spellcheck="false"
+                   class="input input-sm w-full mt-1 font-mono" placeholder="provider/model">
           </div>
           <div>
             <label for="quotas-model-vision" class="flex items-baseline justify-between gap-2">
               <span class="text-sm font-medium">Vision</span>
               <span class="text-xs text-base-content/60 font-mono">image alt-text · multimodal</span>
             </label>
-            <input id="quotas-model-vision" type="text" name="model_vision" class="input input-sm w-full mt-1 font-mono" placeholder="provider/model">
+            <input id="quotas-model-vision" type="text" name="model_vision" list="quotas-known-models"
+                   autocomplete="off" autocapitalize="off" spellcheck="false"
+                   class="input input-sm w-full mt-1 font-mono" placeholder="provider/model">
           </div>
         </div>
       </fieldset>
