@@ -71,15 +71,26 @@
   {{ end }}
 
   <section class="mt-8" aria-labelledby="users-heading">
-    <h2 id="users-heading" class="text-lg font-semibold tracking-tight mb-3">
-      All users <span class="text-sm font-normal text-base-content/60 ml-1">· {{ len .Users }}</span>
-    </h2>
+    <div class="flex items-baseline justify-between gap-3 flex-wrap mb-3">
+      <h2 id="users-heading" class="text-lg font-semibold tracking-tight">
+        All users <span id="users-count" class="text-sm font-normal text-base-content/60 ml-1" data-total="{{ len .Users }}" aria-live="polite">· {{ len .Users }}</span>
+      </h2>
+      {{ if gt (len .Users) 8 }}
+      <label class="flex flex-col items-end">
+        <span class="sr-only">Filter users</span>
+        <input type="search" id="users-filter" placeholder="Filter by email or role"
+               autocomplete="off" autocapitalize="off" spellcheck="false"
+               class="input input-sm w-64 max-w-full">
+      </label>
+      {{ end }}
+    </div>
+    <p id="users-empty-filter" class="text-sm text-base-content/60 hidden mb-2">No users match.</p>
     <div class="overflow-x-auto rounded-box border border-base-300">
-      <table class="table table-zebra">
+      <table class="table table-zebra" id="users-table">
           <thead><tr><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Max apps</th><th scope="col">Passkeys</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
           <tbody>
             {{ range .Users }}
-            <tr>
+            <tr data-email="{{ .Email }}" data-role="{{ .Role }}">
               <td class="font-mono">{{ .Email }}{{ if .IsSelf }} <span class="badge badge-ghost badge-sm ml-1">you</span>{{ end }}</td>
               <td>{{ .Role }}</td>
               <td>{{ if eq .MaxApps 0 }}<span class="text-base-content/50">default</span>{{ else }}{{ .MaxApps }}{{ end }}</td>
@@ -266,6 +277,34 @@
       });
     });
   })();
+</script>
+<script>
+// Client-side filter for the All users table. Only initializes when the
+// controls were server-rendered (>= 9 users) and matches the apps.html
+// pattern. Hides rows whose email or role doesn't contain the query.
+(function () {
+  var input = document.getElementById('users-filter');
+  var table = document.getElementById('users-table');
+  var countEl = document.getElementById('users-count');
+  var emptyEl = document.getElementById('users-empty-filter');
+  if (!input || !table || !countEl) return;
+  var total = parseInt(countEl.dataset.total || '0', 10);
+  function apply() {
+    var q = input.value.trim().toLowerCase();
+    var visible = 0;
+    table.querySelectorAll('tbody tr').forEach(function (tr) {
+      if (!q) { tr.hidden = false; visible++; return; }
+      var hay = ((tr.dataset.email || '') + ' ' + (tr.dataset.role || '')).toLowerCase();
+      var match = hay.indexOf(q) !== -1;
+      tr.hidden = !match;
+      if (match) visible++;
+    });
+    countEl.textContent = visible === total ? '· ' + total : '· ' + visible + ' of ' + total;
+    if (emptyEl) emptyEl.classList.toggle('hidden', visible !== 0);
+  }
+  input.addEventListener('input', apply);
+  apply();
+})();
 </script>
 {{ template "panel_js" . }}
 {{ template "confirm_dialog" . }}
