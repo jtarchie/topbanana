@@ -150,21 +150,27 @@
   <section class="card bg-base-100 border border-base-300" aria-labelledby="advanced-heading">
     <div class="card-body">
       <h2 id="advanced-heading" class="card-title text-lg">Advanced tools</h2>
-      <p class="text-sm text-base-content/70">Diagnostic surfaces — useful when something looks wrong.</p>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
-        <a href="/files/{{ .Slug }}" class="card bg-base-100 border border-base-300 hover:border-primary transition">
-          <div class="card-body p-4">
-            <div class="font-medium">All files →</div>
-            <p class="text-xs text-base-content/70">Every object stored for this site (pages, images, server logic, state).</p>
-          </div>
-        </a>
-        <a href="/debug/{{ .Slug }}" class="card bg-base-100 border border-base-300 hover:border-primary transition">
-          <div class="card-body p-4">
-            <div class="font-medium">Build transcripts →</div>
-            <p class="text-xs text-base-content/70">Per-edit tool calls and file diffs from the agent.</p>
-          </div>
-        </a>
-      </div>
+      <p class="text-sm text-base-content/70">Diagnostic surfaces, useful when something looks wrong.</p>
+      <ul class="divide-y divide-base-300 border border-base-300 rounded-box mt-2 overflow-hidden">
+        <li>
+          <a href="/files/{{ .Slug }}" class="flex items-center gap-3 px-4 py-3 hover:bg-base-200 transition">
+            <div class="flex-1">
+              <div class="text-sm font-medium">All files</div>
+              <p class="text-xs text-base-content/70 mt-0.5">Every object stored for this site: pages, images, server logic, state.</p>
+            </div>
+            <span class="text-base-content/40" aria-hidden="true">→</span>
+          </a>
+        </li>
+        <li>
+          <a href="/debug/{{ .Slug }}" class="flex items-center gap-3 px-4 py-3 hover:bg-base-200 transition">
+            <div class="flex-1">
+              <div class="text-sm font-medium">Build transcripts</div>
+              <p class="text-xs text-base-content/70 mt-0.5">Per-edit tool calls and file diffs from the agent.</p>
+            </div>
+            <span class="text-base-content/40" aria-hidden="true">→</span>
+          </a>
+        </li>
+      </ul>
     </div>
   </section>
 
