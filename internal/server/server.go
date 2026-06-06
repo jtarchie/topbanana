@@ -932,6 +932,10 @@ type appLink struct {
 	// derived from the most recent transcript in editrec. Empty when there's no
 	// edit history yet — the card omits the line in that case.
 	LastEdited string
+	// EditedAt is the Unix-seconds timestamp matching LastEdited, exposed so
+	// the apps list can sort by recency client-side. 0 when the site has no
+	// edits recorded yet (sorted last in recency view).
+	EditedAt int64
 	// PrimaryDomain is the first entry in meta.Domains, or "" when no custom
 	// domain is configured. Surfaced on the row next to the slug so the user
 	// can see at a glance which apps live at their own address.
@@ -971,12 +975,14 @@ func (s *Server) appsHandler(c *echo.Context) error {
 		if len(meta.Domains) > 0 {
 			primaryDomain = meta.Domains[0]
 		}
+		lastEdited, editedAt := lastEditedFor(ctx, s, app)
 		links = append(links, appLink{
 			Name:          app,
 			Title:         meta.Title,
 			Description:   meta.Description,
 			URL:           s.siteURL(c, app, "/"),
-			LastEdited:    lastEditedFor(ctx, s, app),
+			LastEdited:    lastEdited,
+			EditedAt:      editedAt,
 			PrimaryDomain: primaryDomain,
 		})
 	}
@@ -1028,16 +1034,19 @@ func (s *Server) siteNameOrSlug(ctx context.Context, slug string) string {
 	return slug
 }
 
-// lastEditedFor returns a relative timestamp for the most recent transcript,
-// or "" when the site has no edits recorded yet (a freshly-created shell with
-// no completed build, or a pre-editrec site). The transcript list is small
-// (capped by retention in editrec.Trim), so this is O(N) per app card.
-func lastEditedFor(ctx context.Context, s *Server, slug string) string {
+// lastEditedFor returns a relative timestamp for the most recent transcript
+// plus its Unix-seconds value, or ("", 0) when the site has no edits recorded
+// yet (a freshly-created shell with no completed build, or a pre-editrec
+// site). The transcript list is small (capped by retention in editrec.Trim),
+// so this is O(N) per app card. The raw timestamp lets the apps template
+// emit a sort key without re-parsing the humanized form.
+func lastEditedFor(ctx context.Context, s *Server, slug string) (string, int64) {
 	rows, err := editrec.List(ctx, s.store, slug)
 	if err != nil || len(rows) == 0 {
-		return ""
+		return "", 0
 	}
-	return humanizeAge(rows[0].Timestamp)
+	t := rows[0].Timestamp
+	return humanizeAge(t), t.Unix()
 }
 
 // appLinkKey orders apps by Title when present, otherwise by slug — keeps

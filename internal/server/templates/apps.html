@@ -8,7 +8,10 @@
 {{ template "brand" . }}
 <main class="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8">
   <div class="flex items-center justify-between flex-wrap gap-3 mb-6">
-    <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight">Your apps</h1>
+    <div class="flex items-baseline gap-3 flex-wrap">
+      <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight">Your apps</h1>
+      {{ if .Apps }}<span id="apps-count" class="text-sm text-base-content/60" data-total="{{ len .Apps }}" aria-live="polite">{{ len .Apps }}</span>{{ end }}
+    </div>
     <a href="/" class="btn btn-primary">New app</a>
   </div>
 
@@ -25,9 +28,31 @@
   {{ end }}
 
   {{ if .Apps }}
-    <ul class="space-y-2" aria-label="Your apps">
+    {{ if gt (len .Apps) 8 }}
+    <div class="flex flex-wrap items-end gap-3 mb-4" id="apps-controls">
+      <label class="flex flex-col grow min-w-[12rem]">
+        <span class="text-xs text-base-content/60 mb-1">Filter</span>
+        <input type="search" id="apps-filter" placeholder="Find by name, slug, or description"
+               autocomplete="off" autocapitalize="off" spellcheck="false"
+               class="input input-sm w-full">
+      </label>
+      <label class="flex flex-col">
+        <span class="text-xs text-base-content/60 mb-1">Sort by</span>
+        <select id="apps-sort" class="select select-sm">
+          <option value="alpha">A → Z</option>
+          <option value="recent">Edited recently</option>
+        </select>
+      </label>
+      <p id="apps-empty-filter" class="text-sm text-base-content/60 hidden">No apps match.</p>
+    </div>
+    {{ end }}
+    <ul class="space-y-2" aria-label="Your apps" id="apps-list">
       {{ range .Apps }}
-      <li class="bg-base-100 border border-base-300 rounded-box hover:border-base-content/30 transition row-stack">
+      <li class="bg-base-100 border border-base-300 rounded-box hover:border-base-content/30 transition row-stack"
+          data-name="{{ .Name }}"
+          data-title="{{ .Title }}"
+          data-description="{{ .Description }}"
+          data-edited="{{ .EditedAt }}">
         <a href="/workspace/{{ .Name }}" class="block p-4 pr-32">
           <div class="flex items-baseline justify-between gap-3 flex-wrap">
             <h2 class="text-base font-semibold leading-tight">
@@ -97,5 +122,83 @@
 </main>
 {{ template "footer" . }}
 {{ template "confirm_dialog" . }}
+<script>
+// Client-side filter + sort for the apps list. Only initializes when the
+// controls were server-rendered (>= 9 apps). Persists sort choice in
+// localStorage so it sticks across visits.
+(function () {
+  var list = document.getElementById('apps-list');
+  var filter = document.getElementById('apps-filter');
+  var sort = document.getElementById('apps-sort');
+  var countEl = document.getElementById('apps-count');
+  var emptyEl = document.getElementById('apps-empty-filter');
+  if (!list || !countEl) return;
+
+  var total = parseInt(countEl.dataset.total || '0', 10);
+  var STORE_KEY = 'tb_apps_sort';
+
+  function updateCount(visible) {
+    if (visible === total) {
+      countEl.textContent = String(total);
+    } else {
+      countEl.textContent = visible + ' of ' + total;
+    }
+  }
+
+  function applyFilter() {
+    if (!filter) return total;
+    var q = filter.value.trim().toLowerCase();
+    var visible = 0;
+    var items = list.querySelectorAll('li');
+    items.forEach(function (li) {
+      if (!q) {
+        li.hidden = false;
+        visible++;
+        return;
+      }
+      var hay = ((li.dataset.name || '') + ' ' + (li.dataset.title || '') + ' ' + (li.dataset.description || '')).toLowerCase();
+      var match = hay.indexOf(q) !== -1;
+      li.hidden = !match;
+      if (match) visible++;
+    });
+    if (emptyEl) emptyEl.classList.toggle('hidden', visible !== 0);
+    updateCount(visible);
+    return visible;
+  }
+
+  function applySort() {
+    if (!sort) return;
+    var mode = sort.value;
+    var items = Array.prototype.slice.call(list.querySelectorAll('li'));
+    items.sort(function (a, b) {
+      if (mode === 'recent') {
+        var ea = parseInt(a.dataset.edited || '0', 10);
+        var eb = parseInt(b.dataset.edited || '0', 10);
+        return eb - ea; // most recent first; 0 (never edited) sinks to bottom
+      }
+      var ka = (a.dataset.title || a.dataset.name || '').toLowerCase();
+      var kb = (b.dataset.title || b.dataset.name || '').toLowerCase();
+      return ka < kb ? -1 : ka > kb ? 1 : 0;
+    });
+    items.forEach(function (li) { list.appendChild(li); });
+  }
+
+  if (sort) {
+    try {
+      var stored = localStorage.getItem(STORE_KEY);
+      if (stored === 'recent' || stored === 'alpha') sort.value = stored;
+    } catch (_) { /* private mode */ }
+    sort.addEventListener('change', function () {
+      try { localStorage.setItem(STORE_KEY, sort.value); } catch (_) { /* private mode */ }
+      applySort();
+    });
+    applySort();
+  }
+  if (filter) {
+    filter.addEventListener('input', applyFilter);
+    applyFilter();
+  }
+})();
+</script>
 </body>
 </html>
