@@ -40,7 +40,7 @@
           {{- range $t := .Featured }}
           <label class="card bg-base-100 border border-base-300 cursor-pointer hover:border-primary transition has-[:checked]:border-primary has-[:checked]:ring-1 has-[:checked]:ring-primary">
             <div class="card-body p-4 flex-row items-start gap-3">
-              <input type="radio" name="template" value="{{ $t.ID }}"{{ if eq $t.ID "blank" }} checked{{ end }} class="radio radio-primary radio-sm mt-1">
+              <input type="radio" name="template" value="{{ $t.ID }}"{{ if eq $t.ID $.DefaultID }} checked{{ end }} class="radio radio-primary radio-sm mt-1">
               <div class="flex-1">
                 <div class="font-medium">{{ $t.Label }}</div>
                 <div class="text-sm text-base-content/70 mt-1">{{ $t.Description }}</div>
@@ -51,10 +51,7 @@
         </div>
         {{ if .Other }}
         <details class="mt-3">
-          <summary class="inline-flex items-center gap-1 text-sm link link-hover text-base-content/70 cursor-pointer list-none">
-            <span class="transition group-open:rotate-90">▸</span>
-            <span>More templates ({{ len .Other }})</span>
-          </summary>
+          <summary class="text-sm link link-hover text-base-content/70 cursor-pointer">More templates ({{ len .Other }})</summary>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3" id="template-cards-more">
             {{- range $t := .Other }}
             <label class="card bg-base-100 border border-base-300 cursor-pointer hover:border-primary transition has-[:checked]:border-primary has-[:checked]:ring-1 has-[:checked]:ring-primary">
@@ -111,7 +108,7 @@
     </summary>
     <form method="POST" action="/import" enctype="multipart/form-data" class="card bg-base-100 border border-base-300 mt-3">
       <div class="card-body gap-3 text-left">
-        <p class="text-sm text-base-content/70">Upload a <code class="font-mono text-sm bg-base-200 px-1 rounded">.tar.zst</code> archive previously exported from Top Banana. We'll create a new site in your account using its contents.</p>
+        <p class="text-sm text-base-content/70">Upload a <code class="font-mono text-sm bg-base-200 px-1 rounded">.tar.zst</code> archive previously exported from Top Banana. We'll create a new site in your account using its contents. Your data is yours; you can export it again anytime from Manage.</p>
         <div>
           <label for="import-archive" class="label pb-1"><span class="text-sm font-medium">Archive</span></label>
           <input id="import-archive" type="file" name="archive" accept=".tar.zst,application/zstd" required class="file-input w-full">

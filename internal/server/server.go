@@ -855,35 +855,55 @@ func wantsHTML(c *echo.Context) bool {
 // and a button, not a wall of choices.
 type landingData struct {
 	Chrome
-	Featured []*templates.SiteTemplate
-	Other    []*templates.SiteTemplate
-	Domain   string
+	Featured  []*templates.SiteTemplate
+	Other     []*templates.SiteTemplate
+	DefaultID string
+	Domain    string
 }
 
-// landingFeaturedIDs are the three templates surfaced visibly on landing:
-// blank (the default, "I'll describe everything"), landing-page (most common
-// single-page need), event (relatable for non-coders: party, RSVP, fundraiser).
-// Adding a new featured template is a one-line edit; the rest stay in "Other".
-var landingFeaturedIDs = map[string]struct{}{
-	"blank":        {},
-	"landing-page": {},
-	"event":        {},
-}
+// landingFeaturedIDs are the three templates surfaced visibly on landing, in
+// display order. landing-page is first AND the pre-checked default — a real
+// layout sets a higher expectation for the AI output than starting from blank.
+// blank stays in the curated set so power users can still pick "I'll describe
+// everything." event is the third pick because party / RSVP / fundraiser is
+// the most relatable use-case for the curious-non-coder primary persona.
+//
+// The order matters: it is the on-screen order in the .Featured slice.
+// Adding a featured template = add the ID here; the rest stay in .Other.
+var landingFeaturedIDs = []string{"landing-page", "blank", "event"}
+
+// landingDefaultTemplateID is the pre-checked template on the landing form.
+// Must be present in landingFeaturedIDs or the radio renders nothing checked.
+// landing-page beats blank for first-timers: a real layout primes a richer
+// prompt, where blank quietly invites a sparse one.
+const landingDefaultTemplateID = "landing-page"
 
 func (s *Server) landingHandler(c *echo.Context) error {
+	featuredSet := make(map[string]struct{}, len(landingFeaturedIDs))
+	byID := make(map[string]*templates.SiteTemplate, len(templates.All()))
+	for _, id := range landingFeaturedIDs {
+		featuredSet[id] = struct{}{}
+	}
+	for _, t := range templates.All() {
+		byID[t.ID] = t
+	}
 	featured := make([]*templates.SiteTemplate, 0, len(landingFeaturedIDs))
+	for _, id := range landingFeaturedIDs {
+		if t, ok := byID[id]; ok {
+			featured = append(featured, t)
+		}
+	}
 	other := make([]*templates.SiteTemplate, 0)
 	for _, t := range templates.All() {
-		if _, ok := landingFeaturedIDs[t.ID]; ok {
-			featured = append(featured, t)
-		} else {
+		if _, ok := featuredSet[t.ID]; !ok {
 			other = append(other, t)
 		}
 	}
 	return s.render(c, "landing", landingData{
-		Featured: featured,
-		Other:    other,
-		Domain:   s.domain,
+		Featured:  featured,
+		Other:     other,
+		DefaultID: landingDefaultTemplateID,
+		Domain:    s.domain,
 	})
 }
 
