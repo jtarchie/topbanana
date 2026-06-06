@@ -33,16 +33,18 @@
     </section>
   {{ end }}
 
-  {{ if .Rows }}
   <section class="card bg-base-100 border border-base-300" aria-labelledby="submissions-heading">
     <div class="card-body">
       <div class="flex items-center justify-between flex-wrap gap-3">
         <h2 id="submissions-heading" class="card-title text-lg">Form submissions</h2>
+        {{ if .Rows }}
         <div class="join">
           <a href="{{ .CSVURL }}" class="btn btn-ghost btn-sm join-item">Download CSV</a>
           <a href="{{ .JSONURL }}" class="btn btn-ghost btn-sm join-item">JSON</a>
         </div>
+        {{ end }}
       </div>
+      {{ if .Rows }}
       <p class="text-sm text-base-content/60">
         {{ if gt .MoreCount 0 }}
           Showing the {{ len .Rows }} most recent of {{ .TotalRows }} submissions
@@ -76,9 +78,11 @@
           <a href="{{ .JSONURL }}" class="link link-primary font-medium">JSON</a>.
         </p>
       {{ end }}
+      {{ else }}
+      <p class="text-sm text-base-content/60">No form submissions yet. When your site collects form data, it shows up here.</p>
+      {{ end }}
     </div>
   </section>
-  {{ end }}
 
   <form method="POST" action="/settings/{{ .Slug }}" class="space-y-8">
     <section class="card bg-base-100 border border-base-300" aria-labelledby="general-heading">

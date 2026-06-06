@@ -135,7 +135,7 @@ func TestHappyPath_BrowserSmoke(t *testing.T) {
 	}
 
 	// Flip emulated media to dark, reload, and confirm the bootstrap script
-	// honors prefers-color-scheme=dark by swapping data-theme to cyberpunk.
+	// honors prefers-color-scheme=dark by swapping data-theme to lemonade-dark.
 	// Reload via Navigate so the inline head script re-runs against the new
 	// emulated media query.
 	var darkTheme string
@@ -152,7 +152,7 @@ func TestHappyPath_BrowserSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dark-mode re-navigate: %v", err)
 	}
-	if darkTheme != "cyberpunk" {
-		t.Errorf("dark-mode data-theme: got %q want %q", darkTheme, "cyberpunk")
+	if darkTheme != "lemonade-dark" {
+		t.Errorf("dark-mode data-theme: got %q want %q", darkTheme, "lemonade-dark")
 	}
 }
