@@ -46,7 +46,7 @@
           <tbody>
             {{ range .Invites }}
             <tr>
-              <td class="font-mono">{{ .Email }}</td>
+              <td>{{ .Email }}</td>
               <td>{{ .Role }}</td>
               <td>{{ .Expires }}</td>
               <td>
@@ -91,9 +91,9 @@
           <tbody>
             {{ range .Users }}
             <tr data-email="{{ .Email }}" data-role="{{ .Role }}">
-              <td class="font-mono">{{ .Email }}{{ if .IsSelf }} <span class="badge badge-ghost badge-sm ml-1">you</span>{{ end }}</td>
+              <td>{{ .Email }}{{ if .IsSelf }} <span class="badge badge-ghost badge-sm ml-1">you</span>{{ end }}</td>
               <td>{{ .Role }}</td>
-              <td>{{ if eq .MaxApps 0 }}<span class="text-base-content/50">default</span>{{ else }}{{ .MaxApps }}{{ end }}</td>
+              <td>{{ if eq .MaxApps 0 }}<span class="text-base-content/60" title="Inherits the server default">system default</span>{{ else }}{{ .MaxApps }}{{ end }}</td>
               <td>{{ .Credentials }}</td>
               <td>{{ if .Disabled }}<span class="badge badge-error">disabled</span>{{ else }}<span class="badge badge-success">active</span>{{ end }}</td>
               <td class="flex gap-2 flex-wrap">
