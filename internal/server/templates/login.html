@@ -14,32 +14,63 @@
         <label class="flex flex-col w-full">
           <span class="text-sm font-medium">Email</span>
           <input id="login-email" name="email" type="email" autocomplete="username webauthn" required
-                 class="input w-full mt-1" placeholder="you@example.com" />
+                 class="input w-full mt-1" />
         </label>
         <button type="submit" class="btn btn-primary w-full mt-4">Continue with passkey</button>
       </form>
       <div id="login-error" class="alert alert-error mt-4 hidden" role="alert"></div>
+      <details class="text-sm mt-4">
+        <summary class="cursor-pointer text-base-content/60 hover:text-base-content/80">I don't have a passkey on this device</summary>
+        <p class="text-sm text-base-content/70 mt-2">Passkeys live on the device that created them (or devices that sync with it, like other Apple or Google devices on the same account). Sign in from a device that already has your passkey, or email <a class="link link-primary" href="mailto:hello@topbanana.dev">hello@topbanana.dev</a> and we'll help you add this one.</p>
+      </details>
     </div>
   </div>
 </main>
 {{ template "webauthn_js" . }}
 <script>
-  (async function () {
+  (function () {
     var form = document.getElementById('login-form');
     var emailEl = document.getElementById('login-email');
+    var submitBtn = form.querySelector('button[type="submit"]');
     var errEl = document.getElementById('login-error');
+
+    // Same status-mapping pattern as register.html. Known statuses get
+    // user-facing copy; raw server bodies go to console.warn.
+    function statusMessage(status, fallback) {
+      switch (status) {
+        case 400: return "We couldn't read that email. Try again.";
+        case 401: return "We couldn't verify that passkey. Try again, or use a different device.";
+        case 404: return "We don't recognize that email. Check the spelling, or sign up via your invite link.";
+        case 429: return 'Too many tries. Wait a minute and try again.';
+        default:
+          if (status >= 500) return 'Something on our side broke. Try again in a moment.';
+          return fallback || 'Something went wrong. Try again.';
+      }
+    }
 
     function showError(msg) {
       errEl.textContent = msg;
       errEl.classList.remove('hidden');
+      // Hand focus back to the alert so a keyboard user isn't stranded
+      // on a busy submit button.
+      try { errEl.setAttribute('tabindex', '-1'); errEl.focus({ preventScroll: true }); } catch (_) {}
+    }
+    function clearError() { errEl.classList.add('hidden'); }
+    function setBusy(busy) {
+      submitBtn.disabled = busy;
+      submitBtn.textContent = busy ? 'Waiting for your device…' : 'Continue with passkey';
+    }
+    async function logBody(res) {
+      try { console.warn('login error body:', res.status, await res.text()); } catch (_) {}
     }
 
     form.addEventListener('submit', async function (e) {
       e.preventDefault();
-      errEl.classList.add('hidden');
+      clearError();
       var email = emailEl.value.trim().toLowerCase();
-      if (!email) { showError('Enter your email.'); return; }
+      if (!email) { showError('Enter your email to sign in.'); return; }
 
+      setBusy(true);
       try {
         var beginRes = await fetch('/auth/passkey/loginBegin', {
           method: 'POST',
@@ -48,8 +79,9 @@
           credentials: 'same-origin',
         });
         if (!beginRes.ok) {
-          var msg = await beginRes.text();
-          showError('Could not start login: ' + msg);
+          await logBody(beginRes);
+          showError(statusMessage(beginRes.status, "We couldn't start sign-in. Refresh and try again."));
+          setBusy(false);
           return;
         }
         var options = await beginRes.json();
@@ -64,13 +96,23 @@
           credentials: 'same-origin',
         });
         if (!finishRes.ok) {
-          var ferr = await finishRes.text();
-          showError('Login failed: ' + ferr);
+          await logBody(finishRes);
+          showError(statusMessage(finishRes.status, "We couldn't sign you in. Try again."));
+          setBusy(false);
           return;
         }
         window.location.href = '/apps';
       } catch (err) {
-        showError(err.message || String(err));
+        // Browser-side WebAuthn failures: NotAllowedError means the user
+        // dismissed the prompt or no matching credential. Don't dump the
+        // opaque platform string into the UI.
+        if (err && err.name === 'NotAllowedError') {
+          showError("Your device didn't confirm. Try again, or open \"I don't have a passkey on this device\" below for next steps.");
+        } else {
+          console.warn('login js error:', err);
+          showError("Something went wrong on this device. Try again, or refresh the page.");
+        }
+        setBusy(false);
       }
     });
   })();
