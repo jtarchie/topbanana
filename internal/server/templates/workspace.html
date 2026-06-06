@@ -90,6 +90,11 @@
     </aside>
 
     <section class="space-y-4">
+      <header class="flex flex-wrap items-end justify-between gap-2">
+        <h1 class="text-lg font-semibold tracking-tight">
+          {{ if .Page }}Edit <code class="font-mono bg-base-200 px-1.5 py-0.5 rounded text-base">{{ .Page }}</code>{{ else }}Edit this site{{ end }}
+        </h1>
+      </header>
       {{ if .Page }}
       <div class="flex flex-wrap items-center gap-2 text-sm">
         <form method="POST" action="/files/{{ .Slug }}/rename" class="flex items-center gap-1">
@@ -114,7 +119,7 @@
         <iframe src="{{ .PageURL }}" id="preview" class="w-full h-[60vh] block bg-base-100{{ if .Building }} opacity-30 pointer-events-none{{ end }}"></iframe>
         {{ if .Building }}
         <div id="preview-overlay" class="absolute inset-0 flex items-center justify-center text-sm text-base-content/70 pointer-events-none">
-          <div class="bg-base-100/80 backdrop-blur-sm px-4 py-2 rounded-box border border-base-300">Preview will appear once the build finishes.</div>
+          <div class="bg-base-100 px-4 py-2 rounded-box border border-base-300">Preview will appear once the build finishes.</div>
         </div>
         {{ end }}
       </div>
@@ -147,7 +152,7 @@
               <input type="file" id="file-input" accept="image/*" hidden>
               <span id="upload-status" class="text-xs text-base-content/60"></span>
             </div>
-            <button type="submit" class="btn btn-primary btn-sm" {{ if .Building }}disabled{{ end }}>Apply change</button>
+            <button type="submit" class="btn btn-primary" {{ if .Building }}disabled{{ end }}>Apply change</button>
           </div>
         </div>
       </form>
@@ -230,6 +235,17 @@
 <div id="toast" class="toast toast-end z-[60]"></div>
 
 <script>
+  // Drop the cursor into the composer on load so the page opens in editing
+  // posture, not navigation posture. Skip if the textarea is disabled (a
+  // build is in flight) or if the user has already focused something else
+  // (e.g. tabbed in from an external link before the script ran).
+  (function () {
+    var pt = document.getElementById('prompt');
+    if (!pt || pt.disabled) return;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    try { pt.focus({ preventScroll: true }); } catch (_) { pt.focus(); }
+  })();
+
   // Bridge selection text from the live preview into the edit form.
   window.addEventListener('message', function (e) {
     if (!e.data || e.data.type !== '_bh_sel') return;
