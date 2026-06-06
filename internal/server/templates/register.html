@@ -8,10 +8,17 @@
 <main class="flex-1 grid place-items-center px-4 py-12">
   <div class="card w-full max-w-md bg-base-100 border border-base-300 shadow-sm">
     <div class="card-body">
-      <h1 class="text-xl font-semibold tracking-tight mb-1">Bind a passkey</h1>
-      <p class="text-sm text-base-content/70 mb-4">
-        Enrolling <span class="font-mono">{{ .Email }}</span>. Your device will prompt you to create a passkey.
+      <h1 class="text-xl font-semibold tracking-tight mb-1">Create your passkey</h1>
+      <p class="text-sm text-base-content/70 mb-3">
+        Enrolling <span class="font-semibold">{{ .Email }}</span>.
       </p>
+      <p class="text-sm text-base-content/70 mb-4">
+        A passkey lets you sign in with your face, fingerprint, or device PIN. No password to remember. When you tap the button below, this device (or your password manager) will ask you to confirm.
+      </p>
+      <details class="text-sm mb-4">
+        <summary class="cursor-pointer text-base-content/60 hover:text-base-content/80">What's a passkey?</summary>
+        <p class="text-sm text-base-content/70 mt-2">A passkey is a private key your device generates and keeps. It's tied to this device (and any devices you sync with, like other Apple or Google devices on the same account). Top Banana only sees the public half. There's nothing to type, nothing to phish, nothing to leak in a breach.</p>
+      </details>
       <button id="register-button" type="button" class="btn btn-primary w-full">Create passkey</button>
       <div id="register-error" class="alert alert-error mt-4 hidden" role="alert"></div>
       <div id="register-success" class="alert alert-success mt-4 hidden" role="status">
