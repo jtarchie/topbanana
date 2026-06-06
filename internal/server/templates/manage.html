@@ -13,6 +13,11 @@
       <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight">Manage</h1>
       <p class="text-sm text-base-content/70 mt-1">Site configuration and tools. Design lives in the <a href="/workspace/{{ .Slug }}" class="link link-hover font-medium">Workspace</a>.</p>
     </div>
+    {{ if gt .TotalRows 0 }}
+    <a href="#submissions-heading" class="text-sm link link-hover font-medium whitespace-nowrap">
+      {{ .TotalRows }} {{ if eq .TotalRows 1 }}submission{{ else }}submissions{{ end }} →
+    </a>
+    {{ end }}
   </header>
 
   {{ if .Flash }}
@@ -26,6 +31,53 @@
         <div class="text-sm text-base-content/80 space-y-2 [&_p]:m-0">{{ .SetupNotes }}</div>
       </div>
     </section>
+  {{ end }}
+
+  {{ if .Rows }}
+  <section class="card bg-base-100 border border-base-300" aria-labelledby="submissions-heading">
+    <div class="card-body">
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <h2 id="submissions-heading" class="card-title text-lg">Form submissions</h2>
+        <div class="join">
+          <a href="{{ .CSVURL }}" class="btn btn-ghost btn-sm join-item">Download CSV</a>
+          <a href="{{ .JSONURL }}" class="btn btn-ghost btn-sm join-item">JSON</a>
+        </div>
+      </div>
+      <p class="text-sm text-base-content/60">
+        {{ if gt .MoreCount 0 }}
+          Showing the {{ len .Rows }} most recent of {{ .TotalRows }} submissions
+        {{ else }}
+          {{ .TotalRows }} {{ if eq .TotalRows 1 }}submission{{ else }}submissions{{ end }}
+        {{ end }}
+      </p>
+      <div class="overflow-x-auto rounded-box border border-base-300 mt-2">
+        <table class="table table-zebra table-sm">
+          <thead>
+            <tr>
+              <th>id</th>
+              {{ range .Columns }}<th>{{ . }}</th>{{ end }}
+            </tr>
+          </thead>
+          <tbody>
+            {{ range .Rows }}
+            <tr>
+              <td class="font-mono text-xs">{{ .Key }}</td>
+              {{ range .Values }}<td>{{ . }}</td>{{ end }}
+            </tr>
+            {{ end }}
+          </tbody>
+        </table>
+      </div>
+      {{ if gt .MoreCount 0 }}
+        <p class="text-sm text-base-content/70 mt-3">
+          <strong>{{ .MoreCount }} more</strong> not shown. Download the full set as
+          <a href="{{ .CSVURL }}" class="link link-primary font-medium">CSV</a>
+          or
+          <a href="{{ .JSONURL }}" class="link link-primary font-medium">JSON</a>.
+        </p>
+      {{ end }}
+    </div>
+  </section>
   {{ end }}
 
   <form method="POST" action="/settings/{{ .Slug }}" class="space-y-8">
@@ -94,58 +146,6 @@
       </div>
     </section>
   </form>
-
-  <section class="card bg-base-100 border border-base-300" aria-labelledby="submissions-heading">
-    <div class="card-body">
-      <div class="flex items-center justify-between flex-wrap gap-3">
-        <h2 id="submissions-heading" class="card-title text-lg">Form submissions</h2>
-        {{ if .Rows }}
-        <div class="join">
-          <a href="{{ .CSVURL }}" class="btn btn-ghost btn-sm join-item">Download CSV</a>
-          <a href="{{ .JSONURL }}" class="btn btn-ghost btn-sm join-item">JSON</a>
-        </div>
-        {{ end }}
-      </div>
-
-      {{ if .Rows }}
-        <p class="text-sm text-base-content/60">
-          {{ if gt .MoreCount 0 }}
-            Showing the {{ len .Rows }} most recent of {{ .TotalRows }} submissions
-          {{ else }}
-            {{ .TotalRows }} {{ if eq .TotalRows 1 }}submission{{ else }}submissions{{ end }}
-          {{ end }}
-        </p>
-        <div class="overflow-x-auto rounded-box border border-base-300 mt-2">
-          <table class="table table-zebra table-sm">
-            <thead>
-              <tr>
-                <th>id</th>
-                {{ range .Columns }}<th>{{ . }}</th>{{ end }}
-              </tr>
-            </thead>
-            <tbody>
-              {{ range .Rows }}
-              <tr>
-                <td class="font-mono text-xs">{{ .Key }}</td>
-                {{ range .Values }}<td>{{ . }}</td>{{ end }}
-              </tr>
-              {{ end }}
-            </tbody>
-          </table>
-        </div>
-        {{ if gt .MoreCount 0 }}
-          <p class="text-sm text-base-content/70 mt-3">
-            <strong>{{ .MoreCount }} more</strong> not shown. Download the full set as
-            <a href="{{ .CSVURL }}" class="link link-primary font-medium">CSV</a>
-            or
-            <a href="{{ .JSONURL }}" class="link link-primary font-medium">JSON</a>.
-          </p>
-        {{ end }}
-      {{ else }}
-        <p class="text-sm text-base-content/70 mt-2">No submissions yet. They'll appear here once visitors interact with forms on your site.</p>
-      {{ end }}
-    </div>
-  </section>
 
   <section class="card bg-base-100 border border-base-300" aria-labelledby="advanced-heading">
     <div class="card-body">
