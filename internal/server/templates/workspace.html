@@ -601,11 +601,20 @@
       if (ev.type === 'status') {
         if (ev.status === 'building') setStep('design');
         if (ev.status === 'linting' || ev.status === 'retry') setStep('polish');
-        if (ev.status === 'completed') setStep('done');
+        if (ev.status === 'completed') {
+          setStep('done');
+          toast('Your site is ready.', 'success');
+          var mascot = document.getElementById('brand-mascot');
+          if (mascot) {
+            mascot.classList.add('mascot-celebrate');
+            setTimeout(function () { mascot.classList.remove('mascot-celebrate'); }, 700);
+          }
+        }
         statusEl.textContent = statusMsg(ev);
         if (ev.status === 'failed') {
           errorMsg.textContent = ev.message || 'Unknown error.';
           errorEl.classList.remove('hidden');
+          toast(ev.message || 'Build failed.', 'error');
         }
       } else if (ev.type === 'tool' && ev.phase === 'start') {
         var m = startMsg(ev);
