@@ -87,12 +87,12 @@
             </span>
           </label>
         </div>
+
+        <div class="card-actions justify-end pt-2">
+          <button type="submit" class="btn btn-primary">Save changes</button>
+        </div>
       </div>
     </section>
-
-    <div class="flex justify-end">
-      <button type="submit" class="btn btn-primary">Save changes</button>
-    </div>
   </form>
 
   <section class="card bg-base-100 border border-base-300" aria-labelledby="submissions-heading">
@@ -168,48 +168,42 @@
     </div>
   </section>
 
-  <section class="card bg-base-100 border border-base-300" aria-labelledby="duplicate-heading">
-    <div class="card-body">
-      <h2 id="duplicate-heading" class="card-title text-lg">Duplicate this site</h2>
-      <p class="text-sm text-base-content/70">Copies every file into a new app you own. The original is untouched. Custom domains and the private flag do not carry over.</p>
-      <form method="POST" action="/manage/{{ .Slug }}/remix" class="mt-2">
-        <button type="submit" class="btn btn-outline btn-sm">Duplicate</button>
-      </form>
-    </div>
+  <section class="pt-8 border-t border-base-300" aria-labelledby="duplicate-heading">
+    <h2 id="duplicate-heading" class="text-lg font-semibold tracking-tight">Duplicate this site</h2>
+    <p class="text-sm text-base-content/70 mt-2">Copies every file into a new app you own. The original is untouched. Custom domains and the private flag do not carry over.</p>
+    <form method="POST" action="/manage/{{ .Slug }}/remix" class="mt-3">
+      <button type="submit" class="btn btn-outline btn-sm">Duplicate</button>
+    </form>
   </section>
 
-  <section class="card bg-base-100 border border-base-300 mb-6" aria-labelledby="transfer-heading">
-    <div class="card-body">
-      <h2 id="transfer-heading" class="card-title text-lg">Transfer ownership</h2>
-      <p class="text-sm text-base-content/70">Hand this app off to another user by email. They take over editing immediately; you lose access (unless you're a super admin).</p>
-      <form method="POST" action="/apps/{{ .Slug }}/transfer"
-            class="js-confirm flex flex-wrap gap-3 mt-2 items-end"
-            data-confirm-title="Transfer this app?"
-            data-confirm="The new owner takes over editing immediately. You'll lose access unless you're a super admin."
-            data-confirm-ok="Transfer">
-        <label class="flex flex-col grow">
-          <span class="text-sm font-medium">New owner email</span>
-          <input type="email" name="new_owner_email" required class="input mt-1" placeholder="them@example.com">
-        </label>
-        <button type="submit" class="btn btn-primary btn-sm">Transfer</button>
-      </form>
-    </div>
+  <section class="pt-8 border-t border-base-300" aria-labelledby="transfer-heading">
+    <h2 id="transfer-heading" class="text-lg font-semibold tracking-tight">Transfer ownership</h2>
+    <p class="text-sm text-base-content/70 mt-2">Hand this app off to another user by email. They take over editing immediately; you lose access (unless you're a super admin).</p>
+    <form method="POST" action="/apps/{{ .Slug }}/transfer"
+          class="js-confirm flex flex-wrap gap-3 mt-3 items-end"
+          data-confirm-title="Transfer this app?"
+          data-confirm="The new owner takes over editing immediately. You'll lose access unless you're a super admin."
+          data-confirm-ok="Transfer">
+      <label class="flex flex-col grow">
+        <span class="text-sm font-medium">New owner email</span>
+        <input type="email" name="new_owner_email" required class="input mt-1" placeholder="them@example.com">
+      </label>
+      <button type="submit" class="btn btn-primary">Transfer</button>
+    </form>
   </section>
 
-  <section class="card bg-base-100 border border-error/40" aria-labelledby="danger-heading">
-    <div class="card-body">
-      <h2 id="danger-heading" class="card-title text-error text-lg">Delete this app</h2>
-      <p class="text-sm text-base-content/70">Permanently removes every page, file, and the entire version history. <strong>This cannot be undone.</strong></p>
-      <form method="POST" action="/settings/{{ .Slug }}/delete" class="flex flex-col gap-3 mt-2">
-        <div>
-          <label for="confirm" class="label pb-1"><span class="text-sm">Type <code class="font-mono">{{ .Slug }}</code> to confirm</span></label>
-          <input type="text" name="confirm" id="confirm" autocomplete="off" required class="input w-full" placeholder="{{ .Slug }}">
-        </div>
-        <div>
-          <button type="submit" class="btn btn-error btn-sm">Delete permanently</button>
-        </div>
-      </form>
-    </div>
+  <section class="pt-8 border-t border-error/40" aria-labelledby="danger-heading">
+    <h2 id="danger-heading" class="text-lg font-semibold tracking-tight text-error">Delete this app</h2>
+    <p class="text-sm text-base-content/70 mt-2">Permanently removes every page, file, and the entire version history. Custom domains attached to this site are released back to the pool. <strong>This cannot be undone.</strong></p>
+    <form method="POST" action="/settings/{{ .Slug }}/delete" class="flex flex-col gap-3 mt-3">
+      <div>
+        <label for="confirm" class="label pb-1"><span class="text-sm">Type <code class="font-mono">{{ .Slug }}</code> to confirm</span></label>
+        <input type="text" name="confirm" id="confirm" autocomplete="off" required class="input w-full" placeholder="{{ .Slug }}">
+      </div>
+      <div>
+        <button type="submit" class="btn btn-error">Delete permanently</button>
+      </div>
+    </form>
   </section>
 </main>
 {{ template "footer" . }}
