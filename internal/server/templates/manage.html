@@ -96,7 +96,7 @@
           <textarea name="domains" id="domains" rows="3"
                     class="textarea w-full font-mono text-sm"
                     placeholder="example.com&#10;www.example.com">{{ .Domains }}</textarea>
-          <p class="text-sm text-base-content/70 mt-2">One address per line. Add a <strong>CNAME</strong> record at your domain provider pointing here; a TLS certificate is issued on first visit. Don't use Cloudflare's orange-cloud proxy — set the record to "DNS only" or certificate issuance will fail.</p>
+          <p class="text-sm text-base-content/70 mt-2">One address per line. Add a <strong>CNAME</strong> record at your domain provider pointing here; a TLS certificate is issued on first visit. Don't use Cloudflare's orange-cloud proxy: set the record to <code class="font-mono bg-base-200 px-1 rounded">DNS only</code> or certificate issuance will fail.</p>
         </div>
       </div>
     </section>
@@ -106,7 +106,15 @@
         <h2 id="permissions-heading" class="card-title text-lg">Permissions</h2>
 
         {{ if .FunctionsByTmpl }}
-          <p class="text-sm text-base-content/70">This site uses a template that already accepts visitor input (forms, RSVPs, counters). Always on.</p>
+          <div class="flex flex-col">
+            <label class="label justify-start gap-3 cursor-not-allowed opacity-70" title="Always on for this template">
+              <input type="checkbox" checked disabled class="toggle toggle-primary">
+              <span class="text-sm">
+                <span class="font-medium">Accept visitor input</span>
+                <span class="block text-xs text-base-content/60">Built into this template (forms, RSVPs, counters). Always on.</span>
+              </span>
+            </label>
+          </div>
           <input type="hidden" name="enable_functions" value="on">
         {{ else }}
           <div class="flex flex-col">
@@ -147,31 +155,29 @@
     </section>
   </form>
 
-  <section class="card bg-base-100 border border-base-300" aria-labelledby="advanced-heading">
-    <div class="card-body">
-      <h2 id="advanced-heading" class="card-title text-lg">Advanced tools</h2>
-      <p class="text-sm text-base-content/70">Diagnostic surfaces, useful when something looks wrong.</p>
-      <ul class="divide-y divide-base-300 border border-base-300 rounded-box mt-2 overflow-hidden">
-        <li>
-          <a href="/files/{{ .Slug }}" class="flex items-center gap-3 px-4 py-3 hover:bg-base-200 transition">
-            <div class="flex-1">
-              <div class="text-sm font-medium">All files</div>
-              <p class="text-xs text-base-content/70 mt-0.5">Every object stored for this site: pages, images, server logic, state.</p>
-            </div>
-            <span class="text-base-content/40" aria-hidden="true">→</span>
-          </a>
-        </li>
-        <li>
-          <a href="/debug/{{ .Slug }}" class="flex items-center gap-3 px-4 py-3 hover:bg-base-200 transition">
-            <div class="flex-1">
-              <div class="text-sm font-medium">Build transcripts</div>
-              <p class="text-xs text-base-content/70 mt-0.5">Per-edit tool calls and file diffs from the agent.</p>
-            </div>
-            <span class="text-base-content/40" aria-hidden="true">→</span>
-          </a>
-        </li>
-      </ul>
-    </div>
+  <section class="pt-8 border-t border-base-300" aria-labelledby="advanced-heading">
+    <h2 id="advanced-heading" class="text-lg font-semibold tracking-tight">Advanced tools</h2>
+    <p class="text-sm text-base-content/70 mt-2">Diagnostic surfaces, useful when something looks wrong.</p>
+    <ul class="divide-y divide-base-300 border border-base-300 rounded-box mt-3 overflow-hidden">
+      <li>
+        <a href="/files/{{ .Slug }}" class="flex items-center gap-3 px-4 py-3 hover:bg-base-200 transition">
+          <div class="flex-1">
+            <div class="text-sm font-medium">All files</div>
+            <p class="text-xs text-base-content/70 mt-0.5">Every object stored for this site: pages, images, server logic, state.</p>
+          </div>
+          <span class="text-base-content/40" aria-hidden="true">→</span>
+        </a>
+      </li>
+      <li>
+        <a href="/debug/{{ .Slug }}" class="flex items-center gap-3 px-4 py-3 hover:bg-base-200 transition">
+          <div class="flex-1">
+            <div class="text-sm font-medium">Build transcripts</div>
+            <p class="text-xs text-base-content/70 mt-0.5">Per-edit tool calls and file diffs from the agent.</p>
+          </div>
+          <span class="text-base-content/40" aria-hidden="true">→</span>
+        </a>
+      </li>
+    </ul>
   </section>
 
   <section class="pt-8 border-t border-base-300" aria-labelledby="duplicate-heading">
