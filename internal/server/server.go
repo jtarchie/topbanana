@@ -848,16 +848,42 @@ func wantsHTML(c *echo.Context) bool {
 // landingData backs templates/landing.html. Was a map[string]any until
 // the chrome refactor; the typed struct lets the shared brand partial
 // pick up IsSuperAdmin via embedded promotion.
+//
+// Templates split into Featured (visible by default, 3 curated picks) and
+// Other (behind a "More templates" disclosure). The split fights the 15-card
+// cognitive wall on first paint; non-coders see a paragraph, a hero pick,
+// and a button, not a wall of choices.
 type landingData struct {
 	Chrome
-	Templates []*templates.SiteTemplate
-	Domain    string
+	Featured []*templates.SiteTemplate
+	Other    []*templates.SiteTemplate
+	Domain   string
+}
+
+// landingFeaturedIDs are the three templates surfaced visibly on landing:
+// blank (the default, "I'll describe everything"), landing-page (most common
+// single-page need), event (relatable for non-coders: party, RSVP, fundraiser).
+// Adding a new featured template is a one-line edit; the rest stay in "Other".
+var landingFeaturedIDs = map[string]struct{}{
+	"blank":        {},
+	"landing-page": {},
+	"event":        {},
 }
 
 func (s *Server) landingHandler(c *echo.Context) error {
+	featured := make([]*templates.SiteTemplate, 0, len(landingFeaturedIDs))
+	other := make([]*templates.SiteTemplate, 0)
+	for _, t := range templates.All() {
+		if _, ok := landingFeaturedIDs[t.ID]; ok {
+			featured = append(featured, t)
+		} else {
+			other = append(other, t)
+		}
+	}
 	return s.render(c, "landing", landingData{
-		Templates: templates.All(),
-		Domain:    s.domain,
+		Featured: featured,
+		Other:    other,
+		Domain:   s.domain,
 	})
 }
 
