@@ -23,20 +23,59 @@
 @source not "./app.css";
 
 /* daisyUI as a plugin so only the components/themes we configure ship. The
-   admin chrome uses lemonade (light) + cyberpunk (dark, prefers-color-scheme);
-   keep every theme available so the theme studio preview works. */
+   admin chrome uses lemonade (light) + lemonade-dark (dark, prefers-color-scheme);
+   keep every theme available so the theme studio preview works. cyberpunk
+   ships as a Theme-Studio-reachable option but is not the brand dark mode —
+   PRODUCT.md's anti-references reject crypto/web3 dark-neon aesthetics. */
 @plugin "./daisyui/index.js" {
   themes: all;
 }
 
 @theme {
-  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-sans: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 }
 
 :root { font-size: 16px; }
-body { font-family: "Inter", system-ui, -apple-system, sans-serif; }
+body { font-family: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif; }
 :focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .btn { min-height: 2.5rem; }
+
+/* Custom brand dark variant of lemonade. Inverts the base ladder, keeps
+   Lemonade Pulp as the primary verb-color, and stays flat (--depth: 0)
+   with hairline borders. Used when prefers-color-scheme: dark; cyberpunk
+   is no longer the auto dark mode (it reads as crypto/web3 neon, a stated
+   anti-reference). The theme toggle swaps lemonade <-> lemonade-dark. */
+[data-theme="lemonade-dark"] {
+  color-scheme: dark;
+  --color-base-100: oklch(18% 0.012 123.72);
+  --color-base-200: oklch(24% 0.014 123.72);
+  --color-base-300: oklch(32% 0.016 123.72);
+  --color-base-content: oklch(95% 0.005 123.72);
+  --color-primary: oklch(58.92% 0.199 134.6);
+  --color-primary-content: oklch(11.784% 0.039 134.6);
+  --color-secondary: oklch(77.75% 0.196 111.09);
+  --color-secondary-content: oklch(15.55% 0.039 111.09);
+  --color-accent: oklch(85.39% 0.201 100.73);
+  --color-accent-content: oklch(17.078% 0.04 100.73);
+  --color-neutral: oklch(85% 0.015 108.6);
+  --color-neutral-content: oklch(20% 0.075 108.6);
+  --color-info: oklch(58% 0.12 224.14);
+  --color-info-content: oklch(95% 0.005 224.14);
+  --color-success: oklch(58% 0.12 157.85);
+  --color-success-content: oklch(95% 0.005 157.85);
+  --color-warning: oklch(70% 0.14 102.15);
+  --color-warning-content: oklch(15% 0.04 102.15);
+  --color-error: oklch(60% 0.18 25.85);
+  --color-error-content: oklch(95% 0.005 25.85);
+  --radius-selector: 1rem;
+  --radius-field: 0.5rem;
+  --radius-box: 1rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
 
 /* Shared side-panel pattern: any page that opts into the panel_js partial can
    place an <aside class="side-panel"> + matching <div class="side-scrim"> and

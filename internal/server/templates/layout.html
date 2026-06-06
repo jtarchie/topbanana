@@ -4,28 +4,28 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <script>
 // Pre-paint theme bootstrap. Runs synchronously before any CSS loads so the
-// browser never flashes light-lemonade before swapping to dark-cyberpunk.
+// browser never flashes light-lemonade before swapping to dark.
 // localStorage.tb_theme wins over the OS preference; absent that, we mirror
 // the OS's prefers-color-scheme. Default is lemonade (light) — keeps the
 // SSR'd <html data-theme="lemonade"> consistent for clients with JS off.
+// Cyberpunk is accepted as a stored value (legacy + Theme Studio choice)
+// but is not the auto-dark target; PRODUCT.md anti-refs reject web3-neon.
 (function () {
   try {
     var stored = localStorage.getItem('tb_theme');
-    if (stored === 'lemonade' || stored === 'cyberpunk') {
+    if (stored === 'lemonade' || stored === 'lemonade-dark' || stored === 'cyberpunk') {
       document.documentElement.dataset.theme = stored;
       return;
     }
     var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    if (dark) document.documentElement.dataset.theme = 'cyberpunk';
+    if (dark) document.documentElement.dataset.theme = 'lemonade-dark';
   } catch (_) { /* private mode, no matchMedia, etc. — fall back to SSR default */ }
 })();
 </script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <!-- Self-hosted Tailwind + daisyUI, precompiled from internal/assets/app.input.css
      (which carries the @theme + side-panel rules formerly inlined here) and
-     served by appCSSHandler. No CDN, no in-browser JIT compiler. -->
+     served by appCSSHandler. No CDN, no in-browser JIT compiler. Typeface is
+     the system sans stack — no webfont download, no Google Fonts dependency. -->
 <link rel="stylesheet" href="/app.css">
 {{- end }}
 
@@ -60,12 +60,17 @@
   <svg class="swap-off h-4 w-4 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21.64,13a1,1,0,0,0-1.05-.14,8.05,8.05,0,0,1-3.37.73A8.15,8.15,0,0,1,9.08,5.49a8.59,8.59,0,0,1,.25-2A1,1,0,0,0,8,2.36,10.14,10.14,0,1,0,22,14.05,1,1,0,0,0,21.64,13Zm-9.5,6.69A8.14,8.14,0,0,1,7.08,5.22v.27A10.15,10.15,0,0,0,17.22,15.63a9.79,9.79,0,0,0,2.1-.22A8.11,8.11,0,0,1,12.14,19.73Z"/></svg>
 </label>
 <script>
+// Toggle swaps lemonade <-> lemonade-dark. If a previous session stored
+// cyberpunk (legacy or via Theme Studio), the toggle treats it as "dark"
+// (checked) so the first flip lands on light-lemonade — never silently
+// rewrite a user's chosen theme.
 (function () {
   var toggle = document.getElementById('theme-toggle');
   if (!toggle) return;
-  toggle.checked = document.documentElement.dataset.theme === 'cyberpunk';
+  var current = document.documentElement.dataset.theme;
+  toggle.checked = current === 'lemonade-dark' || current === 'cyberpunk';
   toggle.addEventListener('change', function () {
-    var theme = toggle.checked ? 'cyberpunk' : 'lemonade';
+    var theme = toggle.checked ? 'lemonade-dark' : 'lemonade';
     document.documentElement.dataset.theme = theme;
     try { localStorage.setItem('tb_theme', theme); } catch (_) { /* private mode */ }
   });

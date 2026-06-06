@@ -25,43 +25,43 @@ colors:
   mascot-cheek: "#ff9aa2"
 typography:
   display:
-    fontFamily: "Inter, system-ui, -apple-system, sans-serif"
+    fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif"
     fontSize: "1.875rem"
     fontWeight: 600
     lineHeight: 1.1
     letterSpacing: "-0.025em"
   headline:
-    fontFamily: "Inter, system-ui, -apple-system, sans-serif"
+    fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif"
     fontSize: "1.5rem"
     fontWeight: 600
     lineHeight: 1.2
     letterSpacing: "-0.025em"
   title:
-    fontFamily: "Inter, system-ui, -apple-system, sans-serif"
+    fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif"
     fontSize: "1.125rem"
     fontWeight: 600
     lineHeight: 1.3
     letterSpacing: "normal"
   body:
-    fontFamily: "Inter, system-ui, -apple-system, sans-serif"
+    fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif"
     fontSize: "0.875rem"
     fontWeight: 400
     lineHeight: 1.6
     letterSpacing: "normal"
   label:
-    fontFamily: "Inter, system-ui, -apple-system, sans-serif"
+    fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif"
     fontSize: "0.875rem"
     fontWeight: 500
     lineHeight: 1.4
     letterSpacing: "normal"
   caption:
-    fontFamily: "Inter, system-ui, -apple-system, sans-serif"
+    fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif"
     fontSize: "0.75rem"
     fontWeight: 400
     lineHeight: 1.4
     letterSpacing: "normal"
   eyebrow:
-    fontFamily: "Inter, system-ui, -apple-system, sans-serif"
+    fontFamily: "system-ui, -apple-system, \"Segoe UI\", \"Helvetica Neue\", Arial, sans-serif"
     fontSize: "0.75rem"
     fontWeight: 600
     lineHeight: 1.4
@@ -203,15 +203,15 @@ The four daisyUI semantic colors (info, success, warning, error) all sit at ligh
 
 **The 70 / 60 Rule.** Muted body copy sits at `text-base-content/70`; captions, slug pills, timestamps at `/60`. Never lower than 60% without raising the type size to 16px or hitting AA explicitly. The single biggest contrast risk in the system is reaching for `/50` "for elegance" on small print.
 
-**The Cyberpunk Caveat.** The `cyberpunk` daisyUI theme (hot pink primary on bright yellow surface, hard-cornered) ships as the dark-mode swap. It is not the brand. It is a high-energy alternative for users who want loud. Brand assets, mascot color choices, and any future static marketing surface stay in the lemonade palette. New themes added to Theme Studio must keep that boundary explicit.
+**The Dark-Mode Rule.** `lemonade-dark` is the brand dark mode — same Lemonade Pulp primary, the base ladder inverted (dark Banana-Bark surface, light Lemonade-Sky ink), still flat, still hairline. The theme toggle swaps `lemonade` ↔ `lemonade-dark`; `prefers-color-scheme: dark` lands on `lemonade-dark`. The `cyberpunk` daisyUI theme (hot pink on bright yellow, hard-cornered) remains reachable from Theme Studio but is not the auto dark target — PRODUCT.md's anti-references reject crypto/web3 dark-neon. New themes added to Theme Studio must keep that boundary explicit.
 
 ## 3. Typography
 
-**Display Font:** Inter (with `system-ui, -apple-system, sans-serif` fallback)
-**Body Font:** Inter (same family, weights 400 / 500 / 600 / 700)
+**Display Font:** System sans (`system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif`)
+**Body Font:** System sans (same stack, weights 400 / 500 / 600 / 700)
 **Mono Font:** `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace` (system-resolved)
 
-**Character:** Inter does the entire system. Hierarchy is carried by weight contrast (semibold on headings, medium on labels, regular on body) and a tight rem scale, not by a second display family. Letter-spacing is tightened to `tracking-tight` on H1 and H2 only; everything else sits at `normal`. Italic, oblique, and small-caps are out of scope. Monospace exists for slugs, domains, paths, and inline code — not for stylistic effect.
+**Character:** the system sans stack resolves to SF Pro on macOS / iOS, Segoe UI on Windows, Roboto on Android, and the platform default elsewhere. One platform-native family does the entire system; hierarchy is carried by weight contrast (semibold on headings, medium on labels, regular on body) and a tight rem scale, not by a second display family. No webfont download, no CDN dependency, no FOIT — matches the project's self-hosted-everything stance. Letter-spacing is tightened to `tracking-tight` on H1 and H2 only; everything else sits at `normal`. Italic, oblique, and small-caps are out of scope. Monospace exists for slugs, domains, paths, and inline code — not for stylistic effect.
 
 ### Hierarchy
 - **Display** (semibold 600, `text-3xl sm:text-4xl` ≈ 30–36px, line-height 1.1, `tracking-tight`): only on the landing `Build a new app` H1. Used once per page maximum.
@@ -227,7 +227,7 @@ The four daisyUI semantic colors (info, success, warning, error) all sit at ligh
 
 **The Eyebrow Rule.** Tiny uppercase tracked text is a sidebar grouping device, not a section accessory. It appears in `aside` group headings (Pages, Images, Tools, Server functions). Putting an uppercase eyebrow above every page section is the saturated AI scaffold and is prohibited. If a section needs introduction, it gets a real H2 in title weight at title size.
 
-**The One Family Rule.** Inter carries every type role except mono. A second family — display serif, geometric sans, anything — is prohibited without explicit brand sign-off. The mono fallback chain is system-resolved and not branded; do not introduce a custom mono webfont.
+**The One Family Rule.** The system sans stack carries every type role except mono. A webfont, a display serif, a geometric sans — anything that adds a network request or a second family — is prohibited without explicit brand sign-off. The mono fallback chain is also system-resolved; do not introduce a custom mono webfont.
 
 **The Tight Scale Rule.** The ratio between adjacent type steps is roughly 1.2× (14 → 16 → 18 → 24 → 30 → 36). The system reaches for weight contrast (400 → 500 → 600) before scale jumps. There is no clamp() heading scale; this is a product UI viewed at consistent DPI, and fluid headings make sidebar panels worse, not better.
 
@@ -325,8 +325,8 @@ For every interactive component the system already ships: default, hover, focus,
 - **Don't** use `border-left` or `border-right` greater than 1px as a colored accent. Side-stripe borders are an absolute ban.
 - **Don't** put a tiny uppercase tracked eyebrow above every section. Eyebrows are reserved for the workspace sidebar group headings (Pages / Images / Tools / Server functions) and nothing else.
 - **Don't** use numbered scaffolding ("01 · About / 02 · Process") to dress up sections. Numbers appear only when the section *is* an ordered sequence (the build steps strip).
-- **Don't** introduce a second typeface. Inter carries display, body, and labels; the mono fallback chain is system-resolved and not branded. A serif display, a geometric sans, or a "fun" body font is prohibited without explicit brand sign-off.
-- **Don't** treat the daisyUI `cyberpunk` theme as the brand. It is a high-contrast secondary palette for users who want loud. It is not "Top Banana in dark mode," it is not for marketing surfaces, and the brand's anti-reference list explicitly rejects "Crypto / web3 dark-neon aesthetics" (glow, holographic gradients, "$BANANA" energy).
+- **Don't** introduce a webfont or a second typeface. The system sans stack carries display, body, and labels; the mono fallback chain is system-resolved. Adding a webfont reintroduces a network request and contradicts the project's no-CDN stance.
+- **Don't** treat the daisyUI `cyberpunk` theme as the brand. `lemonade-dark` is the brand dark mode. Cyberpunk is a high-contrast Theme-Studio option for users who want loud; it is not "Top Banana in dark mode," it is not for marketing surfaces, and the brand's anti-reference list explicitly rejects "Crypto / web3 dark-neon aesthetics" (glow, holographic gradients, "$BANANA" energy).
 - **Don't** drop muted copy below `text-base-content/60` for body or label sizes. The single biggest contrast regression in this system is reaching for `/50` "for elegance" on small print.
 - **Don't** ship Lemonade Pulp as a large fill (hero banner, full-bleed CTA strip, drenched section). The One Yellow Rule applies — it is a verb-color, not a section-color.
 - **Don't** add a hero-metric panel (big number + small label + supporting stats + gradient accent). It's a SaaS cliché on PRODUCT.md's anti-reference list.
