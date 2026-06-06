@@ -9,7 +9,7 @@
 <main class="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8">
   <div class="flex items-center justify-between flex-wrap gap-3 mb-6">
     <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight">Your apps</h1>
-    <a href="/" class="btn btn-primary btn-sm">New app</a>
+    <a href="/" class="btn btn-primary">New app</a>
   </div>
 
   {{ if .Flash }}
@@ -27,7 +27,7 @@
   {{ if .Apps }}
     <ul class="space-y-2" aria-label="Your apps">
       {{ range .Apps }}
-      <li class="bg-base-100 border border-base-300 rounded-box hover:border-base-content/30 transition relative has-[.dropdown:focus-within]:z-20">
+      <li class="bg-base-100 border border-base-300 rounded-box hover:border-base-content/30 transition row-stack">
         <a href="/workspace/{{ .Name }}" class="block p-4 pr-32">
           <div class="flex items-baseline justify-between gap-3 flex-wrap">
             <h2 class="text-base font-semibold leading-tight">
@@ -44,7 +44,13 @@
         <div class="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
           <a href="{{ .URL }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener" aria-label="Open live site">Open ↗</a>
           <div class="dropdown dropdown-end">
-            <button tabindex="0" class="btn btn-ghost btn-sm btn-square" aria-label="More actions">⋮</button>
+            <button type="button" class="btn btn-ghost btn-sm btn-square" aria-label="More actions for {{ .Name }}">
+              <svg viewBox="0 0 16 16" aria-hidden="true" class="size-4 fill-current">
+                <circle cx="8" cy="3" r="1.5"/>
+                <circle cx="8" cy="8" r="1.5"/>
+                <circle cx="8" cy="13" r="1.5"/>
+              </svg>
+            </button>
             <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-10 w-44 p-2 shadow border border-base-300">
               <li><a href="/manage/{{ .Name }}">Manage</a></li>
               <li>
