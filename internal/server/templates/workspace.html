@@ -155,8 +155,8 @@
           </details>
           <div class="flex justify-between items-center gap-2 flex-wrap">
             <div class="flex items-center gap-2" id="drop-zone">
-              <label for="file-input" class="btn btn-ghost btn-sm">Add image</label>
-              <input type="file" id="file-input" accept="image/*" hidden>
+              <label for="file-input" class="btn btn-ghost btn-sm">Add images</label>
+              <input type="file" id="file-input" accept="image/*" multiple hidden>
               <span id="upload-status" class="text-xs text-base-content/60"></span>
             </div>
             <button type="submit" class="btn btn-primary" {{ if .Building }}disabled{{ end }}>Apply change</button>
@@ -313,21 +313,45 @@
     var input = document.getElementById('file-input');
     var status = document.getElementById('upload-status');
     if (!input || !status) return;
-    function upload(file) {
-      if (!file) return;
+    // upload sends one file and resolves to true on success, false on failure
+    // (it never rejects), so the caller can chain uploads sequentially.
+    function upload(file, label) {
       var fd = new FormData();
       fd.append('file', file);
-      status.textContent = 'Uploading…';
-      fetch('/upload/{{ .Slug }}', { method: 'POST', body: fd })
+      status.textContent = 'Uploading ' + label + '…';
+      return fetch('/upload/{{ .Slug }}', { method: 'POST', body: fd })
         .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
         .then(function (res) {
-          if (!res.ok) { status.textContent = ''; toast('Upload failed: ' + ((res.body && res.body.message) || 'unknown error'), 'error'); return; }
-          status.textContent = 'Image at ' + res.body.path;
+          if (!res.ok) {
+            toast('Upload failed for ' + file.name + ': ' + ((res.body && res.body.message) || 'unknown error'), 'error');
+            return false;
+          }
           toast('Image saved as ' + res.body.path + '.');
+          return true;
         })
-        .catch(function (err) { status.textContent = ''; toast('Upload failed: ' + err, 'error'); });
+        .catch(function (err) { toast('Upload failed for ' + file.name + ': ' + err, 'error'); return false; });
     }
-    input.addEventListener('change', function () { upload(input.files[0]); input.value = ''; });
+    input.addEventListener('change', function () {
+      var files = Array.prototype.slice.call(input.files || []);
+      input.value = '';
+      if (!files.length) return;
+      // Upload sequentially: the server handles one file per request and each
+      // upload runs a synchronous caption pass, so we don't fan out parallel
+      // requests. Show running progress and a final tally.
+      var done = 0, ok = 0;
+      files.reduce(function (chain, file) {
+        return chain.then(function () {
+          return upload(file, (done + 1) + ' of ' + files.length).then(function (success) {
+            done++;
+            if (success) ok++;
+          });
+        });
+      }, Promise.resolve()).then(function () {
+        status.textContent = files.length === 1
+          ? (ok ? 'Image uploaded.' : '')
+          : ok + ' of ' + files.length + ' images uploaded.';
+      });
+    });
   })();
 
   // Theme picker — ported from theme_studio.html.
