@@ -9,29 +9,53 @@
 {{ template "site_subnav" . }}
 <main class="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-6">
   <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight mb-2">Build transcripts</h1>
-  <p class="text-base-content/70 mb-4">Every build and edit run is captured here — every step the AI took, plus before/after for every file it changed. Useful when something didn't update the way you expected.</p>
+  <p class="text-base-content/70 mb-4">Every build and edit run is captured here, every step the AI took, plus before/after for every file it changed. Useful when something didn't update the way you expected.</p>
 
   {{ if not .Rows }}
     <div class="card bg-base-100 border border-base-300 border-dashed">
-      <div class="card-body items-center text-center">
+      <div class="card-body items-start py-8">
         <h2 class="card-title text-lg">No transcripts yet</h2>
-        <p class="text-sm text-base-content/70">The first one will appear after your next build or edit.</p>
+        <p class="text-sm text-base-content/70">The first one will appear after your next build or edit. Each transcript captures:</p>
+        <ul class="list-disc pl-6 text-sm text-base-content/70 space-y-1">
+          <li>Every tool the agent called (and in what order).</li>
+          <li>Before / after for every file it changed.</li>
+          <li>Token usage and cache hits.</li>
+          <li>Errors and final status.</li>
+        </ul>
       </div>
     </div>
   {{ else }}
-    <div class="grid grid-cols-1 gap-2">
-      {{ range .Rows }}
-      <a href="/debug/{{ $.Slug }}/edit?key={{ .Key }}" class="card bg-base-100 border border-base-300 hover:border-base-content/30 transition">
-        <div class="card-body p-4 flex-row items-center gap-4">
-          <div class="flex-1">
-            <div class="font-semibold">{{ .WhenLabel }}</div>
-            <div class="text-xs text-base-content/60">{{ .WhenISO }}</div>
-          </div>
-          <span class="badge badge-ghost"><code>{{ .LogKey }}</code></span>
-          <span class="text-primary">View →</span>
-        </div>
-      </a>
-      {{ end }}
+    <div class="overflow-x-auto rounded-box border border-base-300">
+      <table class="table table-zebra">
+        <thead>
+          <tr>
+            <th scope="col">when</th>
+            <th scope="col">kind</th>
+            <th scope="col">status</th>
+            <th scope="col">duration</th>
+            <th scope="col" class="text-right">tool calls</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{ range .Rows }}
+          <tr>
+            <td>
+              <a class="link link-hover font-medium" href="/debug/{{ $.Slug }}/edit?key={{ .Key }}" aria-label="View transcript {{ .WhenLabel }}">{{ .WhenLabel }}</a>
+              <div class="text-xs text-base-content/60 font-mono">{{ .WhenISO }}</div>
+            </td>
+            <td><code class="font-mono text-xs">{{ .LogKey }}</code></td>
+            <td>
+              {{ if eq .Status "completed" }}<span class="badge badge-success badge-sm">{{ .Status }}</span>
+              {{ else if eq .Status "failed" }}<span class="badge badge-error badge-sm">{{ .Status }}</span>
+              {{ else if .Status }}<span class="badge badge-sm">{{ .Status }}</span>
+              {{ else }}<span class="text-base-content/40">&mdash;</span>{{ end }}
+            </td>
+            <td class="font-mono text-base-content/70 text-xs">{{ if .Duration }}{{ .Duration }}{{ else }}<span class="text-base-content/40">&mdash;</span>{{ end }}</td>
+            <td class="text-right text-base-content/70 text-xs">{{ .ToolCount }}</td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
     </div>
   {{ end }}
 </main>

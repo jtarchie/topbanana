@@ -23,6 +23,13 @@ type debugRow struct {
 	LogKey    string
 	WhenLabel string
 	WhenISO   string
+	// Status / Duration / ToolCount are enriched per-row from the underlying
+	// transcript JSON so the index page can render a real table the admin
+	// can scan without click-per-row. N is bounded by editrec.Trim retention,
+	// so reading each transcript is acceptable for an admin-only page.
+	Status    string
+	Duration  string
+	ToolCount int
 }
 
 type debugListData struct {
@@ -90,14 +97,28 @@ func (s *Server) debugHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "list transcripts", err)
 	}
 
+	ctx := c.Request().Context()
 	out := make([]debugRow, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, debugRow{
+		row := debugRow{
 			Key:       r.Key,
 			LogKey:    r.LogKey,
 			WhenLabel: humanizeAge(r.Timestamp),
 			WhenISO:   r.Timestamp.Format(time.RFC3339),
-		})
+		}
+		// Enrich per-row from the transcript JSON so the table can carry
+		// status / duration / tool-count. N is bounded by editrec.Trim
+		// retention; on a Read failure we render the row anyway with the
+		// fields we already have rather than failing the page.
+		t, readErr := editrec.Read(ctx, s.store, r.Key)
+		if readErr == nil {
+			row.Status = t.FinalStatus
+			row.ToolCount = len(t.ToolCalls)
+			if !t.FinishedAt.IsZero() && !t.StartedAt.IsZero() {
+				row.Duration = t.FinishedAt.Sub(t.StartedAt).Round(time.Millisecond).String()
+			}
+		}
+		out = append(out, row)
 	}
 
 	return s.render(c, "debug", debugListData{
