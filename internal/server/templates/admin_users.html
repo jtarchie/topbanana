@@ -41,7 +41,7 @@
       <h2 class="text-lg font-semibold">Pending invites</h2>
       <div class="overflow-x-auto rounded-box border border-base-300">
         <table class="table table-zebra">
-          <thead><tr><th>Email</th><th>Role</th><th>Expires</th><th>Invite URL</th><th></th></tr></thead>
+          <thead><tr><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Expires</th><th scope="col">Invite URL</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
           <tbody>
             {{ range .Invites }}
             <tr>
@@ -75,7 +75,7 @@
       <h2 class="text-lg font-semibold">All users</h2>
       <div class="overflow-x-auto rounded-box border border-base-300">
         <table class="table table-zebra">
-          <thead><tr><th>Email</th><th>Role</th><th>Max apps</th><th>Passkeys</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Max apps</th><th scope="col">Passkeys</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
           <tbody>
             {{ range .Users }}
             <tr>
@@ -92,7 +92,8 @@
                         data-model-author="{{ .ModelAuthor }}"
                         data-model-editor="{{ .ModelEditor }}"
                         data-model-utility="{{ .ModelUtility }}"
-                        data-model-vision="{{ .ModelVision }}">Quotas</button>
+                        data-model-vision="{{ .ModelVision }}"
+                        aria-label="Edit quotas for {{ .Email }}">Quotas</button>
                 {{ if not .IsSelf }}
                   {{ if .Disabled }}
                     <form method="POST" action="/admin/users/{{ .Email }}/enable">
@@ -100,8 +101,10 @@
                     </form>
                   {{ else }}
                     <form method="POST" action="/admin/users/{{ .Email }}/disable" class="js-confirm"
-                          data-confirm-title="Disable this user?"
-                          data-confirm="They will be signed out immediately and unable to sign in until re-enabled." data-confirm-ok="Disable">
+                          data-confirm-title="Disable {{ .Email }}?"
+                          data-confirm="They will be signed out immediately and unable to sign in until re-enabled. Active sessions are revoked at the same time."
+                          data-confirm-ok="Disable user"
+                          data-confirm-slug="{{ .Email }}">
                       <button class="btn btn-ghost btn-sm text-error">Disable</button>
                     </form>
                   {{ end }}
