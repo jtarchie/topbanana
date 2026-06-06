@@ -56,10 +56,11 @@
               <li>
                 <form method="POST" action="/settings/{{ .Name }}/delete"
                       class="js-confirm"
-                      data-confirm-title="Delete this app?"
-                      data-confirm="Deleting {{ .Name }} will permanently remove all pages, files, and history. This cannot be undone."
-                      data-confirm-ok="Delete">
-                  <input type="hidden" name="confirm" value="{{ .Name }}">
+                      data-confirm-title="Delete this app permanently?"
+                      data-confirm="Every page, file, and version of {{ .Name }} is removed. Custom domains are released back to the pool. This cannot be undone."
+                      data-confirm-ok="Delete permanently"
+                      data-confirm-slug="{{ .Name }}">
+                  <input type="hidden" name="confirm" value="">
                   <button type="submit" class="text-error w-full text-left">Delete</button>
                 </form>
               </li>

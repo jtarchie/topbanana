@@ -240,6 +240,14 @@
   <div class="modal-box">
     <h3 class="font-bold text-lg" id="confirm-modal-title">Are you sure?</h3>
     <p class="py-4 whitespace-pre-line" id="confirm-modal-message"></p>
+    <div id="confirm-modal-slug-wrap" class="hidden mb-4">
+      <label for="confirm-modal-slug-input" class="label pb-1">
+        <span class="text-sm">Type <code id="confirm-modal-slug-code" class="font-mono bg-base-200 px-1 rounded"></code> to confirm</span>
+      </label>
+      <input type="text" id="confirm-modal-slug-input"
+             autocomplete="off" autocapitalize="off" spellcheck="false"
+             class="input w-full font-mono text-sm">
+    </div>
     <div class="modal-action">
       <button type="button" class="btn btn-ghost" id="confirm-modal-cancel">Cancel</button>
       <button type="button" class="btn btn-error" id="confirm-modal-ok">Confirm</button>
@@ -255,21 +263,40 @@
     var title = document.getElementById('confirm-modal-title');
     var ok = document.getElementById('confirm-modal-ok');
     var cancel = document.getElementById('confirm-modal-cancel');
+    var slugWrap = document.getElementById('confirm-modal-slug-wrap');
+    var slugCode = document.getElementById('confirm-modal-slug-code');
+    var slugInput = document.getElementById('confirm-modal-slug-input');
     var pending = null;
+    var requiredSlug = null;
 
-    function reset() { pending = null; }
+    function reset() { pending = null; requiredSlug = null; }
+    function syncOk() {
+      if (!requiredSlug) { ok.disabled = false; return; }
+      ok.disabled = slugInput.value !== requiredSlug;
+    }
 
     cancel.addEventListener('click', function () { dialog.close(); reset(); });
     dialog.addEventListener('close', reset);
+    if (slugInput) {
+      slugInput.addEventListener('input', syncOk);
+      slugInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !ok.disabled) { e.preventDefault(); ok.click(); }
+      });
+    }
     ok.addEventListener('click', function () {
-      if (pending) {
-        var f = pending;
-        f.dataset.confirmed = 'true';
-        dialog.close();
-        f.submit();
-      } else {
-        dialog.close();
+      if (!pending) { dialog.close(); return; }
+      if (requiredSlug && slugInput.value !== requiredSlug) return;
+      var f = pending;
+      // When a slug ceremony ran, write the typed value back to the form's
+      // existing name="confirm" input so the server sees the user-typed
+      // value, not whatever placeholder the row markup pre-populated.
+      if (requiredSlug) {
+        var existing = f.querySelector('input[name="confirm"]');
+        if (existing) { existing.value = slugInput.value; }
       }
+      f.dataset.confirmed = 'true';
+      dialog.close();
+      f.submit();
     });
 
     document.addEventListener('submit', function (e) {
@@ -283,7 +310,21 @@
       msg.textContent = f.dataset.confirm || 'This cannot be undone.';
       ok.textContent = f.dataset.confirmOk || 'Confirm';
       ok.className = 'btn ' + (f.dataset.confirmTone === 'primary' ? 'btn-primary' : 'btn-error');
+      requiredSlug = f.dataset.confirmSlug || null;
+      if (requiredSlug && slugWrap && slugCode && slugInput) {
+        slugCode.textContent = requiredSlug;
+        slugInput.value = '';
+        slugWrap.classList.remove('hidden');
+      } else if (slugWrap) {
+        slugWrap.classList.add('hidden');
+      }
+      syncOk();
       dialog.showModal();
+      if (requiredSlug && slugInput) {
+        // showModal lands focus on the first focusable; rather than fight it,
+        // explicitly focus the input after the dialog opens.
+        slugInput.focus();
+      }
     });
   })();
 </script>
