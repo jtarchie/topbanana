@@ -29,8 +29,6 @@ import (
 	slogecho "github.com/samber/slog-echo"
 	"github.com/tdewolff/minify/v2"
 
-	adkmodel "google.golang.org/adk/model"
-
 	"github.com/jtarchie/topbanana/internal/agent"
 	"github.com/jtarchie/topbanana/internal/assets"
 	"github.com/jtarchie/topbanana/internal/auth"
@@ -66,7 +64,6 @@ type Deps struct {
 	Store    *store.Store
 	Build    *build.Service
 	Events   *events.Tracker
-	LLM      adkmodel.LLM
 	Sandbox  *sandbox.Manager
 	State    state.Store
 	Snapshot *snapshot.Service
@@ -94,7 +91,6 @@ type Server struct {
 	store      *store.Store
 	build      *build.Service
 	events     *events.Tracker
-	llm        adkmodel.LLM
 	sandbox    *sandbox.Manager
 	state      state.Store
 	snapshot   *snapshot.Service
@@ -184,7 +180,6 @@ func New(d Deps) (*echo.Echo, *Server) {
 		store:        d.Store,
 		build:        d.Build,
 		events:       d.Events,
-		llm:          d.LLM,
 		sandbox:      d.Sandbox,
 		state:        d.State,
 		snapshot:     d.Snapshot,
@@ -2073,7 +2068,17 @@ func (s *Server) uploadHandler(c *echo.Context) error {
 func (s *Server) captionUpload(ctx context.Context, body []byte, contentType string) (agent.Caption, error) {
 	cctx, cancel := context.WithTimeout(ctx, captionTimeout)
 	defer cancel()
-	caption, err := agent.CaptionAsset(cctx, s.llm, body, contentType)
+	// Resolve the vision-tier model through the build service so captioning
+	// shares the same per-model client cache and tier-fallback rules as the
+	// rest of the app: an empty LLM_VISION_MODEL falls back to the author
+	// model (LLM_MODEL), exactly like the editor/utility tiers. A missing
+	// factory (tests) or unresolvable tier yields an error, which the caller
+	// logs as a warning — the upload still succeeds without alt-text.
+	llm, _, err := s.build.LLMForTier(cctx, model.TierMap{}, model.TierVision)
+	if err != nil {
+		return agent.Caption{}, fmt.Errorf("resolve vision model: %w", err)
+	}
+	caption, err := agent.CaptionAsset(cctx, llm, body, contentType)
 	if err != nil {
 		return caption, fmt.Errorf("caption asset: %w", err)
 	}

@@ -36,6 +36,12 @@ func CaptionAsset(ctx context.Context, llm adkmodel.LLM, content []byte, mimeTyp
 	if mimeType == "image/svg+xml" {
 		return Caption{}, errors.New("svg captioning not supported")
 	}
+	// A nil LLM means no vision model could be resolved (e.g. none configured,
+	// or a factory-less build.Service in tests). Captioning is best-effort, so
+	// return an error the upload handler can log and shrug off — never deref.
+	if llm == nil {
+		return Caption{}, errors.New("no vision model configured")
+	}
 
 	req := &adkmodel.LLMRequest{
 		Model: llm.Name(),
