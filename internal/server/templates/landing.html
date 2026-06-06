@@ -18,9 +18,20 @@
         <label for="prompt" class="label pb-1">
           <span class="text-sm font-medium">Describe your site</span>
         </label>
-        <textarea name="prompt" id="prompt" rows="6" maxlength="4096" required
-                  class="textarea w-full text-base leading-relaxed"
-                  placeholder="A small site for my book club where members share what they're reading each month. Include a page for upcoming books and a page for past picks."></textarea>
+        <div class="relative">
+          <textarea name="prompt" id="prompt" rows="6" maxlength="4096" required
+                    autocapitalize="sentences" spellcheck="true"
+                    aria-describedby="prompt-counter-hint"
+                    class="textarea w-full text-base leading-relaxed pr-20"
+                    placeholder="A small site for my book club where members share what they're reading each month. Include a page for upcoming books and a page for past picks."></textarea>
+          <div id="mascot-peek" aria-hidden="true"
+               class="pointer-events-none absolute top-3 right-3 opacity-20 transition-opacity duration-200 motion-reduce:transition-none">
+            <svg width="56" height="56" viewBox="0 0 24 24"><g stroke="#5a3a18" stroke-width=".8" stroke-linejoin="round" stroke-linecap="round"><path d="M9.5 2.8 C 6.8 5 6 10.5 7 15 C 7.6 18 9 20.4 11.4 20.9 C 12.4 21.1 13.6 20.8 14.2 19.8 C 16.4 16.4 17 11 16.2 7 C 15.6 4 13 2.6 9.5 2.8 Z" fill="#ffd33a"/><path d="M12.9 19.4 C 13.2 20.6 14.3 21.1 15 20.2 C 14.7 19.6 14 19.2 13.3 19 Z" fill="#5a3a18" stroke="none"/><path d="M9 3 C 8.5 1.6 9.4 0.8 10.6 1.3 C 9.7 1.9 9.9 2.7 10.5 3.2 Z" fill="#7a5a2a"/></g><circle cx="8.5" cy="12.4" r=".85" fill="#ff9aa2" fill-opacity=".7"/><circle cx="15.1" cy="11.9" r=".85" fill="#ff9aa2" fill-opacity=".7"/><circle cx="10" cy="9.4" r="1.5" fill="#fff" stroke="#5a3a18" stroke-width=".5"/><circle cx="13.5" cy="9.2" r="1.5" fill="#fff" stroke="#5a3a18" stroke-width=".5"/><circle cx="10.2" cy="9.6" r=".72" fill="#1a1a1a"/><circle cx="13.7" cy="9.4" r=".72" fill="#1a1a1a"/><path d="M8.6 12.6 C 10.7 13.3 12.9 13.3 14.8 12.6 C 14.6 15.6 13 17 11.7 17 C 10.4 17 8.9 15.5 8.6 12.6 Z" fill="#5a2a2a" stroke="#5a3a18" stroke-width=".5"/><path d="M10.2 14.9 C 10.2 14.2 13.2 14.2 13.2 14.9 C 13.2 16.4 12.4 17 11.7 17 C 11 17 10.2 16.4 10.2 14.9 Z" fill="#ff8a8a"/></svg>
+          </div>
+        </div>
+        <p id="prompt-counter-hint" class="text-xs text-base-content/60 mt-1 text-right" aria-live="polite">
+          <span id="prompt-counter">0</span> / 4096
+        </p>
       </div>
 
       <div>
@@ -64,23 +75,29 @@
       <details class="collapse collapse-arrow bg-base-100 border border-base-300">
         <summary class="collapse-title text-sm font-medium">Custom web address (optional)</summary>
         <div class="collapse-content">
-          <p class="text-sm text-base-content/70 mb-2">Lowercase letters, digits, and hyphens. 3–30 characters. Your site will live at <code class="font-mono text-sm bg-base-200 px-1 rounded">{slug}.{{ .Domain }}</code>.</p>
+          <p id="slug-help" class="text-sm text-base-content/70 mb-2">Lowercase letters, digits, and hyphens. 3–30 characters. Your site will live at <code class="font-mono text-sm bg-base-200 px-1 rounded">{slug}.{{ .Domain }}</code>.</p>
           <input type="text" name="slug" id="slug" pattern="[a-z0-9]([a-z0-9\-]{1,28}[a-z0-9])?" minlength="3" maxlength="30"
-                 class="input w-full" placeholder="auto-generated if left blank">
+                 autocapitalize="off" autocomplete="off" spellcheck="false"
+                 aria-describedby="slug-help slug-hint"
+                 class="input w-full font-mono text-sm" placeholder="auto-generated if left blank">
+          <p id="slug-hint" class="text-xs text-base-content/60 mt-1 min-h-[1.25rem]" aria-live="polite"></p>
         </div>
       </details>
 
       <details class="collapse collapse-arrow bg-base-100 border border-base-300">
         <summary class="collapse-title text-sm font-medium">Reference documents (optional)</summary>
         <div class="collapse-content">
-          <p class="text-sm text-base-content/70 mb-2">Markdown or HTML files used as content reference (up to 10 files, 64 KB each).</p>
+          <p id="attachment-help" class="text-sm text-base-content/70 mb-2">Markdown or HTML files used as content reference (up to 10 files, 64 KB each).</p>
           <input type="file" name="attachment" id="attachment"
                  accept=".md,.markdown,.html,.htm,text/markdown,text/html" multiple
+                 aria-describedby="attachment-help attachment-error"
                  class="file-input w-full">
+          <p id="attachment-error" class="text-xs text-error mt-1 min-h-[1.25rem]" aria-live="polite"></p>
         </div>
       </details>
 
-      <div class="card-actions justify-end pt-2">
+      <div class="card-actions justify-between items-center pt-2 flex-wrap gap-3">
+        <p class="text-xs text-base-content/60 flex-1 min-w-0">Usually ready in under a minute. You'll see it build live.</p>
         <button type="submit" class="btn btn-primary">Create site</button>
       </div>
     </div>
@@ -109,5 +126,69 @@
   </details>
 </main>
 {{ template "footer" . }}
+<script>
+// Landing form micro-interactions: mascot fade, character count, slug
+// transform preview, attachment limit check. All progressive: the form works
+// without JS; this layer just adds reassurance and live validation.
+(function () {
+  var prompt = document.getElementById('prompt');
+  var counter = document.getElementById('prompt-counter');
+  var peek = document.getElementById('mascot-peek');
+  if (prompt && counter) {
+    function syncPrompt() {
+      var len = prompt.value.length;
+      counter.textContent = len;
+      if (peek) {
+        var hide = document.activeElement === prompt || len > 0;
+        peek.style.opacity = hide ? '0' : '';
+      }
+    }
+    prompt.addEventListener('input', syncPrompt);
+    prompt.addEventListener('focus', syncPrompt);
+    prompt.addEventListener('blur', syncPrompt);
+    syncPrompt();
+  }
+
+  var slug = document.getElementById('slug');
+  var slugHint = document.getElementById('slug-hint');
+  if (slug && slugHint) {
+    function normalizeSlug(v) {
+      return v.toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 30);
+    }
+    slug.addEventListener('input', function () {
+      var raw = slug.value;
+      if (!raw) { slugHint.textContent = ''; return; }
+      var norm = normalizeSlug(raw);
+      if (norm.length < 3) {
+        slugHint.textContent = 'Needs at least 3 letters, digits, or hyphens.';
+      } else if (norm === raw) {
+        slugHint.textContent = '';
+      } else {
+        slugHint.textContent = '“' + raw + '” becomes “' + norm + '”';
+      }
+    });
+  }
+
+  var attachment = document.getElementById('attachment');
+  var attachmentError = document.getElementById('attachment-error');
+  if (attachment && attachmentError) {
+    attachment.addEventListener('change', function () {
+      var files = Array.from(attachment.files || []);
+      var errs = [];
+      if (files.length > 10) {
+        errs.push('Up to 10 files (you selected ' + files.length + ').');
+      }
+      var big = files.filter(function (f) { return f.size > 64 * 1024; });
+      if (big.length) {
+        errs.push(big.length + ' file' + (big.length === 1 ? '' : 's') + ' over 64 KB will be rejected on upload.');
+      }
+      attachmentError.textContent = errs.join(' ');
+    });
+  }
+})();
+</script>
 </body>
 </html>
