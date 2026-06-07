@@ -247,11 +247,12 @@ func TestUserSessionStore_RevokeAllForUserOnlyDropsMatching(t *testing.T) {
 		t.Fatalf("RevokeAllForUser: %v", err)
 	}
 
-	// Drop the cache so the survivor lookup hits S3, otherwise a buggy
-	// RevokeAllForUser that wrongly deletes S3 records would still pass via
-	// the in-memory cache.
-	uss.cache.Remove(victim1)
-	uss.cache.Remove(victim2)
+	// Deliberately do NOT evict the victims from the cache here: RevokeAllForUser
+	// is required to evict them itself, so a buggy implementation that only
+	// deletes the S3 object would leave a warm cache entry and fail below.
+	// The survivor IS evicted manually so its lookup hits S3 — that proves the
+	// revoke didn't wrongly delete a non-matching record (cache could otherwise
+	// mask a bad S3 delete).
 	uss.cache.Remove(survivor)
 
 	if _, ok := uss.Get(victim1); ok {
@@ -262,6 +263,46 @@ func TestUserSessionStore_RevokeAllForUserOnlyDropsMatching(t *testing.T) {
 	}
 	if _, ok := uss.Get(survivor); !ok {
 		t.Errorf("survivor was wrongly revoked")
+	}
+}
+
+// TestUserSessionStore_RevokeAllEvictsCacheImmediately is the security-critical
+// case behind "sign out everywhere": after a revoke, a session that was warm in
+// the LRU must stop validating *immediately*, without waiting out sessionCacheTTL
+// and without any external cache eviction. A regression here means a revoked
+// device keeps its access for up to a minute.
+func TestUserSessionStore_RevokeAllEvictsCacheImmediately(t *testing.T) {
+	t.Parallel()
+
+	st := minioStore(t)
+	if st == nil {
+		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run session store tests")
+	}
+	uss, err := NewUserSessionStore(st)
+	if err != nil {
+		t.Fatalf("NewUserSessionStore: %v", err)
+	}
+
+	email := "warm+" + freshSuffix() + "@example.com"
+	token, err := uss.Create(passkey.UserSessionData{UserID: []byte(email), Expires: time.Now().Add(time.Hour)})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	t.Cleanup(func() { uss.Delete(token) })
+
+	// Warm the cache the way a real authenticated request would.
+	if _, ok := uss.Get(token); !ok {
+		t.Fatalf("session should be valid before revoke")
+	}
+
+	err = uss.RevokeAllForUser(context.Background(), email)
+	if err != nil {
+		t.Fatalf("RevokeAllForUser: %v", err)
+	}
+
+	// No manual cache.Remove, no TTL sleep: the revoke must have evicted it.
+	if _, ok := uss.Get(token); ok {
+		t.Errorf("session still validates from cache immediately after revoke")
 	}
 }
 

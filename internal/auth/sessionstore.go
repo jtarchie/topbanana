@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -269,6 +270,12 @@ func (s *UserSessionStore) RevokeAllForUser(ctx context.Context, email string) e
 		if err != nil && firstErr == nil {
 			firstErr = err
 		}
+		// Evict the in-memory LRU too, otherwise a just-revoked session keeps
+		// validating from cache for up to sessionCacheTTL (60s). Best-effort:
+		// drop the cache entry even if the S3 delete above errored — a stale
+		// cache entry (session still honoured) is worse than a stale S3 object.
+		token := strings.TrimSuffix(strings.TrimPrefix(key, sessionStorePrefix), ".json")
+		s.cache.Remove(token)
 	}
 	if firstErr != nil {
 		return fmt.Errorf("auth: revoke sessions: %w", firstErr)
