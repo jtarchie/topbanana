@@ -35,7 +35,11 @@ type registerData struct {
 
 // accountCredential is one passkey row rendered on /account.
 type accountCredential struct {
+	// ID is the shortened, display-only fingerprint. RawID is the full
+	// base64url credential id the remove form posts back so the handler can
+	// match the exact credential (the shortened form is lossy / non-unique).
 	ID      string
+	RawID   string
 	Created string
 }
 
@@ -161,7 +165,8 @@ func (s *Server) accountHandler(c *echo.Context) error {
 	creds := make([]accountCredential, 0, len(user.Credentials))
 	for _, cred := range user.Credentials {
 		creds = append(creds, accountCredential{
-			ID: shortenCredID(cred.ID),
+			ID:    shortenCredID(cred.ID),
+			RawID: base64.RawURLEncoding.EncodeToString(cred.ID),
 			// The library doesn't track per-credential created-time; show
 			// today's date as a placeholder until User grows the field.
 			Created: time.Now().UTC().Format("2006-01-02"),
@@ -257,6 +262,48 @@ func (s *Server) accountDeleteHandler(c *echo.Context) error {
 
 	slog.Info("account.delete", "email", email, "apps", apps)
 	return c.Redirect(http.StatusSeeOther, "/login?flash="+urlEscape("Account deleted")) //nolint:wrapcheck
+}
+
+// accountRemovePasskeyHandler unbinds one passkey from the logged-in user's
+// account, identified by its full base64url credential id. Refuses to remove
+// the last passkey — that would lock the user out for good (passkey-only auth,
+// no password fallback). Reloads the record before mutating so it doesn't alias
+// the cached pointer other in-flight requests may be reading.
+func (s *Server) accountRemovePasskeyHandler(c *echo.Context) error {
+	if s.auth == nil {
+		return notFound()
+	}
+	ctxUser := userFromContext(c)
+	if ctxUser == nil {
+		return notFound()
+	}
+	email := auth.NormalizeEmail(ctxUser.Email)
+	ctx := c.Request().Context()
+
+	user, err := s.auth.Users.Load(ctx, email)
+	if err != nil {
+		if errors.Is(err, auth.ErrUserNotFound) {
+			return notFound()
+		}
+		return httpErr(http.StatusInternalServerError, "load user", err)
+	}
+	if len(user.Credentials) <= 1 {
+		return c.Redirect(http.StatusSeeOther, "/account?error="+urlEscape("You can't remove your only passkey — add another first.")) //nolint:wrapcheck
+	}
+
+	id, decErr := base64.RawURLEncoding.DecodeString(strings.TrimSpace(c.FormValue("id")))
+	if decErr != nil || len(id) == 0 {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid credential id")
+	}
+	if !user.RemoveCredential(id) {
+		return notFound()
+	}
+	err = s.auth.Users.Save(ctx, user)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "save user", err)
+	}
+	slog.Info("account.passkey.removed", "email", email)
+	return c.Redirect(http.StatusSeeOther, "/account?flash="+urlEscape("Passkey removed")) //nolint:wrapcheck
 }
 
 // revokePendingInvitesFor best-effort revokes every unconsumed invite for the

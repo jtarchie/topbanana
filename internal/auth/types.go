@@ -178,6 +178,20 @@ func (u *User) PutCredential(c webauthn.Credential) {
 	u.Credentials = append(u.Credentials, c)
 }
 
+// RemoveCredential drops the credential whose ID matches, reporting whether one
+// was removed. Mirror of PutCredential, used by the self-service "remove
+// passkey" action. It does NOT guard against removing the user's last
+// credential — callers own that policy, so the method stays reusable.
+func (u *User) RemoveCredential(id []byte) bool {
+	for i, existing := range u.Credentials {
+		if bytes.Equal(existing.ID, id) {
+			u.Credentials = append(u.Credentials[:i], u.Credentials[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
 // NormalizeEmail lowercases and trims whitespace so the same address keyed
 // inconsistently by the user (mixed-case, leading space) always resolves
 // to the same S3 record.

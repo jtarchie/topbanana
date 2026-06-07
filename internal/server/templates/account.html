@@ -38,6 +38,15 @@
             <p class="text-sm font-medium">Passkey added {{ .Created }}</p>
             <p class="text-xs font-mono text-base-content/60 truncate" title="{{ .ID }}">{{ .ID }}</p>
           </div>
+          {{ if gt (len $.Credentials) 1 }}
+          <form method="POST" action="/account/passkeys/delete" class="js-confirm shrink-0"
+                data-confirm-title="Remove this passkey?"
+                data-confirm="This passkey will stop working. Your other passkeys keep signing you in."
+                data-confirm-ok="Remove passkey">
+            <input type="hidden" name="id" value="{{ .RawID }}">
+            <button type="submit" class="btn btn-ghost btn-xs text-error" aria-label="Remove this passkey">Remove</button>
+          </form>
+          {{ end }}
         </li>
         {{ end }}
       </ul>

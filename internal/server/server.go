@@ -275,6 +275,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 	admin.GET("/account", s.accountHandler)
 	admin.POST("/account/sign-out-everywhere", s.accountSignOutEverywhereHandler)
 	admin.POST("/account/delete", s.accountDeleteHandler)
+	admin.POST("/account/passkeys/delete", s.accountRemovePasskeyHandler)
 
 	// Super-admin-only surfaces. requireSuperAdmin layers role check on
 	// top of requireUser, so these routes live outside the regular admin

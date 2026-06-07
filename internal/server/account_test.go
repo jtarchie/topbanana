@@ -126,6 +126,36 @@ func TestAccount_DangerZoneSuperAdmin(t *testing.T) {
 	}
 }
 
+// TestAccount_PasskeyRemoveButton: the per-passkey Remove form renders only
+// when there's more than one passkey — you can't remove your only sign-in key.
+func TestAccount_PasskeyRemoveButton(t *testing.T) {
+	t.Parallel()
+
+	two := renderAccount(t, accountData{
+		Email: "user@example.com",
+		Role:  "admin",
+		Credentials: []accountCredential{
+			{ID: "aaa", RawID: "cred-aaa"},
+			{ID: "bbb", RawID: "cred-bbb"},
+		},
+	})
+	if !strings.Contains(two, `action="/account/passkeys/delete"`) {
+		t.Errorf("two-passkey account missing the Remove form")
+	}
+	if !strings.Contains(two, `value="cred-bbb"`) {
+		t.Errorf("Remove form missing the credential RawID")
+	}
+
+	one := renderAccount(t, accountData{
+		Email:       "user@example.com",
+		Role:        "admin",
+		Credentials: []accountCredential{{ID: "aaa", RawID: "cred-aaa"}},
+	})
+	if strings.Contains(one, `action="/account/passkeys/delete"`) {
+		t.Errorf("single-passkey account must not offer Remove")
+	}
+}
+
 // TestAccount_FlashAndError: the danger-zone POSTs redirect back with a flash
 // or error query param, which the page must surface.
 func TestAccount_FlashAndError(t *testing.T) {
