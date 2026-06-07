@@ -318,7 +318,8 @@ func (s *Server) revokePendingInvitesFor(ctx context.Context, email string) {
 	}
 	for _, inv := range invites {
 		if inv.UsedBy == "" && auth.NormalizeEmail(inv.Email) == email {
-			if revErr := s.auth.Invites.Revoke(ctx, inv.Token); revErr != nil {
+			revErr := s.auth.Invites.Revoke(ctx, inv.Token)
+			if revErr != nil {
 				slog.Warn("invite.cleanup.revoke_failed", "token", inv.Token, "err", revErr)
 			}
 		}

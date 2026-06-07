@@ -125,6 +125,10 @@
                         data-confirm="They will need to re-sign-in on every device." data-confirm-ok="Revoke" data-confirm-tone="primary">
                     <button class="btn btn-ghost btn-sm">Revoke sessions</button>
                   </form>
+                  <button type="button" class="btn btn-ghost btn-sm text-error js-delete-trigger"
+                          data-panel="delete"
+                          data-email="{{ .Email }}"
+                          aria-label="Delete {{ .Email }}">Delete</button>
                 {{ end }}
               </td>
             </tr>
@@ -305,6 +309,93 @@
   input.addEventListener('input', apply);
   apply();
 })();
+</script>
+<!-- Delete-user side panel. One shared panel; each row's "Delete" button
+     populates it. Wider than a single confirm modal because it also offers the
+     transfer-or-delete choice for the user's sites. -->
+<div class="side-scrim" id="scrim-delete" data-scrim="delete"></div>
+<aside class="side-panel bg-base-100 border-l border-base-300 shadow-lg flex flex-col" id="panel-delete" aria-label="Delete user" aria-hidden="true">
+  <header class="flex items-center justify-between p-4 border-b border-base-300">
+    <div class="min-w-0">
+      <h2 class="font-semibold text-error">Delete user</h2>
+      <p class="text-xs text-base-content/60 font-mono truncate" id="delete-target">&nbsp;</p>
+    </div>
+    <button type="button" class="btn btn-ghost btn-sm btn-square" data-close="delete" aria-label="Close delete panel">×</button>
+  </header>
+  <form id="delete-form" method="POST" action="" class="flex flex-col min-h-0 flex-1">
+    <div class="flex-1 overflow-y-auto p-4 space-y-5">
+      <p class="text-sm text-base-content/70">Permanently deletes this user and revokes all their sessions. There's no undo. Choose what happens to the sites they own.</p>
+
+      <fieldset class="fieldset">
+        <legend class="fieldset-legend">Their sites</legend>
+        <label class="flex items-start gap-2 cursor-pointer">
+          <input type="radio" name="disposition" value="delete" class="radio radio-sm mt-0.5" checked>
+          <span class="text-sm">Delete their sites permanently</span>
+        </label>
+        <label class="flex items-start gap-2 cursor-pointer mt-2">
+          <input type="radio" name="disposition" value="transfer" class="radio radio-sm mt-0.5">
+          <span class="text-sm">Transfer their sites to another user</span>
+        </label>
+        <input id="delete-transfer-to" type="email" name="transfer_to" placeholder="new-owner@example.com"
+               autocomplete="off" autocapitalize="off" spellcheck="false"
+               class="input input-sm w-full mt-2" disabled>
+      </fieldset>
+
+      <fieldset class="fieldset">
+        <legend class="fieldset-legend">Confirm</legend>
+        <p class="fieldset-label">Type <code id="delete-confirm-code" class="font-mono bg-base-200 px-1 rounded"></code> to confirm.</p>
+        <input id="delete-confirm-input" type="text" name="confirm"
+               autocomplete="off" autocapitalize="off" spellcheck="false"
+               class="input input-sm w-full mt-1 font-mono">
+      </fieldset>
+    </div>
+
+    <div class="flex justify-end gap-2 border-t border-base-300 p-4">
+      <button type="button" class="btn btn-ghost btn-sm" data-close="delete">Cancel</button>
+      <button id="delete-submit" type="submit" class="btn btn-error btn-sm" disabled>Delete user</button>
+    </div>
+  </form>
+</aside>
+<script>
+  // Populate the shared delete panel per row and gate the submit button: the
+  // typed confirmation must match the email, and a transfer also needs a
+  // recipient. The generic open/close wiring lives in panel_js below.
+  (function () {
+    var form = document.getElementById('delete-form');
+    var target = document.getElementById('delete-target');
+    var code = document.getElementById('delete-confirm-code');
+    var confirmInput = document.getElementById('delete-confirm-input');
+    var transferInput = document.getElementById('delete-transfer-to');
+    var submit = document.getElementById('delete-submit');
+    var radios = form.querySelectorAll('input[name="disposition"]');
+    var email = '';
+
+    function transferring() {
+      return form.querySelector('input[name="disposition"]:checked').value === 'transfer';
+    }
+    function syncSubmit() {
+      transferInput.disabled = !transferring();
+      var ok = email !== '' && confirmInput.value === email;
+      if (transferring()) { ok = ok && transferInput.value.trim() !== ''; }
+      submit.disabled = !ok;
+    }
+
+    document.querySelectorAll('.js-delete-trigger').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        email = btn.dataset.email || '';
+        form.action = '/admin/users/' + encodeURIComponent(email) + '/delete';
+        target.textContent = email;
+        code.textContent = email;
+        confirmInput.value = '';
+        transferInput.value = '';
+        radios.forEach(function (r) { r.checked = (r.value === 'delete'); });
+        syncSubmit();
+      });
+    });
+    confirmInput.addEventListener('input', syncSubmit);
+    transferInput.addEventListener('input', syncSubmit);
+    radios.forEach(function (r) { r.addEventListener('change', syncSubmit); });
+  })();
 </script>
 {{ template "panel_js" . }}
 {{ template "confirm_dialog" . }}

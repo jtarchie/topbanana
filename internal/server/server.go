@@ -287,6 +287,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 	e.POST("/admin/users/:email/enable", s.adminUserEnableHandler, s.requireSuperAdmin)
 	e.POST("/admin/users/:email/sessions/revoke", s.adminUserRevokeSessionsHandler, s.requireSuperAdmin)
 	e.POST("/admin/users/:email/quotas", s.adminUserQuotasHandler, s.requireSuperAdmin)
+	e.POST("/admin/users/:email/delete", s.adminUserDeleteHandler, s.requireSuperAdmin)
 	// Per-slug routes carry the ownership gate as route-level middleware
 	// so a regular admin gets a 404 on every slug they don't own without
 	// each handler having to repeat the check.
@@ -1975,6 +1976,46 @@ func (s *Server) deleteAppsOwnedBy(ctx context.Context, email string) (int, erro
 			continue
 		}
 		slog.Info("app.delete", "slug", slug, "files", files, "snapshots", snaps, "reason", "owner_delete")
+		count++
+	}
+	return count, firstErr
+}
+
+// reassignAppsOwnedBy transfers every site owned by `from` to `to`, updating
+// both the persisted SiteMeta.OwnerID and the in-memory owner index — the same
+// per-site move transferAppHandler does, fanned across the whole owned set.
+// Used when a super admin deletes a user but wants to preserve their sites
+// under a new owner. Authoritative ListApps+ReadMeta scan; empty `from` is a
+// no-op so it can't sweep pre-migration empty-owner sites. Collects the first
+// error but keeps going, and leaves the single index rebuild to the caller.
+// Returns the number of apps reassigned.
+func (s *Server) reassignAppsOwnedBy(ctx context.Context, from, to string) (int, error) {
+	from = auth.NormalizeEmail(from)
+	to = auth.NormalizeEmail(to)
+	if from == "" {
+		return 0, nil
+	}
+	slugs, err := s.store.ListApps(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("list apps: %w", err)
+	}
+	count := 0
+	var firstErr error
+	for _, slug := range slugs {
+		meta := s.build.ReadMeta(ctx, slug)
+		if meta.OwnerID != from {
+			continue
+		}
+		meta.OwnerID = to
+		werr := s.build.WriteMeta(ctx, slug, meta)
+		if werr != nil {
+			if firstErr == nil {
+				firstErr = werr
+			}
+			continue
+		}
+		s.setOwner(slug, to)
+		slog.Info("app.transfer", "slug", slug, "from", from, "to", to, "reason", "owner_delete")
 		count++
 	}
 	return count, firstErr

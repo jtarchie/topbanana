@@ -196,7 +196,8 @@ func TestAccountDelete_WrongConfirmRejected(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("wrong-confirm status: got %d want 400", resp.StatusCode)
 	}
-	if _, err := rig.auth.Users.Load(ctx, carol); err != nil {
+	_, err := rig.auth.Users.Load(ctx, carol)
+	if err != nil {
 		t.Errorf("carol record should survive a rejected delete: %v", err)
 	}
 	if got := mustRead(t, ctx, st, slug, "index.html"); got == "" {
@@ -228,7 +229,8 @@ func TestAccountDelete_SuperAdminRefused(t *testing.T) {
 	if loc := resp.Header.Get("Location"); !strings.HasPrefix(loc, "/account?error=") {
 		t.Errorf("super-admin delete redirect: got %q, want /account?error=...", loc)
 	}
-	if _, err := rig.auth.Users.Load(ctx, testAdminUser); err != nil {
+	_, err := rig.auth.Users.Load(ctx, testAdminUser)
+	if err != nil {
 		t.Errorf("super-admin record must survive a refused self-delete: %v", err)
 	}
 }

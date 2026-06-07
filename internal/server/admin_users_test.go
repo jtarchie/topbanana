@@ -1,10 +1,55 @@
 package server
 
 import (
+	"bytes"
+	"html/template"
+	"strings"
 	"testing"
 
 	"github.com/jtarchie/topbanana/internal/model"
 )
+
+// renderAdminUsers parses the embedded layout + admin_users templates the way
+// New does and executes the page against data. Deterministic — no Minio.
+func renderAdminUsers(t *testing.T, data adminUsersData) string {
+	t.Helper()
+	tpl := template.New("")
+	template.Must(tpl.Parse(layoutTemplate))
+	template.Must(tpl.New("admin_users").Parse(adminUsersTemplate))
+	var buf bytes.Buffer
+	err := tpl.ExecuteTemplate(&buf, "admin_users", data)
+	if err != nil {
+		t.Fatalf("execute admin_users template: %v", err)
+	}
+	return buf.String()
+}
+
+// TestAdminUsers_DeleteControls: the delete panel (with its transfer-or-delete
+// choice) renders, and a Delete trigger appears for other users but never for
+// your own row.
+func TestAdminUsers_DeleteControls(t *testing.T) {
+	t.Parallel()
+
+	html := renderAdminUsers(t, adminUsersData{
+		Users: []adminUserRow{
+			{Email: "boss@example.com", Role: "super_admin", IsSelf: true},
+			{Email: "user@example.com", Role: "admin", IsSelf: false},
+		},
+		Roles: []string{"admin", "super_admin"},
+	})
+
+	for _, want := range []string{`id="panel-delete"`, `name="transfer_to"`, `name="disposition"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("admin users page missing %q", want)
+		}
+	}
+	if !strings.Contains(html, `aria-label="Delete user@example.com"`) {
+		t.Errorf("missing Delete trigger for the other user")
+	}
+	if strings.Contains(html, `aria-label="Delete boss@example.com"`) {
+		t.Errorf("your own row must not get a Delete trigger")
+	}
+}
 
 // makeFormLookup returns a func(string) string that matches values from a
 // fixture map. Missing keys yield "" — mirrors echo.FormValue semantics.

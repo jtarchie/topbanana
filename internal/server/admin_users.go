@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sort"
@@ -261,6 +263,141 @@ func (s *Server) adminUserRevokeSessionsHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "revoke sessions", err)
 	}
 	return c.Redirect(http.StatusSeeOther, "/admin/users?flash=sessions+revoked") //nolint:wrapcheck
+}
+
+// otherEnabledSuperAdmins reports whether any enabled super admin other than
+// excludeEmail exists. Guards the delete paths against removing the last
+// operator and leaving the platform with no one able to administer it.
+func (s *Server) otherEnabledSuperAdmins(ctx context.Context, excludeEmail string) (bool, error) {
+	excludeEmail = auth.NormalizeEmail(excludeEmail)
+	users, err := s.auth.Users.List(ctx)
+	if err != nil {
+		return false, fmt.Errorf("list users: %w", err)
+	}
+	for _, u := range users {
+		if u.Role == auth.RoleSuperAdmin && !u.Disabled && auth.NormalizeEmail(u.Email) != excludeEmail {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// adminUserDeleteHandler permanently deletes a user and disposes of the sites
+// they own — either cascade-deleting them or, when a transfer_to address is
+// given, reassigning them to that user. Revokes the target's sessions and any
+// open invite for the address, then removes the record. Refuses to delete
+// yourself (self-deletion lives on /account, which clears your own cookie) and
+// refuses to delete the last enabled super admin. Requires typing the target
+// email to confirm.
+func (s *Server) adminUserDeleteHandler(c *echo.Context) error {
+	email := emailParam(c)
+	if email == "" {
+		return notFound()
+	}
+	current := userFromContext(c)
+	if current != nil && current.Email == email {
+		return c.Redirect(http.StatusSeeOther, "/admin/users?error=use+the+account+page+to+delete+yourself") //nolint:wrapcheck
+	}
+	if auth.NormalizeEmail(c.FormValue("confirm")) != email {
+		return c.Redirect(http.StatusSeeOther, "/admin/users?error=confirmation+does+not+match") //nolint:wrapcheck
+	}
+
+	ctx := c.Request().Context()
+	user, err := s.auth.Users.Load(ctx, email)
+	if err != nil {
+		if errors.Is(err, auth.ErrUserNotFound) {
+			return notFound()
+		}
+		return httpErr(http.StatusInternalServerError, "load user", err)
+	}
+	if handled, resp := s.refuseLastSuperAdmin(c, user); handled {
+		return resp
+	}
+
+	// Dispose of the sites first (record last, so a partial failure stays
+	// retryable): reassign to transfer_to when given, else cascade-delete.
+	transferTo := auth.NormalizeEmail(c.FormValue("transfer_to"))
+	apps, handled, resp := s.disposeOwnedSites(c, email, transferTo)
+	if handled {
+		return resp
+	}
+
+	revokeErr := s.auth.Sessions.RevokeAllForUser(ctx, email)
+	if revokeErr != nil {
+		slog.Warn("admin.user.delete.session_revoke_failed", "email", email, "err", revokeErr)
+	}
+	err = s.auth.Users.Delete(ctx, email)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "delete user", err)
+	}
+	s.revokePendingInvitesFor(ctx, email)
+	s.rebuildDomainIndexLogging(ctx)
+
+	byEmail := ""
+	if current != nil {
+		byEmail = current.Email
+	}
+	slog.Info("admin.user.delete", "email", email, "by", byEmail, "apps", apps, "transferred_to", transferTo)
+
+	msg := "Deleted " + email
+	if transferTo != "" {
+		msg = fmt.Sprintf("Deleted %s; transferred %d site(s) to %s", email, apps, transferTo)
+	}
+	return c.Redirect(http.StatusSeeOther, "/admin/users?flash="+urlEscape(msg)) //nolint:wrapcheck
+}
+
+// refuseLastSuperAdmin returns handled=true (with the response to send) when
+// deleting user would remove the final enabled super admin, which would leave
+// the platform unadministrable. A nil target role other than super_admin is a
+// no-op. The redirect writes the response and returns a nil error, so the bool
+// — not resp — is what tells the caller to stop.
+func (s *Server) refuseLastSuperAdmin(c *echo.Context, user *auth.User) (handled bool, resp error) {
+	if user.Role != auth.RoleSuperAdmin {
+		return false, nil
+	}
+	others, err := s.otherEnabledSuperAdmins(c.Request().Context(), user.Email)
+	if err != nil {
+		return true, httpErr(http.StatusInternalServerError, "check super admins", err)
+	}
+	if !others {
+		return true, c.Redirect(http.StatusSeeOther, "/admin/users?error=cannot+delete+the+last+super+admin") //nolint:wrapcheck
+	}
+	return false, nil
+}
+
+// disposeOwnedSites carries out the delete-user site policy: reassign every
+// site owned by email to transferTo when it's set (validating the recipient
+// exists, isn't the target, and isn't disabled), otherwise cascade-delete
+// them. Returns the apps affected. handled=true means a validation redirect or
+// error response was produced and the caller must return resp verbatim — a
+// redirect writes the response and returns nil, so the bool is the stop signal.
+func (s *Server) disposeOwnedSites(c *echo.Context, email, transferTo string) (apps int, handled bool, resp error) {
+	ctx := c.Request().Context()
+	if transferTo == "" {
+		n, err := s.deleteAppsOwnedBy(ctx, email)
+		if err != nil {
+			return 0, true, httpErr(http.StatusInternalServerError, "delete sites", err)
+		}
+		return n, false, nil
+	}
+	if transferTo == email {
+		return 0, true, c.Redirect(http.StatusSeeOther, "/admin/users?error=cannot+transfer+to+the+user+being+deleted") //nolint:wrapcheck
+	}
+	recipient, err := s.auth.Users.Load(ctx, transferTo)
+	if err != nil {
+		if errors.Is(err, auth.ErrUserNotFound) {
+			return 0, true, c.Redirect(http.StatusSeeOther, "/admin/users?error=no+user+with+that+transfer+email") //nolint:wrapcheck
+		}
+		return 0, true, httpErr(http.StatusInternalServerError, "load recipient", err)
+	}
+	if recipient.Disabled {
+		return 0, true, c.Redirect(http.StatusSeeOther, "/admin/users?error=transfer+recipient+is+disabled") //nolint:wrapcheck
+	}
+	n, err := s.reassignAppsOwnedBy(ctx, email, transferTo)
+	if err != nil {
+		return 0, true, httpErr(http.StatusInternalServerError, "transfer sites", err)
+	}
+	return n, false, nil
 }
 
 // adminUserQuotasHandler accepts a form post to update a user's MaxApps
