@@ -42,6 +42,17 @@ var systemPrompt string
 //go:embed functions_prompt.md
 var functionsPrompt string
 
+// AuthoringGuide returns the base system prompt — the authoring contract every
+// build agent works under (HTML-only, inline JS, the /app.css substrate,
+// index.html entry point, relative links). Exported so the MCP server can
+// serve it as a resource to an external agent that authors sites directly.
+func AuthoringGuide() string { return systemPrompt }
+
+// FunctionsGuide returns the server-side functions runtime contract (sandbox
+// globals, handler shape, forbidden APIs). Exported for the same reason as
+// AuthoringGuide.
+func FunctionsGuide() string { return functionsPrompt }
+
 // SeedToolCall is a synthetic tool-call/response pair the caller can
 // pre-populate in the agent's session. The model sees these as if it had
 // already issued the call and received the response, so we skip round-trips

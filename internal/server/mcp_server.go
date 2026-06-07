@@ -16,9 +16,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jtarchie/topbanana/internal/auth"
-	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/editrec"
 	"github.com/jtarchie/topbanana/internal/templates"
+	"github.com/jtarchie/topbanana/internal/textedit"
 )
 
 // The MCP surface lets an external agent (Claude Code) own the authoring loop:
@@ -30,20 +30,22 @@ const (
 	mcpServerName    = "topbanana"
 	mcpServerVersion = "1.0.0"
 
-	mcpInstructions = "Tools to manage and author static HTML sites hosted on Top Banana, " +
-		"on behalf of the authenticated user. Typical flow: call list_sites to see existing " +
-		"sites, or create_site to start a new one (you choose the slug). Then author the site " +
-		"with write_file — .html files with an index.html entry point and relative links " +
-		"between pages. Image assets (.svg/.png/.jpg/.gif/.webp), such as a favicon.svg " +
-		"linked from <head>, can also be written with write_file and are served with the " +
-		"right content type. For styling, link the self-hosted stylesheet with " +
-		"`<link rel=\"stylesheet\" href=\"/app.css\">` in <head> and use Tailwind utility + " +
-		"daisyUI component classes (set the palette with <html data-theme>); the platform " +
-		"compiles and serves /app.css per site. Inline any extra JS; no external CDNs. Use " +
-		"read_file / list_files to inspect, delete_file to remove a page, and lint_site when " +
-		"you finish — it compiles /app.css and reports anything to fix. list_runs and " +
-		"get_run_transcript surface read-only transcripts of prior web-UI builds. All tools " +
-		"are scoped to sites the caller owns."
+	mcpInstructions = "Tools for editing the static HTML sites a user already owns on Top " +
+		"Banana. Sites are created in the web UI — start by calling list_sites to find one, " +
+		"then get_site to see its pages. Read with read_file; change pages with edit_file " +
+		"(surgical find/replace — prefer it over rewriting a whole page), replace_lines, " +
+		"insert_at_line, or write_file (whole file; also for image assets like favicon.svg). " +
+		"grep_files searches across a site; delete_file removes a page. Keep every page " +
+		"self-contained: inline any JS, no external CDNs, relative links between pages, an " +
+		"index.html entry point, and link the self-hosted stylesheet " +
+		"`<link rel=\"stylesheet\" href=\"/app.css\">` in <head> (Tailwind utility + daisyUI " +
+		"component classes; set the palette with <html data-theme>) — the platform compiles " +
+		"/app.css per site. Run lint_site when you finish: it compiles /app.css and reports " +
+		"anything to fix. For conventions read the resources topbanana://guide/authoring and " +
+		"topbanana://guide/design, and the site's template at topbanana://templates/{id}; the " +
+		"edit_page and add_function prompts scaffold common tasks. list_runs / " +
+		"get_run_transcript surface read-only build history. All tools are scoped to sites " +
+		"the caller owns."
 )
 
 // newMCPHandler builds the stateless streamable-HTTP handler that serves the
@@ -69,14 +71,21 @@ func (s *Server) buildMCPServer() *mcp.Server {
 
 	s.registerListSites(srv)
 	s.registerGetSite(srv)
-	s.registerCreateSite(srv)
 	s.registerReadFile(srv)
 	s.registerWriteFile(srv)
+	s.registerEditFile(srv)
+	s.registerReplaceLines(srv)
+	s.registerInsertAtLine(srv)
+	s.registerGrepFiles(srv)
 	s.registerListFiles(srv)
 	s.registerDeleteFile(srv)
 	s.registerLintSite(srv)
 	s.registerListRuns(srv)
 	s.registerGetRunTranscript(srv)
+
+	s.registerGuideResources(srv)
+	s.registerTemplateResources(srv)
+	s.registerEditPrompts(srv)
 
 	return srv
 }
@@ -147,6 +156,28 @@ func (s *Server) mcpSiteURL(slug string) string {
 	return "https://" + slug + "." + s.domain
 }
 
+// mcpLintNudge is appended to every write/edit result so the external agent
+// knows the one ritual that publishes its change: lint_site compiles and
+// self-hosts /app.css, without which the page renders unstyled.
+const mcpLintNudge = "run lint_site to compile /app.css and publish your changes"
+
+// mcpMaxFileBytes caps a single file written or edited over MCP. Mirrors the
+// in-process build agent's per-file limit so neither surface can balloon a
+// page past what the proxy/store expect.
+const mcpMaxFileBytes = 256 * 1024
+
+// mcpPageURL is the public URL of one page within a site. index.html and the
+// empty path resolve to the site root; everything else is appended so the
+// agent can open (and, with its own browser tools, see) the exact page it just
+// edited.
+func (s *Server) mcpPageURL(slug, p string) string {
+	base := s.mcpSiteURL(slug)
+	if p == "" || p == "index.html" {
+		return base
+	}
+	return base + "/" + p
+}
+
 // mcpContentType picks a content type for a written file: HTML gets the
 // charset-tagged type the proxy expects; everything else falls back to the
 // stdlib extension table. store.Write still validates the path itself.
@@ -159,27 +190,6 @@ func mcpContentType(p string) string {
 		return ct
 	}
 	return "application/octet-stream"
-}
-
-// mcpSlugify reduces an arbitrary title to a candidate slug (lowercase
-// alphanumerics joined by single hyphens). validateSlug is still the
-// authority; create_site rejects a candidate it doesn't like.
-func mcpSlugify(in string) string {
-	var b strings.Builder
-	lastHyphen := false
-	for _, r := range strings.ToLower(strings.TrimSpace(in)) {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-			lastHyphen = false
-		default:
-			if !lastHyphen && b.Len() > 0 {
-				b.WriteByte('-')
-				lastHyphen = true
-			}
-		}
-	}
-	return strings.Trim(b.String(), "-")
 }
 
 // --- site management --------------------------------------------------------
@@ -266,102 +276,6 @@ func (s *Server) registerGetSite(srv *mcp.Server) {
 	})
 }
 
-type createSiteInput struct {
-	Slug     string `json:"slug,omitempty"     jsonschema:"Desired subdomain slug (lowercase letters, digits, hyphens). If omitted, derived from title."`
-	Title    string `json:"title,omitempty"    jsonschema:"Human-readable site title stored in metadata."`
-	Template string `json:"template,omitempty" jsonschema:"Optional template id recorded in metadata (used by lint_site); files are NOT seeded — you author them with write_file."`
-}
-
-func (s *Server) registerCreateSite(srv *mcp.Server) {
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "create_site",
-		Description: "Create a new empty site owned by the caller and return its slug + URL. Does NOT run any build agent — author the pages yourself with write_file. Enforces the caller's app quota.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createSiteInput) (*mcp.CallToolResult, any, error) {
-		user, err := s.mcpUserAndAuthorize(ctx, "")
-		if err != nil {
-			return nil, nil, err
-		}
-
-		slug := strings.TrimSpace(in.Slug)
-		if slug == "" {
-			slug = mcpSlugify(in.Title)
-		}
-		if slug == "" {
-			return nil, nil, errors.New("provide a slug (or a title to derive one from)")
-		}
-		validateErr := validateSlug(slug)
-		if validateErr != nil {
-			return nil, nil, fmt.Errorf("invalid slug %q: %w", slug, validateErr)
-		}
-
-		// Reject collisions: an existing file set or a recorded owner both mean
-		// the slug is taken. ownerOf covers freshly-created-but-empty sites that
-		// have only the metadata sidecar.
-		existing, err := s.store.List(ctx, slug)
-		if err != nil {
-			return nil, nil, fmt.Errorf("check slug: %w", err)
-		}
-		if len(existing) > 0 || s.ownerOf(slug) != "" {
-			return nil, nil, fmt.Errorf("slug %q is already taken", slug)
-		}
-
-		quotaErr := s.mcpCheckQuota(ctx, user)
-		if quotaErr != nil {
-			return nil, nil, quotaErr
-		}
-
-		meta := build.SiteMeta{
-			Template: strings.TrimSpace(in.Template),
-			Created:  time.Now().UTC(),
-			Title:    strings.TrimSpace(in.Title),
-			OwnerID:  user.Email,
-		}
-		writeErr := s.build.WriteMeta(ctx, slug, meta)
-		if writeErr != nil {
-			return nil, nil, fmt.Errorf("write site metadata: %w", writeErr)
-		}
-		// Register in the in-memory indexes so the slug resolves for TLS /
-		// ownership immediately, exactly like the /build handler does.
-		s.markSlug(slug)
-		s.setOwner(slug, user.Email)
-
-		return mcpJSON(map[string]any{
-			"slug": slug,
-			"url":  s.mcpSiteURL(slug),
-		})
-	})
-}
-
-// mcpCheckQuota enforces the per-user owned-app cap. Mirrors the platform rule:
-// super admins are unlimited; otherwise the cap is the user's MaxApps, falling
-// back to the platform default, with 0 meaning unlimited.
-func (s *Server) mcpCheckQuota(ctx context.Context, user *auth.User) error {
-	if user.Role == auth.RoleSuperAdmin {
-		return nil
-	}
-	limit := user.Quotas.MaxApps
-	if limit == 0 {
-		limit = s.auth.QuotaDefaults().MaxApps
-	}
-	if limit == 0 {
-		return nil
-	}
-	slugs, err := s.store.ListApps(ctx)
-	if err != nil {
-		return fmt.Errorf("count owned sites: %w", err)
-	}
-	owned := 0
-	for _, slug := range slugs {
-		if s.ownerOf(slug) == user.Email {
-			owned++
-		}
-	}
-	if owned >= limit {
-		return fmt.Errorf("app quota reached (%d of %d)", owned, limit)
-	}
-	return nil
-}
-
 // --- file operations --------------------------------------------------------
 
 type readFileInput struct {
@@ -406,13 +320,212 @@ func (s *Server) registerWriteFile(srv *mcp.Server) {
 		if err != nil {
 			return nil, nil, err
 		}
+		if len(in.Content) > mcpMaxFileBytes {
+			return nil, nil, fmt.Errorf("content too large: %d bytes (max %d)", len(in.Content), mcpMaxFileBytes)
+		}
 		err = s.store.Write(ctx, in.Slug, in.Path, in.Content, mcpContentType(in.Path), nil)
 		if err != nil {
 			return nil, nil, fmt.Errorf("write %q: %w", in.Path, err)
 		}
-		return mcpJSON(map[string]any{"ok": true, "slug": in.Slug, "path": in.Path})
+		return mcpJSON(map[string]any{
+			"ok": true, "slug": in.Slug, "path": in.Path,
+			"url": s.mcpPageURL(in.Slug, in.Path), "next": mcpLintNudge,
+		})
 	})
 }
+
+// --- surgical editing -------------------------------------------------------
+//
+// These mirror the in-process build agent's edit tools (internal/agent) and
+// share their exact semantics via internal/textedit, so an external agent can
+// iterate on a large page without re-sending the whole file. Each gates on
+// ValidateHTMLPath (HTML pages only; functions have their own tools), reads
+// the current file, applies a pure transform, enforces the per-file cap, and
+// writes back — returning the page URL and the lint nudge.
+
+type editFileInput struct {
+	Slug       string `json:"slug"                  jsonschema:"The site slug"`
+	Path       string `json:"path"                  jsonschema:"HTML page path within the site, e.g. index.html"`
+	OldText    string `json:"old_text"              jsonschema:"Exact text to find. Must be unique unless replace_all is true. Whitespace-tolerant fallback applies when no exact match is found."`
+	NewText    string `json:"new_text"              jsonschema:"Replacement text."`
+	ReplaceAll bool   `json:"replace_all,omitempty" jsonschema:"Replace every occurrence instead of requiring a unique match."`
+}
+
+func (s *Server) registerEditFile(srv *mcp.Server) {
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "edit_file",
+		Description: "Surgically edit an HTML page in a site the caller owns: old_text must byte-match (and be unique unless replace_all=true). Prefer this over write_file for changes to an existing page — it's cheaper and won't clobber the rest of the file.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in editFileInput) (*mcp.CallToolResult, any, error) {
+		var count int
+		var note string
+		_, err := s.mcpApplyToFile(ctx, in.Slug, in.Path, func(content string) (string, error) {
+			out, n, tnote, aerr := textedit.ApplyEdit(content, in.OldText, in.NewText, in.ReplaceAll)
+			if aerr != nil {
+				return "", aerr
+			}
+			count, note = n, tnote
+			return out, nil
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return mcpJSON(map[string]any{
+			"ok": true, "slug": in.Slug, "path": in.Path, "replacements": count, "note": note,
+			"url": s.mcpPageURL(in.Slug, in.Path), "next": mcpLintNudge,
+		})
+	})
+}
+
+type replaceLinesInput struct {
+	Slug      string `json:"slug"       jsonschema:"The site slug"`
+	Path      string `json:"path"       jsonschema:"HTML page path within the site"`
+	StartLine int    `json:"start_line" jsonschema:"First line to replace (1-indexed, inclusive)."`
+	EndLine   int    `json:"end_line"   jsonschema:"Last line to replace (1-indexed, inclusive). Line numbers must reflect the current file — re-read between edits."`
+	NewText   string `json:"new_text"   jsonschema:"Replacement text for the range. Empty deletes the lines."`
+}
+
+func (s *Server) registerReplaceLines(srv *mcp.Server) {
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "replace_lines",
+		Description: "Replace lines start_line..end_line (1-indexed, inclusive) of an HTML page in a site the caller owns. Empty new_text deletes the range.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in replaceLinesInput) (*mcp.CallToolResult, any, error) {
+		_, err := s.mcpApplyToFile(ctx, in.Slug, in.Path, func(content string) (string, error) {
+			return textedit.SpliceLines(content, in.StartLine, in.EndLine, in.NewText)
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return mcpJSON(map[string]any{
+			"ok": true, "slug": in.Slug, "path": in.Path,
+			"url": s.mcpPageURL(in.Slug, in.Path), "next": mcpLintNudge,
+		})
+	})
+}
+
+type insertAtLineInput struct {
+	Slug      string `json:"slug"       jsonschema:"The site slug"`
+	Path      string `json:"path"       jsonschema:"HTML page path within the site"`
+	AfterLine int    `json:"after_line" jsonschema:"Insert after this line (1-indexed). 0 prepends; total_lines appends."`
+	Content   string `json:"content"    jsonschema:"Text to insert verbatim. Include a trailing newline if needed."`
+}
+
+func (s *Server) registerInsertAtLine(srv *mcp.Server) {
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "insert_at_line",
+		Description: "Insert content after a given line in an HTML page in a site the caller owns, without replacing anything. after_line=0 prepends, after_line=total_lines appends.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in insertAtLineInput) (*mcp.CallToolResult, any, error) {
+		_, err := s.mcpApplyToFile(ctx, in.Slug, in.Path, func(content string) (string, error) {
+			return textedit.InsertAfterLine(content, in.AfterLine, in.Content)
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return mcpJSON(map[string]any{
+			"ok": true, "slug": in.Slug, "path": in.Path,
+			"url": s.mcpPageURL(in.Slug, in.Path), "next": mcpLintNudge,
+		})
+	})
+}
+
+// mcpApplyToFile is the shared read-modify-write the surgical edit tools run:
+// authorize, validate the HTML path, read the current file (error if missing),
+// apply the caller's pure transform, enforce the per-file cap, and write back
+// preserving the stored content type. Returns the updated content; edit_file
+// captures its replacement count/note through the transform closure.
+func (s *Server) mcpApplyToFile(ctx context.Context, slug, p string, transform func(string) (string, error)) (string, error) {
+	_, err := s.mcpUserAndAuthorize(ctx, slug)
+	if err != nil {
+		return "", err
+	}
+	err = textedit.ValidateHTMLPath(p)
+	if err != nil {
+		return "", err
+	}
+	obj, err := s.store.Read(ctx, slug, p)
+	if err != nil {
+		return "", fmt.Errorf("read %q: %w", p, err)
+	}
+	if obj.Content == "" {
+		return "", fmt.Errorf("file %q not found", p)
+	}
+	updated, err := transform(obj.Content)
+	if err != nil {
+		return "", err
+	}
+	if len(updated) > mcpMaxFileBytes {
+		return "", fmt.Errorf("content too large after edit: %d bytes (max %d)", len(updated), mcpMaxFileBytes)
+	}
+	contentType := obj.ContentType
+	if contentType == "" {
+		contentType = "text/html; charset=utf-8"
+	}
+	err = s.store.Write(ctx, slug, p, updated, contentType, obj.Metadata)
+	if err != nil {
+		return "", fmt.Errorf("write %q: %w", p, err)
+	}
+	return updated, nil
+}
+
+type grepFilesInput struct {
+	Slug       string `json:"slug"                  jsonschema:"The site slug"`
+	Pattern    string `json:"pattern"               jsonschema:"Literal (case-sensitive, no regex) substring to find."`
+	MaxResults int    `json:"max_results,omitempty" jsonschema:"Cap on returned matches (default 50, hard cap 200)."`
+}
+
+func (s *Server) registerGrepFiles(srv *mcp.Server) {
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "grep_files",
+		Description: "Literal substring search across the HTML pages and function handlers of a site the caller owns. Returns paths, 1-indexed line numbers, and snippets — handy for locating a unique string to pass to edit_file.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in grepFilesInput) (*mcp.CallToolResult, any, error) {
+		_, err := s.mcpUserAndAuthorize(ctx, in.Slug)
+		if err != nil {
+			return nil, nil, err
+		}
+		if in.Pattern == "" {
+			return nil, nil, errors.New("pattern is required")
+		}
+		maxRes := in.MaxResults
+		if maxRes <= 0 {
+			maxRes = mcpGrepDefaultMax
+		}
+		if maxRes > mcpGrepHardCap {
+			maxRes = mcpGrepHardCap
+		}
+		files, err := s.store.List(ctx, in.Slug)
+		if err != nil {
+			return nil, nil, fmt.Errorf("list files: %w", err)
+		}
+		sort.Strings(files)
+		matches := make([]textedit.GrepMatch, 0, maxRes)
+		total, truncated := 0, false
+		for _, f := range files {
+			if !textedit.GrepEligible(f) {
+				continue
+			}
+			obj, rerr := s.store.Read(ctx, in.Slug, f)
+			if rerr != nil || obj.Content == "" {
+				continue
+			}
+			for _, m := range textedit.MatchLines(f, obj.Content, in.Pattern, mcpGrepSnippetMax) {
+				total++
+				if len(matches) < maxRes {
+					matches = append(matches, m)
+				} else {
+					truncated = true
+				}
+			}
+		}
+		return mcpJSON(map[string]any{
+			"slug": in.Slug, "matches": matches, "total_matches": total, "truncated": truncated,
+		})
+	})
+}
+
+const (
+	mcpGrepDefaultMax = 50
+	mcpGrepHardCap    = 200
+	mcpGrepSnippetMax = 200
+)
 
 type listFilesInput struct {
 	Slug string `json:"slug" jsonschema:"The site slug"`
@@ -454,7 +567,9 @@ func (s *Server) registerDeleteFile(srv *mcp.Server) {
 		if err != nil {
 			return nil, nil, fmt.Errorf("delete %q: %w", in.Path, err)
 		}
-		return mcpJSON(map[string]any{"ok": true, "slug": in.Slug, "path": in.Path})
+		return mcpJSON(map[string]any{
+			"ok": true, "slug": in.Slug, "path": in.Path, "next": mcpLintNudge,
+		})
 	})
 }
 
