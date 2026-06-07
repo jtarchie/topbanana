@@ -52,6 +52,13 @@ linters:
     - gosec # Go security checker; respects existing //nolint:gosec markers
 
   settings:
+    wrapcheck:
+      # internal/textedit is a leaf utility whose errors are descriptive,
+      # caller-facing strings (e.g. "old_text not found ... use grep_files").
+      # The agent/MCP edit tools surface them verbatim, so the thin delegators
+      # that pass them through must not wrap and bury the actionable message.
+      ignore-package-globs:
+        - github.com/jtarchie/topbanana/internal/textedit
     sloglint:
       # Enforce slog.DiscardHandler over slog.NewTextHandler(io.Discard, nil)
       no-raw-keys: false

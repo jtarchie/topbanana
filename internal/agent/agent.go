@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,6 +33,7 @@ import (
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/store"
 	"github.com/jtarchie/topbanana/internal/templates"
+	"github.com/jtarchie/topbanana/internal/textedit"
 )
 
 //go:embed agent_prompt.md
@@ -919,62 +919,19 @@ func newReadFileTool(s *store.Store, slug string, emit func(events.Event)) (tool
 	return t, nil
 }
 
-// NumberLines prefixes every line in content with its 1-indexed line number
-// (right-aligned to 6 columns, followed by a tab), matching the cat -n
-// convention LLMs recognize from training. startOffset is the number to
-// assign to the first line — pass 1 for a full-file read or the requested
-// start_line for a slice, so numbers always refer to positions in the
-// original file rather than the slice's local index. The empty string
-// returns the empty string. Exported so internal/build can apply the same
-// transformation to seeded read_file responses.
+// NumberLines prefixes every line with its 1-indexed line number (cat -n
+// style). Kept as an exported alias so internal/build's seeded read_file
+// responses can use the same transform; the implementation lives in
+// internal/textedit and is shared with the MCP editing surface.
 func NumberLines(content string, startOffset int) string {
-	if content == "" {
-		return ""
-	}
-	if startOffset < 1 {
-		startOffset = 1
-	}
-	lines := strings.Split(content, "\n")
-	var out strings.Builder
-	out.Grow(len(content) + len(lines)*8)
-	for i, line := range lines {
-		if i > 0 {
-			out.WriteByte('\n')
-		}
-		fmt.Fprintf(&out, "%6d\t%s", startOffset+i, line)
-	}
-	return out.String()
+	return textedit.NumberLines(content, startOffset)
 }
 
-// sliceLines returns a 1-indexed-inclusive slice of content delimited by \n,
-// plus the total line count of the full content. start/end of 0 mean "from
-// line 1" and "through last line" respectively, so the zero-value (both 0)
-// returns the whole content unchanged. start past the end returns an empty
-// slice with no error (lets the agent self-correct using total_lines).
+// sliceLines returns a 1-indexed-inclusive slice of content plus the full
+// line count. Delegates to internal/textedit so the agent and MCP slice
+// identically.
 func sliceLines(content string, start, end int) (string, int, error) {
-	var total int
-	if content == "" {
-		total = 0
-	} else {
-		total = strings.Count(content, "\n") + 1
-	}
-	if start <= 0 && end <= 0 {
-		return content, total, nil
-	}
-	if start > 0 && end > 0 && start > end {
-		return "", total, errors.New("start_line must be <= end_line")
-	}
-	lines := strings.Split(content, "\n")
-	if start <= 0 {
-		start = 1
-	}
-	if end <= 0 || end > len(lines) {
-		end = len(lines)
-	}
-	if start > len(lines) {
-		return "", total, nil
-	}
-	return strings.Join(lines[start-1:end], "\n"), total, nil
+	return textedit.SliceLines(content, start, end)
 }
 
 func newEditFileTool(s *store.Store, slug string, emit func(events.Event), state *buildState) (tool.Tool, error) {
@@ -1191,164 +1148,24 @@ func newInsertAtLineTool(s *store.Store, slug string, emit func(events.Event), s
 	return t, nil
 }
 
-// spliceLines replaces lines start..end (1-indexed, inclusive) of content
-// with newText. Validates the range; returns a descriptive error if the
-// range is out-of-bounds or inverted so the agent can correct itself.
+// spliceLines replaces lines start..end (1-indexed, inclusive) with newText.
+// Delegates to internal/textedit, shared with the MCP editing surface.
 func spliceLines(content string, start, end int, newText string) (string, error) {
-	if start < 1 {
-		return "", fmt.Errorf("start_line must be >= 1 (got %d)", start)
-	}
-	if end < start {
-		return "", fmt.Errorf("end_line (%d) must be >= start_line (%d)", end, start)
-	}
-	lines := strings.Split(content, "\n")
-	if end > len(lines) {
-		return "", fmt.Errorf("end_line %d exceeds file length %d", end, len(lines))
-	}
-	// strings.Split on newText so multi-line replacements rejoin cleanly with
-	// the surrounding context. Empty newText splices in nothing (i.e. deletes
-	// the range).
-	var head, mid, tail []string
-	head = lines[:start-1]
-	tail = lines[end:]
-	if newText != "" {
-		mid = strings.Split(newText, "\n")
-	}
-	out := make([]string, 0, len(head)+len(mid)+len(tail))
-	out = append(out, head...)
-	out = append(out, mid...)
-	out = append(out, tail...)
-	return strings.Join(out, "\n"), nil
+	return textedit.SpliceLines(content, start, end, newText)
 }
 
-// insertAfterLine returns content with insertContent spliced in after line
-// `after` (1-indexed). after=0 prepends; after=total_lines appends.
+// insertAfterLine inserts insertContent after line `after` (0 prepends,
+// total_lines appends). Delegates to internal/textedit.
 func insertAfterLine(content string, after int, insertContent string) (string, error) {
-	lines := strings.Split(content, "\n")
-	if after < 0 {
-		return "", fmt.Errorf("after_line must be >= 0 (got %d)", after)
-	}
-	if after > len(lines) {
-		return "", fmt.Errorf("after_line %d exceeds file length %d", after, len(lines))
-	}
-	insertLines := strings.Split(insertContent, "\n")
-	out := make([]string, 0, len(lines)+len(insertLines))
-	out = append(out, lines[:after]...)
-	out = append(out, insertLines...)
-	out = append(out, lines[after:]...)
-	return strings.Join(out, "\n"), nil
+	return textedit.InsertAfterLine(content, after, insertContent)
 }
 
-// applyEdit performs the find/replace at the heart of edit_file and
-// edit_function. Returns the updated content, the replacement count, a note
-// surfaced to the caller (empty when there's nothing to flag), and an error.
-// Returning errors as values (not Go errors) lets the caller surface them in
-// the tool's Error field so the agent can recover.
-//
-// When exact-string matching fails, applyEdit attempts a whitespace-tolerant
-// search: if the file contains exactly one byte range whose whitespace-
-// collapsed form equals the whitespace-collapsed old_text, that range is
-// replaced and a note advises the model to copy whitespace verbatim next
-// time. Zero or multiple tolerant matches still fall through to the original
-// diagnostic so the model has actionable feedback.
+// applyEdit is the byte-exact find/replace (with whitespace-tolerant fallback)
+// behind edit_file and edit_function. The implementation — including the
+// tolerant match and the actionable not-found diagnostics — lives in
+// internal/textedit so the MCP edit tools share identical semantics.
 func applyEdit(content, oldText, newText string, replaceAll bool) (string, int, string, error) {
-	count := strings.Count(content, oldText)
-	if count == 0 {
-		updated, ok := applyTolerantEdit(content, oldText, newText)
-		if ok {
-			return updated, 1, "applied a whitespace-tolerant match — the file's whitespace at the match site differed from old_text. Re-read the file (use read_file with start_line/end_line) to copy whitespace verbatim for predictable edits next time.", nil
-		}
-		return "", 0, "", diagnoseNotFound(content, oldText)
-	}
-	if count > 1 && !replaceAll {
-		return "", 0, "", fmt.Errorf("old_text matches %d locations; include more surrounding context to make it unique, or set replace_all=true", count)
-	}
-	if replaceAll {
-		return strings.ReplaceAll(content, oldText, newText), count, "", nil
-	}
-	return strings.Replace(content, oldText, newText, 1), 1, "", nil
-}
-
-// applyTolerantEdit looks for exactly one substring of content whose
-// whitespace-collapsed form equals collapseWS(oldText). When that uniquely
-// identifies a region, it's safe to replace — the alternative is forcing the
-// agent to re-read and retry, which is what wasted retries in the failing
-// build. When zero or >1 candidates exist, returns ok=false so the caller
-// falls through to the existing error path.
-func applyTolerantEdit(content, oldText, newText string) (string, bool) {
-	target := collapseWS(oldText)
-	if target == "" {
-		return "", false
-	}
-	type span struct{ start, end int }
-	var found []span
-	for i := 0; i <= len(content); i++ {
-		// Find the smallest j > i such that collapseWS(content[i:j]) == target.
-		// Once equal we record it and resume the outer loop past the match;
-		// once it exceeds target length we abandon this start.
-		for j := i; j <= len(content); j++ {
-			collapsed := collapseWS(content[i:j])
-			if collapsed == target {
-				found = append(found, span{i, j})
-				if len(found) > 1 {
-					return "", false // ambiguous — bail
-				}
-				i = j - 1 // -1 because outer loop's i++ will bump it
-				break
-			}
-			if len(collapsed) > len(target) {
-				break
-			}
-		}
-	}
-	if len(found) != 1 {
-		return "", false
-	}
-	m := found[0]
-	return content[:m.start] + newText + content[m.end:], true
-}
-
-// diagnoseNotFound returns the most actionable error message for a failed
-// edit_file lookup. The common failure mode is that the model copied old_text
-// with slightly-wrong whitespace (tabs vs spaces, missing indent, extra
-// trailing newline), so we check for those first and tell the model exactly
-// what to fix. Falling back to a generic message would just trigger another
-// blind retry.
-func diagnoseNotFound(content, oldText string) error {
-	trimmed := strings.TrimSpace(oldText)
-	if trimmed != "" && trimmed != oldText && strings.Contains(content, trimmed) {
-		return errors.New("old_text has extra leading or trailing whitespace that the file does not contain; trim it and retry")
-	}
-	if containsCollapsedWS(content, oldText) {
-		return errors.New("old_text matches only when whitespace is normalized — the file uses different indentation, tabs, or line breaks than your old_text. Re-read the file (use start_line/end_line to zoom in) and copy the whitespace verbatim")
-	}
-	return errors.New("old_text not found in file. Re-read the file to confirm the exact text (whitespace included), or use grep_files to locate a unique substring before retrying")
-}
-
-// containsCollapsedWS reports whether needle appears in haystack after every
-// run of whitespace is collapsed to a single space in both. Used only for
-// diagnostics — the actual replace still requires a byte-exact match.
-func containsCollapsedWS(haystack, needle string) bool {
-	return strings.Contains(collapseWS(haystack), collapseWS(needle))
-}
-
-func collapseWS(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
-	inWS := false
-	for _, r := range s {
-		switch r {
-		case ' ', '\t', '\n', '\r':
-			if !inWS {
-				b.WriteByte(' ')
-				inWS = true
-			}
-		default:
-			b.WriteRune(r)
-			inWS = false
-		}
-	}
-	return b.String()
+	return textedit.ApplyEdit(content, oldText, newText, replaceAll)
 }
 
 const (
@@ -1433,24 +1250,14 @@ func appendFileMatches(out []grepMatch, totalMatches, maxRes int, truncated bool
 	return out, totalMatches, truncated
 }
 
-// grepEligible decides whether a stored path is worth grepping. Assets are
-// binary-ish, the sidecar is internal metadata, and other extensions don't
-// belong in a search aimed at HTML + function source.
+// grepEligible decides whether a stored path is worth grepping. Delegates to
+// internal/textedit, shared with the MCP grep_files tool.
 func grepEligible(path string) bool {
-	if strings.HasPrefix(path, "assets/") {
-		return false
-	}
-	if path == ".topbanana.json" || path == ".bloomhollow.json" || path == ".buildabear.json" {
-		return false
-	}
-	return strings.HasSuffix(path, ".html") || strings.HasSuffix(path, ".js")
+	return textedit.GrepEligible(path)
 }
 
 func truncateSnippet(line string) string {
-	if len(line) <= grepSnippetMax {
-		return line
-	}
-	return line[:grepSnippetMax] + "…"
+	return textedit.TruncateSnippet(line, grepSnippetMax)
 }
 
 func newListFilesTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
@@ -1652,7 +1459,6 @@ const (
 const (
 	maxHTMLFileBytes   = 256 * 1024
 	maxHTMLFiles       = 25
-	maxHTMLPathLen     = 200
 	maxAgentIterations = 60
 	toolGuardRingLen   = 3
 
@@ -1760,120 +1566,18 @@ func budgetHint(htmlCount int, state *buildState) string {
 	return fmt.Sprintf("%d of %d HTML files used; ~%d iterations remaining", htmlCount, maxHTMLFiles, remaining)
 }
 
-// reservedWritePrefixes are paths managed by other tools (functions/, assets/)
-// that the HTML write tools must not clobber.
-var reservedWritePrefixes = []string{"functions/", "assets/"}
-
-// reservedWritePaths are exact paths the HTML write tools must not touch
-// (e.g. the per-site sidecar persisted by the build service). Both the
-// current and legacy sidecar names are reserved so an agent on a legacy
-// site can't accidentally clobber pre-rebrand metadata.
-var reservedWritePaths = map[string]bool{
-	".topbanana.json":   true,
-	".bloomhollow.json": true,
-	".buildabear.json":  true,
-}
-
-// validateHTMLPath gates every tool that writes/edits HTML. Mirrors
-// validateFunctionName's posture: reject anything that could escape the slug,
-// smuggle non-HTML into HTML paths, or clobber files managed by other tools.
+// validateHTMLPath gates every tool that writes/edits HTML: reject anything
+// that could escape the slug, smuggle non-HTML into HTML paths, or clobber
+// files managed by other tools. Implemented in internal/textedit so the MCP
+// write/edit tools enforce the identical rule.
 func validateHTMLPath(p string) error {
-	for _, check := range htmlPathChecks {
-		err := check(p)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-var htmlPathChecks = []func(string) error{
-	checkHTMLPathShape,
-	checkHTMLPathCharset,
-	checkHTMLPathSegments,
-	checkHTMLPathExtension,
-	checkHTMLPathReserved,
-}
-
-func checkHTMLPathShape(p string) error {
-	switch {
-	case p == "":
-		return errors.New("path is required")
-	case len(p) > maxHTMLPathLen:
-		return fmt.Errorf("path too long (max %d chars)", maxHTMLPathLen)
-	case strings.HasPrefix(p, "/"):
-		return errors.New("path must be relative (no leading /)")
-	case strings.Contains(p, `\`):
-		return errors.New("path must use forward slashes")
-	}
-	return nil
-}
-
-func checkHTMLPathCharset(p string) error {
-	for _, r := range p {
-		switch {
-		case r >= 'a' && r <= 'z':
-		case r >= '0' && r <= '9':
-		case r == '-' || r == '_' || r == '/' || r == '.':
-		default:
-			return fmt.Errorf("path must match [a-z0-9_/.-] (got %q)", p)
-		}
-	}
-	return nil
-}
-
-func checkHTMLPathSegments(p string) error {
-	for _, seg := range strings.Split(p, "/") {
-		if seg == "" || seg == "." || seg == ".." {
-			return fmt.Errorf("path %q contains an empty or relative segment", p)
-		}
-	}
-	if path.Clean(p) != p {
-		return fmt.Errorf("path %q is not canonical", p)
-	}
-	return nil
-}
-
-func checkHTMLPathExtension(p string) error {
-	if !strings.HasSuffix(p, ".html") {
-		return fmt.Errorf("path %q must end with .html", p)
-	}
-	return nil
-}
-
-func checkHTMLPathReserved(p string) error {
-	if reservedWritePaths[p] {
-		return fmt.Errorf("path %q is reserved", p)
-	}
-	for _, pfx := range reservedWritePrefixes {
-		if strings.HasPrefix(p, pfx) {
-			return fmt.Errorf("path %q is under reserved prefix %q", p, pfx)
-		}
-	}
-	return nil
+	return textedit.ValidateHTMLPath(p)
 }
 
 // validateFunctionName accepts the bare handler name (no path, no extension)
-// the agent supplies to write_function/read_function. We reject anything that
-// could escape the slug's functions/ prefix or smuggle JS into a non-function
-// path. Names match [a-z0-9-_]{1,40}.
+// supplied to write_function/read_function. Delegates to internal/textedit.
 func validateFunctionName(name string) error {
-	if name == "" {
-		return errors.New("function name is required")
-	}
-	if len(name) > 40 {
-		return errors.New("function name too long")
-	}
-	for _, r := range name {
-		switch {
-		case r >= 'a' && r <= 'z':
-		case r >= '0' && r <= '9':
-		case r == '-' || r == '_':
-		default:
-			return errors.New("function name must match [a-z0-9-_]")
-		}
-	}
-	return nil
+	return textedit.ValidateFunctionName(name)
 }
 
 func newWriteFunctionTool(s *store.Store, slug string, emit func(events.Event), state *buildState) (tool.Tool, error) {
