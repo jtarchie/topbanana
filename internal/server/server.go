@@ -1315,7 +1315,9 @@ func (s *Server) buildHandler(c *echo.Context) error {
 	}
 	tiers := s.effectiveTiersFor(user)
 
-	slog.Info("build.start", "slug", slug, "template", tmpl.ID, "attachments", len(attachments), "owner", owner, "tiers", tiers)
+	// templates.Get falls back to byID[defaultID]; init() panics if that's
+	// missing, so tmpl is non-nil at runtime.
+	slog.Info("build.start", "slug", slug, "template", tmpl.ID, "attachments", len(attachments), "owner", owner, "tiers", tiers) //nolint:nilaway // see comment.
 	// Register the slug + its owner before the build kicks off so the very
 	// first TLS handshake to <slug>.<domain> (the progress page about to
 	// load) passes HostAllowed, and so /events + /status see ownership
@@ -1765,7 +1767,9 @@ func (s *Server) editSubmitHandler(c *echo.Context) error {
 	tmpl := build.EffectiveTemplate(meta)
 	seeds := s.build.EditSeeds(ctx, slug, prompt)
 	tiers := s.effectiveTiersFor(userFromContext(c))
-	slog.Info("edit.start", "slug", slug, "page", page, "selection_len", len(selection), "template", tmpl.ID, "seeds", len(seeds), "attachments", len(attachments), "tiers", tiers)
+	// EffectiveTemplate wraps templates.Get, which is non-nil at runtime
+	// (init guarantees defaultID is present).
+	slog.Info("edit.start", "slug", slug, "page", page, "selection_len", len(selection), "template", tmpl.ID, "seeds", len(seeds), "attachments", len(attachments), "tiers", tiers) //nolint:nilaway // see comment.
 	return s.startBuild(c, build.Params{
 		Slug:         slug,
 		Prompt:       build.EditPrompt(prompt, page, selection),

@@ -78,12 +78,15 @@ func (s *Store) Write(ctx context.Context, slug, path, content, contentType stri
 		return fmt.Errorf("failed to write object %s: %w", key, err)
 	}
 
-	if s.cache != nil {
+	// s itself is guaranteed non-nil here: callers (server, portable)
+	// always pass a real *Store; calling Write on nil would have panicked
+	// on the PutObject call above.
+	if s.cache != nil { //nolint:nilaway // see comment.
 		etag := ""
 		if out != nil && out.ETag != nil {
 			etag = *out.ETag
 		}
-		s.cache.Add(key, &S3Object{
+		s.cache.Add(key, &S3Object{ //nolint:nilaway // see comment on outer if.
 			Content:     content,
 			ETag:        etag,
 			ContentType: contentType,

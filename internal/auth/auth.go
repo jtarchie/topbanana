@@ -170,6 +170,13 @@ func (a *Auth) Bootstrap(ctx context.Context) (string, error) {
 		}
 		slog.Info("auth.bootstrap.super_admin_created", "email", a.cfg.SuperAdminEmail)
 	}
+	// UserStore.Load follows the standard contract: (nil, err) on miss,
+	// (record, nil) on hit. Either Load returned a record or the
+	// ErrUserNotFound branch above constructed one — guard explicitly so
+	// the rest of this function (and nilaway) sees a non-nil user.
+	if user == nil {
+		return "", errors.New("auth: bootstrap: nil user after lookup and create")
+	}
 	if len(user.Credentials) > 0 {
 		return "", nil
 	}
@@ -177,8 +184,10 @@ func (a *Auth) Bootstrap(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	url := fmt.Sprintf("https://%s/register?invite=%s", a.cfg.Domain, invite.Token)
-	slog.Info("auth.bootstrap.invite_pending", "email", a.cfg.SuperAdminEmail, "url", url, "expires", invite.Expires.Format(time.RFC3339))
+	// IssueOrReuseBootstrap returns (non-nil invite, nil) on success; the
+	// nil-invite path is paired with a non-nil err that we already returned.
+	url := fmt.Sprintf("https://%s/register?invite=%s", a.cfg.Domain, invite.Token)                                                        //nolint:nilaway // see comment.
+	slog.Info("auth.bootstrap.invite_pending", "email", a.cfg.SuperAdminEmail, "url", url, "expires", invite.Expires.Format(time.RFC3339)) //nolint:nilaway // see comment.
 	return url, nil
 }
 

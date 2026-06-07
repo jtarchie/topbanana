@@ -123,8 +123,11 @@ func (s *Server) manageHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "load submissions", err)
 	}
 	total := len(rows)
+	// Slice cap is bounded by the if: total = len(rows), so
+	// total > manageSubmissionLimit implies len(rows) > manageSubmissionLimit
+	// and rows can't be nil at that point.
 	if total > manageSubmissionLimit {
-		rows = rows[:manageSubmissionLimit]
+		rows = rows[:manageSubmissionLimit] //nolint:nilaway // see comment.
 	}
 	more := total - len(rows)
 

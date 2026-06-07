@@ -298,7 +298,10 @@ func fetchServed(ctx context.Context, servedURL string) (sha string, size int, h
 		return "", 0, nil, fmt.Errorf("fetch: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
+	// resp is guaranteed non-nil here: http.Client.Do's contract is
+	// (resp != nil) iff (err == nil), and the line above already
+	// dereferenced resp.Body without panicking.
+	body, err := io.ReadAll(resp.Body) //nolint:nilaway // see comment.
 	if err != nil {
 		return "", 0, nil, fmt.Errorf("read body: %w", err)
 	}

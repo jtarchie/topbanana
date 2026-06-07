@@ -265,7 +265,9 @@ func buildSandboxRequest(r *http.Request, name string) (sandbox.Request, error) 
 		Body:    string(body),
 	}
 
-	ct := strings.ToLower(strings.SplitN(r.Header.Get("Content-Type"), ";", 2)[0])
+	// strings.SplitN with n>=1 always returns at least one element (the
+	// "" element for an empty input), so [0] is always safe.
+	ct := strings.ToLower(strings.SplitN(r.Header.Get("Content-Type"), ";", 2)[0]) //nolint:nilaway // see comment.
 	switch ct {
 	case "application/x-www-form-urlencoded":
 		form, ferr := parseFormBody(body)
