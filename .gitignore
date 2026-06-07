@@ -3,3 +3,6 @@ crush.json
 .crush/
 /topbanana
 .fly/
+coverage.out
+.benchstats/
+bench-*.txt

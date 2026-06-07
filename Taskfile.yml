@@ -12,6 +12,10 @@ vars:
   LLM_E2E_MODEL_NAME: google/gemma-4-12b
   LLM_E2E_CONTEXT: 16384
   SUPER_ADMIN_EMAIL: admin@local
+  COVERAGE_FILE: coverage.out
+  BENCHSTAT_DIR: .benchstats
+  FUZZ_TIME: 30s
+  ALLOWED_LICENSES: MIT,MIT-0,Apache-2.0,BSD-3-Clause,BSD-2-Clause,ISC,MPL-2.0
 
 tasks:
   fmt:
@@ -19,6 +23,121 @@ tasks:
       - gofmt -w .
       - golangci-lint run ./... --fix
       - go test -race ./...
+
+  vuln:
+    desc: Scan the module for known Go vulnerabilities (uses the Go vuln DB; reports only symbols actually reachable from the build).
+    cmds:
+      - govulncheck ./...
+
+  sec:
+    desc: Run gosec standalone as a second-pass SAST over the Go source. golangci-lint already wraps gosec with per-site //nolint markers; this run catches drift on rules that aren't site-justified.
+    cmds:
+      # Standalone gosec doesn't honor //nolint:gosec comments (it uses
+      # #nosec instead), so we exclude the rules that have approved per-site
+      # //nolint markers in golangci-lint:
+      #   G104, G301, G304, G306 — already excluded in .golangci.yml.
+      #   G203 — server.go/manage.go/visual_edit.go HTML escapes are vetted.
+      #   G204 — css_compile.go subprocess uses an operator-resolved CLI path.
+      #   G404 — slug_gen.go uses math/rand for public URL words, not tokens.
+      # -tests=false skips test files (G115/G124 there are test-only patterns).
+      - gosec -quiet -exclude-generated -tests=false -exclude=G104,G203,G204,G301,G304,G306,G404 ./...
+
+  licenses:
+    desc: Verify every Go dependency carries an allow-listed license. Update ALLOWED_LICENSES in the Taskfile vars if a new permissive license needs to be added.
+    cmds:
+      # --ignore github.com/jtarchie/topbanana skips classifier complaints
+      # about the project's own internal/* packages (no LICENSE at the repo
+      # root is intentional). github.com/segmentio/asm ships an MIT-No-
+      # Attribution (MIT-0) license that go-licenses' classifier can't name —
+      # the license is strictly more permissive than MIT, so we ignore it.
+      - >
+        go-licenses check ./...
+        --allowed_licenses={{.ALLOWED_LICENSES}}
+        --ignore github.com/jtarchie/topbanana
+        --ignore github.com/segmentio/asm
+
+  nilaway:
+    desc: Run Uber's nilaway nil-pointer analyzer on production code. -exclude-test-files skips the test_file http.NewRequest pattern (FP). Advisory — never gates `task quality`.
+    cmds:
+      - nilaway -exclude-test-files=true ./... || true
+
+  tidy:
+    desc: Verify that `go mod tidy` would be a no-op and that all module sums verify.
+    cmds:
+      # `go mod tidy -diff` (Go 1.23+) prints the changes tidy would make
+      # and exits non-zero if any are needed — gates without touching the
+      # working tree the way `git diff` would.
+      - go mod tidy -diff
+      - go mod verify
+
+  test:cover:
+    desc: Run the full test suite with coverage and open the HTML report.
+    cmds:
+      - go test -coverprofile={{.COVERAGE_FILE}} -covermode=atomic ./...
+      - go tool cover -html={{.COVERAGE_FILE}}
+
+  test:cover:summary:
+    desc: Print the total covered-statement percentage to stdout (uses the most recent coverage.out — run `task test:cover` first if it's missing).
+    cmds:
+      - |
+        if [ ! -f {{.COVERAGE_FILE}} ]; then
+          go test -coverprofile={{.COVERAGE_FILE}} -covermode=atomic ./...
+        fi
+        go tool cover -func={{.COVERAGE_FILE}} | tail -1
+
+  bench:
+    desc: Run every Go benchmark in the repo with -benchmem and -count=5 so benchstat has enough samples to detect real changes.
+    cmds:
+      - go test -run='^$' -bench=. -benchmem -count=5 ./...
+
+  bench:save:
+    desc: Snapshot the current bench output into {{.BENCHSTAT_DIR}}/bench-<git-sha>.txt for later `task bench:diff` comparisons.
+    cmds:
+      - mkdir -p {{.BENCHSTAT_DIR}}
+      - |
+        sha="$(git rev-parse --short HEAD 2>/dev/null || echo wip)"
+        go test -run='^$' -bench=. -benchmem -count=5 ./... \
+          | tee "{{.BENCHSTAT_DIR}}/bench-${sha}.txt"
+
+  bench:diff:
+    desc: 'Compare two saved bench snapshots with benchstat. Usage: task bench:diff -- <old.txt> <new.txt>'
+    cmds:
+      - benchstat {{.CLI_ARGS}}
+
+  fuzz:
+    desc: Run the high-signal fuzz targets (path traversal, subdomain parsing, HTML lint) for {{.FUZZ_TIME}} each. Crashers land under testdata/fuzz/.
+    cmds:
+      - go test -run='^$' -fuzz=FuzzClassifyUserPath -fuzztime={{.FUZZ_TIME}} ./internal/server/
+      - go test -run='^$' -fuzz=FuzzStripPort         -fuzztime={{.FUZZ_TIME}} ./internal/server/
+      - go test -run='^$' -fuzz=FuzzValidateSlug      -fuzztime={{.FUZZ_TIME}} ./internal/server/
+      - go test -run='^$' -fuzz=FuzzIsTraversal       -fuzztime={{.FUZZ_TIME}} ./internal/server/
+      - go test -run='^$' -fuzz=FuzzHTMLLint          -fuzztime={{.FUZZ_TIME}} ./internal/lint/
+
+  install:tools:
+    desc: Install every Go CLI the quality tasks depend on. Run once after cloning, or whenever you upgrade Go.
+    cmds:
+      - go install golang.org/x/vuln/cmd/govulncheck@latest
+      - go install github.com/securego/gosec/v2/cmd/gosec@latest
+      - go install github.com/google/go-licenses@latest
+      - go install go.uber.org/nilaway/cmd/nilaway@latest
+      - go install golang.org/x/perf/cmd/benchstat@latest
+
+  quality:
+    desc: Fast quality pass — fmt + lint + race-tested unit tests, plus vuln/sec/tidy/licenses gates. Intended as the "before I push" command.
+    cmds:
+      - task: fmt
+      - task: tidy
+      - task: vuln
+      - task: sec
+      - task: licenses
+
+  quality:deep:
+    desc: Slow quality pass — runs `task quality` then exercises the benchmark suite, the fuzz targets, and nilaway. Use when touching security-sensitive code paths.
+    cmds:
+      - task: quality
+      - task: bench
+      - task: fuzz
+      - task: nilaway
 
   css:
     desc: Recompile the embedded admin-UI stylesheet (internal/assets/app.css) from app.input.css + vendored daisyUI. Run after editing the admin templates or the input CSS.

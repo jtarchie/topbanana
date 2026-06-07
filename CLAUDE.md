@@ -22,6 +22,13 @@ Use `task` for development automation.
 | Command | Description |
 | --- | --- |
 | `task fmt` | Runs linters on the codebase |
+| `task quality` | Fast quality pass: `task fmt` + `task tidy` + `task vuln` + `task sec` + `task licenses`. Run before pushing. |
+| `task quality:deep` | Slow quality pass: `task quality` + `task bench` + `task fuzz` + `task nilaway`. Run when touching security-sensitive paths (auth, store, path validation, subdomain dispatch). |
+| `task install:tools` | Installs every Go CLI the quality tasks depend on (`govulncheck`, `gosec`, `go-licenses`, `nilaway`, `benchstat`). Run once after cloning. |
+| `task vuln` / `task sec` / `task licenses` / `task tidy` / `task nilaway` | Individual security and supply-chain gates. |
+| `task test:cover` / `task test:cover:summary` | Coverage with HTML report / total-percent line. |
+| `task bench` / `task bench:save` / `task bench:diff` | Run, snapshot, and benchstat-compare benchmarks. |
+| `task fuzz` | Runs the path-traversal, subdomain, and HTML-lint fuzz targets for 30s each. |
 | `task local` | Starts the application locally, ensuring Minio is ready and pointing to LM Studio. |
 | `task css` | Recompiles the embedded admin-UI stylesheet (`internal/assets/app.css`) from `app.input.css`. Run after editing the admin templates or input CSS. |
 | `task vendor:daisyui` | Re-vendors the daisyUI npm package into `internal/assets/daisyui` (then bump `DaisyUIVersion` in `internal/assets/embed.go` + run `task css`). |
