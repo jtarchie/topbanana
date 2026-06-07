@@ -1,11 +1,21 @@
 # MCP server
 
 Top Banana exposes a [Model Context Protocol](https://modelcontextprotocol.io)
-endpoint so an MCP client (e.g. Claude Code) can **author and manage sites on
-behalf of a logged-in user**. Unlike the web `/build` flow, the MCP tools never
-invoke the server-side LLM build agent — the connecting agent does all the
-authoring by reading and writing files directly. Every tool is deterministic
-(S3 reads/writes, metadata, slug allocation, and the pure-CPU lint pass).
+endpoint so an MCP client (e.g. Claude Code) can **edit the sites a logged-in
+user already owns**. Sites are *created* in the web `/build` flow; the MCP
+surface is the *editing* interface — discover a site, inspect it, change its
+pages/assets/functions/settings, and lint it. Unlike `/build`, the MCP tools
+never invoke the server-side LLM build agent: the connecting agent (itself a
+capable model) does the authoring directly. Every tool is deterministic (S3
+reads/writes, metadata, the sandbox, and the pure-CPU lint pass).
+
+The surface is designed around that external agent rather than mirroring the
+in-process build agent's primitives: it carries the authoring conventions
+through MCP **Resources** and **Prompts** (not just tool descriptions), offers
+**surgical edit tools** so iterating on a page isn't a whole-file rewrite, and
+returns the **live URL + a lint nudge** so the publish step is obvious. The
+edit semantics are shared with the build agent via `internal/textedit`, so
+MCP-driven and web-driven edits behave identically.
 
 ## Enabling it
 
@@ -40,25 +50,69 @@ re-runs the OAuth flow to refresh.
 
 ## Tools
 
+Discovery & files:
+
 | Tool | Purpose |
 | --- | --- |
 | `list_sites` | List the sites you own (title, template, created, custom domains, URL). |
 | `get_site` | Metadata (including any custom domains) + file list for one site. |
-| `create_site` | Create a new empty site you own (no build agent). Enforces your app quota. |
 | `read_file` | Read a file from a site. |
-| `write_file` | Create/overwrite an HTML page or image asset (content type inferred from the extension; e.g. `favicon.svg` is served as `image/svg+xml`). |
+| `write_file` | Create/overwrite an HTML page or image asset (content type inferred from the extension; e.g. `favicon.svg` is served as `image/svg+xml`). Returns the page URL + a lint nudge. |
 | `list_files` | List file paths in a site. |
-| `delete_file` | Delete a file. |
-| `lint_site` | Run the deterministic lint checks and report problems to fix. |
-| `list_runs` | List transcript keys for prior web-UI builds/edits. |
-| `get_run_transcript` | Read one build/edit transcript (read-only). |
+| `delete_file` | Delete a page or asset. |
 
-Authoring rules the connecting agent should follow (same as `static/agent_prompt.md`):
-author self-contained `.html` files with CSS/JS inlined, an `index.html`
-entry point, relative links between pages, and no external CDNs or frameworks.
-Image assets (`.svg`, `.png`, `.jpg`, `.gif`, `.webp`) — for example a
-`favicon.svg` linked from `<head>` — can also be uploaded with `write_file`;
-each is served with the content type inferred from its extension.
+Surgical editing (HTML pages; shared semantics with the build agent):
+
+| Tool | Purpose |
+| --- | --- |
+| `edit_file` | Find/replace `old_text` → `new_text` (byte-exact, with a whitespace-tolerant fallback; unique unless `replace_all`). Prefer over rewriting a page. |
+| `replace_lines` | Replace lines `start_line..end_line` (1-indexed, inclusive). Empty `new_text` deletes. |
+| `insert_at_line` | Insert after a line without replacing (`0` prepends, `total_lines` appends). |
+| `grep_files` | Literal substring search across a site's HTML + function source (paths, line numbers, snippets). |
+
+Server-side functions (sites with functions enabled):
+
+| Tool | Purpose |
+| --- | --- |
+| `write_function` / `read_function` / `edit_function` / `delete_function` / `list_functions` | Author the `functions/<name>.js` handlers served at `/api/<name>`. |
+| `test_function` | Invoke a handler in the sandbox against the site's real KV state; returns status, headers, body, and console logs. |
+
+Settings, lint & data:
+
+| Tool | Purpose |
+| --- | --- |
+| `configure_site` | Update `title` / `description` / `private` / `enable_functions` / `enable_public_api` (only the fields you pass). |
+| `lint_site` | Compile + self-host `/app.css` and run the deterministic checks; returns structured `problems` (`file`/`message`/`kind`/`autofixable`). This is what **publishes** the stylesheet. |
+| `list_submissions` | Read a site's captured form/KV entries (newest-first, capped). |
+| `list_runs` / `get_run_transcript` | Read-only transcripts of prior web-UI builds/edits. |
+
+> Site **creation**, deletion, ownership transfer, and custom-domain management
+> stay in the web UI — the MCP surface only edits sites that already exist.
+
+Authoring rules the connecting agent should follow (and which the resources
+below spell out): self-contained `.html` with CSS/JS inlined, an `index.html`
+entry point, relative links between pages, the `<link rel="stylesheet"
+href="/app.css">` substrate, and no external CDNs. Image assets (`.svg`,
+`.png`, `.jpg`, `.gif`, `.webp`) are written with `write_file` too.
+
+## Resources
+
+Pull-on-demand context, so the connecting agent doesn't arrive cold:
+
+| URI | Purpose |
+| --- | --- |
+| `topbanana://guide/authoring` | The authoring contract (the build agent's own system prompt). |
+| `topbanana://guide/design` | The `/app.css` design substrate: Tailwind utilities, daisyUI components, `data-theme` palettes. |
+| `topbanana://guide/functions` | The server-side functions runtime contract (globals, handler shape, forbidden APIs). |
+| `topbanana://templates` | The template catalog (id, label, description, whether functions are enabled, setup notes). |
+| `topbanana://templates/{id}` | One template's authoring addendum, setup notes, and worked example pages. |
+
+## Prompts
+
+| Prompt | Arguments | Purpose |
+| --- | --- | --- |
+| `edit_page` | `slug`, `page` (default `index.html`), `goal` | Loads the current page + the conventions, framed as a specific edit. |
+| `add_function` | `slug`, `purpose` | Loads the functions contract + a skeleton, framed as a new `/api` handler. |
 
 ## OAuth endpoints
 
