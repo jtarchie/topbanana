@@ -681,6 +681,7 @@ func TestAskUser_ValidationErrors(t *testing.T) {
 	t.Parallel()
 
 	tr := events.NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("s")
 	noEmit := func(events.Event) {}
 
@@ -716,6 +717,7 @@ func TestAskUser_CapReached(t *testing.T) {
 	t.Parallel()
 
 	tr := events.NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("s")
 	state := newAskState()
 	// Exhaust the cap.
@@ -740,6 +742,7 @@ func TestAskUser_Timeout(t *testing.T) {
 	t.Parallel()
 
 	tr := events.NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("s")
 	state := newAskState()
 
@@ -761,6 +764,7 @@ func TestAskUser_UserAnswer(t *testing.T) {
 	t.Parallel()
 
 	tr := events.NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("s")
 	state := newAskState()
 

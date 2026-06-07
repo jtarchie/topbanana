@@ -139,6 +139,7 @@ func warmUpModel(t *testing.T, baseURL, apiKey, modelName string) {
 func newLLMService(t *testing.T, st *store.Store, factory LLMFactory, modelID string) (*Service, *events.Tracker) {
 	t.Helper()
 	tracker := events.NewTracker()
+	t.Cleanup(tracker.Close)
 	svc := NewWithConfig(Config{
 		Store:        st,
 		TierMap:      model.TierMap{model.TierAuthor: modelID},

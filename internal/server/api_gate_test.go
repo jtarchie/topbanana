@@ -24,6 +24,7 @@ import (
 func buildServerWithSandbox(t *testing.T, st *store.Store, snapSvc *snapshot.Service) http.Handler {
 	t.Helper()
 	tracker := events.NewTracker()
+	t.Cleanup(tracker.Close)
 	buildSvc := build.New(st, nil, tracker, snapSvc)
 	authSvc, err := auth.New(auth.Config{
 		Store:           st,
@@ -34,6 +35,7 @@ func buildServerWithSandbox(t *testing.T, st *store.Store, snapSvc *snapshot.Ser
 	if err != nil {
 		t.Fatalf("auth.New: %v", err)
 	}
+	t.Cleanup(func() { _ = authSvc.Close() })
 	_, err = authSvc.InjectTestSession(context.Background(), testAdminUser, auth.RoleSuperAdmin)
 	if err != nil {
 		t.Fatalf("inject test session: %v", err)

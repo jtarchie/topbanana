@@ -60,6 +60,21 @@ type Auth struct {
 	// writes after loginFinish, computed once at construction time from the
 	// configured prefix. Exposed via SessionCookieName().
 	sessionCookieName string
+	// stopFns are subsystem shutdown hooks (e.g. the auth-session sweep
+	// goroutine). Invoked by Close. Order doesn't matter — each hook only
+	// touches its own subsystem.
+	stopFns []func()
+}
+
+// Close releases background resources held by the auth subsystem
+// (currently the in-memory auth-session sweep goroutine). Idempotent;
+// safe to call from t.Cleanup or process shutdown.
+func (a *Auth) Close() error {
+	for _, fn := range a.stopFns {
+		fn()
+	}
+	a.stopFns = nil
+	return nil
 }
 
 // New constructs the auth subsystem. Returns an error for misconfigured
@@ -103,6 +118,7 @@ func New(cfg Config) (*Auth, error) {
 		opts = append(opts, passkey.WithInsecureCookie())
 	}
 
+	authStore, stopAuthStore := NewMemAuthSessionStore()
 	pkey, err := passkey.New(passkey.Config{
 		WebauthnConfig: &webauthn.Config{
 			RPDisplayName: "Top Banana",
@@ -110,10 +126,11 @@ func New(cfg Config) (*Auth, error) {
 			RPOrigins:     buildRPOrigins(cfg.Domain, cfg.Port, cfg.InsecureCookies),
 		},
 		UserStore:        users,
-		AuthSessionStore: NewMemAuthSessionStore(),
+		AuthSessionStore: authStore,
 		UserSessionStore: sessions,
 	}, opts...)
 	if err != nil {
+		stopAuthStore()
 		return nil, fmt.Errorf("auth: build passkey: %w", err)
 	}
 
@@ -128,6 +145,7 @@ func New(cfg Config) (*Auth, error) {
 		// with a hand-maintained constant — commits b30103b and 8c44f89
 		// were both the "constant drifted from prefix" bug.
 		sessionCookieName: cfg.CookieNamePrefix + "Usid",
+		stopFns:           []func(){stopAuthStore},
 	}, nil
 }
 

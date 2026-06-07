@@ -83,6 +83,17 @@ var cli struct {
 }
 
 func main() {
+	err := run()
+	if err != nil {
+		slog.Error("topbanana exited with error", "err", err)
+		os.Exit(1)
+	}
+}
+
+// run is the actual entrypoint. Returning an error from here (instead of
+// calling os.Exit directly) lets every deferred Close on tracker / authSvc
+// actually fire — gocritic's exitAfterDefer was catching the prior pattern.
+func run() error {
 	kong.Parse(&cli,
 		kong.Name("topbanana"),
 		kong.Description("Vibe coding app hosting platform."),
@@ -99,20 +110,17 @@ func main() {
 	}
 	err := tierMap.Validate()
 	if err != nil {
-		slog.Error("model tier config invalid", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("model tier config: %w", err)
 	}
 
 	reasoningEffort, err := model.ParseReasoningEffort(cli.ReasoningEffort)
 	if err != nil {
-		slog.Error("reasoning effort invalid", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("reasoning effort: %w", err)
 	}
 
 	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
-		slog.Error("aws config failed", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("aws config: %w", err)
 	}
 
 	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
@@ -124,17 +132,16 @@ func main() {
 
 	s, err := store.New(s3Client, cli.S3Bucket, cli.CacheSize)
 	if err != nil {
-		slog.Error("store initialization failed", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("store init: %w", err)
 	}
 
 	err = s.EnsureBucket(ctx)
 	if err != nil {
-		slog.Error("ensure bucket failed", "bucket", cli.S3Bucket, "err", err)
-		os.Exit(1)
+		return fmt.Errorf("ensure bucket %q: %w", cli.S3Bucket, err)
 	}
 
 	tracker := events.NewTracker()
+	defer tracker.Close()
 	snapshotSvc := snapshot.New(s, cli.SnapshotKeep)
 	// llmFactory wires per-tier and per-user model dispatch: build.Service
 	// invokes it on first use of a model ID, then caches the result. Two
@@ -178,21 +185,19 @@ func main() {
 		},
 	})
 	if err != nil {
-		slog.Error("auth init failed", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("auth init: %w", err)
 	}
+	defer func() { _ = authSvc.Close() }()
 	_, err = authSvc.Bootstrap(ctx)
 	if err != nil {
-		slog.Error("auth bootstrap failed", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("auth bootstrap: %w", err)
 	}
 	// One-shot ownership migration: pre-multi-tenancy apps land with the
 	// super admin as their owner so commit 5's per-slug authorization sees
 	// every existing slug as accessible to them. Safe on every boot.
 	err = authSvc.MigrateOwnership(ctx, &storeAppLister{s: s}, &buildMetaAdapter{b: buildSvc})
 	if err != nil {
-		slog.Error("auth migrate ownership failed", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("auth migrate ownership: %w", err)
 	}
 
 	deps := server.Deps{
@@ -224,10 +229,9 @@ func main() {
 		slog.Info("app.started", "port", cli.Port, "domain", cli.Domain, "tiers", tierMap, "tls", false)
 		err = e.Start(":" + cli.Port)
 		if err != nil {
-			slog.Error("server error", "err", err)
-			os.Exit(1)
+			return fmt.Errorf("server: %w", err)
 		}
-		return
+		return nil
 	}
 
 	// TLS path. Order matters: build the autocert manager first so we can
@@ -257,9 +261,9 @@ func main() {
 		"acme_directory", cli.ACMEDirectory)
 	err = server.RunWithTLS(ctx, e, mgr, tlsOpts)
 	if err != nil {
-		slog.Error("server error", "err", err)
-		os.Exit(1)
+		return fmt.Errorf("server (tls): %w", err)
 	}
+	return nil
 }
 
 // storeAppLister adapts *store.Store to auth.AppLister so the migration

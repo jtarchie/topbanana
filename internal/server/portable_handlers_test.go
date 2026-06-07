@@ -140,7 +140,9 @@ func TestImportHandler_CreatesNewSite(t *testing.T) {
 		t.Fatalf("index.html in dst: got %q", got)
 	}
 
-	buildSvc := build.New(st, nil, events.NewTracker(), snapSvc)
+	tracker := events.NewTracker()
+	t.Cleanup(tracker.Close)
+	buildSvc := build.New(st, nil, tracker, snapSvc)
 	meta := buildSvc.ReadMeta(ctx, dst)
 	if meta.OwnerID != testAdminUser {
 		t.Errorf("dst OwnerID: got %q want %q", meta.OwnerID, testAdminUser)

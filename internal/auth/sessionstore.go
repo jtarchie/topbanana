@@ -54,8 +54,10 @@ func newToken() (string, error) {
 // Challenges are 5-minute, single-use, and lose nothing meaningful on a
 // process restart — the user just retries.
 type memAuthSessionStore struct {
-	mu   sync.Mutex
-	data map[string]memAuthEntry
+	mu        sync.Mutex
+	data      map[string]memAuthEntry
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 type memAuthEntry struct {
@@ -64,12 +66,23 @@ type memAuthEntry struct {
 }
 
 // NewMemAuthSessionStore returns a SessionStore[webauthn.SessionData] that
-// holds entries in a map with TTL eviction. Background sweep runs every
-// half-TTL so a stalled registration doesn't pile up forever.
-func NewMemAuthSessionStore() passkey.SessionStore[webauthn.SessionData] {
-	s := &memAuthSessionStore{data: map[string]memAuthEntry{}}
+// holds entries in a map with TTL eviction, plus a stop function that
+// terminates the background sweep. Background sweep runs every half-TTL so
+// a stalled registration doesn't pile up forever. The stop function is
+// idempotent — production calls it on shutdown; tests defer it to satisfy
+// goleak.
+func NewMemAuthSessionStore() (passkey.SessionStore[webauthn.SessionData], func()) {
+	s := &memAuthSessionStore{
+		data: map[string]memAuthEntry{},
+		done: make(chan struct{}),
+	}
 	go s.sweep(authChallengeTTL / 2)
-	return s
+	return s, s.close
+}
+
+// close stops the sweep goroutine. Safe to call more than once.
+func (s *memAuthSessionStore) close() {
+	s.closeOnce.Do(func() { close(s.done) })
 }
 
 func (s *memAuthSessionStore) Create(data webauthn.SessionData) (string, error) {
@@ -106,15 +119,20 @@ func (s *memAuthSessionStore) Get(token string) (*webauthn.SessionData, bool) {
 func (s *memAuthSessionStore) sweep(interval time.Duration) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
-	for range t.C {
-		now := time.Now()
-		s.mu.Lock()
-		for k, v := range s.data {
-			if now.After(v.expires) {
-				delete(s.data, k)
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-t.C:
+			now := time.Now()
+			s.mu.Lock()
+			for k, v := range s.data {
+				if now.After(v.expires) {
+					delete(s.data, k)
+				}
 			}
+			s.mu.Unlock()
 		}
-		s.mu.Unlock()
 	}
 }
 

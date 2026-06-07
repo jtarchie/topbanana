@@ -108,15 +108,20 @@ func buildServer(t *testing.T, st *store.Store, snapSvc *snapshot.Service) http.
 	if err != nil {
 		t.Fatalf("auth.New: %v", err)
 	}
+	t.Cleanup(func() { _ = authSvc.Close() })
 	token, err := authSvc.InjectTestSession(context.Background(), testAdminUser, auth.RoleSuperAdmin)
 	if err != nil {
 		t.Fatalf("inject test session: %v", err)
 	}
 	testSessionCookie = &http.Cookie{Name: authSvc.SessionCookieName(), Value: token}
+	buildTracker := events.NewTracker()
+	t.Cleanup(buildTracker.Close)
+	depsTracker := events.NewTracker()
+	t.Cleanup(depsTracker.Close)
 	e, _ := server.New(server.Deps{
 		Store:    st,
-		Build:    build.New(st, nil, events.NewTracker(), snapSvc),
-		Events:   events.NewTracker(),
+		Build:    build.New(st, nil, buildTracker, snapSvc),
+		Events:   depsTracker,
 		State:    state.NewMemory(),
 		Snapshot: snapSvc,
 		Auth:     authSvc,

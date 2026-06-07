@@ -86,17 +86,23 @@ type Status struct {
 // Tracker holds the active build map. The zero value is not usable; call
 // NewTracker which also spawns the sweep goroutine.
 type Tracker struct {
-	mu sync.Mutex
-	m  map[string]*Status
+	mu        sync.Mutex
+	m         map[string]*Status
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
-// NewTracker spawns a background sweep goroutine that lives for the lifetime
-// of the process; we don't bother with shutdown coordination because the only
-// consumer is the long-running HTTP server.
+// NewTracker spawns a background sweep goroutine. Call Close to terminate
+// it; production callers tie that to the server shutdown, tests defer it.
 func NewTracker() *Tracker {
-	t := &Tracker{m: make(map[string]*Status)}
+	t := &Tracker{m: make(map[string]*Status), done: make(chan struct{})}
 	go t.sweepLoop()
 	return t
+}
+
+// Close stops the sweep goroutine. Idempotent.
+func (t *Tracker) Close() {
+	t.closeOnce.Do(func() { close(t.done) })
 }
 
 func (t *Tracker) Start(slug string) {
@@ -296,8 +302,13 @@ func (t *Tracker) Unsubscribe(slug string, ch chan Event) {
 func (t *Tracker) sweepLoop() {
 	tick := time.NewTicker(sweepInterval)
 	defer tick.Stop()
-	for now := range tick.C {
-		t.sweep(now)
+	for {
+		select {
+		case <-t.done:
+			return
+		case now := <-tick.C:
+			t.sweep(now)
+		}
 	}
 }
 

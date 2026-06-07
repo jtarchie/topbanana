@@ -103,7 +103,9 @@ func TestRemixHandler_CopiesFilesAndRewritesMeta(t *testing.T) {
 	}
 
 	// New meta reflects ownership reassignment + reset visibility.
-	buildSvc := build.New(st, nil, events.NewTracker(), snapSvc)
+	tracker := events.NewTracker()
+	t.Cleanup(tracker.Close)
+	buildSvc := build.New(st, nil, tracker, snapSvc)
 	dstMeta := buildSvc.ReadMeta(ctx, dst)
 	if dstMeta.OwnerID != testAdminUser {
 		t.Errorf("dst OwnerID: got %q want %q", dstMeta.OwnerID, testAdminUser)

@@ -39,10 +39,15 @@ func newPrivateRig(t *testing.T, st *store.Store, snapSvc *snapshot.Service) *pr
 	if err != nil {
 		t.Fatalf("auth.New: %v", err)
 	}
+	t.Cleanup(func() { _ = authSvc.Close() })
+	buildTracker := events.NewTracker()
+	t.Cleanup(buildTracker.Close)
+	depsTracker := events.NewTracker()
+	t.Cleanup(depsTracker.Close)
 	e, _ := server.New(server.Deps{
 		Store:    st,
-		Build:    build.New(st, nil, events.NewTracker(), snapSvc),
-		Events:   events.NewTracker(),
+		Build:    build.New(st, nil, buildTracker, snapSvc),
+		Events:   depsTracker,
 		State:    state.NewMemory(),
 		Snapshot: snapSvc,
 		Auth:     authSvc,
@@ -219,7 +224,9 @@ func TestPrivateToggle_SettingsRoundTrip(t *testing.T) {
 	postSettings(true)
 
 	// Meta reflects the flag.
-	buildSvc := build.New(st, nil, events.NewTracker(), snapSvc)
+	metaTracker := events.NewTracker()
+	t.Cleanup(metaTracker.Close)
+	buildSvc := build.New(st, nil, metaTracker, snapSvc)
 	got := buildSvc.ReadMeta(ctx, slug)
 	if !got.Private {
 		t.Fatalf("meta.Private after toggle on: got false want true")

@@ -45,7 +45,9 @@ func TestSelectionListener_AlwaysInjected(t *testing.T) {
 	// domain-index rebuild during construction, so the meta has to land
 	// before buildServer below.
 	customHost := customSlug + ".example.test"
-	buildSvc := build.New(st, nil, events.NewTracker(), snapSvc)
+	tracker := events.NewTracker()
+	t.Cleanup(tracker.Close)
+	buildSvc := build.New(st, nil, tracker, snapSvc)
 	err := buildSvc.WriteMeta(ctx, customSlug, build.SiteMeta{
 		Created: time.Now().UTC(),
 		Domains: []string{customHost},

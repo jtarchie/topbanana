@@ -297,6 +297,7 @@ func TestService_Start_FailsWhenNoIndexHTML(t *testing.T) {
 	}
 
 	tracker := events.NewTracker()
+	t.Cleanup(tracker.Close)
 	runner := &noopRunner{}
 	svc := NewWithConfig(Config{
 		Store:        st,
@@ -336,6 +337,7 @@ func TestService_Start_HappyPathSeedsSkeletonWritesMetaCompletes(t *testing.T) {
 	}
 
 	tracker := events.NewTracker()
+	t.Cleanup(tracker.Close)
 	runner := &scriptedRunner{bodies: []string{validIndexHTML}, describe: agent.SiteDescription{Title: "T", Description: "D"}}
 	svc := NewWithConfig(Config{
 		Store:        st,
@@ -387,6 +389,7 @@ func TestService_Start_LintRetryFixesAndCompletes(t *testing.T) {
 	}
 
 	tracker := events.NewTracker()
+	t.Cleanup(tracker.Close)
 	// First Run produces a broken page (broken link → lint error). Second
 	// Run (the editor retry) writes valid HTML. Build should complete.
 	runner := &scriptedRunner{bodies: []string{brokenIndexHTML, validIndexHTML}}
@@ -503,6 +506,7 @@ func TestService_Start_MaxLintRetriesExceededFails(t *testing.T) {
 	}
 
 	tracker := events.NewTracker()
+	t.Cleanup(tracker.Close)
 	// Every Run writes the broken page; the lint loop should give up after
 	// maxLintRetries and emit a failure.
 	runner := &scriptedRunner{bodies: []string{brokenIndexHTML, brokenIndexHTML, brokenIndexHTML, brokenIndexHTML, brokenIndexHTML}}
@@ -543,6 +547,7 @@ func TestService_Start_TimeoutFailsWithDeadlineMessage(t *testing.T) {
 	}
 
 	tracker := events.NewTracker()
+	t.Cleanup(tracker.Close)
 	// Runner sleeps past the build timeout; buildAndLint must cancel and
 	// surface a "build timed out" failure.
 	runner := &scriptedRunner{

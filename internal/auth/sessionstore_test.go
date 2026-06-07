@@ -16,7 +16,8 @@ import (
 func TestMemAuthSessionStore_CreateGetDelete(t *testing.T) {
 	t.Parallel()
 
-	store := NewMemAuthSessionStore()
+	store, stop := NewMemAuthSessionStore()
+	t.Cleanup(stop)
 	data := webauthn.SessionData{
 		Challenge: "abc",
 		UserID:    []byte("alice@example.com"),
@@ -69,7 +70,8 @@ func TestMemAuthSessionStore_ExpiredEntryEvictedOnGet(t *testing.T) {
 func TestMemAuthSessionStore_MissingTokenReturnsFalse(t *testing.T) {
 	t.Parallel()
 
-	store := NewMemAuthSessionStore()
+	store, stop := NewMemAuthSessionStore()
+	t.Cleanup(stop)
 	got, ok := store.Get("no-such-token")
 	if ok || got != nil {
 		t.Errorf("Get(missing) = (%+v, %v), want (nil, false)", got, ok)
@@ -81,7 +83,8 @@ func TestMemAuthSessionStore_ConcurrentCreateProducesUniqueTokens(t *testing.T) 
 
 	// Race detector catches concurrent map writes; the test also asserts no
 	// duplicate tokens come back across N goroutines.
-	store := NewMemAuthSessionStore()
+	store, stop := NewMemAuthSessionStore()
+	t.Cleanup(stop)
 	const n = 64
 
 	var mu sync.Mutex

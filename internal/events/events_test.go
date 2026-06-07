@@ -11,6 +11,7 @@ func TestTracker_StartCompleteFail(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("a")
 	if got := tr.Get("a"); got == nil || got.Status != StatusBuilding {
 		t.Fatalf("after Start, status = %+v, want building", got)
@@ -40,6 +41,7 @@ func TestTracker_GetUnknownReturnsNil(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	if got := tr.Get("nope"); got != nil {
 		t.Errorf("Get on unknown slug = %+v, want nil", got)
 	}
@@ -49,6 +51,7 @@ func TestTracker_EmitFanoutToLiveSubscribers(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("s")
 	_, ch, terminal := tr.Subscribe("s")
 	if terminal {
@@ -77,6 +80,7 @@ func TestTracker_EmitDropsForSlowSubscriber(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("s")
 	_, ch, _ := tr.Subscribe("s")
 
@@ -121,6 +125,7 @@ func TestTracker_SubscribeReplaysHistory(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("s")
 	tr.Emit("s", Event{Type: TypeTool, Tool: "write_file", Phase: PhaseStart, Path: "/a"})
 	tr.Emit("s", Event{Type: TypeTool, Tool: "write_file", Phase: PhaseDone, Path: "/a"})
@@ -155,6 +160,7 @@ func TestTracker_SubscribeUnknownSlug(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	history, ch, terminal := tr.Subscribe("nope")
 	if history != nil || ch != nil {
 		t.Errorf("Subscribe on unknown slug returned history=%v ch=%v, want nil", history, ch)
@@ -168,6 +174,7 @@ func TestTracker_SubscribeOnTerminalSlugSeesTerminalFlag(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("s")
 	tr.Complete("s")
 
@@ -187,6 +194,7 @@ func TestTracker_ForgetClosesSubscribers(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("s")
 	_, ch, _ := tr.Subscribe("s")
 
@@ -210,6 +218,7 @@ func TestTracker_ForgetUnknownSlugIsNoop(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Forget("nope") // must not panic
 }
 
@@ -217,6 +226,7 @@ func TestTracker_Unsubscribe(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("s")
 	_, ch, _ := tr.Subscribe("s")
 
@@ -241,6 +251,7 @@ func TestTracker_UnsubscribeIdempotent(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("s")
 	_, ch, _ := tr.Subscribe("s")
 	tr.Unsubscribe("s", ch)
@@ -253,6 +264,7 @@ func TestTracker_SweepDropsTerminalAfterTTL(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 
 	// Plant a completed entry with a Finished time far in the past so the
 	// sweep evicts it.
@@ -279,6 +291,7 @@ func TestTracker_SweepClosesSubscribersOnEviction(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Emit("done", Event{Type: TypeStatus, Status: StatusBuilding})
 	old := time.Now().Add(-2 * TerminalTTL)
 	tr.Emit("done", Event{Type: TypeStatus, Status: StatusCompleted, Time: old})
@@ -301,6 +314,7 @@ func TestTracker_SweepLeavesNonTerminalAlone(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("s")
 	tr.sweep(time.Now().Add(10 * TerminalTTL))
 	if got := tr.Get("s"); got == nil {
@@ -316,6 +330,7 @@ func TestTracker_EmitConcurrent(t *testing.T) {
 	// won't be observed by the subscriber — we only assert there's no
 	// concurrent-map-write panic and the run completes.
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("s")
 
 	var wg sync.WaitGroup
@@ -340,6 +355,7 @@ func TestTracker_EmitOnUnknownSlugCreatesEntry(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	// Emit without prior Start — the tracker is supposed to lazily create
 	// the status entry so events aren't lost. This matches the production
 	// flow where the build orchestrator emits tool events before the
@@ -355,6 +371,7 @@ func TestTracker_AskEmitsEvent(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("s")
 	_, subs, _ := tr.Subscribe("s")
 
@@ -380,6 +397,7 @@ func TestTracker_ResolveDeliversAnswer(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("s")
 	_, subs, _ := tr.Subscribe("s")
 
@@ -416,6 +434,7 @@ func TestTracker_ResolveStaleFalse(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("s")
 
 	// Resolve on unknown question_id returns false.
@@ -432,6 +451,7 @@ func TestTracker_TerminalStatusClosesPending(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("s")
 
 	ch := tr.Ask("s", Event{
@@ -458,6 +478,7 @@ func TestTracker_EmitTimeout(t *testing.T) {
 	t.Parallel()
 
 	tr := NewTracker()
+	t.Cleanup(tr.Close)
 	tr.Start("s")
 
 	_, subs, _ := tr.Subscribe("s")

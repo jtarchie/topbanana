@@ -83,6 +83,7 @@ func buildServerWithRunner(t *testing.T, st *store.Store, snapSvc *snapshot.Serv
 func buildServerWithRunnerAndInfo(t *testing.T, st *store.Store, snapSvc *snapshot.Service, runner build.Runner, info server.SystemInfo) http.Handler {
 	t.Helper()
 	tracker := events.NewTracker()
+	t.Cleanup(tracker.Close)
 	buildSvc := build.NewWithConfig(build.Config{
 		Store:      st,
 		Events:     tracker,
@@ -99,6 +100,7 @@ func buildServerWithRunnerAndInfo(t *testing.T, st *store.Store, snapSvc *snapsh
 	if err != nil {
 		t.Fatalf("auth.New: %v", err)
 	}
+	t.Cleanup(func() { _ = authSvc.Close() })
 	token, err := authSvc.InjectTestSession(context.Background(), testAdminUser, auth.RoleSuperAdmin)
 	if err != nil {
 		t.Fatalf("inject test session: %v", err)
