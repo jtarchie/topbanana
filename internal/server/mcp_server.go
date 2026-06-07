@@ -83,8 +83,17 @@ func (s *Server) buildMCPServer() *mcp.Server {
 	s.registerListRuns(srv)
 	s.registerGetRunTranscript(srv)
 
+	s.registerWriteFunction(srv)
+	s.registerReadFunction(srv)
+	s.registerEditFunction(srv)
+	s.registerDeleteFunction(srv)
+	s.registerListFunctions(srv)
+	s.registerTestFunction(srv)
+	s.registerConfigureSite(srv)
+
 	s.registerGuideResources(srv)
 	s.registerTemplateResources(srv)
+	s.registerFunctionsGuide(srv)
 	s.registerEditPrompts(srv)
 
 	return srv
