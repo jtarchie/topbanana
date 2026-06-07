@@ -73,6 +73,78 @@ func TestAccount_DisabledSuperAdmin(t *testing.T) {
 	}
 }
 
+// TestAccount_DangerZoneRegularUser: a regular user gets working danger-zone
+// forms — sign-out-everywhere and a typed-email delete bound to their address —
+// and no leftover mailto: placeholders.
+func TestAccount_DangerZoneRegularUser(t *testing.T) {
+	t.Parallel()
+
+	html := renderAccount(t, accountData{
+		Email:        "user@example.com",
+		Role:         "admin",
+		IsSuperAdmin: false,
+	})
+
+	for _, want := range []string{
+		`action="/account/sign-out-everywhere"`,
+		`action="/account/delete"`,
+		`data-confirm-slug="user@example.com"`,
+		`name="confirm"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("danger zone missing %q", want)
+		}
+	}
+	if strings.Contains(html, "mailto:") {
+		t.Errorf("danger zone still has a mailto: placeholder")
+	}
+	if strings.Contains(html, "Coming soon") {
+		t.Errorf("danger zone still says 'Coming soon'")
+	}
+}
+
+// TestAccount_DangerZoneSuperAdmin: an operator can still sign out everywhere,
+// but the self-delete form is replaced by a note — they can't delete their own
+// account, so the form must not render.
+func TestAccount_DangerZoneSuperAdmin(t *testing.T) {
+	t.Parallel()
+
+	html := renderAccount(t, accountData{
+		Email:        "boss@example.com",
+		Role:         "super_admin",
+		IsSuperAdmin: true,
+	})
+
+	if !strings.Contains(html, `action="/account/sign-out-everywhere"`) {
+		t.Errorf("super admin should still have sign-out-everywhere")
+	}
+	if strings.Contains(html, `action="/account/delete"`) {
+		t.Errorf("super admin must not get a self-delete form")
+	}
+	if !strings.Contains(html, "can't be self-deleted") {
+		t.Errorf("super admin missing the no-self-delete note")
+	}
+}
+
+// TestAccount_FlashAndError: the danger-zone POSTs redirect back with a flash
+// or error query param, which the page must surface.
+func TestAccount_FlashAndError(t *testing.T) {
+	t.Parallel()
+
+	html := renderAccount(t, accountData{
+		Email: "user@example.com",
+		Role:  "admin",
+		Flash: "Passkey removed",
+		Error: "something broke",
+	})
+	if !strings.Contains(html, "Passkey removed") {
+		t.Errorf("flash not rendered")
+	}
+	if !strings.Contains(html, "something broke") {
+		t.Errorf("error not rendered")
+	}
+}
+
 // TestAccount_DisabledRegularUser: when MCP is off and the viewer is not a
 // super admin, they see the "not enabled" note but no operator-only enable
 // instructions (they can't set server config).

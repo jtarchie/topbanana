@@ -16,6 +16,9 @@
     </div>
   </header>
 
+  {{ if .Flash }}<div class="alert alert-success mb-4" role="status"><span>{{ .Flash }}</span></div>{{ end }}
+  {{ if .Error }}<div class="alert alert-error mb-4" role="alert"><span>{{ .Error }}</span></div>{{ end }}
+
   <section class="card bg-base-100 border border-base-300 mb-6" aria-labelledby="passkeys-heading">
     <div class="card-body">
       <div class="flex items-center justify-between gap-3 flex-wrap">
@@ -97,17 +100,32 @@
       <div class="px-4 py-3 flex items-start justify-between gap-3 flex-wrap">
         <div class="min-w-0">
           <p class="text-sm font-medium">Sign out everywhere</p>
-          <p class="text-xs text-base-content/60 mt-0.5">Revokes every active session on every device. Use this if you lost a laptop or phone. Coming soon as a button; for now we handle it manually.</p>
+          <p class="text-xs text-base-content/60 mt-0.5">Revokes every active session on every device, including this one. Use this if you lost a laptop or phone — you'll sign back in with your passkey.</p>
         </div>
-        <a href="mailto:hello@topbanana.dev?subject=Sign%20out%20everywhere%20for%20{{ .Email | urlquery }}" class="btn btn-outline btn-error btn-sm">Email support</a>
+        <form method="POST" action="/account/sign-out-everywhere" class="js-confirm"
+              data-confirm-title="Sign out everywhere?"
+              data-confirm="Every device, including this one, will be signed out. You'll sign back in with your passkey."
+              data-confirm-ok="Sign out everywhere" data-confirm-tone="primary">
+          <button type="submit" class="btn btn-outline btn-sm">Sign out everywhere</button>
+        </form>
       </div>
 
       <div class="px-4 py-3 flex items-start justify-between gap-3 flex-wrap">
         <div class="min-w-0">
           <p class="text-sm font-medium">Delete account</p>
-          <p class="text-xs text-base-content/60 mt-0.5">Permanently removes your account and every site you own. There's no undo. Coming soon as a button; for now we handle it manually.</p>
+          <p class="text-xs text-base-content/60 mt-0.5">Permanently removes your account and every site you own. There's no undo.</p>
         </div>
-        <a href="mailto:hello@topbanana.dev?subject=Delete%20account%20for%20{{ .Email | urlquery }}" class="btn btn-outline btn-error btn-sm">Email support</a>
+        {{ if .IsSuperAdmin }}
+        <span class="text-xs text-base-content/50 max-w-[16rem] text-right">Operator accounts can't be self-deleted. Ask another super admin to remove you.</span>
+        {{ else }}
+        <form method="POST" action="/account/delete" class="js-confirm"
+              data-confirm-title="Delete your account?"
+              data-confirm="This permanently deletes your account and every site you own. There is no undo."
+              data-confirm-ok="Delete account" data-confirm-slug="{{ .Email }}">
+          <input type="hidden" name="confirm" value="">
+          <button type="submit" class="btn btn-outline btn-error btn-sm">Delete account</button>
+        </form>
+        {{ end }}
       </div>
     </div>
   </section>
@@ -203,5 +221,6 @@
     });
   })();
 </script>
+{{ template "confirm_dialog" . }}
 </body>
 </html>

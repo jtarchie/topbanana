@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -54,8 +56,13 @@ type accountData struct {
 	MCPCommand string
 	// IsSuperAdmin gates the operator-facing "set MCP_SECRET to enable" hint
 	// shown in the disabled state — only an operator can change server config,
-	// so regular users just see that MCP isn't enabled.
+	// so regular users just see that MCP isn't enabled. Also hides the
+	// self-delete control: super admins can't delete their own account.
 	IsSuperAdmin bool
+	// Flash / Error surface the outcome of a danger-zone POST (passkey removed,
+	// or a refused self-delete) after the handler redirects back to /account.
+	Flash string
+	Error string
 }
 
 // loginHandler renders the email-entry form. Available unauthenticated;
@@ -173,7 +180,102 @@ func (s *Server) accountHandler(c *echo.Context) error {
 		MCPEnabled:   mcpEnabled,
 		MCPCommand:   mcpCmd,
 		IsSuperAdmin: user.Role == auth.RoleSuperAdmin,
+		Flash:        c.QueryParam("flash"),
+		Error:        c.QueryParam("error"),
 	})
+}
+
+// accountSignOutEverywhereHandler revokes every session for the logged-in
+// user — this device included — so a lost or stolen device loses access
+// immediately. Reversible (sign back in with a passkey), so the client-side
+// modal confirmation is enough; no typed confirmation server-side.
+func (s *Server) accountSignOutEverywhereHandler(c *echo.Context) error {
+	if s.auth == nil {
+		return notFound()
+	}
+	user := userFromContext(c)
+	if user == nil {
+		return notFound()
+	}
+	email := auth.NormalizeEmail(user.Email)
+	ctx := c.Request().Context()
+	err := s.auth.Sessions.RevokeAllForUser(ctx, email)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "revoke sessions", err)
+	}
+	// RevokeAllForUser drops the server-side records (and, since the cache
+	// hardening, the in-memory entries too); Logout additionally clears this
+	// browser's cookie on the response so the redirect lands on a clean slate.
+	s.auth.Passkey.Logout(c.Response(), c.Request())
+	slog.Info("account.signout_all", "email", email)
+	return c.Redirect(http.StatusSeeOther, "/login") //nolint:wrapcheck
+}
+
+// accountDeleteHandler permanently deletes the logged-in user's account and
+// cascade-deletes every site they own, then revokes their sessions and clears
+// the cookie. Super admins are refused outright — an operator self-deleting
+// (especially the last one) could leave the platform with no administrator and
+// no in-app recovery path; another super admin must remove them instead.
+// Requires the typed-email confirmation as the irreversible-action guard.
+func (s *Server) accountDeleteHandler(c *echo.Context) error {
+	if s.auth == nil {
+		return notFound()
+	}
+	user := userFromContext(c)
+	if user == nil {
+		return notFound()
+	}
+	email := auth.NormalizeEmail(user.Email)
+
+	if user.Role == auth.RoleSuperAdmin {
+		return c.Redirect(http.StatusSeeOther, "/account?error="+urlEscape("Super-admin accounts can't be self-deleted. Ask another operator to remove you.")) //nolint:wrapcheck
+	}
+	if auth.NormalizeEmail(c.FormValue("confirm")) != email {
+		return echo.NewHTTPError(http.StatusBadRequest, "confirmation does not match your email")
+	}
+
+	ctx := c.Request().Context()
+	// Sites first, user record last: deleting the record first would strand the
+	// sites under a now-userless owner that no retry could cascade.
+	apps, err := s.deleteAppsOwnedBy(ctx, email)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "delete sites", err)
+	}
+	revokeErr := s.auth.Sessions.RevokeAllForUser(ctx, email)
+	if revokeErr != nil {
+		// The account is going away regardless; a failed revoke just means a
+		// stale cookie that the deleted user record will reject on next use.
+		slog.Warn("account.delete.session_revoke_failed", "email", email, "err", revokeErr)
+	}
+	err = s.auth.Users.Delete(ctx, email)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "delete user", err)
+	}
+	s.revokePendingInvitesFor(ctx, email)
+	s.rebuildDomainIndexLogging(ctx)
+	s.auth.Passkey.Logout(c.Response(), c.Request())
+
+	slog.Info("account.delete", "email", email, "apps", apps)
+	return c.Redirect(http.StatusSeeOther, "/login?flash="+urlEscape("Account deleted")) //nolint:wrapcheck
+}
+
+// revokePendingInvitesFor best-effort revokes every unconsumed invite for the
+// address. Run during account/user deletion so a still-open invite can't be
+// used to re-register the just-deleted address and resurrect the account.
+func (s *Server) revokePendingInvitesFor(ctx context.Context, email string) {
+	email = auth.NormalizeEmail(email)
+	invites, err := s.auth.Invites.List(ctx)
+	if err != nil {
+		slog.Warn("invite.cleanup.list_failed", "email", email, "err", err)
+		return
+	}
+	for _, inv := range invites {
+		if inv.UsedBy == "" && auth.NormalizeEmail(inv.Email) == email {
+			if revErr := s.auth.Invites.Revoke(ctx, inv.Token); revErr != nil {
+				slog.Warn("invite.cleanup.revoke_failed", "token", inv.Token, "err", revErr)
+			}
+		}
+	}
 }
 
 // currentSessionEmail extracts the email from the passkey library's user

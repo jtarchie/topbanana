@@ -273,6 +273,8 @@ func New(d Deps) (*echo.Echo, *Server) {
 	admin.GET("/apps", s.appsHandler)
 	admin.GET("/system", s.systemHandler)
 	admin.GET("/account", s.accountHandler)
+	admin.POST("/account/sign-out-everywhere", s.accountSignOutEverywhereHandler)
+	admin.POST("/account/delete", s.accountDeleteHandler)
 
 	// Super-admin-only surfaces. requireSuperAdmin layers role check on
 	// top of requireUser, so these routes live outside the regular admin
@@ -1939,6 +1941,42 @@ func (s *Server) deleteApp(ctx context.Context, slug string) (files int, snaps i
 
 	s.events.Forget(slug)
 	return len(paths), snaps, nil
+}
+
+// deleteAppsOwnedBy cascades deleteApp over every site owned by email. It uses
+// ListApps + ReadMeta as the authoritative owner source rather than the
+// in-memory ownerIndex, which can lag a just-built site. It collects the first
+// error but keeps going so one wedged slug doesn't strand the rest, and leaves
+// the single domain-index rebuild to the caller. An empty email is a no-op —
+// it must never match the empty OwnerID of a pre-migration, super-admin-only
+// site. Returns the number of apps actually removed.
+func (s *Server) deleteAppsOwnedBy(ctx context.Context, email string) (int, error) {
+	email = auth.NormalizeEmail(email)
+	if email == "" {
+		return 0, nil
+	}
+	slugs, err := s.store.ListApps(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("list apps: %w", err)
+	}
+	count := 0
+	var firstErr error
+	for _, slug := range slugs {
+		meta := s.build.ReadMeta(ctx, slug)
+		if meta.OwnerID != email {
+			continue
+		}
+		files, snaps, derr := s.deleteApp(ctx, slug)
+		if derr != nil {
+			if firstErr == nil {
+				firstErr = derr
+			}
+			continue
+		}
+		slog.Info("app.delete", "slug", slug, "files", files, "snapshots", snaps, "reason", "owner_delete")
+		count++
+	}
+	return count, firstErr
 }
 
 // settingsDeleteHandler permanently removes an app: all site files, all
