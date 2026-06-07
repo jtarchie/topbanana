@@ -1903,6 +1903,44 @@ func newlyAddedDomains(prev, next []string) []string {
 	return added
 }
 
+// deleteApp permanently removes one app's content: every site file, every
+// snapshot, and its in-memory build/event state. It deliberately does NOT
+// rebuild the domain index or log — callers own that, so a single delete logs
+// once and a multi-app cascade (account / user deletion) rebuilds the index
+// once after the last app. Returns the count of files and snapshots removed
+// for the caller's audit log. Idempotent: re-running on an already-emptied
+// slug lists zero files and is a no-op, which is what makes the cascade
+// retry-safe.
+func (s *Server) deleteApp(ctx context.Context, slug string) (files int, snaps int, err error) {
+	paths, err := s.store.List(ctx, slug)
+	if err != nil {
+		return 0, 0, fmt.Errorf("list files: %w", err)
+	}
+	for _, p := range paths {
+		derr := s.store.Delete(ctx, slug, p)
+		if derr != nil {
+			return 0, 0, fmt.Errorf("delete file: %w", derr)
+		}
+	}
+
+	if s.snapshot != nil {
+		snapList, lerr := s.snapshot.List(ctx, slug)
+		if lerr != nil {
+			return 0, 0, fmt.Errorf("list snapshots: %w", lerr)
+		}
+		for _, sn := range snapList {
+			derr := s.snapshot.Delete(ctx, slug, sn.Key)
+			if derr != nil {
+				return 0, 0, fmt.Errorf("delete snapshot: %w", derr)
+			}
+		}
+		snaps = len(snapList)
+	}
+
+	s.events.Forget(slug)
+	return len(paths), snaps, nil
+}
+
 // settingsDeleteHandler permanently removes an app: all site files, all
 // snapshots, the in-memory build status, and any custom-domain mapping. The
 // caller must POST `confirm` equal to the slug — the typed-slug guard is the
@@ -1918,37 +1956,13 @@ func (s *Server) settingsDeleteHandler(c *echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
-
-	files, err := s.store.List(ctx, slug)
+	files, snaps, err := s.deleteApp(ctx, slug)
 	if err != nil {
-		return httpErr(http.StatusInternalServerError, "list files", err)
+		return httpErr(http.StatusInternalServerError, "delete app", err)
 	}
-	for _, p := range files {
-		err = s.store.Delete(ctx, slug, p)
-		if err != nil {
-			return httpErr(http.StatusInternalServerError, "delete file", err)
-		}
-	}
-
-	snapCount := 0
-	if s.snapshot != nil {
-		snaps, err := s.snapshot.List(ctx, slug)
-		if err != nil {
-			return httpErr(http.StatusInternalServerError, "list snapshots", err)
-		}
-		for _, sn := range snaps {
-			err = s.snapshot.Delete(ctx, slug, sn.Key)
-			if err != nil {
-				return httpErr(http.StatusInternalServerError, "delete snapshot", err)
-			}
-		}
-		snapCount = len(snaps)
-	}
-
-	s.events.Forget(slug)
 	s.rebuildDomainIndexLogging(ctx)
 
-	slog.Info("app.delete", "slug", slug, "files", len(files), "snapshots", snapCount)
+	slog.Info("app.delete", "slug", slug, "files", files, "snapshots", snaps)
 	return c.Redirect(http.StatusSeeOther, "/apps?flash="+urlEscape("Deleted "+slug)) //nolint:wrapcheck
 }
 
