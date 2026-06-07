@@ -17,6 +17,7 @@ import (
 
 	"github.com/jtarchie/topbanana/internal/auth"
 	"github.com/jtarchie/topbanana/internal/editrec"
+	"github.com/jtarchie/topbanana/internal/lint"
 	"github.com/jtarchie/topbanana/internal/templates"
 	"github.com/jtarchie/topbanana/internal/textedit"
 )
@@ -90,6 +91,7 @@ func (s *Server) buildMCPServer() *mcp.Server {
 	s.registerListFunctions(srv)
 	s.registerTestFunction(srv)
 	s.registerConfigureSite(srv)
+	s.registerListSubmissions(srv)
 
 	s.registerGuideResources(srv)
 	s.registerTemplateResources(srv)
@@ -609,14 +611,86 @@ func (s *Server) registerLintSite(srv *mcp.Server) {
 			tmpl = templates.Get(meta.Template) // nil when the id is unknown
 		}
 		errs := s.build.Lint(ctx, in.Slug, tmpl)
-		msgs := make([]string, 0, len(errs))
-		for _, e := range errs {
-			msgs = append(msgs, e.Error())
-		}
+		problems, msgs := mcpLintProblems(errs)
 		return mcpJSON(map[string]any{
-			"slug":   in.Slug,
-			"ok":     len(msgs) == 0,
-			"errors": msgs,
+			"slug": in.Slug,
+			"ok":   len(errs) == 0,
+			// problems is the structured form (file/message/kind/autofixable);
+			// errors keeps the flat "file: message" strings for older clients.
+			"problems": problems,
+			"errors":   msgs,
+			"url":      s.mcpSiteURL(in.Slug),
+		})
+	})
+}
+
+// mcpLintProblems shapes lint errors into the structured problems the MCP
+// lint_site result carries (file/message/kind/autofixable) plus the flat
+// "file: message" strings kept for older clients. autofixable mirrors the build
+// loop: only the design-substrate kind is mechanically repaired (by OptimizeCSS
+// / AutoFixDesignSubstrate); everything else is for the agent to fix.
+func mcpLintProblems(errs []lint.Error) (problems []map[string]any, msgs []string) {
+	problems = make([]map[string]any, 0, len(errs))
+	msgs = make([]string, 0, len(errs))
+	for i := range errs {
+		e := &errs[i]
+		msgs = append(msgs, e.Error())
+		problems = append(problems, map[string]any{
+			"file":        e.File,
+			"message":     e.Message,
+			"kind":        string(e.Kind),
+			"autofixable": e.Kind == lint.KindDesignSubstrate,
+		})
+	}
+	return problems, msgs
+}
+
+// --- form submissions (read-only) -------------------------------------------
+
+const mcpSubmissionsMax = 100
+
+// mcpSubmissionRows maps the column-aligned dataRows the manage page renders
+// into self-describing {column: value, _key: id} objects, capping at max and
+// reporting whether rows were dropped.
+func mcpSubmissionRows(cols []string, rows []dataRow, limit int) (out []map[string]any, truncated bool) {
+	if len(rows) > limit {
+		rows = rows[:limit]
+		truncated = true
+	}
+	out = make([]map[string]any, 0, len(rows))
+	for _, r := range rows {
+		obj := map[string]any{"_key": r.Key}
+		for i, c := range cols {
+			if i < len(r.Values) {
+				obj[c] = r.Values[i]
+			}
+		}
+		out = append(out, obj)
+	}
+	return out, truncated
+}
+
+type listSubmissionsInput struct {
+	Slug string `json:"slug" jsonschema:"The site slug whose form submissions to read"`
+}
+
+func (s *Server) registerListSubmissions(srv *mcp.Server) {
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_submissions",
+		Description: "Read the form submissions / key-value entries captured by a site the caller owns (the same data behind the manage page and CSV/JSON export). Newest first, capped at 100. Lets an agent confirm a form it built actually captures data.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listSubmissionsInput) (*mcp.CallToolResult, any, error) {
+		_, err := s.mcpUserAndAuthorize(ctx, in.Slug)
+		if err != nil {
+			return nil, nil, err
+		}
+		cols, rows, err := s.collectSubmissions(ctx, in.Slug)
+		if err != nil {
+			return nil, nil, fmt.Errorf("load submissions: %w", err)
+		}
+		out, truncated := mcpSubmissionRows(cols, rows, mcpSubmissionsMax)
+		return mcpJSON(map[string]any{
+			"slug": in.Slug, "columns": cols, "submissions": out,
+			"truncated": truncated,
 		})
 	})
 }
