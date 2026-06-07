@@ -14,18 +14,21 @@ import (
 
 // loginData backs templates/login.html. The page itself doesn't yet know
 // who the user is — the form posts to /auth/passkey/loginBegin which
-// returns the challenge.
+// returns the challenge. Embeds Chrome so the shared brand + footer
+// partials (which read .Year, .Active, …) render — without it the page
+// 500s on the footer's `{{ if .Year }}`.
 type loginData struct {
-	Active string
+	Chrome
 }
 
 // registerData backs templates/register.html. Email + invite token are
 // populated from the URL parameter; the page POSTs to /auth/passkey/* and
-// then to /register/finish to consume the invite.
+// then to /register/finish to consume the invite. Embeds Chrome for the
+// same reason as loginData.
 type registerData struct {
+	Chrome
 	Email       string
 	InviteToken string
-	Active      string
 }
 
 // accountCredential is one passkey row rendered on /account.
@@ -58,7 +61,7 @@ type accountData struct {
 // loginHandler renders the email-entry form. Available unauthenticated;
 // the form is self-driving via JS once the user submits.
 func (s *Server) loginHandler(c *echo.Context) error {
-	return s.render(c, "login", loginData{Active: "login"})
+	return s.render(c, "login", loginData{Chrome: Chrome{Active: "login"}})
 }
 
 // registerHandler validates an invite token and materialises (or finds)
@@ -89,9 +92,9 @@ func (s *Server) registerHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "create user", err)
 	}
 	return s.render(c, "register", registerData{
+		Chrome:      Chrome{Active: "register"},
 		Email:       inv.Email,
 		InviteToken: inv.Token,
-		Active:      "register",
 	})
 }
 
