@@ -46,7 +46,6 @@ func TestNormalizeDomain(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		c := c
 		t.Run(c.in, func(t *testing.T) {
 			t.Parallel()
 			got, err := NormalizeDomain(c.in)
@@ -154,7 +153,6 @@ func TestPagesNamedInPrompt(t *testing.T) {
 		{"go home", nil},
 	}
 	for _, c := range cases {
-		c := c
 		t.Run(c.prompt, func(t *testing.T) {
 			t.Parallel()
 			got := pagesNamedInPrompt(pages, c.prompt)

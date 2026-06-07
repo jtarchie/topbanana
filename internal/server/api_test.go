@@ -29,7 +29,6 @@ func TestCheckAPIOrigin_SafeMethodsBypass(t *testing.T) {
 	// GET/HEAD/OPTIONS are idempotent; pages must be able to fetch their own
 	// JSON endpoints without the check firing.
 	for _, m := range []string{http.MethodGet, http.MethodHead, http.MethodOptions} {
-		m := m
 		t.Run(m, func(t *testing.T) {
 			t.Parallel()
 			r := httptest.NewRequest(m, "http://host.example/api/foo", nil)
@@ -110,7 +109,6 @@ func TestApiOriginMatches(t *testing.T) {
 		{"//host.example/path", "host.example", true}, // protocol-relative
 	}
 	for _, c := range cases {
-		c := c
 		t.Run(c.header+"|"+c.host, func(t *testing.T) {
 			t.Parallel()
 			got := apiOriginMatches(c.header, c.host)
@@ -135,7 +133,6 @@ func TestIsAPISafeMethod(t *testing.T) {
 		http.MethodPatch:   false,
 	}
 	for method, want := range cases {
-		method, want := method, want
 		t.Run(method, func(t *testing.T) {
 			t.Parallel()
 			if got := isAPISafeMethod(method); got != want {
@@ -164,7 +161,6 @@ func TestValidateFunctionPathName(t *testing.T) {
 		{strings.Repeat("a", 41), true}, // length cap
 	}
 	for _, c := range cases {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			err := validateFunctionPathName(c.name)

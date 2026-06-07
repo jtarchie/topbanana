@@ -308,15 +308,16 @@ func (w *jsWalker) checkAssignsHandler(a *ast.AssignExpression) {
 	if a == nil || a.Operator.String() != "=" {
 		return
 	}
-	switch left := a.Left.(type) {
-	case *ast.DotExpression:
-		root, prop := unwrapDot(left)
-		switch {
-		case root == "module" && prop == "exports":
-			w.exportsHandler = true
-		case root == "exports":
-			w.exportsHandler = true
-		}
+	left, ok := a.Left.(*ast.DotExpression)
+	if !ok {
+		return
+	}
+	root, prop := unwrapDot(left)
+	switch {
+	case root == "module" && prop == "exports":
+		w.exportsHandler = true
+	case root == "exports":
+		w.exportsHandler = true
 	}
 }
 

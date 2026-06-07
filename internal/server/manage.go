@@ -93,7 +93,9 @@ func renderSetupNotes(notes string) template.HTML {
 		}
 		b.WriteString("</p>")
 	}
-	return template.HTML(b.String())
+	// Every interpolated rune above went through template.HTMLEscapeString;
+	// the surrounding tags are literals. template.HTML is safe here.
+	return template.HTML(b.String()) //nolint:gosec // G203: see comment.
 }
 
 func (s *Server) manageHandler(c *echo.Context) error {

@@ -5,6 +5,7 @@
 package auth
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -169,7 +170,7 @@ func (u *User) WebAuthnCredentials() []webauthn.Credential { return u.Credential
 // stacking.
 func (u *User) PutCredential(c webauthn.Credential) {
 	for i, existing := range u.Credentials {
-		if string(existing.ID) == string(c.ID) {
+		if bytes.Equal(existing.ID, c.ID) {
 			u.Credentials[i] = c
 			return
 		}

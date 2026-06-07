@@ -133,7 +133,10 @@ func compileSiteCSS(ctx context.Context, cli string, args []string, daisyDir str
 	runCtx, cancel := context.WithTimeout(ctx, cssCompileTimeout)
 	defer cancel()
 	cmdArgs := append(append([]string{}, args...), "-i", "input.css", "-o", "app.css", "--minify")
-	cmd := exec.CommandContext(runCtx, cli, cmdArgs...)
+	// `cli` resolves via --tailwind-cli / TAILWIND_CLI / PATH lookup at boot
+	// and is operator-controlled, not user-supplied. The agent path can't
+	// influence which binary runs.
+	cmd := exec.CommandContext(runCtx, cli, cmdArgs...) //nolint:gosec // G204: see comment.
 	cmd.Dir = work
 	out, err := cmd.CombinedOutput()
 	if err != nil {

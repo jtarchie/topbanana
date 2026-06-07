@@ -246,7 +246,7 @@ func TestRecorderTrim(t *testing.T) {
 	slug := freshSlug(t)
 	cleanup(t, ctx, s, slug)
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		rec := editrec.New(slug, "edit", "", "", 0)
 		// Stagger started_at so the key timestamps differ.
 		time.Sleep(1100 * time.Millisecond)

@@ -259,7 +259,7 @@ func suspiciousAttrValues(file string, doc *html.Node) []Error {
 // findEmbeddedTagName returns the first known HTML tag name found after a
 // "<" inside v, or "" when none. Match is case-insensitive on the tag name.
 func findEmbeddedTagName(v string) string {
-	for i := 0; i < len(v); i++ {
+	for i := range len(v) {
 		if v[i] != '<' {
 			continue
 		}

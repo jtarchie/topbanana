@@ -32,8 +32,14 @@ var nouns = []string{
 }
 
 func newSlug() string {
+	// Slugs are public, user-visible URL fragments — not auth secrets. Anyone
+	// who knows the slug can reach the (non-private) site by design, so a
+	// CSPRNG buys nothing and costs a syscall per call.
+	//nolint:gosec // G404: math/rand is intentional for slug words; see comment.
 	adj := adjectives[rand.IntN(len(adjectives))]
+	//nolint:gosec // G404: see newSlug comment.
 	noun := nouns[rand.IntN(len(nouns))]
+	//nolint:gosec // G404: see newSlug comment.
 	num := rand.IntN(100)
 	return fmt.Sprintf("%s-%s-%d", adj, noun, num)
 }

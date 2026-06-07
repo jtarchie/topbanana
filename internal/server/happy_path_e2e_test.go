@@ -161,7 +161,9 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	}
 
 	// 1. Landing page renders with DaisyUI lemonade chrome.
-	resp, body := authedGET("/")
+	// authedGET defers Body.Close() inside the helper before returning resp;
+	// bodyclose can't see through the closure, hence the suppress.
+	resp, body := authedGET("/") //nolint:bodyclose // see comment.
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /: %d", resp.StatusCode)
 	}
@@ -220,7 +222,7 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	//    layout, so we check the row-level markers rather than card markup:
 	//    whole-row workspace link, the small Open ↗ button, and the kebab
 	//    dropdown wrapper.
-	resp, body = authedGET("/apps")
+	resp, body = authedGET("/apps") //nolint:bodyclose // see authedGET comment above.
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /apps: %d", resp.StatusCode)
 	}
@@ -231,7 +233,7 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	}
 
 	// 5. Subdomain proxy serves the canned index.html from the stub agent.
-	siteResp, siteBody := getSite(t, client, httpSrv.URL, slug+".localhost", "/")
+	siteResp, siteBody := getSite(t, client, httpSrv.URL, slug+".localhost", "/") //nolint:bodyclose // getSite closes body internally.
 	if siteResp.StatusCode != http.StatusOK {
 		t.Fatalf("GET site: %d", siteResp.StatusCode)
 	}
@@ -243,7 +245,7 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	//    theme picker + history side panels. The legacy /edit/:slug path now
 	//    redirects to /workspace/:slug; we follow the redirect and assert the
 	//    workspace markers land.
-	resp, body = authedGET("/edit/" + slug)
+	resp, body = authedGET("/edit/" + slug) //nolint:bodyclose // see authedGET comment above.
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /edit/%s (after redirect): %d", slug, resp.StatusCode)
 	}
@@ -258,7 +260,7 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 
 	// 7. Legacy /edit/:slug/theme redirects to workspace (theme picker is a
 	//    side panel there).
-	resp, body = authedGET("/edit/" + slug + "/theme")
+	resp, body = authedGET("/edit/" + slug + "/theme") //nolint:bodyclose // see authedGET comment above.
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET theme: %d", resp.StatusCode)
 	}
@@ -272,7 +274,7 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	// 8a. /system surfaces the just-built slug in its Apps table.
 	//     Cheap piggyback assertion — catches /system regressions caused by
 	//     edits to the shared brand partial or the apps walk.
-	resp, body = authedGET("/system")
+	resp, body = authedGET("/system") //nolint:bodyclose // see authedGET comment above.
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /system: %d", resp.StatusCode)
 	}
@@ -282,7 +284,7 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 
 	// 8. Manage page renders with the consolidated sections; legacy /settings
 	//    redirects here.
-	resp, body = authedGET("/settings/" + slug)
+	resp, body = authedGET("/settings/" + slug) //nolint:bodyclose // see authedGET comment above.
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET settings: %d", resp.StatusCode)
 	}
@@ -321,7 +323,7 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	}
 
 	// 10. /apps no longer lists the slug.
-	resp, body = authedGET("/apps")
+	resp, body = authedGET("/apps") //nolint:bodyclose // see authedGET comment above.
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /apps post-delete: %d", resp.StatusCode)
 	}

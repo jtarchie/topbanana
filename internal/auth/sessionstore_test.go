@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"sync"
 	"testing"
@@ -86,7 +87,7 @@ func TestMemAuthSessionStore_ConcurrentCreateProducesUniqueTokens(t *testing.T) 
 	var mu sync.Mutex
 	seen := make(map[string]struct{}, n)
 	var wg sync.WaitGroup
-	for i := 0; i < n; i++ {
+	for range n {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -134,7 +135,7 @@ func TestUserSessionStore_CreateGetDelete(t *testing.T) {
 	if !ok || got == nil {
 		t.Fatalf("Get returned (%+v, %v)", got, ok)
 	}
-	if string(got.UserID) != string(data.UserID) {
+	if !bytes.Equal(got.UserID, data.UserID) {
 		t.Errorf("UserID = %q, want %q", string(got.UserID), string(data.UserID))
 	}
 

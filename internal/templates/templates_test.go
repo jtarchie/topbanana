@@ -69,7 +69,6 @@ func TestEveryTemplate_UserFacingContract(t *testing.T) {
 	t.Parallel()
 
 	for _, tmpl := range All() {
-		tmpl := tmpl
 		t.Run(tmpl.ID, func(t *testing.T) {
 			t.Parallel()
 
@@ -216,7 +215,6 @@ func TestParseFrontmatter(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			meta, body, err := parseFrontmatter(tc.raw)

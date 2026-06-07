@@ -129,7 +129,7 @@ func TestSandbox_RateLimitedEventually(t *testing.T) {
 	}
 	// Spam until we see a rate-limit error.
 	var saw bool
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		_, err = m.Invoke(ctx, "s", "f", src, Request{}, nil, nil)
 		if errors.Is(err, ErrRateLimit) {
 			saw = true

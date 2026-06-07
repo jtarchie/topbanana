@@ -282,7 +282,7 @@ func TestUserStore_ConcurrentPutCredentialSerialisesViaStripeLock(t *testing.T) 
 	// trips and that the final Load returns a usable record.
 	var wg sync.WaitGroup
 	const n = 16
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

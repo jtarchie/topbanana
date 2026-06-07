@@ -1028,13 +1028,13 @@ func (s *Server) appsHandler(c *echo.Context) error {
 		return appLinkKey(links[i]) < appLinkKey(links[j])
 	})
 
-	over, cap := s.appsOverQuota(user)
+	over, quotaCap := s.appsOverQuota(user)
 	return s.render(c, "apps", appsData{
 		Chrome:         Chrome{Active: "apps"},
 		Apps:           links,
 		Flash:          c.QueryParam("flash"),
 		OverQuotaCount: over,
-		MaxApps:        cap,
+		MaxApps:        quotaCap,
 	})
 }
 
@@ -1047,18 +1047,18 @@ func (s *Server) appsOverQuota(user *auth.User) (int, int) {
 		return 0, 0
 	}
 	defaults := s.auth.QuotaDefaults()
-	cap := user.Quotas.MaxApps
-	if cap == 0 {
-		cap = defaults.MaxApps
+	quotaCap := user.Quotas.MaxApps
+	if quotaCap == 0 {
+		quotaCap = defaults.MaxApps
 	}
-	if cap <= 0 {
+	if quotaCap <= 0 {
 		return 0, 0
 	}
 	count := s.countAppsFor(user.Email)
-	if count <= cap {
-		return 0, cap
+	if count <= quotaCap {
+		return 0, quotaCap
 	}
-	return count - cap, cap
+	return count - quotaCap, quotaCap
 }
 
 // siteNameOrSlug returns the site's friendly title for the chrome breadcrumb,

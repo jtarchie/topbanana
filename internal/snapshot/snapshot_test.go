@@ -287,7 +287,7 @@ func TestRetentionTrim(t *testing.T) {
 		t.Fatalf("seed write: %v", err)
 	}
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		_, err := svc.Create(ctx, slug, "build")
 		if err != nil {
 			t.Fatalf("create #%d: %v", i, err)

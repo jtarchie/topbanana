@@ -1370,12 +1370,12 @@ func newGrepFilesTool(s *store.Store, slug string, emit func(events.Event)) (too
 				em.fail("", errors.New("pattern required"))
 				return grepFilesResult{Error: "pattern is required"}, nil
 			}
-			max := args.MaxResults
-			if max <= 0 {
-				max = grepDefaultMax
+			maxRes := args.MaxResults
+			if maxRes <= 0 {
+				maxRes = grepDefaultMax
 			}
-			if max > grepHardCap {
-				max = grepHardCap
+			if maxRes > grepHardCap {
+				maxRes = grepHardCap
 			}
 			files, err := s.List(tctx, slug)
 			if err != nil {
@@ -1384,7 +1384,7 @@ func newGrepFilesTool(s *store.Store, slug string, emit func(events.Event)) (too
 				return grepFilesResult{Error: err.Error()}, nil
 			}
 			sort.Strings(files)
-			out := make([]grepMatch, 0, max)
+			out := make([]grepMatch, 0, maxRes)
 			total := 0
 			truncated := false
 			for _, f := range files {
@@ -1395,7 +1395,7 @@ func newGrepFilesTool(s *store.Store, slug string, emit func(events.Event)) (too
 				if rerr != nil || obj.Content == "" {
 					continue
 				}
-				out, total, truncated = appendFileMatches(out, total, max, truncated, f, obj.Content, args.Pattern)
+				out, total, truncated = appendFileMatches(out, total, maxRes, truncated, f, obj.Content, args.Pattern)
 			}
 			slog.Info("agent.grep_files", "slug", slug, "pattern_len", len(args.Pattern),
 				"total", total, "returned", len(out), "truncated", truncated)
@@ -1410,10 +1410,10 @@ func newGrepFilesTool(s *store.Store, slug string, emit func(events.Event)) (too
 }
 
 // appendFileMatches scans a single file's content for the literal pattern and
-// extends out with up to (max - len(out)) new matches. Anything past the cap
+// extends out with up to (maxRes - len(out)) new matches. Anything past the cap
 // is counted in totalMatches and flips truncated to true. Extracting this
 // keeps newGrepFilesTool's cognitive complexity in check.
-func appendFileMatches(out []grepMatch, totalMatches, max int, truncated bool, path, content, pattern string) ([]grepMatch, int, bool) {
+func appendFileMatches(out []grepMatch, totalMatches, maxRes int, truncated bool, path, content, pattern string) ([]grepMatch, int, bool) {
 	if !strings.Contains(content, pattern) {
 		return out, totalMatches, truncated
 	}
@@ -1422,7 +1422,7 @@ func appendFileMatches(out []grepMatch, totalMatches, max int, truncated bool, p
 			continue
 		}
 		totalMatches++
-		if len(out) < max {
+		if len(out) < maxRes {
 			out = append(out, grepMatch{
 				Path: path, LineNumber: i + 1, Snippet: truncateSnippet(line),
 			})

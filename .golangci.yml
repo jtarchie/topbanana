@@ -25,18 +25,31 @@ linters:
     - recvcheck # Consistent pointer vs value receivers
     - wastedassign # Assignments whose values are never read
     - nolintlint # Stale or malformed //nolint directives
+    - errchkjson # json.Marshal returns ignored where it shouldn't be
+    - loggercheck # slog key/value mismatch and even-arg invariants
     # Style / consistency
     - sloglint # Consistent slog usage (DiscardHandler, key-value pairs)
+    - gocritic # Diagnostic + performance checks; opinionated tag left off
+    - revive # Replacement for golint with a tight ruleset
+    - gochecknoinits # init() side effects make wiring hard to trace
+    # Modern Go idioms
+    - intrange # `for i := range n` (Go 1.22+)
+    - copyloopvar # Loop-var capture safe by default (Go 1.22+)
+    - mirror # bytes/strings mirror function suggestions
     # Performance
     - perfsprint # Replace fmt.Sprintf/Errorf with faster alternatives
     - prealloc # Pre-allocate slices where capacity is known
+    # Concurrency / context / HTTP safety
+    - bodyclose # HTTP/S3 response bodies must be closed
+    - noctx # net/http calls must take a context.Context
+    - contextcheck # context.Context must be propagated, not ignored
+    - containedctx # context.Context must not be stored in structs
     # Complexity
     - cyclop # Cyclomatic complexity per function
     - gocognit # Cognitive complexity (deeply nested / hard-to-read logic)
     - nestif # Deeply nested if blocks
-    # Concurrency / context safety
-    - contextcheck # context.Context must be propagated, not ignored
-    - containedctx # context.Context must not be stored in structs
+    # Security
+    - gosec # Go security checker; respects existing //nolint:gosec markers
 
   settings:
     sloglint:
@@ -48,3 +61,61 @@ linters:
       min-complexity: 30
     nestif:
       min-complexity: 7
+    gosec:
+      excludes:
+        # G104 duplicates errcheck and produces noisy double-warnings.
+        - G104
+        # G304 (file inclusion via variable) fires on every agent file write —
+        # paths are validated upstream by classifyUserPath / validateHTMLPath.
+        # The existing //nolint:gosec markers in server.go/visual_edit.go
+        # already document the call-sites that need a closer look.
+        - G304
+        # G306 / G301 — file/dir permissions. Static-site output and admin
+        # assets are deliberately world-readable so a non-root server process
+        # can serve them. The host already isolates per-tenant prefixes.
+        - G306
+        - G301
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+      disabled-checks:
+        # ifElseChain is a style nag that conflicts with the
+        # readability of the existing switch-style early returns.
+        - ifElseChain
+        # hugeParam / rangeValCopy fire on dozens of intentional
+        # by-value struct passes (immutability over a shared pointer).
+        # Re-enable for a deliberate perf audit pass.
+        - hugeParam
+        - rangeValCopy
+    revive:
+      rules:
+        - name: var-naming
+        - name: error-return
+        - name: error-naming
+        - name: if-return
+        - name: increment-decrement
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unused-parameter
+          disabled: true # too noisy for handler signatures
+        - name: unreachable-code
+        - name: redefines-builtin-id
+
+  exclusions:
+    rules:
+      # Test code uses idiomatic patterns (httptest.NewRequest, raw http.Cookie,
+      # bounded int conversions, throwaway json.Marshal) that the strict
+      # gosec / noctx / errchkjson rules flag as risky. They aren't risky in
+      # tests; gate them to non-test code only.
+      - path: _test\.go$
+        linters:
+          - gosec
+          - noctx
+          - errchkjson

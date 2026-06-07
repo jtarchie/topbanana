@@ -402,7 +402,7 @@ func TestToolGuard(t *testing.T) {
 			t.Fatalf("seed: %v", err)
 		}
 		// Fill the ring with distinct sigs so the seeded one rolls out.
-		for i := 0; i < toolGuardRingLen; i++ {
+		for i := range toolGuardRingLen {
 			distinct := toolSignature("write_file", "index.html", fmt.Sprintf("filler-%d", i))
 			err = g.Allow(distinct)
 			if err != nil {
@@ -719,7 +719,7 @@ func TestAskUser_CapReached(t *testing.T) {
 	tr.Start("s")
 	state := newAskState()
 	// Exhaust the cap.
-	for i := 0; i < maxQuestionsPerBuild; i++ {
+	for range maxQuestionsPerBuild {
 		state.questionsAsked.Add(1)
 	}
 

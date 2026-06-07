@@ -86,11 +86,11 @@ func RunWithTLS(ctx context.Context, e *echo.Echo, m *autocert.Manager, opts TLS
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	httpsLn, err := listen(httpsSrv.Addr, opts.ProxyProtocol)
+	httpsLn, err := listen(ctx, httpsSrv.Addr, opts.ProxyProtocol)
 	if err != nil {
 		return fmt.Errorf("https listen: %w", err)
 	}
-	httpLn, err := listen(httpSrv.Addr, opts.ProxyProtocol)
+	httpLn, err := listen(ctx, httpSrv.Addr, opts.ProxyProtocol)
 	if err != nil {
 		return fmt.Errorf("http listen: %w", err)
 	}
@@ -146,8 +146,9 @@ func RunWithTLS(ctx context.Context, e *echo.Echo, m *autocert.Manager, opts TLS
 // RemoteAddr. Required for Fly Machines services declared with
 // `handlers = ["proxy_proto"]`, which is the only way to get raw-TCP
 // pass-through on port 443.
-func listen(addr string, proxyProtocol bool) (net.Listener, error) {
-	ln, err := net.Listen("tcp", addr)
+func listen(ctx context.Context, addr string, proxyProtocol bool) (net.Listener, error) {
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("listen %s: %w", addr, err)
 	}

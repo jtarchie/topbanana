@@ -84,7 +84,7 @@ func TestTracker_EmitDropsForSlowSubscriber(t *testing.T) {
 	// the emit path must not block.
 	done := make(chan struct{})
 	go func() {
-		for i := 0; i < 200; i++ {
+		for range 200 {
 			tr.Emit("s", Event{Type: TypeTool, Tool: "write_file"})
 		}
 		close(done)
@@ -319,11 +319,11 @@ func TestTracker_EmitConcurrent(t *testing.T) {
 	tr.Start("s")
 
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				tr.Emit("s", Event{Type: TypeTool, Tool: "write_file"})
 			}
 		}()

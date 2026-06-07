@@ -66,6 +66,12 @@ var (
 	byID         map[string]*SiteTemplate
 )
 
+// init populates the embedded template registry at process start so the
+// rest of the codebase can read it as a package-level slice/map. There is no
+// other safe time to do this — the embed.FS literal is only valid at init
+// time, and every reader expects a non-empty registry.
+//
+//nolint:gochecknoinits // see comment.
 func init() {
 	loaded, err := loadAll()
 	if err != nil {

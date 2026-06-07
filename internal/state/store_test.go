@@ -20,9 +20,9 @@ import (
 // up its constructor here, not re-deriving the contract.
 //
 //nolint:gocognit,cyclop // five t.Run blocks, each linear; complexity is in the table, not the control flow.
-func conformanceTests(t *testing.T, make func() state.Store) {
+func conformanceTests(t *testing.T, mkStore func() state.Store) {
 	t.Run("load missing returns empty snapshot with empty etag", func(t *testing.T) {
-		s := make()
+		s := mkStore()
 		snap, err := s.Load(context.Background(), "missing-slug")
 		if err != nil {
 			t.Fatalf("load: %v", err)
@@ -36,7 +36,7 @@ func conformanceTests(t *testing.T, make func() state.Store) {
 	})
 
 	t.Run("save then load roundtrips data", func(t *testing.T) {
-		s := make()
+		s := mkStore()
 		snap := state.NewSnapshot()
 		snap.Data["name"] = "anna"
 		snap.Data["count"] = float64(3)
@@ -65,7 +65,7 @@ func conformanceTests(t *testing.T, make func() state.Store) {
 	})
 
 	t.Run("save with stale etag returns ErrConflict", func(t *testing.T) {
-		s := make()
+		s := mkStore()
 		// First write to establish an etag.
 		first := state.NewSnapshot()
 		first.Data["v"] = "1"
@@ -85,7 +85,7 @@ func conformanceTests(t *testing.T, make func() state.Store) {
 	})
 
 	t.Run("first-write with empty etag conflicts if something exists", func(t *testing.T) {
-		s := make()
+		s := mkStore()
 		// Establish a value.
 		first := state.NewSnapshot()
 		first.Data["v"] = "1"
@@ -104,7 +104,7 @@ func conformanceTests(t *testing.T, make func() state.Store) {
 	})
 
 	t.Run("save updates etag for subsequent writes", func(t *testing.T) {
-		s := make()
+		s := mkStore()
 		snap := state.NewSnapshot()
 		snap.Data["n"] = float64(1)
 		err := s.Save(context.Background(), "seq", snap)

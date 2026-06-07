@@ -60,14 +60,14 @@ func (m TierMap) Validate() error {
 // top of base. Empty entries in over do NOT clobber base — they're treated
 // as "no override". Used to apply per-user overrides on top of system
 // defaults.
-func (base TierMap) Merge(over TierMap) TierMap {
+func (m TierMap) Merge(over TierMap) TierMap {
 	out := make(TierMap, len(AllTiers))
 	for _, t := range AllTiers {
 		if v := over[t]; v != "" {
 			out[t] = v
 			continue
 		}
-		if v := base[t]; v != "" {
+		if v := m[t]; v != "" {
 			out[t] = v
 		}
 	}

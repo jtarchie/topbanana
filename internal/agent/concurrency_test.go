@@ -46,7 +46,7 @@ func TestBuildState_WriteMuSerializesEdits(t *testing.T) {
 	state := newBuildState()
 	var wg sync.WaitGroup
 	errs := make(chan error, editors)
-	for i := 0; i < editors; i++ {
+	for i := range editors {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -79,7 +79,7 @@ func TestBuildState_WriteMuSerializesEdits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read after edits: %v", err)
 	}
-	for i := 0; i < editors; i++ {
+	for i := range editors {
 		want := "<!-- edit-" + strconv.Itoa(i) + " -->"
 		if !strings.Contains(obj.Content, want) {
 			t.Errorf("missing marker %q — an edit was silently dropped\nfinal content:\n%s", want, obj.Content)
