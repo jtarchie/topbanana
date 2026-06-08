@@ -314,6 +314,47 @@ func (s *Store) Copy(ctx context.Context, slug, srcPath, dstPath string) error {
 	return nil
 }
 
+// UpdateMetadata replaces the user-defined metadata on `{slug}/{path}` without
+// touching its bytes. S3 has no in-place metadata update, so this is a
+// CopyObject onto the same key with MetadataDirective=REPLACE — the bytes are
+// rewritten server-side and the new metadata wins. Encoding mirrors Write
+// (URL-escape values so unicode round-trips through ASCII-only S3 headers).
+// Evicts the ARC cache so the next Read sees fresh metadata.
+func (s *Store) UpdateMetadata(ctx context.Context, slug, path, contentType string, metadata map[string]string) error {
+	err := validateObjectPath(path)
+	if err != nil {
+		return err
+	}
+	key := slug + "/" + path
+
+	var encoded map[string]string
+	if len(metadata) > 0 {
+		encoded = make(map[string]string, len(metadata))
+		for k, v := range metadata {
+			encoded[k] = url.QueryEscape(v)
+		}
+	}
+
+	input := &s3.CopyObjectInput{
+		Bucket:            aws.String(s.bucket),
+		Key:               aws.String(key),
+		CopySource:        aws.String(s.bucket + "/" + key),
+		Metadata:          encoded,
+		MetadataDirective: types.MetadataDirectiveReplace,
+	}
+	if contentType != "" {
+		input.ContentType = aws.String(contentType)
+	}
+	_, err = s.client.CopyObject(ctx, input)
+	if err != nil {
+		return fmt.Errorf("failed to update metadata on %s: %w", key, err)
+	}
+	if s.cache != nil {
+		s.cache.Remove(key)
+	}
+	return nil
+}
+
 // Rename moves an object from srcPath to dstPath by Copy+Delete. Returns nil
 // without doing any work when src == dst. If Copy succeeds but Delete fails
 // the new object exists alongside the old one — surviving but inconsistent —
