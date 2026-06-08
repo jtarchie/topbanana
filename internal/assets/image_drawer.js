@@ -44,15 +44,17 @@
     this.onInsert = cfg.onInsert || function () {};
     this.assets = [];
     this.selected = null;
+    this.saveTimer = null;
 
     var self = this;
     var close = el("tb-drawer-close");
     var scrim = el("tb-drawer-scrim");
     var uploadBtn = el("tb-drawer-upload");
     var uploadInput = el("tb-drawer-upload-input");
-    var saveBtn = el("tb-drawer-save");
     var insertBtn = el("tb-drawer-insert");
     var backBtn = el("tb-drawer-back");
+    var altIn = el("tb-drawer-detail-alt");
+    var descIn = el("tb-drawer-detail-desc");
 
     if (close) close.addEventListener("click", function () { self.close(); });
     if (scrim) scrim.addEventListener("click", function () { self.close(); });
@@ -60,18 +62,44 @@
       uploadBtn.addEventListener("click", function () { uploadInput.click(); });
       uploadInput.addEventListener("change", function () { self.upload(uploadInput.files); });
     }
-    if (saveBtn) saveBtn.addEventListener("click", function () { self.saveDetail(); });
     if (insertBtn) {
       if (self.mode === "view") {
-        insertBtn.style.display = "none";
+        insertBtn.hidden = true;
       } else {
         insertBtn.addEventListener("click", function () { self.insertSelected(); });
       }
     }
     if (backBtn) backBtn.addEventListener("click", function () { self.showGrid(); });
 
+    // Autosave: debounce on input (so a fast typist doesn't fire a PATCH per
+    // keystroke), and force a flush on blur so the user gets immediate
+    // feedback when they tab away. The blur flush also handles the case
+    // where the user clicks Insert before the debounce timer fires — the
+    // input loses focus, the save runs, then Insert proceeds.
+    function scheduleSave() {
+      if (self.saveTimer) clearTimeout(self.saveTimer);
+      self.saveTimer = setTimeout(function () { self.saveTimer = null; self.saveDetail(); }, 400);
+    }
+    function flushSave() {
+      if (self.saveTimer) { clearTimeout(self.saveTimer); self.saveTimer = null; self.saveDetail(); }
+    }
+    if (altIn) {
+      altIn.addEventListener("input", scheduleSave);
+      altIn.addEventListener("blur", flushSave);
+    }
+    if (descIn) {
+      descIn.addEventListener("input", scheduleSave);
+      descIn.addEventListener("blur", flushSave);
+    }
+
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape" && self.isOpen()) self.close();
+      if (e.key !== "Escape" || !self.isOpen()) return;
+      // Esc from the detail view goes back to the grid first; another Esc
+      // closes the drawer entirely. This matches the user's mental model of
+      // "step back" rather than "blow it all up."
+      var detail = el("tb-drawer-detail");
+      if (detail && !detail.hidden) self.showGrid();
+      else self.close();
     });
   };
 
@@ -147,28 +175,32 @@
   TBImageDrawer.prototype.showGrid = function () {
     var grid = el("tb-drawer-grid-wrap");
     var detail = el("tb-drawer-detail");
-    if (grid) grid.style.display = "";
-    if (detail) detail.style.display = "none";
+    if (grid) grid.hidden = false;
+    if (detail) detail.hidden = true;
     this.selected = null;
   };
 
   TBImageDrawer.prototype.showDetail = function (asset) {
     var grid = el("tb-drawer-grid-wrap");
     var detail = el("tb-drawer-detail");
-    if (grid) grid.style.display = "none";
-    if (detail) detail.style.display = "";
+    if (grid) grid.hidden = true;
+    if (detail) detail.hidden = false;
     this.selected = asset;
     var img = el("tb-drawer-detail-img");
     var path = el("tb-drawer-detail-path");
     var size = el("tb-drawer-detail-size");
     var altIn = el("tb-drawer-detail-alt");
     var descIn = el("tb-drawer-detail-desc");
+    var backBtn = el("tb-drawer-back");
     if (img) { img.src = asset.url; img.alt = asset.alt || asset.path; }
     if (path) path.textContent = asset.path;
     if (size) size.textContent = formatSize(asset.size);
     if (altIn) altIn.value = asset.alt || "";
     if (descIn) descIn.value = asset.description || "";
     setStatus("");
+    // Move focus into the new region so keyboard users land somewhere
+    // meaningful instead of staying on the now-hidden card button.
+    if (backBtn) { try { backBtn.focus(); } catch (_) { /* ignore */ } }
   };
 
   TBImageDrawer.prototype.saveDetail = function () {
@@ -178,6 +210,9 @@
     var descIn = el("tb-drawer-detail-desc");
     var alt = altIn ? altIn.value : "";
     var desc = descIn ? descIn.value : "";
+    // Short-circuit no-op PATCHes — autosave fires on every blur, including
+    // blurs that crossed an untouched field.
+    if (alt === (self.selected.alt || "") && desc === (self.selected.description || "")) return;
     setStatus("Saving…");
     fetch("/assets/" + self.slug + "/" + self.selected.path, {
       method: "PATCH",
@@ -191,11 +226,12 @@
       })
       .then(function (updated) {
         // Reflect the saved value (server may have trimmed/capped).
+        var altTrimmed = (updated.alt || "") !== alt;
+        var descTrimmed = (updated.description || "") !== desc;
         self.selected.alt = updated.alt;
         self.selected.description = updated.description;
-        if (altIn) altIn.value = updated.alt || "";
-        if (descIn) descIn.value = updated.description || "";
-        // Update the in-memory list so the grid re-render shows the new alt.
+        if (altIn && altIn.value !== (updated.alt || "")) altIn.value = updated.alt || "";
+        if (descIn && descIn.value !== (updated.description || "")) descIn.value = updated.description || "";
         for (var i = 0; i < self.assets.length; i++) {
           if (self.assets[i].path === self.selected.path) {
             self.assets[i].alt = updated.alt;
@@ -203,13 +239,19 @@
             break;
           }
         }
-        setStatus("Saved", "ok");
+        if (altTrimmed || descTrimmed) setStatus("Saved (text shortened to fit)", "ok");
+        else setStatus("Saved", "ok");
       })
       .catch(function (err) { setStatus("Save failed: " + err, "err"); });
   };
 
   TBImageDrawer.prototype.insertSelected = function () {
     if (!this.selected) return;
+    // Flush any pending debounced save so a user who types and immediately
+    // clicks Insert doesn't lose the edit. Inputs also blur naturally when
+    // the drawer closes, but the close-then-save race wouldn't reflect the
+    // server's trimmed value back into the host page.
+    if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; this.saveDetail(); }
     try { this.onInsert(this.selected); } catch (e) { setStatus("Insert failed: " + e, "err"); return; }
     this.close();
   };

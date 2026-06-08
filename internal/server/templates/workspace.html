@@ -56,7 +56,7 @@
       <div>
         <div class="flex items-center justify-between mb-2">
           <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Images</h2>
-          <button type="button" id="open-image-drawer" class="text-xs link link-hover">Browse</button>
+          <button type="button" id="open-image-drawer" class="btn btn-ghost btn-xs">Browse</button>
         </div>
         {{ if .Assets }}
         <ul class="space-y-1">
@@ -65,7 +65,8 @@
           {{ end }}
         </ul>
         {{ else }}
-        <p class="text-xs text-base-content/60 italic">No images yet. <button type="button" class="link link-hover" id="open-image-drawer-empty">Upload one.</button></p>
+        <p class="text-xs text-base-content/60 italic">No images yet.</p>
+        <button type="button" class="btn btn-ghost btn-xs mt-1" id="open-image-drawer-empty">Upload one</button>
         {{ end }}
       </div>
 
@@ -162,7 +163,7 @@
             <div class="flex items-center gap-2" id="drop-zone">
               <label for="file-input" class="btn btn-ghost btn-sm">Add images</label>
               <input type="file" id="file-input" accept="image/*" multiple hidden>
-              <button type="button" id="prompt-pick-image" class="btn btn-ghost btn-sm">Reference image…</button>
+              <button type="button" id="prompt-pick-image" class="btn btn-ghost btn-sm">Pick image…</button>
               <span id="upload-status" class="text-xs text-base-content/60"></span>
             </div>
             <button type="submit" class="btn btn-primary" {{ if .Building }}disabled{{ end }}>Apply change</button>
@@ -175,7 +176,7 @@
 
 <!-- Themes side panel -->
 <div class="side-scrim" id="scrim-themes" data-scrim="themes"></div>
-<aside class="side-panel bg-base-100 border-l border-base-300 shadow-lg flex flex-col" id="panel-themes" aria-label="Themes" aria-hidden="true">
+<aside class="side-panel bg-base-100 border-l border-base-300 flex flex-col" id="panel-themes" aria-label="Themes" aria-hidden="true">
   <header class="flex items-center justify-between p-4 border-b border-base-300">
     <h2 class="font-semibold">Themes</h2>
     <button type="button" class="btn btn-ghost btn-sm btn-square" data-close="themes" aria-label="Close themes panel">×</button>
@@ -198,7 +199,7 @@
 
 <!-- History side panel -->
 <div class="side-scrim" id="scrim-history" data-scrim="history"></div>
-<aside class="side-panel bg-base-100 border-l border-base-300 shadow-lg flex flex-col" id="panel-history" aria-label="Version history" aria-hidden="true">
+<aside class="side-panel bg-base-100 border-l border-base-300 flex flex-col" id="panel-history" aria-label="Version history" aria-hidden="true">
   <header class="flex items-center justify-between p-4 border-b border-base-300">
     <h2 class="font-semibold">Version history</h2>
     <button type="button" class="btn btn-ghost btn-sm btn-square" data-close="history" aria-label="Close history panel">×</button>
@@ -762,6 +763,7 @@
         var caret = (pre + pad + snippet + ' ').length;
         ta.focus();
         try { ta.setSelectionRange(caret, caret); } catch (_) {}
+        toast('Added ' + asset.path + ' — describe how to use it.');
       },
     });
     function bind(id, opts) {
