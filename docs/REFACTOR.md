@@ -13,6 +13,48 @@ Foundational, low-risk work first (result/parameter objects, service extraction)
 controller decomposition, then RESTful routes. Every step keeps `go build ./...` and
 `go test ./...` green; commit one workstream/controller at a time.
 
+## Status — what's landed
+
+Done (each its own commit on `main`, `task fmt` green throughout):
+
+- ✅ **Result objects** (high-value/shared): `textedit.ApplyEdit`→`EditResult`,
+  `deleteApp`→`DeleteAppResult`, `ParseUploadTicket`→`UploadTicket`,
+  `SumBytesUnderPrefix`→`PrefixStats`, `BuildArchive`→`archiveResult` (unexported).
+- ✅ **siteRegistry** extracted from the `Server` god-struct (own file, own mutex, 10
+  index methods); `Server` holds a single `*siteRegistry`.
+- ✅ **server.go split** 2261→~1690 lines: `routes.go` (`mountRoutes`), `errors.go`
+  (error handling), `dispatch.go` (subdomain/host routing + method-override).
+- ✅ **Controller decomposition** — per-resource controllers embedding `*Server` (the
+  shared base, à la pocketci's BaseController), each with a `register()` method:
+  `assetsController`, `debugController`, `functionsController`, `accountController`,
+  `adminController`, `sitesController`. `mountRoutes` is now a list of `register()` calls;
+  route handlers live on controllers instead of `Server`.
+- ✅ **method-override middleware** (e.Pre) — HTML forms drive PATCH/PUT/DELETE via a
+  `_method` field or `X-HTTP-Method-Override` header. Parses/caches the urlencoded body
+  while still POST (Go's `ParseForm` skips DELETE bodies).
+- ✅ **REST verbs on destructive ops**: `DELETE /files/:slug` + `PATCH /files/:slug`
+  (was POST .../delete, .../rename), `DELETE /apps/:slug` (was POST /settings/:slug/delete),
+  `DELETE /account/sessions` (was POST /account/sign-out-everywhere), `PUT`/`DELETE
+  /history/:slug` (was POST .../restore, .../delete). Forms + e2e/browser tests updated;
+  verified against Minio (0 test-level failures).
+
+Verified **non-issues** (audit false positives — code already correct, no change made):
+`build.recordUsage` (the `Recorder.AddUsage` it calls already has an `if r == nil` guard);
+`mcpOAuthState.clients` (both accesses are inside locked methods); `kv.go` "panics" (there
+are none — the file has no `panic`).
+
+Remaining (lower value or higher risk — deliberately deferred, all mechanical):
+- Admin-panel verbs (super-admin only, audit-LOW): `enable`/`disable`/`quotas`→PATCH,
+  user `delete`→DELETE, `sessions/revoke`→DELETE — JS-driven forms; method-override is in
+  place, so each is a route+form+test change.
+- Path-noun cleanups (POST stays, audit-LOW): `/relint/:slug`→`/sites/:slug/lint`,
+  `/test/:slug/api/:name`→`.../functions/:name/test`, `/manage/:slug/remix`. (The broader
+  `/workspace`→`/sites/:slug` noun consolidation is nav-wide churn, audit-LOW — kept stable.)
+- Dedup `internal/archive` (tar+zstd): touches the legacy-PAX wire-format compat that
+  CLAUDE.md flags as load-bearing — do with care + round-trip tests, not in a rush.
+- Result-objects long tail + parameter objects (Workstreams 2/3 below): high-churn,
+  low-individual-value; `Subscribe`/`runnerForTier` skipped (12+ test sites each, hotpath).
+
 ## Preserve (do not churn — already well-factored)
 
 - `internal/textedit` — pure stateless edit transforms shared by the build agent **and** MCP. Single home for edit/validation logic.
