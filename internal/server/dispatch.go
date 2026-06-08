@@ -22,8 +22,16 @@ func methodOverrideMiddleware() echo.MiddlewareFunc {
 			r := c.Request()
 			if r.Method == http.MethodPost {
 				override := r.Header.Get("X-HTTP-Method-Override")
-				if override == "" && strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") {
-					override = r.PostFormValue("_method")
+				// Parse and cache the urlencoded body while the method is still
+				// POST: Go's ParseForm only reads the body for POST/PUT/PATCH, so
+				// once we rewrite to DELETE the downstream handler could no longer
+				// read its form fields. PostFormValue also gives us the _method
+				// field for plain HTML forms (which can't set the header).
+				if strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") {
+					formMethod := r.PostFormValue("_method")
+					if override == "" {
+						override = formMethod
+					}
 				}
 				switch strings.ToUpper(override) {
 				case http.MethodPut, http.MethodPatch, http.MethodDelete:

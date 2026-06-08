@@ -34,7 +34,7 @@ func (s *accountController) registerAuthPages(e *echo.Echo) {
 // requireUser admin group.
 func (s *accountController) registerAccount(g *echo.Group) {
 	g.GET("/account", s.accountHandler)
-	g.POST("/account/sign-out-everywhere", s.accountSignOutEverywhereHandler)
+	g.DELETE("/account/sessions", s.accountSignOutEverywhereHandler)
 	g.POST("/account/delete", s.accountDeleteHandler)
 	g.POST("/account/passkeys/delete", s.accountRemovePasskeyHandler)
 }

@@ -162,9 +162,10 @@ func TestHistoryRestoreHandler_EndToEnd(t *testing.T) {
 	mustWrite(t, ctx, st, slug, "_state/data.json", `{"count":99}`, "application/json")
 
 	body := url.Values{"key": {snap.Key}}.Encode()
-	req := httptest.NewRequest(http.MethodPost, "/history/"+slug+"/restore", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/history/"+slug, strings.NewReader(body))
 	req.Host = "localhost"
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-HTTP-Method-Override", "PUT")
 	req.AddCookie(testSessionCookie)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -214,9 +215,10 @@ func TestHistoryRestoreHandler_RejectsUnauth(t *testing.T) {
 	snapSvc := snapshot.New(st, 0)
 	handler := buildServer(t, st, snapSvc)
 
-	req := httptest.NewRequest(http.MethodPost, "/history/some-slug/restore", strings.NewReader("key=anything"))
+	req := httptest.NewRequest(http.MethodPost, "/history/some-slug", strings.NewReader("key=anything"))
 	req.Host = "localhost"
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-HTTP-Method-Override", "PUT")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -254,9 +256,10 @@ func TestSettingsDeleteHandler_EndToEnd(t *testing.T) {
 
 	// Wrong confirmation → 400, nothing deleted.
 	body := url.Values{"confirm": {"not-the-slug"}}.Encode()
-	req := httptest.NewRequest(http.MethodPost, "/settings/"+slug+"/delete", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/apps/"+slug, strings.NewReader(body))
 	req.Host = "localhost"
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-HTTP-Method-Override", "DELETE")
 	req.AddCookie(testSessionCookie)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -270,9 +273,10 @@ func TestSettingsDeleteHandler_EndToEnd(t *testing.T) {
 
 	// Correct confirmation → 303, files + snapshots gone.
 	body = url.Values{"confirm": {slug}}.Encode()
-	req = httptest.NewRequest(http.MethodPost, "/settings/"+slug+"/delete", strings.NewReader(body))
+	req = httptest.NewRequest(http.MethodPost, "/apps/"+slug, strings.NewReader(body))
 	req.Host = "localhost"
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-HTTP-Method-Override", "DELETE")
 	req.AddCookie(testSessionCookie)
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)

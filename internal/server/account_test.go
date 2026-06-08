@@ -86,7 +86,7 @@ func TestAccount_DangerZoneRegularUser(t *testing.T) {
 	})
 
 	for _, want := range []string{
-		`action="/account/sign-out-everywhere"`,
+		`action="/account/sessions"`,
 		`action="/account/delete"`,
 		`data-confirm-slug="user@example.com"`,
 		`name="confirm"`,
@@ -115,7 +115,7 @@ func TestAccount_DangerZoneSuperAdmin(t *testing.T) {
 		IsSuperAdmin: true,
 	})
 
-	if !strings.Contains(html, `action="/account/sign-out-everywhere"`) {
+	if !strings.Contains(html, `action="/account/sessions"`) {
 		t.Errorf("super admin should still have sign-out-everywhere")
 	}
 	if strings.Contains(html, `action="/account/delete"`) {

@@ -213,20 +213,22 @@
             <div class="text-sm font-medium">{{ $s.WhenLabel }}</div>
             <div class="text-xs text-base-content/60 mt-1">{{ $s.Reason }} · {{ $s.FileCount }} files · {{ $s.SizeLabel }}</div>
             <div class="flex gap-2 mt-2">
-              <form method="POST" action="/history/{{ $.Slug }}/restore"
+              <form method="POST" action="/history/{{ $.Slug }}"
                     class="js-confirm contents"
                     data-confirm-title="Restore this version?"
                     data-confirm="The current state will be saved first, then the site will be restored to this version."
                     data-confirm-ok="Restore"
                     data-confirm-tone="primary">
+                <input type="hidden" name="_method" value="PUT">
                 <input type="hidden" name="key" value="{{ $s.Key }}">
                 <button type="submit" class="btn btn-ghost btn-xs">Restore</button>
               </form>
-              <form method="POST" action="/history/{{ $.Slug }}/delete"
+              <form method="POST" action="/history/{{ $.Slug }}"
                     class="js-confirm contents"
                     data-confirm-title="Delete this version?"
                     data-confirm="Permanently remove this saved version. The current site is unaffected."
                     data-confirm-ok="Delete">
+                <input type="hidden" name="_method" value="DELETE">
                 <input type="hidden" name="key" value="{{ $s.Key }}">
                 <button type="submit" class="btn btn-ghost btn-xs text-error">Delete</button>
               </form>

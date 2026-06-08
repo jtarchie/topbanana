@@ -79,12 +79,13 @@
             <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-10 w-44 p-2 shadow border border-base-300">
               <li><a href="/manage/{{ .Name }}">Manage</a></li>
               <li>
-                <form method="POST" action="/settings/{{ .Name }}/delete"
+                <form method="POST" action="/apps/{{ .Name }}"
                       class="js-confirm"
                       data-confirm-title="Delete this app permanently?"
                       data-confirm="Every page, file, and version of {{ .Name }} is removed. Custom domains are released back to the pool. This cannot be undone."
                       data-confirm-ok="Delete permanently"
                       data-confirm-slug="{{ .Name }}">
+                  <input type="hidden" name="_method" value="DELETE">
                   <input type="hidden" name="confirm" value="">
                   <button type="submit" class="text-error w-full text-left">Delete</button>
                 </form>

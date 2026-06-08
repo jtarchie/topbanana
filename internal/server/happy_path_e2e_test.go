@@ -301,12 +301,13 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 
 	// 9. Delete the app via the confirmation form.
 	delForm := url.Values{"confirm": {slug}}
-	delReq, err := http.NewRequest(http.MethodPost, httpSrv.URL+"/settings/"+slug+"/delete", strings.NewReader(delForm.Encode()))
+	delReq, err := http.NewRequest(http.MethodPost, httpSrv.URL+"/apps/"+slug, strings.NewReader(delForm.Encode()))
 	if err != nil {
 		t.Fatalf("new POST delete: %v", err)
 	}
 	delReq.Host = "localhost"
 	delReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	delReq.Header.Set("X-HTTP-Method-Override", "DELETE")
 	delReq.AddCookie(testSessionCookie)
 	// Don't follow the redirect so we can assert it.
 	noRedirect := &http.Client{

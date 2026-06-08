@@ -239,11 +239,12 @@
   <section class="pt-8 border-t border-error/40" aria-labelledby="danger-heading">
     <h2 id="danger-heading" class="text-lg font-semibold tracking-tight text-error">Delete this app</h2>
     <p class="text-sm text-base-content/70 mt-2">Permanently removes every page, file, and the entire version history. Custom domains attached to this site are released back to the pool. <strong>This cannot be undone.</strong></p>
-    <form method="POST" action="/settings/{{ .Slug }}/delete"
+    <form method="POST" action="/apps/{{ .Slug }}"
           class="js-confirm flex flex-col gap-3 mt-3"
           data-confirm-title="Delete this app permanently?"
           data-confirm="Every page, file, and version is removed. Custom domains are released back to the pool. This cannot be undone."
           data-confirm-ok="Delete permanently">
+      <input type="hidden" name="_method" value="DELETE">
       <div>
         <label for="confirm" class="label pb-1"><span class="text-sm">Type <code class="font-mono">{{ .Slug }}</code> to confirm</span></label>
         <input type="text" name="confirm" id="confirm" autocomplete="off" required class="input w-full" placeholder="{{ .Slug }}">

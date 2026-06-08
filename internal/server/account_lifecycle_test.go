@@ -98,7 +98,7 @@ func TestAccountSignOutEverywhere_RevokesEveryDevice(t *testing.T) {
 		t.Fatalf("phone pre-revoke: got %d want 200", code)
 	}
 
-	resp := postForm(t, srv.URL, "/account/sign-out-everywhere", laptop, url.Values{})
+	resp := postForm(t, srv.URL, "/account/sessions", laptop, url.Values{"_method": {"DELETE"}})
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("sign-out status: got %d want 303", resp.StatusCode)

@@ -111,10 +111,11 @@
           <p class="text-sm font-medium">Sign out everywhere</p>
           <p class="text-xs text-base-content/60 mt-0.5">Revokes every active session on every device, including this one. Use this if you lost a laptop or phone — you'll sign back in with your passkey.</p>
         </div>
-        <form method="POST" action="/account/sign-out-everywhere" class="js-confirm"
+        <form method="POST" action="/account/sessions" class="js-confirm"
               data-confirm-title="Sign out everywhere?"
               data-confirm="Every device, including this one, will be signed out. You'll sign back in with your passkey."
               data-confirm-ok="Sign out everywhere" data-confirm-tone="primary">
+          <input type="hidden" name="_method" value="DELETE">
           <button type="submit" class="btn btn-outline btn-sm">Sign out everywhere</button>
         </form>
       </div>
