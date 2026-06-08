@@ -57,7 +57,8 @@ Discovery & files:
 | `list_sites` | List the sites you own (title, template, created, custom domains, URL). |
 | `get_site` | Metadata (including any custom domains) + file list for one site. |
 | `read_file` | Read a file from a site. |
-| `write_file` | Create/overwrite an HTML page or image asset (content type inferred from the extension; e.g. `favicon.svg` is served as `image/svg+xml`). Returns the page URL + a lint nudge. |
+| `write_file` | Create/overwrite a **text** file — HTML pages and text assets like `favicon.svg` (content type inferred from the extension). Returns the page URL + a lint nudge. |
+| `create_upload_ticket` | Get a short-lived URL to `curl` a **binary** image (png/jpg/gif/webp) to; see below. |
 | `list_files` | List file paths in a site. |
 | `delete_file` | Delete a page or asset. |
 
@@ -88,6 +89,25 @@ Settings, lint & data:
 
 > Site **creation**, deletion, ownership transfer, and custom-domain management
 > stay in the web UI — the MCP surface only edits sites that already exist.
+
+### Binary uploads (upload ticket)
+
+Binary images can't go through `write_file` — base64 would inflate a 5 MiB
+image to millions of tokens and land the base64 *text* in the bucket. Instead:
+
+1. `create_upload_ticket(slug, filename?)` returns a short-lived URL on the app's
+   own domain plus a copy-paste `curl` recipe.
+2. The agent `curl -X POST --data-binary @file "<upload_url>?filename=logo.png"`.
+3. The server verifies the signed ticket, caps the size, **sniffs and
+   allowlists** the real content type (`{jpeg,png,gif,webp,svg}` — a declared
+   type is never trusted), stores it under `assets/`, and best-effort captions
+   it. The response gives the authoritative `assets/<name>` path to drop into
+   `<img src="…">`.
+
+The ticket is an HS256 JWT signed with `MCP_SECRET` but pinned to the
+`upload-ticket` audience (so it's not interchangeable with an MCP bearer token),
+scoped to one slug + owner + size cap, valid 15 minutes. The upload route lives
+at `POST /upload/ticket/:token` and is only mounted when MCP is enabled.
 
 Authoring rules the connecting agent should follow (and which the resources
 below spell out): self-contained `.html` with CSS/JS inlined, an `index.html`

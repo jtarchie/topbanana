@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 
 	"github.com/jtarchie/topbanana/internal/auth"
@@ -163,6 +164,12 @@ func (s *Server) mountMCP(e *echo.Echo) {
 	})(s.newMCPHandler())
 	e.Any("/mcp", echo.WrapHandler(protected))
 	e.Any("/mcp/*", echo.WrapHandler(protected))
+
+	// Binary upload endpoint for create_upload_ticket. Auth lives in the signed
+	// ticket carried in the path (the agent can't read its MCP bearer token to
+	// set a header), so this route is outside the bearer middleware; BodyLimit
+	// is a first-line cap before the handler re-checks the size.
+	e.POST("/upload/ticket/:token", s.uploadTicketHandler, middleware.BodyLimit(maxUploadBytes+1024))
 }
 
 // --- well-known metadata ----------------------------------------------------

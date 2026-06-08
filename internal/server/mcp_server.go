@@ -35,7 +35,9 @@ const (
 		"Banana. Sites are created in the web UI — start by calling list_sites to find one, " +
 		"then get_site to see its pages. Read with read_file; change pages with edit_file " +
 		"(surgical find/replace — prefer it over rewriting a whole page), replace_lines, " +
-		"insert_at_line, or write_file (whole file; also for image assets like favicon.svg). " +
+		"insert_at_line, or write_file (whole file; also for text assets like favicon.svg). " +
+		"For binary images (png/jpg/gif/webp), call create_upload_ticket and curl the file to " +
+		"the URL it returns — base64 through write_file does not work. " +
 		"grep_files searches across a site; delete_file removes a page. Keep every page " +
 		"self-contained: inline any JS, no external CDNs, relative links between pages, an " +
 		"index.html entry point, and link the self-hosted stylesheet " +
@@ -74,6 +76,7 @@ func (s *Server) buildMCPServer() *mcp.Server {
 	s.registerGetSite(srv)
 	s.registerReadFile(srv)
 	s.registerWriteFile(srv)
+	s.registerCreateUploadTicket(srv)
 	s.registerEditFile(srv)
 	s.registerReplaceLines(srv)
 	s.registerInsertAtLine(srv)
@@ -134,6 +137,15 @@ func (s *Server) mcpUserAndAuthorize(ctx context.Context, slug string) (*auth.Us
 	if err != nil {
 		return nil, err
 	}
+	return s.authorizeSlugOwner(ctx, email, slug)
+}
+
+// authorizeSlugOwner looks up email's user record and enforces the ownership
+// rule for a slug: super admins reach every slug; everyone else only their
+// own; a non-owner sees "not found" so a slug's existence never leaks. slug ==
+// "" skips the per-slug check. Shared by the MCP tools (caller from the bearer
+// token) and the upload-ticket handler (caller from the signed ticket).
+func (s *Server) authorizeSlugOwner(ctx context.Context, email, slug string) (*auth.User, error) {
 	user, err := s.auth.Users.LookupCached(ctx, email)
 	if err != nil {
 		return nil, fmt.Errorf("unknown user %q", email)
@@ -325,7 +337,7 @@ type writeFileInput struct {
 func (s *Server) registerWriteFile(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "write_file",
-		Description: "Create or overwrite a file in a site the caller owns. Use for HTML pages and image assets (e.g. favicon.svg); each is stored and served with the content type inferred from its extension.",
+		Description: "Create or overwrite a text file in a site the caller owns — HTML pages and text assets like favicon.svg (content type inferred from the extension). For binary images (png/jpg/gif/webp) use create_upload_ticket instead; base64 through write_file does not work.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in writeFileInput) (*mcp.CallToolResult, any, error) {
 		_, err := s.mcpUserAndAuthorize(ctx, in.Slug)
 		if err != nil {
