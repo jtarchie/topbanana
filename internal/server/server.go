@@ -1588,42 +1588,6 @@ type uploadResponse struct {
 // be slow; we'd rather have a usable upload than a hung POST.
 const captionTimeout = 90 * time.Second
 
-func (s *Server) uploadHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-
-	header, err := c.FormFile("file")
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "file is required")
-	}
-	if header.Size > maxUploadBytes {
-		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, fmt.Sprintf("file exceeds %d bytes", maxUploadBytes))
-	}
-
-	src, err := header.Open()
-	if err != nil {
-		return httpErr(http.StatusInternalServerError, "open upload", err)
-	}
-	defer func() { _ = src.Close() }()
-
-	body, err := io.ReadAll(io.LimitReader(src, maxUploadBytes+1))
-	if err != nil {
-		return httpErr(http.StatusInternalServerError, "read upload", err)
-	}
-	if len(body) > maxUploadBytes {
-		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, fmt.Sprintf("file exceeds %d bytes", maxUploadBytes))
-	}
-
-	resp, err := s.storeUploadedAsset(c.Request().Context(), slug, header.Filename, body)
-	if err != nil {
-		return err
-	}
-	return c.JSON(http.StatusOK, resp) //nolint:wrapcheck
-}
-
 // storeUploadedAsset is the shared core behind the web /upload handler and the
 // MCP upload-ticket handler (mcp_uploads.go). Given the already-read bytes and
 // the client's suggested filename, it sniffs + allowlists the content type

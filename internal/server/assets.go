@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -12,6 +13,19 @@ import (
 
 	"github.com/jtarchie/topbanana/internal/snapshot"
 )
+
+// assetsController serves the per-site image library: upload, list, edit
+// metadata, delete. It embeds *Server for the shared deps and helpers (store,
+// siteURL, snapshotBefore, storeUploadedAsset) every handler here leans on.
+type assetsController struct{ *Server }
+
+// register mounts the asset routes on the owner-scoped admin group.
+func (s *assetsController) register(g *echo.Group, owns echo.MiddlewareFunc) {
+	g.POST("/upload/:slug", s.uploadHandler, owns)
+	g.GET("/assets/:slug", s.assetsListHandler, owns)
+	g.PATCH("/assets/:slug/*", s.assetMetadataPatchHandler, owns)
+	g.DELETE("/assets/:slug/*", s.assetDeleteHandler, owns)
+}
 
 // assetMaxAltLen mirrors the cap the vision-captioner enforces (alt-text is
 // supposed to fit screen-reader patience; the value is reused for user edits
@@ -39,7 +53,7 @@ type assetEntry struct {
 // assetsListHandler returns every object under `{slug}/assets/` with the
 // alt/description metadata the drawer renders alongside thumbnails. Mirrors
 // the agent's list_assets tool but adds size/modified/URL the UI needs.
-func (s *Server) assetsListHandler(c *echo.Context) error {
+func (s *assetsController) assetsListHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {
@@ -132,7 +146,7 @@ func decodeAssetPatch(r *http.Request) (assetMetadataPatch, error) {
 // missing semantics). Snapshots the site before the delete so the History
 // panel can restore it. Pages that referenced the image will render a broken
 // image until the next edit; the drawer's confirm copy warns about that.
-func (s *Server) assetDeleteHandler(c *echo.Context) error {
+func (s *assetsController) assetDeleteHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {
@@ -166,7 +180,7 @@ func (s *Server) assetDeleteHandler(c *echo.Context) error {
 // `assets/photo.png` round-trips intact. Validates slug + path, caps lengths
 // to match the vision-captioner, and snapshots the site before the change so
 // metadata edits are restorable from the History panel.
-func (s *Server) assetMetadataPatchHandler(c *echo.Context) error {
+func (s *assetsController) assetMetadataPatchHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {
@@ -213,4 +227,43 @@ func (s *Server) assetMetadataPatchHandler(c *echo.Context) error {
 		Description: patch.Description,
 		ContentType: obj.ContentType,
 	})
+}
+
+// uploadHandler accepts a multipart file upload from the workspace image
+// drawer, enforces the size ceiling, and hands the bytes to the shared
+// storeUploadedAsset (sniff + caption + snapshot + write).
+func (s *assetsController) uploadHandler(c *echo.Context) error {
+	slug := c.Param("slug")
+	err := validateSlug(slug)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	header, err := c.FormFile("file")
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "file is required")
+	}
+	if header.Size > maxUploadBytes {
+		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, fmt.Sprintf("file exceeds %d bytes", maxUploadBytes))
+	}
+
+	src, err := header.Open()
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "open upload", err)
+	}
+	defer func() { _ = src.Close() }()
+
+	body, err := io.ReadAll(io.LimitReader(src, maxUploadBytes+1))
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "read upload", err)
+	}
+	if len(body) > maxUploadBytes {
+		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, fmt.Sprintf("file exceeds %d bytes", maxUploadBytes))
+	}
+
+	resp, err := s.storeUploadedAsset(c.Request().Context(), slug, header.Filename, body)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, resp) //nolint:wrapcheck
 }
