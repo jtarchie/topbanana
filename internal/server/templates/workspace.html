@@ -100,12 +100,13 @@
       </header>
       {{ if .Page }}
       <div class="flex flex-wrap items-center gap-2 text-sm">
-        <form method="POST" action="/files/{{ .Slug }}/rename"
+        <form method="POST" action="/files/{{ .Slug }}"
               class="flex items-center gap-1 js-confirm"
               data-confirm-title="Rename this page?"
               data-confirm="Links and bookmarks pointing at /{{ .Page }} will break. There's no automatic redirect."
               data-confirm-ok="Rename"
               data-confirm-tone="primary">
+          <input type="hidden" name="_method" value="PATCH">
           <input type="hidden" name="from" value="{{ .Page }}">
           <label for="rename-to" class="text-xs text-base-content/60">Path</label>
           <input id="rename-to" type="text" name="to" value="{{ .Page }}"
@@ -113,10 +114,11 @@
                  autocomplete="off">
           <button type="submit" class="btn btn-sm btn-ghost">Rename</button>
         </form>
-        <form method="POST" action="/files/{{ .Slug }}/delete" class="js-confirm"
+        <form method="POST" action="/files/{{ .Slug }}" class="js-confirm"
               data-confirm-title="Delete {{ .Page }}?"
               data-confirm="{{ if eq .Page `index.html` }}This is your homepage — your site will be unreachable until you create a new index.html. {{ end }}This permanently removes the file. There's no undo."
               data-confirm-ok="Delete">
+          <input type="hidden" name="_method" value="DELETE">
           <input type="hidden" name="path" value="{{ .Page }}">
           <input type="hidden" name="confirm" value="{{ .Page }}">
           <button type="submit" class="btn btn-sm btn-error btn-outline">Delete file</button>

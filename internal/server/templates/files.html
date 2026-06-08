@@ -44,11 +44,12 @@
               {{ if .EditURL }}<a class="link link-primary" href="{{ .EditURL }}">edit</a>{{ end }}
               {{ if .LinkURL }}<a class="link link-hover" href="{{ .LinkURL }}"{{ if eq .LinkLabel "open" }} target="_blank" rel="noopener"{{ end }}>{{ .LinkLabel }}</a>{{ end }}
               {{ if .Deletable }}
-              <form method="POST" action="/files/{{ $.Slug }}/delete" class="inline js-confirm"
+              <form method="POST" action="/files/{{ $.Slug }}" class="inline js-confirm"
                     data-confirm-title="Delete this file permanently?"
                     data-confirm="{{ if .IsHomepage }}This is your homepage. Your site will be unreachable until you create a new index.html. {{ end }}This removes {{ .Path }} from storage. There's no undo."
                     data-confirm-ok="Delete file"
                     data-confirm-slug="{{ .Path }}">
+                <input type="hidden" name="_method" value="DELETE">
                 <input type="hidden" name="path" value="{{ .Path }}">
                 <input type="hidden" name="confirm" value="">
                 <button type="submit" class="btn btn-ghost btn-xs text-error" aria-label="Delete {{ .Path }}">delete</button>

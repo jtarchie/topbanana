@@ -61,7 +61,8 @@ func TestDeleteFileHandler(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	// Confirm mismatch: 400, file survives.
-	resp := postFileOps(t, srv.URL, "/files/"+slug+"/delete", url.Values{
+	resp := postFileOps(t, srv.URL, "/files/"+slug, url.Values{
+		"_method": {"DELETE"},
 		"path":    {"about.html"},
 		"confirm": {"oops.html"},
 	})
@@ -74,7 +75,8 @@ func TestDeleteFileHandler(t *testing.T) {
 	}
 
 	// Reserved path: 400.
-	resp = postFileOps(t, srv.URL, "/files/"+slug+"/delete", url.Values{
+	resp = postFileOps(t, srv.URL, "/files/"+slug, url.Values{
+		"_method": {"DELETE"},
 		"path":    {"_state/data.json"},
 		"confirm": {"_state/data.json"},
 	})
@@ -87,7 +89,8 @@ func TestDeleteFileHandler(t *testing.T) {
 	}
 
 	// Happy path: about.html is removed and the redirect lands on /files.
-	resp = postFileOps(t, srv.URL, "/files/"+slug+"/delete", url.Values{
+	resp = postFileOps(t, srv.URL, "/files/"+slug, url.Values{
+		"_method": {"DELETE"},
 		"path":    {"about.html"},
 		"confirm": {"about.html"},
 	})
@@ -131,9 +134,10 @@ func TestRenameFileHandler(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	// Cross-kind: 400, no movement.
-	resp := postFileOps(t, srv.URL, "/files/"+slug+"/rename", url.Values{
-		"from": {"about.html"},
-		"to":   {"functions/about.js"},
+	resp := postFileOps(t, srv.URL, "/files/"+slug, url.Values{
+		"_method": {"PATCH"},
+		"from":    {"about.html"},
+		"to":      {"functions/about.js"},
 	})
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
@@ -144,9 +148,10 @@ func TestRenameFileHandler(t *testing.T) {
 	}
 
 	// Destination exists: 400.
-	resp = postFileOps(t, srv.URL, "/files/"+slug+"/rename", url.Values{
-		"from": {"about.html"},
-		"to":   {"contact.html"},
+	resp = postFileOps(t, srv.URL, "/files/"+slug, url.Values{
+		"_method": {"PATCH"},
+		"from":    {"about.html"},
+		"to":      {"contact.html"},
 	})
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
@@ -158,9 +163,10 @@ func TestRenameFileHandler(t *testing.T) {
 
 	// Happy path: about.html → info.html. Content moves, original is gone,
 	// redirect lands on the workspace editor for the new path.
-	resp = postFileOps(t, srv.URL, "/files/"+slug+"/rename", url.Values{
-		"from": {"about.html"},
-		"to":   {"info.html"},
+	resp = postFileOps(t, srv.URL, "/files/"+slug, url.Values{
+		"_method": {"PATCH"},
+		"from":    {"about.html"},
+		"to":      {"info.html"},
 	})
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusSeeOther {
@@ -179,7 +185,8 @@ func TestRenameFileHandler(t *testing.T) {
 
 	// Function rename via to_name. The form field on function_edit.html
 	// only carries the bare name; the handler rebuilds the path.
-	resp = postFileOps(t, srv.URL, "/files/"+slug+"/rename", url.Values{
+	resp = postFileOps(t, srv.URL, "/files/"+slug, url.Values{
+		"_method": {"PATCH"},
 		"from":    {"functions/submit.js"},
 		"to_name": {"intake"},
 	})
@@ -223,18 +230,19 @@ func TestFileOpsRejectsNonOwner(t *testing.T) {
 			return http.ErrUseLastResponse
 		},
 	}
-	for _, path := range []string{"/files/" + slug + "/delete", "/files/" + slug + "/rename"} {
-		req, _ := http.NewRequest(http.MethodPost, srv.URL+path, strings.NewReader(""))
+	for _, verb := range []string{http.MethodDelete, http.MethodPatch} {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/files/"+slug, strings.NewReader(""))
 		req.Host = "localhost"
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("X-HTTP-Method-Override", verb)
 		resp, err := noCookie.Do(req)
 		if err != nil {
-			t.Fatalf("POST %s: %v", path, err)
+			t.Fatalf("%s /files/%s: %v", verb, slug, err)
 		}
 		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/login" {
-			t.Errorf("%s without cookie: status %d loc %q want 303 /login",
-				path, resp.StatusCode, resp.Header.Get("Location"))
+			t.Errorf("%s /files/%s without cookie: status %d loc %q want 303 /login",
+				verb, slug, resp.StatusCode, resp.Header.Get("Location"))
 		}
 	}
 	if mustRead(t, ctx, st, slug, "index.html") == "" {

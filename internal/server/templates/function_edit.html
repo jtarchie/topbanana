@@ -9,7 +9,8 @@
 {{ template "site_subnav" . }}
 <main class="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-6">
   <div class="flex flex-wrap items-center gap-2 mb-2">
-    <form method="POST" action="/files/{{ .Slug }}/rename" class="flex items-baseline gap-1 text-2xl sm:text-3xl font-semibold tracking-tight">
+    <form method="POST" action="/files/{{ .Slug }}" class="flex items-baseline gap-1 text-2xl sm:text-3xl font-semibold tracking-tight">
+      <input type="hidden" name="_method" value="PATCH">
       <input type="hidden" name="from" value="functions/{{ .Name }}.js">
       <span class="font-mono">functions/</span>
       <input type="text" name="to_name" value="{{ .Name }}" pattern="[a-zA-Z][a-zA-Z0-9_-]{0,63}"
@@ -19,10 +20,11 @@
       <span class="font-mono">.js</span>
       <button type="submit" class="btn btn-sm btn-ghost ml-2">Rename</button>
     </form>
-    <form method="POST" action="/files/{{ .Slug }}/delete" class="js-confirm"
+    <form method="POST" action="/files/{{ .Slug }}" class="js-confirm"
           data-confirm-title="Delete functions/{{ .Name }}.js?"
           data-confirm="The /api/{{ .Name }} endpoint will stop responding immediately. There's no undo."
           data-confirm-ok="Delete">
+      <input type="hidden" name="_method" value="DELETE">
       <input type="hidden" name="path" value="functions/{{ .Name }}.js">
       <input type="hidden" name="confirm" value="functions/{{ .Name }}.js">
       <input type="hidden" name="next" value="/files/{{ .Slug }}">
