@@ -107,16 +107,26 @@ var (
 // over SSE during a test invocation) or persist it. May be nil.
 type LogFn func(level, line string)
 
-// Invoke compiles and runs source against req. slug and name scope the rate
-// limiter so a hot site can't starve others. If snap is non-nil, the handler
-// gets a `kv.*` global that mutates snap; the caller is responsible for
-// persisting via state.Store.Save afterwards.
-func (m *Manager) Invoke(ctx context.Context, slug, name, source string, req Request, snap *state.Snapshot, log LogFn) (Response, error) {
-	if !m.lim.allow(slug, name) {
+// InvokeRequest bundles the per-call inputs to Invoke. slug stays a separate
+// argument because it scopes the rate limiter together with Name.
+type InvokeRequest struct {
+	Name     string          // handler name — rate-limit key and compile label
+	Source   string          // JS module source to compile and run
+	Request  Request         // the HTTP-ish request handed to the handler
+	Snapshot *state.Snapshot // when non-nil, exposes a mutable kv.* global
+	Log      LogFn           // console.log sink; may be nil
+}
+
+// Invoke compiles and runs in.Source against in.Request. slug and in.Name scope
+// the rate limiter so a hot site can't starve others. If in.Snapshot is
+// non-nil, the handler gets a `kv.*` global that mutates it; the caller is
+// responsible for persisting via state.Store.Save afterwards.
+func (m *Manager) Invoke(ctx context.Context, slug string, in InvokeRequest) (Response, error) {
+	if !m.lim.allow(slug, in.Name) {
 		return Response{}, ErrRateLimit
 	}
 
-	prog, err := goja.Compile(name, source, false)
+	prog, err := goja.Compile(in.Name, in.Source, false)
 	if err != nil {
 		return Response{}, fmt.Errorf("%w: %s", ErrCompile, err.Error())
 	}
@@ -126,7 +136,7 @@ func (m *Manager) Invoke(ctx context.Context, slug, name, source string, req Req
 
 	stripUnsafeGlobals(vm)
 
-	moduleObj, err := installGlobals(vm, snap, log)
+	moduleObj, err := installGlobals(vm, in.Snapshot, in.Log)
 	if err != nil {
 		return Response{}, err
 	}
@@ -151,7 +161,7 @@ func (m *Manager) Invoke(ctx context.Context, slug, name, source string, req Req
 		return Response{}, err
 	}
 
-	reqVal, err := buildRequestValue(vm, req)
+	reqVal, err := buildRequestValue(vm, in.Request)
 	if err != nil {
 		return Response{}, fmt.Errorf("build request: %w", err)
 	}

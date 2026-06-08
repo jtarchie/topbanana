@@ -13,9 +13,9 @@ func invokeWithSnap(t *testing.T, src string, snap *state.Snapshot, req Request)
 	t.Helper()
 	m := New(Config{CPUTimeout: 500 * time.Millisecond})
 	var logs []string
-	resp, err := m.Invoke(context.Background(), "slug", "fn", src, req, snap, func(level, line string) {
+	resp, err := m.Invoke(context.Background(), "slug", InvokeRequest{Name: "fn", Source: src, Request: req, Snapshot: snap, Log: func(level, line string) {
 		logs = append(logs, level+": "+line)
-	})
+	}})
 	if err != nil {
 		t.Fatalf("invoke: %v", err)
 	}

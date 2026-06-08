@@ -137,7 +137,7 @@ func (s *Server) invokeWithCAS(ctx context.Context, slug, name, src string, req 
 	if s.state == nil {
 		// No state backend wired: invoke stateless. Brochure paths and unit
 		// tests both rely on this branch.
-		return s.sandbox.Invoke(ctx, slug, name, src, req, nil, logFn) //nolint:wrapcheck
+		return s.sandbox.Invoke(ctx, slug, sandbox.InvokeRequest{Name: name, Source: src, Request: req, Log: logFn}) //nolint:wrapcheck
 	}
 
 	for attempt := 0; attempt <= maxCASRetries; attempt++ {
@@ -145,7 +145,7 @@ func (s *Server) invokeWithCAS(ctx context.Context, slug, name, src string, req 
 		if err != nil {
 			return sandbox.Response{}, fmt.Errorf("state load: %w", err)
 		}
-		resp, err := s.sandbox.Invoke(ctx, slug, name, src, req, snap, logFn)
+		resp, err := s.sandbox.Invoke(ctx, slug, sandbox.InvokeRequest{Name: name, Source: src, Request: req, Snapshot: snap, Log: logFn})
 		if err != nil {
 			return sandbox.Response{}, err //nolint:wrapcheck
 		}
