@@ -382,12 +382,12 @@ func (s *Server) registerEditFile(srv *mcp.Server) {
 		var count int
 		var note string
 		_, err := s.mcpApplyToFile(ctx, in.Slug, in.Path, func(content string) (string, error) {
-			out, n, tnote, aerr := textedit.ApplyEdit(content, in.OldText, in.NewText, in.ReplaceAll)
+			edit, aerr := textedit.ApplyEdit(content, in.OldText, in.NewText, in.ReplaceAll)
 			if aerr != nil {
 				return "", aerr
 			}
-			count, note = n, tnote
-			return out, nil
+			count, note = edit.Count, edit.Note
+			return edit.Content, nil
 		})
 		if err != nil {
 			return nil, nil, err

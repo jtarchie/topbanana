@@ -123,19 +123,19 @@ func (s *Server) registerEditFunction(srv *mcp.Server) {
 		if err != nil {
 			return nil, nil, fmt.Errorf("read function %q: %w", in.Name, err)
 		}
-		updated, count, note, err := textedit.ApplyEdit(src, in.OldText, in.NewText, in.ReplaceAll)
+		edit, err := textedit.ApplyEdit(src, in.OldText, in.NewText, in.ReplaceAll)
 		if err != nil {
 			return nil, nil, err
 		}
-		if len(updated) > mcpMaxFileBytes {
-			return nil, nil, fmt.Errorf("source too large after edit: %d bytes (max %d)", len(updated), mcpMaxFileBytes)
+		if len(edit.Content) > mcpMaxFileBytes {
+			return nil, nil, fmt.Errorf("source too large after edit: %d bytes (max %d)", len(edit.Content), mcpMaxFileBytes)
 		}
-		err = s.store.Write(ctx, in.Slug, mcpFunctionPath(in.Name), updated, mcpJSCType, nil)
+		err = s.store.Write(ctx, in.Slug, mcpFunctionPath(in.Name), edit.Content, mcpJSCType, nil)
 		if err != nil {
 			return nil, nil, fmt.Errorf("write function %q: %w", in.Name, err)
 		}
 		return mcpJSON(map[string]any{
-			"ok": true, "slug": in.Slug, "name": in.Name, "replacements": count, "note": note,
+			"ok": true, "slug": in.Slug, "name": in.Name, "replacements": edit.Count, "note": edit.Note,
 			"next": mcpFunctionNudge,
 		})
 	})

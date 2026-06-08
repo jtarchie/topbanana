@@ -986,7 +986,8 @@ func newEditFileTool(s *store.Store, slug string, emit func(events.Event), state
 				em.fail(args.Path, errors.New("file not found"))
 				return editFileResult{Error: "file not found: " + args.Path}, nil
 			}
-			updated, count, note, applyErr := applyEdit(obj.Content, args.OldText, args.NewText, args.ReplaceAll)
+			edit, applyErr := applyEdit(obj.Content, args.OldText, args.NewText, args.ReplaceAll)
+			updated, count, note := edit.Content, edit.Count, edit.Note
 			if applyErr != nil {
 				em.fail(args.Path, applyErr)
 				return editFileResult{Error: applyErr.Error()}, nil
@@ -1175,7 +1176,7 @@ func insertAfterLine(content string, after int, insertContent string) (string, e
 // behind edit_file and edit_function. The implementation — including the
 // tolerant match and the actionable not-found diagnostics — lives in
 // internal/textedit so the MCP edit tools share identical semantics.
-func applyEdit(content, oldText, newText string, replaceAll bool) (string, int, string, error) {
+func applyEdit(content, oldText, newText string, replaceAll bool) (textedit.EditResult, error) {
 	return textedit.ApplyEdit(content, oldText, newText, replaceAll)
 }
 
@@ -1693,7 +1694,8 @@ func newEditFunctionTool(s *store.Store, slug string, emit func(events.Event), s
 				em.fail(path, errors.New("function not found"))
 				return editFunctionResult{Error: "function not found: " + args.Name}, nil
 			}
-			updated, count, note, applyErr := applyEdit(obj.Content, args.OldText, args.NewText, args.ReplaceAll)
+			edit, applyErr := applyEdit(obj.Content, args.OldText, args.NewText, args.ReplaceAll)
+			updated, count, note := edit.Content, edit.Count, edit.Note
 			if applyErr != nil {
 				em.fail(path, applyErr)
 				return editFunctionResult{Error: applyErr.Error()}, nil

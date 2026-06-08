@@ -60,24 +60,24 @@ func TestApplyEdit(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, count, note, err := ApplyEdit(tc.content, tc.oldText, tc.newText, tc.replaceAll)
+			res, err := ApplyEdit(tc.content, tc.oldText, tc.newText, tc.replaceAll)
 			if tc.wantErr {
 				if err == nil {
-					t.Fatalf("expected error, got nil (out=%q)", got)
+					t.Fatalf("expected error, got nil (out=%q)", res.Content)
 				}
 				return
 			}
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if got != tc.want {
-				t.Errorf("content = %q, want %q", got, tc.want)
+			if res.Content != tc.want {
+				t.Errorf("content = %q, want %q", res.Content, tc.want)
 			}
-			if count != tc.wantCount {
-				t.Errorf("count = %d, want %d", count, tc.wantCount)
+			if res.Count != tc.wantCount {
+				t.Errorf("count = %d, want %d", res.Count, tc.wantCount)
 			}
-			if (note != "") != tc.wantNote {
-				t.Errorf("note presence = %v (note=%q), want %v", note != "", note, tc.wantNote)
+			if (res.Note != "") != tc.wantNote {
+				t.Errorf("note presence = %v (note=%q), want %v", res.Note != "", res.Note, tc.wantNote)
 			}
 		})
 	}
@@ -87,7 +87,7 @@ func TestApplyEdit_IdenticalTolerantAmbiguity(t *testing.T) {
 	// Two whitespace-equivalent regions => tolerant match must bail, surfacing
 	// a diagnostic rather than editing the wrong one.
 	content := "<p>x</p>\n<p>x</p>"
-	_, _, _, err := ApplyEdit(content, "<p>x</p>", "<p>y</p>", false)
+	_, err := ApplyEdit(content, "<p>x</p>", "<p>y</p>", false)
 	if err == nil {
 		t.Fatal("expected ambiguity error for duplicate exact matches")
 	}
@@ -98,7 +98,7 @@ func TestApplyEdit_TolerantAmbiguityFallsThrough(t *testing.T) {
 	// tolerant search must refuse (ambiguous) and surface the not-found
 	// diagnostic that points at grep_files.
 	content := "<p> a </p>\n<p>  a  </p>"
-	_, _, _, err := ApplyEdit(content, "<p>a</p>", "x", false)
+	_, err := ApplyEdit(content, "<p>a</p>", "x", false)
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("expected not-found error, got %v", err)
 	}

@@ -19,34 +19,44 @@ import (
 // the two surfaces reject the same oversized paths.
 const maxHTMLPathLen = 200
 
+// EditResult is the outcome of a successful ApplyEdit: the updated content, how
+// many replacements were made, and an advisory note surfaced to the caller
+// (empty when there's nothing to flag, e.g. set after a whitespace-tolerant
+// match). The zero value is what callers should ignore when ApplyEdit returns
+// an error.
+type EditResult struct {
+	Content string
+	Count   int
+	Note    string
+}
+
 // ApplyEdit performs the find/replace at the heart of edit_file and
-// edit_function. Returns the updated content, the replacement count, a note
-// surfaced to the caller (empty when there's nothing to flag), and an error.
-// Returning errors as values (not Go errors) lets the caller surface them in
-// the tool's Error field so the agent can recover.
+// edit_function. Returns an EditResult and an error. Returning the failure as a
+// Go error (rather than a sentinel result) lets the caller surface it in the
+// tool's Error field so the agent can recover.
 //
 // When exact-string matching fails, ApplyEdit attempts a whitespace-tolerant
 // search: if the file contains exactly one byte range whose whitespace-
 // collapsed form equals the whitespace-collapsed old_text, that range is
-// replaced and a note advises the model to copy whitespace verbatim next
-// time. Zero or multiple tolerant matches still fall through to the original
-// diagnostic so the model has actionable feedback.
-func ApplyEdit(content, oldText, newText string, replaceAll bool) (string, int, string, error) {
+// replaced and EditResult.Note advises the model to copy whitespace verbatim
+// next time. Zero or multiple tolerant matches still fall through to the
+// original diagnostic so the model has actionable feedback.
+func ApplyEdit(content, oldText, newText string, replaceAll bool) (EditResult, error) {
 	count := strings.Count(content, oldText)
 	if count == 0 {
 		updated, ok := applyTolerantEdit(content, oldText, newText)
 		if ok {
-			return updated, 1, "applied a whitespace-tolerant match — the file's whitespace at the match site differed from old_text. Re-read the file (use read_file with start_line/end_line) to copy whitespace verbatim for predictable edits next time.", nil
+			return EditResult{Content: updated, Count: 1, Note: "applied a whitespace-tolerant match — the file's whitespace at the match site differed from old_text. Re-read the file (use read_file with start_line/end_line) to copy whitespace verbatim for predictable edits next time."}, nil
 		}
-		return "", 0, "", DiagnoseNotFound(content, oldText)
+		return EditResult{}, DiagnoseNotFound(content, oldText)
 	}
 	if count > 1 && !replaceAll {
-		return "", 0, "", fmt.Errorf("old_text matches %d locations; include more surrounding context to make it unique, or set replace_all=true", count)
+		return EditResult{}, fmt.Errorf("old_text matches %d locations; include more surrounding context to make it unique, or set replace_all=true", count)
 	}
 	if replaceAll {
-		return strings.ReplaceAll(content, oldText, newText), count, "", nil
+		return EditResult{Content: strings.ReplaceAll(content, oldText, newText), Count: count}, nil
 	}
-	return strings.Replace(content, oldText, newText, 1), 1, "", nil
+	return EditResult{Content: strings.Replace(content, oldText, newText, 1), Count: 1}, nil
 }
 
 // applyTolerantEdit looks for exactly one substring of content whose
