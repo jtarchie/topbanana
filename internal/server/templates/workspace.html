@@ -53,16 +53,21 @@
         {{ end }}
       </div>
 
-      {{ if .Assets }}
       <div>
-        <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-2">Images</h2>
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Images</h2>
+          <button type="button" id="open-image-drawer" class="text-xs link link-hover">Browse</button>
+        </div>
+        {{ if .Assets }}
         <ul class="space-y-1">
           {{ range .Assets }}
           <li class="text-xs"><code class="bg-base-200 px-1 rounded font-mono">{{ .Path }}</code>{{ if .Alt }} <span class="text-base-content/60 italic block ml-1">{{ .Alt }}</span>{{ end }}</li>
           {{ end }}
         </ul>
+        {{ else }}
+        <p class="text-xs text-base-content/60 italic">No images yet. <button type="button" class="link link-hover" id="open-image-drawer-empty">Upload one.</button></p>
+        {{ end }}
       </div>
-      {{ end }}
 
       <div>
         <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-2">Tools</h2>
@@ -157,6 +162,7 @@
             <div class="flex items-center gap-2" id="drop-zone">
               <label for="file-input" class="btn btn-ghost btn-sm">Add images</label>
               <input type="file" id="file-input" accept="image/*" multiple hidden>
+              <button type="button" id="prompt-pick-image" class="btn btn-ghost btn-sm">Reference image…</button>
               <span id="upload-status" class="text-xs text-base-content/60"></span>
             </div>
             <button type="submit" class="btn btn-primary" {{ if .Building }}disabled{{ end }}>Apply change</button>
@@ -237,6 +243,7 @@
   </div>
 </aside>
 
+{{ template "image_drawer" . }}
 {{ template "footer" . }}
 {{ template "confirm_dialog" . }}
 <div id="toast" class="toast toast-end z-toast" role="status" aria-live="polite" aria-atomic="false"></div>
@@ -728,5 +735,43 @@
   {{ end }}
 </script>
 {{ template "panel_js" . }}
+<script>
+  // Image drawer wiring — Browse opens the panel; Reference image opens with
+  // an insert callback that pastes `assets/<path>` into the prompt textarea
+  // at the cursor. The agent honors literal `assets/...` mentions per the
+  // updated system prompt, so the model no longer has to guess which image
+  // the user meant.
+  (function () {
+    if (!window.TBImageDrawer) return;
+    var pickInsert = false;
+    TBImageDrawer.init({
+      slug: {{ .SlugJSON }},
+      mode: "insert",
+      onInsert: function (asset) {
+        if (!pickInsert) return;
+        pickInsert = false;
+        var ta = document.getElementById('prompt');
+        if (!ta) return;
+        var snippet = '`' + asset.path + '`';
+        var start = ta.selectionStart || 0;
+        var end = ta.selectionEnd || 0;
+        var pre = ta.value.slice(0, start);
+        var post = ta.value.slice(end);
+        var pad = pre && !/\s$/.test(pre) ? ' ' : '';
+        ta.value = pre + pad + snippet + ' ' + post;
+        var caret = (pre + pad + snippet + ' ').length;
+        ta.focus();
+        try { ta.setSelectionRange(caret, caret); } catch (_) {}
+      },
+    });
+    function bind(id, opts) {
+      var btn = document.getElementById(id);
+      if (btn) btn.addEventListener('click', function () { pickInsert = !!(opts && opts.pick); TBImageDrawer.open(); });
+    }
+    bind('open-image-drawer', { pick: false });
+    bind('open-image-drawer-empty', { pick: false });
+    bind('prompt-pick-image', { pick: true });
+  })();
+</script>
 </body>
 </html>

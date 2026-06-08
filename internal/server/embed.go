@@ -17,6 +17,9 @@ var faviconSVG string
 //go:embed templates/layout.html
 var layoutTemplate string
 
+//go:embed templates/image_drawer.html
+var imageDrawerTemplate string
+
 //go:embed templates/landing.html
 var landingTemplate string
 

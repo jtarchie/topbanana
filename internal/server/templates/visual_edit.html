@@ -50,6 +50,7 @@
   </div>
   <div class="flex-none flex items-center gap-2">
     <span id="status" class="text-xs text-base-content/60 mr-2"></span>
+    <button id="images-btn" type="button" class="btn btn-ghost btn-sm">Images</button>
     <button id="refine-btn" type="button" class="btn btn-ghost btn-sm">Refine with AI</button>
     <button id="save-btn" type="button" class="btn btn-primary btn-sm">Save</button>
     <a class="btn btn-ghost btn-sm" href="/edit/{{.Slug}}?page={{.Page}}">Back</a>
@@ -259,6 +260,28 @@
   }
   document.getElementById('warnings-close').addEventListener('click', function(){ document.getElementById('warnings').classList.remove('show'); });
 })();
+</script>
+{{ template "image_drawer" . }}
+<script>
+  // Image drawer wiring for the visual editor. Insert drops a real <img>
+  // component into the GrapesJS canvas next to the current selection (or at
+  // the canvas root when nothing's selected). The asset's alt text is used
+  // verbatim so accessibility metadata travels with the image.
+  (function () {
+    if (!window.TBImageDrawer || !window.editor) return;
+    TBImageDrawer.init({
+      slug: {{.SlugJSON}},
+      mode: "insert",
+      onInsert: function (asset) {
+        var component = { type: 'image', attributes: { src: asset.path, alt: asset.alt || '' } };
+        var sel = window.editor.getSelected();
+        if (sel && sel.append) sel.append(component);
+        else window.editor.addComponents(component);
+      },
+    });
+    var btn = document.getElementById('images-btn');
+    if (btn) btn.addEventListener('click', function () { TBImageDrawer.open(); });
+  })();
 </script>
 </body>
 </html>

@@ -154,6 +154,10 @@ func New(d Deps) (*echo.Echo, *Server) {
 	// pages below. It must be parsed first so the others can reference its
 	// blocks.
 	template.Must(tpl.Parse(layoutTemplate))
+	// image_drawer.html defines the "image_drawer" partial used by the
+	// workspace, visual-editor, and manage pages. Parse it alongside the
+	// layout so any page below can reference {{ template "image_drawer" . }}.
+	template.Must(tpl.Parse(imageDrawerTemplate))
 	for _, t := range []struct{ name, body string }{
 		{"landing", landingTemplate},
 		{"apps", appsTemplate},
@@ -221,6 +225,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 	e.GET("/events/:slug", s.eventsHandler, s.requireUser, s.requireSlugOwnership)
 	e.GET("/favicon.svg", s.faviconHandler)
 	e.GET("/app.css", s.appCSSHandler)
+	e.GET("/image_drawer.js", s.imageDrawerJSHandler)
 
 	// Legal pages: always-public, unauthenticated. Prospective users need to
 	// read these before signing up, so they can't sit behind requireUser.
@@ -304,6 +309,8 @@ func New(d Deps) (*echo.Echo, *Server) {
 	admin.GET("/edit/:slug/function/:name", s.functionEditHandler, owns)
 	admin.POST("/test/:slug/api/:name", s.functionTestHandler, owns)
 	admin.POST("/upload/:slug", s.uploadHandler, owns)
+	admin.GET("/assets/:slug", s.assetsListHandler, owns)
+	admin.PATCH("/assets/:slug/*", s.assetMetadataPatchHandler, owns)
 	admin.GET("/export/:slug", s.exportHandler, owns)
 	admin.POST("/import", s.importHandler, middleware.BodyLimit(portable.MaxArchiveBytes+(64*1024)))
 	admin.POST("/files/:slug/delete", s.deleteFileHandler, owns)
@@ -665,6 +672,14 @@ func (s *Server) faviconHandler(c *echo.Context) error {
 func (s *Server) appCSSHandler(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "public, max-age=86400")
 	return c.Blob(http.StatusOK, "text/css; charset=utf-8", assets.AppCSS) //nolint:wrapcheck
+}
+
+// imageDrawerJSHandler serves the shared client module for the Images side-
+// drawer. Same caching policy as the CSS sheet — the file is embedded into
+// the binary, so the hash only changes on deploy.
+func (s *Server) imageDrawerJSHandler(c *echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "public, max-age=86400")
+	return c.Blob(http.StatusOK, "application/javascript; charset=utf-8", assets.ImageDrawerJS) //nolint:wrapcheck
 }
 
 // adminURL builds an absolute URL on the main app domain. Used by the toolbar

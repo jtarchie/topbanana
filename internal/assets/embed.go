@@ -31,6 +31,14 @@ const DaisyUIVersion = "5.5.20"
 //go:embed app.css
 var AppCSS []byte
 
+// ImageDrawerJS is the shared client module that wires up the Images side-
+// drawer on the workspace, visual-editor, and manage pages. Served at
+// /image_drawer.js — each host page renders the image_drawer.html partial and
+// then calls TBImageDrawer.init({slug, mode, onInsert}) once.
+//
+//go:embed image_drawer.js
+var ImageDrawerJS []byte
+
 // daisyUIFS is the vendored daisyUI npm package, embedded so the runtime
 // per-site Tailwind compile can load it as a plugin without npm/network.
 //

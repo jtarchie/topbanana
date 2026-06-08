@@ -1,0 +1,48 @@
+{{ define "image_drawer" -}}
+{{/* Shared Images side-drawer. The host page renders this partial once and
+     then calls TBImageDrawer.init({slug, mode, onInsert}) to wire it up.
+     Re-uses the .side-panel / .side-scrim CSS defined in app.input.css so it
+     opens with the same transform animation as the Themes and History panels
+     on the workspace page. */}}
+<div class="side-scrim" id="tb-drawer-scrim"></div>
+<aside class="side-panel bg-base-100 border-l border-base-300 shadow-lg flex flex-col"
+       id="tb-drawer-panel" aria-label="Images" aria-hidden="true" data-open="false">
+  <header class="flex items-center justify-between p-4 border-b border-base-300 gap-2">
+    <h2 class="font-semibold flex-1">Images</h2>
+    <span id="tb-drawer-status" class="text-xs text-base-content/60"></span>
+    <button type="button" id="tb-drawer-upload" class="btn btn-primary btn-sm">Upload</button>
+    <input type="file" id="tb-drawer-upload-input" accept="image/*" multiple hidden>
+    <button type="button" id="tb-drawer-close" class="btn btn-ghost btn-sm btn-square" aria-label="Close images panel">×</button>
+  </header>
+
+  <div id="tb-drawer-grid-wrap" class="flex-1 overflow-y-auto p-3">
+    <div id="tb-drawer-grid" class="grid grid-cols-2 gap-3"></div>
+  </div>
+
+  <div id="tb-drawer-detail" class="flex-1 overflow-y-auto p-4 flex flex-col gap-3" style="display:none">
+    <div class="flex items-center gap-2">
+      <button type="button" id="tb-drawer-back" class="btn btn-ghost btn-sm">← Back</button>
+      <code id="tb-drawer-detail-path" class="font-mono text-xs text-base-content/60 truncate flex-1"></code>
+      <span id="tb-drawer-detail-size" class="text-xs text-base-content/60"></span>
+    </div>
+    <div class="bg-base-200 rounded-box aspect-square overflow-hidden flex items-center justify-center">
+      <img id="tb-drawer-detail-img" alt="" class="object-contain max-w-full max-h-full">
+    </div>
+    <label class="form-control">
+      <span class="label-text text-sm font-medium">Alt text</span>
+      <input id="tb-drawer-detail-alt" type="text" maxlength="125" class="input input-sm w-full mt-1"
+             placeholder="What the image shows, for screen readers (≤125 chars)">
+    </label>
+    <label class="form-control">
+      <span class="label-text text-sm font-medium">Description</span>
+      <textarea id="tb-drawer-detail-desc" rows="3" maxlength="500" class="textarea w-full mt-1"
+                placeholder="One sentence about what this image shows — used to pick the right one when prompting."></textarea>
+    </label>
+    <div class="flex justify-end gap-2 pt-2">
+      <button type="button" id="tb-drawer-save" class="btn btn-ghost btn-sm">Save</button>
+      <button type="button" id="tb-drawer-insert" class="btn btn-primary btn-sm">Insert</button>
+    </div>
+  </div>
+</aside>
+<script src="/image_drawer.js"></script>
+{{- end }}

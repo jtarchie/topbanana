@@ -178,6 +178,15 @@
     <p class="text-sm text-base-content/70 mt-2">Diagnostic surfaces, useful when something looks wrong.</p>
     <ul class="divide-y divide-base-300 border border-base-300 rounded-box mt-3 overflow-hidden">
       <li>
+        <button type="button" id="open-image-drawer" class="w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-base-200 transition">
+          <div class="flex-1">
+            <div class="text-sm font-medium">Images</div>
+            <p class="text-xs text-base-content/70 mt-0.5">Browse uploaded images, edit their alt text and descriptions, upload more.</p>
+          </div>
+          <span class="text-base-content/40" aria-hidden="true">→</span>
+        </button>
+      </li>
+      <li>
         <a href="/files/{{ .Slug }}" class="flex items-center gap-3 px-4 py-3 hover:bg-base-200 transition">
           <div class="flex-1">
             <div class="text-sm font-medium">All files</div>
@@ -245,6 +254,7 @@
     </form>
   </section>
 </main>
+{{ template "image_drawer" . }}
 {{ template "footer" . }}
 {{ template "confirm_dialog" . }}
 <script>
@@ -284,6 +294,17 @@
         }
       });
     });
+  })();
+</script>
+<script>
+  // Image drawer wiring for the manage page — view-only (no Insert button).
+  // Users come here to browse uploads and edit alt/description, not to drop
+  // an image into a page or prompt.
+  (function () {
+    if (!window.TBImageDrawer) return;
+    TBImageDrawer.init({ slug: "{{ .Slug }}", mode: "view" });
+    var btn = document.getElementById('open-image-drawer');
+    if (btn) btn.addEventListener('click', function () { TBImageDrawer.open(); });
   })();
 </script>
 </body>
