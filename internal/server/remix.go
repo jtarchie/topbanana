@@ -19,7 +19,7 @@ import (
 // is independent — later edits on the source do not bleed into the
 // duplicate. Custom domains and the Private flag are intentionally not
 // carried over; the new site starts clean and visible.
-func (s *Server) remixHandler(c *echo.Context) error {
+func (s *sitesController) remixHandler(c *echo.Context) error {
 	srcSlug := c.Param("slug")
 	ctx := c.Request().Context()
 

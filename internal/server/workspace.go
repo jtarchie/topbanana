@@ -42,7 +42,7 @@ type workspaceData struct {
 	Snapshots []historyRow
 }
 
-func (s *Server) workspaceHandler(c *echo.Context) error {
+func (s *sitesController) workspaceHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {

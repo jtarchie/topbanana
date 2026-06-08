@@ -22,7 +22,7 @@ type historyRow struct {
 	SizeLabel string
 }
 
-func (s *Server) historyRestoreHandler(c *echo.Context) error {
+func (s *sitesController) historyRestoreHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {
@@ -44,7 +44,7 @@ func (s *Server) historyRestoreHandler(c *echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/workspace/"+slug+"?flash="+urlEscape("Restored. Current state was auto-snapshotted first.")) //nolint:wrapcheck
 }
 
-func (s *Server) historyDeleteHandler(c *echo.Context) error {
+func (s *sitesController) historyDeleteHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {

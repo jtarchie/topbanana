@@ -20,7 +20,7 @@ import (
 //   - transfer-to-self  (no-op, almost certainly a typo)
 //   - disabled recipient (can't sign in to do anything with it)
 //   - missing recipient  (email not found)
-func (s *Server) transferAppHandler(c *echo.Context) error {
+func (s *sitesController) transferAppHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	target := auth.NormalizeEmail(c.FormValue("new_owner_email"))
 	if target == "" {

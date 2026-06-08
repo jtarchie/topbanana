@@ -23,7 +23,7 @@ type dataRow struct {
 // dataHandler serves the CSV download for a site's KV submissions. The HTML
 // rendering of the same data lives inline on /manage/:slug; legacy GETs to
 // /data/:slug without the format query are redirected there.
-func (s *Server) dataHandler(c *echo.Context) error {
+func (s *sitesController) dataHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {

@@ -77,7 +77,7 @@ type themeApplyResponse struct {
 	Changed  int      `json:"changed"`
 }
 
-func (s *Server) themeStudioApplyHandler(c *echo.Context) error {
+func (s *sitesController) themeStudioApplyHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 
 	reader := http.MaxBytesReader(c.Response(), c.Request().Body, 4096)

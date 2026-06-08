@@ -98,7 +98,7 @@ func renderSetupNotes(notes string) template.HTML {
 	return template.HTML(b.String()) //nolint:gosec // G203: see comment.
 }
 
-func (s *Server) manageHandler(c *echo.Context) error {
+func (s *sitesController) manageHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {

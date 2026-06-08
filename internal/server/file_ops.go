@@ -16,7 +16,7 @@ import (
 // Belt-and-suspenders confirmation: the form must include `confirm` equal to
 // `path` so an accidental curl (or a stray click that bypasses the JS modal)
 // still can't delete the wrong file.
-func (s *Server) deleteFileHandler(c *echo.Context) error {
+func (s *sitesController) deleteFileHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {
@@ -52,7 +52,7 @@ func (s *Server) deleteFileHandler(c *echo.Context) error {
 // function editor where the prefix and extension are locked. Cross-kind
 // renames (HTML → asset, etc.) are rejected so the file stays in an area
 // the agent and the rest of the platform understand.
-func (s *Server) renameFileHandler(c *echo.Context) error {
+func (s *sitesController) renameFileHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {

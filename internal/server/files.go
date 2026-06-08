@@ -44,7 +44,7 @@ type filesView struct {
 	TotalSize string
 }
 
-func (s *Server) filesHandler(c *echo.Context) error {
+func (s *sitesController) filesHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {
@@ -63,7 +63,7 @@ func (s *Server) filesHandler(c *echo.Context) error {
 	rows := make([]fileRow, 0, len(entries))
 	var totalBytes int64
 	for _, e := range entries {
-		editURL, openURL, openLabel := actionsFor(c, s, slug, e.Path)
+		editURL, openURL, openLabel := actionsFor(c, s.Server, slug, e.Path)
 		_, classifyErr := classifyUserPath(e.Path)
 		rows = append(rows, fileRow{
 			Path:       e.Path,

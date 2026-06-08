@@ -4,9 +4,6 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
-	"github.com/labstack/echo/v5/middleware"
-
-	"github.com/jtarchie/topbanana/internal/portable"
 )
 
 // mountRoutes registers every route on the Echo instance. It is the single
@@ -63,53 +60,19 @@ func (s *Server) mountRoutes(e *echo.Echo) {
 	}
 
 	admin := e.Group("", s.requireUser)
-	// promptBodyCap bounds the whole request body on prompt-bearing POSTs so a
-	// runaway hidden field or selection can't sneak past the per-field caps in
-	// the handlers. Leaves /upload/:slug alone — image uploads need 5 MiB.
-	promptBodyCap := middleware.BodyLimit(maxPromptBodyBytes)
-	// promptWithAttachmentsBodyCap is the larger envelope on routes that also
-	// accept multipart markdown attachments; per-attachment caps still gate
-	// the actual content.
-	promptWithAttachmentsBodyCap := middleware.BodyLimit(maxPromptBodyWithAttachmentsBytes)
+	owns := s.requireSlugOwnership
 	admin.GET("/", s.landingHandler)
-	admin.POST("/build", s.buildHandler, promptWithAttachmentsBodyCap)
-	admin.GET("/apps", s.appsHandler)
 	admin.GET("/system", s.systemHandler)
 	(&accountController{s}).registerAccount(admin)
 
-	// Super-admin-only surfaces. requireSuperAdmin layers role check on
-	// top of requireUser, so these routes live outside the regular admin
-	// group (which only checks logged-in).
+	// Super-admin-only surfaces carry requireSuperAdmin (role check on top of
+	// requireUser) and are mounted on the root router, not the admin group.
 	(&adminController{s}).register(e, s.requireSuperAdmin)
-	// Per-slug routes carry the ownership gate as route-level middleware
-	// so a regular admin gets a 404 on every slug they don't own without
-	// each handler having to repeat the check.
-	owns := s.requireSlugOwnership
-	admin.GET("/workspace/:slug", s.workspaceHandler, owns)
-	admin.GET("/manage/:slug", s.manageHandler, owns)
-	admin.GET("/edit/:slug", s.redirectToWorkspace, owns)
-	admin.POST("/edit/:slug", s.editSubmitHandler, owns, promptWithAttachmentsBodyCap)
-	admin.POST("/relint/:slug", s.relintHandler, owns)
-	admin.GET("/edit/:slug/visual", s.visualEditHandler, owns)
-	admin.POST("/edit/:slug/visual", s.visualEditSaveHandler, owns, promptBodyCap)
-	admin.GET("/edit/:slug/theme", s.redirectToWorkspace, owns)
-	admin.POST("/edit/:slug/theme", s.themeStudioApplyHandler, owns)
+
+	// Per-resource controllers. Each owns its routes and the :slug ones carry the
+	// ownership gate so a regular admin gets a 404 on slugs they don't own.
+	(&sitesController{s}).register(admin, owns)
 	(&functionsController{s}).register(admin, owns)
 	(&assetsController{s}).register(admin, owns)
-	admin.GET("/export/:slug", s.exportHandler, owns)
-	admin.POST("/import", s.importHandler, middleware.BodyLimit(portable.MaxArchiveBytes+(64*1024)))
-	admin.POST("/files/:slug/delete", s.deleteFileHandler, owns)
-	admin.POST("/files/:slug/rename", s.renameFileHandler, owns)
-	admin.GET("/settings/:slug", s.redirectToManage, owns)
-	admin.POST("/settings/:slug", s.settingsSubmitHandler, owns)
-	admin.POST("/settings/:slug/delete", s.settingsDeleteHandler, owns)
-	admin.POST("/manage/:slug/remix", s.remixHandler, owns)
-	admin.POST("/apps/:slug/transfer", s.transferAppHandler, owns)
-	admin.GET("/history/:slug", s.redirectToWorkspace, owns)
-	admin.POST("/history/:slug/restore", s.historyRestoreHandler, owns)
-	admin.POST("/history/:slug/delete", s.historyDeleteHandler, owns)
-	admin.GET("/data/:slug", s.dataHandler, owns)
-	admin.GET("/files/:slug", s.filesHandler, owns)
 	(&debugController{s}).register(admin, owns)
-	admin.POST("/clarify/:slug", s.clarifyHandler, owns, promptBodyCap)
 }

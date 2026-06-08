@@ -13,7 +13,7 @@ type clarifyRequest struct {
 
 // clarifyHandler receives the user's answer to an ask_user question and
 // delivers it to the waiting agent goroutine via the events tracker.
-func (s *Server) clarifyHandler(c *echo.Context) error {
+func (s *sitesController) clarifyHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {

@@ -48,7 +48,7 @@ type visualSaveResponse struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-func (s *Server) visualEditHandler(c *echo.Context) error {
+func (s *sitesController) visualEditHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	page := c.QueryParam("page")
 	if page == "" {
@@ -107,7 +107,7 @@ func (s *Server) visualEditHandler(c *echo.Context) error {
 	})
 }
 
-func (s *Server) visualEditSaveHandler(c *echo.Context) error {
+func (s *sitesController) visualEditSaveHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 
 	reader := http.MaxBytesReader(c.Response(), c.Request().Body, maxVisualSaveBytes)

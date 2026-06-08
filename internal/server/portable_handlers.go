@@ -21,7 +21,7 @@ import (
 // the caller as an attachment. requireSlugOwnership gates the route so only
 // the owner (or a super admin) can download. No snapshot is taken — export
 // is read-only.
-func (s *Server) exportHandler(c *echo.Context) error {
+func (s *sitesController) exportHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	ctx := c.Request().Context()
 
@@ -52,7 +52,7 @@ func (s *Server) exportHandler(c *echo.Context) error {
 // in-memory index after extraction succeeds, so a partial import never shows
 // up in /apps or in subdomain routing — failed imports tidy themselves and
 // leave no trace.
-func (s *Server) importHandler(c *echo.Context) error {
+func (s *sitesController) importHandler(c *echo.Context) error {
 	ctx := c.Request().Context()
 
 	caller := userFromContext(c)

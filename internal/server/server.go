@@ -297,7 +297,7 @@ func (s *Server) startBuild(c *echo.Context, p build.Params) error {
 // /edit/:slug/theme, and /history/:slug paths. Their content all lives inside
 // the workspace now — as the main editor for /edit, and as side panels for
 // theme + history.
-func (s *Server) redirectToWorkspace(c *echo.Context) error {
+func (s *sitesController) redirectToWorkspace(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {
@@ -309,7 +309,7 @@ func (s *Server) redirectToWorkspace(c *echo.Context) error {
 // redirectToManage is the GET handler for legacy /settings/:slug. Manage
 // replaces settings and folds in the data table + advanced links + danger
 // zone.
-func (s *Server) redirectToManage(c *echo.Context) error {
+func (s *sitesController) redirectToManage(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {
@@ -470,7 +470,7 @@ type appsData struct {
 	MaxApps        int
 }
 
-func (s *Server) appsHandler(c *echo.Context) error {
+func (s *sitesController) appsHandler(c *echo.Context) error {
 	ctx := c.Request().Context()
 	user := userFromContext(c)
 	apps, err := s.store.ListApps(ctx)
@@ -492,7 +492,7 @@ func (s *Server) appsHandler(c *echo.Context) error {
 		if len(meta.Domains) > 0 {
 			primaryDomain = meta.Domains[0]
 		}
-		lastEdited, editedAt := lastEditedFor(ctx, s, app)
+		lastEdited, editedAt := lastEditedFor(ctx, s.Server, app)
 		links = append(links, appLink{
 			Name:          app,
 			Title:         meta.Title,
@@ -754,7 +754,7 @@ func sanitizeStem(stem string) string {
 	return cleaned
 }
 
-func (s *Server) buildHandler(c *echo.Context) error {
+func (s *sitesController) buildHandler(c *echo.Context) error {
 	prompt := strings.TrimSpace(c.FormValue("prompt"))
 	if prompt == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "prompt is required")
@@ -1214,7 +1214,7 @@ func validateSlug(slug string) error {
 	return nil
 }
 
-func (s *Server) editSubmitHandler(c *echo.Context) error {
+func (s *sitesController) editSubmitHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	prompt := strings.TrimSpace(c.FormValue("prompt"))
 	page := c.FormValue("page")
@@ -1266,7 +1266,7 @@ func (s *Server) editSubmitHandler(c *echo.Context) error {
 // relintHandler forces a fresh lint pass and, when issues are found, pushes
 // them back to the agent for a fix-up build. On clean sites it redirects to
 // the edit page with a flash banner — no LLM cycles spent.
-func (s *Server) relintHandler(c *echo.Context) error {
+func (s *sitesController) relintHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {
@@ -1323,7 +1323,7 @@ func (s *Server) relintHandler(c *echo.Context) error {
 	})
 }
 
-func (s *Server) settingsSubmitHandler(c *echo.Context) error {
+func (s *sitesController) settingsSubmitHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {
@@ -1507,7 +1507,7 @@ func (s *Server) reassignAppsOwnedBy(ctx context.Context, from, to string) (int,
 // snapshots, the in-memory build status, and any custom-domain mapping. The
 // caller must POST `confirm` equal to the slug — the typed-slug guard is the
 // only safety check.
-func (s *Server) settingsDeleteHandler(c *echo.Context) error {
+func (s *sitesController) settingsDeleteHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {
