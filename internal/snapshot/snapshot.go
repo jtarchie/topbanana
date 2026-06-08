@@ -138,7 +138,7 @@ func (s *Service) Create(ctx context.Context, slug, reason string) (Snapshot, er
 	}
 
 	now := time.Now().UTC()
-	archive, fileCount, originalBytes, err := BuildArchive(ctx, s.store, slug, files, now)
+	archive, err := buildArchive(ctx, s.store, slug, files, now)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -146,11 +146,11 @@ func (s *Service) Create(ctx context.Context, slug, reason string) (Snapshot, er
 	key := snapshotKey(slug, now, reason)
 	metadata := map[string]string{
 		"reason":        reason,
-		"file-count":    strconv.Itoa(fileCount),
-		"original-size": strconv.FormatInt(originalBytes, 10),
+		"file-count":    strconv.Itoa(archive.FileCount),
+		"original-size": strconv.FormatInt(archive.OriginalBytes, 10),
 		"created":       now.Format(time.RFC3339),
 	}
-	err = s.store.WriteRaw(ctx, key, archive, archiveContentType, metadata)
+	err = s.store.WriteRaw(ctx, key, archive.Content, archiveContentType, metadata)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("write archive %s: %w", key, err)
 	}
@@ -159,11 +159,11 @@ func (s *Service) Create(ctx context.Context, slug, reason string) (Snapshot, er
 		Key:       key,
 		Timestamp: now,
 		Reason:    reason,
-		SizeBytes: int64(len(archive)),
-		FileCount: fileCount,
+		SizeBytes: int64(len(archive.Content)),
+		FileCount: archive.FileCount,
 	}
 
-	slog.Info("snapshot.create", "slug", slug, "reason", reason, "files", fileCount, "archive_bytes", len(archive), "original_bytes", originalBytes)
+	slog.Info("snapshot.create", "slug", slug, "reason", reason, "files", archive.FileCount, "archive_bytes", len(archive.Content), "original_bytes", archive.OriginalBytes)
 
 	if s.keep > 0 {
 		s.trim(ctx, slug)
@@ -285,14 +285,22 @@ func (s *Service) trim(ctx context.Context, slug string) {
 	}
 }
 
-// BuildArchive streams every slug-relative file through tar+zstd. Returns
-// the archive bytes, file count, and total uncompressed payload size for
-// metadata.
-func BuildArchive(ctx context.Context, st *store.Store, slug string, files []string, ts time.Time) (string, int, int64, error) {
+// archiveResult is what buildArchive produces: the tar+zstd bytes plus the
+// file count and total uncompressed payload size that Create stamps into the
+// snapshot metadata.
+type archiveResult struct {
+	Content       string
+	FileCount     int
+	OriginalBytes int64
+}
+
+// buildArchive streams every slug-relative file through tar+zstd, returning the
+// archive bytes plus the file count and uncompressed payload size for metadata.
+func buildArchive(ctx context.Context, st *store.Store, slug string, files []string, ts time.Time) (archiveResult, error) {
 	var buf bytes.Buffer
 	zw, err := zstd.NewWriter(&buf)
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("init zstd: %w", err)
+		return archiveResult{}, fmt.Errorf("init zstd: %w", err)
 	}
 	tw := tar.NewWriter(zw)
 
@@ -301,7 +309,7 @@ func BuildArchive(ctx context.Context, st *store.Store, slug string, files []str
 	for _, p := range files {
 		obj, err := st.Read(ctx, slug, p)
 		if err != nil {
-			return "", 0, 0, fmt.Errorf("read %s/%s: %w", slug, p, err)
+			return archiveResult{}, fmt.Errorf("read %s/%s: %w", slug, p, err)
 		}
 		body := []byte(obj.Content)
 		header := &tar.Header{
@@ -323,11 +331,11 @@ func BuildArchive(ctx context.Context, st *store.Store, slug string, files []str
 		}
 		err = tw.WriteHeader(header)
 		if err != nil {
-			return "", 0, 0, fmt.Errorf("tar header %s: %w", p, err)
+			return archiveResult{}, fmt.Errorf("tar header %s: %w", p, err)
 		}
 		_, err = tw.Write(body)
 		if err != nil {
-			return "", 0, 0, fmt.Errorf("tar write %s: %w", p, err)
+			return archiveResult{}, fmt.Errorf("tar write %s: %w", p, err)
 		}
 		originalBytes += int64(len(body))
 		count++
@@ -335,13 +343,13 @@ func BuildArchive(ctx context.Context, st *store.Store, slug string, files []str
 
 	err = tw.Close()
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("close tar: %w", err)
+		return archiveResult{}, fmt.Errorf("close tar: %w", err)
 	}
 	err = zw.Close()
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("close zstd: %w", err)
+		return archiveResult{}, fmt.Errorf("close zstd: %w", err)
 	}
-	return buf.String(), count, originalBytes, nil
+	return archiveResult{Content: buf.String(), FileCount: count, OriginalBytes: originalBytes}, nil
 }
 
 // ExtractArchive decodes the tar+zstd payload and writes each entry back
