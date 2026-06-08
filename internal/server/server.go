@@ -1923,6 +1923,12 @@ func newlyAddedDomains(prev, next []string) []string {
 	return added
 }
 
+// DeleteAppResult reports what deleteApp removed, for the caller's audit log.
+type DeleteAppResult struct {
+	FilesDeleted     int
+	SnapshotsDeleted int
+}
+
 // deleteApp permanently removes one app's content: every site file, every
 // snapshot, and its in-memory build/event state. It deliberately does NOT
 // rebuild the domain index or log — callers own that, so a single delete logs
@@ -1931,34 +1937,35 @@ func newlyAddedDomains(prev, next []string) []string {
 // for the caller's audit log. Idempotent: re-running on an already-emptied
 // slug lists zero files and is a no-op, which is what makes the cascade
 // retry-safe.
-func (s *Server) deleteApp(ctx context.Context, slug string) (files int, snaps int, err error) {
+func (s *Server) deleteApp(ctx context.Context, slug string) (DeleteAppResult, error) {
 	paths, err := s.store.List(ctx, slug)
 	if err != nil {
-		return 0, 0, fmt.Errorf("list files: %w", err)
+		return DeleteAppResult{}, fmt.Errorf("list files: %w", err)
 	}
 	for _, p := range paths {
 		derr := s.store.Delete(ctx, slug, p)
 		if derr != nil {
-			return 0, 0, fmt.Errorf("delete file: %w", derr)
+			return DeleteAppResult{}, fmt.Errorf("delete file: %w", derr)
 		}
 	}
 
+	snaps := 0
 	if s.snapshot != nil {
 		snapList, lerr := s.snapshot.List(ctx, slug)
 		if lerr != nil {
-			return 0, 0, fmt.Errorf("list snapshots: %w", lerr)
+			return DeleteAppResult{}, fmt.Errorf("list snapshots: %w", lerr)
 		}
 		for _, sn := range snapList {
 			derr := s.snapshot.Delete(ctx, slug, sn.Key)
 			if derr != nil {
-				return 0, 0, fmt.Errorf("delete snapshot: %w", derr)
+				return DeleteAppResult{}, fmt.Errorf("delete snapshot: %w", derr)
 			}
 		}
 		snaps = len(snapList)
 	}
 
 	s.events.Forget(slug)
-	return len(paths), snaps, nil
+	return DeleteAppResult{FilesDeleted: len(paths), SnapshotsDeleted: snaps}, nil
 }
 
 // deleteAppsOwnedBy cascades deleteApp over every site owned by email. It uses
@@ -1984,14 +1991,14 @@ func (s *Server) deleteAppsOwnedBy(ctx context.Context, email string) (int, erro
 		if meta.OwnerID != email {
 			continue
 		}
-		files, snaps, derr := s.deleteApp(ctx, slug)
+		res, derr := s.deleteApp(ctx, slug)
 		if derr != nil {
 			if firstErr == nil {
 				firstErr = derr
 			}
 			continue
 		}
-		slog.Info("app.delete", "slug", slug, "files", files, "snapshots", snaps, "reason", "owner_delete")
+		slog.Info("app.delete", "slug", slug, "files", res.FilesDeleted, "snapshots", res.SnapshotsDeleted, "reason", "owner_delete")
 		count++
 	}
 	return count, firstErr
@@ -2052,13 +2059,13 @@ func (s *Server) settingsDeleteHandler(c *echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
-	files, snaps, err := s.deleteApp(ctx, slug)
+	res, err := s.deleteApp(ctx, slug)
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "delete app", err)
 	}
 	s.rebuildDomainIndexLogging(ctx)
 
-	slog.Info("app.delete", "slug", slug, "files", files, "snapshots", snaps)
+	slog.Info("app.delete", "slug", slug, "files", res.FilesDeleted, "snapshots", res.SnapshotsDeleted)
 	return c.Redirect(http.StatusSeeOther, "/apps?flash="+urlEscape("Deleted "+slug)) //nolint:wrapcheck
 }
 
