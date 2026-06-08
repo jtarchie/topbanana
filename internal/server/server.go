@@ -2151,25 +2151,39 @@ func (s *Server) uploadHandler(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, fmt.Sprintf("file exceeds %d bytes", maxUploadBytes))
 	}
 
+	resp, err := s.storeUploadedAsset(c.Request().Context(), slug, header.Filename, body)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, resp) //nolint:wrapcheck
+}
+
+// storeUploadedAsset is the shared core behind the web /upload handler and the
+// MCP upload-ticket handler (mcp_uploads.go). Given the already-read bytes and
+// the client's suggested filename, it sniffs + allowlists the content type
+// (the extension is forced from the sniff, never trusted), derives a safe
+// assets/ path, best-effort captions, snapshots, and writes. Returns an
+// echo.HTTPError carrying the right 4xx/5xx status for both callers to surface.
+func (s *Server) storeUploadedAsset(ctx context.Context, slug, filename string, body []byte) (uploadResponse, error) {
 	contentType := http.DetectContentType(body)
 	contentType = strings.SplitN(contentType, ";", 2)[0]
 	ext, ok := allowedAssetTypes[contentType]
 	if !ok {
 		// SVG sniffs as text/xml or text/plain; trust the extension when the
 		// upload looks textual.
-		if e := strings.ToLower(path.Ext(header.Filename)); e == ".svg" {
+		if e := strings.ToLower(path.Ext(filename)); e == ".svg" {
 			contentType = "image/svg+xml"
 			ext = ".svg"
 			ok = true
 		}
 	}
 	if !ok {
-		return echo.NewHTTPError(http.StatusUnsupportedMediaType, fmt.Sprintf("unsupported type %q (allowed: jpeg, png, gif, webp, svg)", contentType))
+		return uploadResponse{}, echo.NewHTTPError(http.StatusUnsupportedMediaType, fmt.Sprintf("unsupported type %q (allowed: jpeg, png, gif, webp, svg)", contentType))
 	}
 
-	name, err := safeAssetName(header.Filename, ext)
+	name, err := safeAssetName(filename, ext)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return uploadResponse{}, echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	relPath := uploadAssetsDir + "/" + name
@@ -2177,7 +2191,7 @@ func (s *Server) uploadHandler(c *echo.Context) error {
 	// Caption synchronously so the UI can show the suggested alt-text right
 	// next to the upload, and so the agent's first list_assets call already
 	// has the metadata. Failures here are non-fatal — the upload still lands.
-	caption, captionErr := s.captionUpload(c.Request().Context(), body, contentType)
+	caption, captionErr := s.captionUpload(ctx, body, contentType)
 	if captionErr != nil {
 		slog.Warn("upload.caption_failed", "slug", slug, "path", relPath, "err", captionErr)
 	}
@@ -2190,22 +2204,22 @@ func (s *Server) uploadHandler(c *echo.Context) error {
 		metadata["description"] = caption.Description
 	}
 
-	s.snapshotBefore(c.Request().Context(), slug, snapshot.ReasonUpload)
+	s.snapshotBefore(ctx, slug, snapshot.ReasonUpload)
 
-	err = s.store.Write(c.Request().Context(), slug, relPath, string(body), contentType, metadata)
+	err = s.store.Write(ctx, slug, relPath, string(body), contentType, metadata)
 	if err != nil {
-		return httpErr(http.StatusInternalServerError, "store asset", err)
+		return uploadResponse{}, httpErr(http.StatusInternalServerError, "store asset", err)
 	}
 
 	slog.Info("upload.done", "slug", slug, "path", relPath, "type", contentType, "size", len(body), "captioned", caption.Alt != "")
-	return c.JSON(http.StatusOK, uploadResponse{ //nolint:wrapcheck
+	return uploadResponse{
 		Path:        relPath,
 		URL:         fmt.Sprintf("http://%s.%s:%s/%s", slug, s.domain, s.port, relPath),
 		ContentType: contentType,
 		Size:        len(body),
 		Alt:         caption.Alt,
 		Description: caption.Description,
-	})
+	}, nil
 }
 
 // captionUpload runs the vision sub-agent under a bounded deadline so a slow
