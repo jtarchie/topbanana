@@ -43,11 +43,11 @@ func TestCheckLinkAPIRoutes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := checkLink("index.html", ".", tc.raw, fileSet, tc.enablesFns)
-			if tc.wantErr && got == nil {
+			got := checkLink("index.html", ".", tc.raw, linkCheckContext{fileSet: fileSet, enablesFns: tc.enablesFns})
+			if tc.wantErr && len(got) == 0 {
 				t.Fatalf("checkLink(%q, enablesFns=%v) = nil, want error", tc.raw, tc.enablesFns)
 			}
-			if !tc.wantErr && got != nil {
+			if !tc.wantErr && len(got) > 0 {
 				t.Fatalf("checkLink(%q, enablesFns=%v) = %v, want nil", tc.raw, tc.enablesFns, got)
 			}
 		})

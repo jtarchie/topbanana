@@ -129,11 +129,11 @@ func TestAssemblePage_Idempotent(t *testing.T) {
 	}
 	// Feed the output of one save back in as if the user saved a second time
 	// without changing anything. We extract the body & CSS from `once`'s tree.
-	body, css, err := splitPage(once)
+	parts, err := splitPage(once)
 	if err != nil {
 		t.Fatalf("splitPage: %v", err)
 	}
-	twice, err := assemblePage(once, body, css)
+	twice, err := assemblePage(once, parts.BodyHTML, parts.CSS)
 	if err != nil {
 		t.Fatalf("second assemblePage: %v", err)
 	}

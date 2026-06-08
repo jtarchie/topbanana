@@ -68,10 +68,11 @@ func (s *sitesController) visualEditHandler(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("page %q not found", page))
 	}
 
-	bodyHTML, css, err := splitPage(obj.Content)
+	parts, err := splitPage(obj.Content)
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "parse page", err)
 	}
+	bodyHTML, css := parts.BodyHTML, parts.CSS
 
 	// The GrapesJS canvas is its own iframe, so it needs the site's compiled
 	// stylesheet loaded explicitly (the editor page's own /app.css only styles
@@ -175,10 +176,17 @@ func toJSONLiteral(v any) template.JS {
 // HTML of <body> and the concatenated contents of every <style> tag in
 // <head>. The rest of the document (doctype, meta, title, scripts) is left
 // untouched by the editor and re-applied by assemblePage on save.
-func splitPage(content string) (bodyHTML, css string, err error) {
+// PageParts is the editable split of a page: its <body> inner HTML and the CSS
+// text gathered from <head> <style> tags, as the visual editor surfaces them.
+type PageParts struct {
+	BodyHTML string
+	CSS      string
+}
+
+func splitPage(content string) (PageParts, error) {
 	doc, err := html.Parse(strings.NewReader(content))
 	if err != nil {
-		return "", "", fmt.Errorf("parse html: %w", err)
+		return PageParts{}, fmt.Errorf("parse html: %w", err)
 	}
 
 	headNode, bodyNode := findHeadBody(doc)
@@ -202,12 +210,12 @@ func splitPage(content string) (bodyHTML, css string, err error) {
 		for c := bodyNode.FirstChild; c != nil; c = c.NextSibling {
 			err := html.Render(&bodyBuf, c)
 			if err != nil {
-				return "", "", fmt.Errorf("render body child: %w", err)
+				return PageParts{}, fmt.Errorf("render body child: %w", err)
 			}
 		}
 	}
 
-	return bodyBuf.String(), cssBuf.String(), nil
+	return PageParts{BodyHTML: bodyBuf.String(), CSS: cssBuf.String()}, nil
 }
 
 // assemblePage re-emits the original document with the body contents and the

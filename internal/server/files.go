@@ -63,16 +63,16 @@ func (s *sitesController) filesHandler(c *echo.Context) error {
 	rows := make([]fileRow, 0, len(entries))
 	var totalBytes int64
 	for _, e := range entries {
-		editURL, openURL, openLabel := actionsFor(c, s.Server, slug, e.Path)
+		act := actionsFor(c, s.Server, slug, e.Path)
 		_, classifyErr := classifyUserPath(e.Path)
 		rows = append(rows, fileRow{
 			Path:       e.Path,
 			Size:       formatSize(e.Size),
 			SizeBytes:  e.Size,
 			Modified:   e.LastModified.UTC().Format("2006-01-02 15:04"),
-			EditURL:    editURL,
-			LinkURL:    openURL,
-			LinkLabel:  openLabel,
+			EditURL:    act.EditURL,
+			LinkURL:    act.OpenURL,
+			LinkLabel:  act.OpenLabel,
 			Deletable:  classifyErr == nil,
 			IsHomepage: e.Path == "index.html",
 		})
@@ -101,19 +101,28 @@ func (s *sitesController) filesHandler(c *echo.Context) error {
 // editor; public-facing files also get an "open" link to the live URL.
 // State sidecars get a "view data" link. Files with no useful action get
 // empty strings — the template renders the path as plain text.
-func actionsFor(c *echo.Context, s *Server, slug, path string) (editURL, openURL, openLabel string) {
+// FileActions is the set of links the files list renders for one entry: the
+// in-app editor URL, the live "open" URL, and that link's label. Any field may
+// be empty when the action doesn't apply to the file kind.
+type FileActions struct {
+	EditURL   string
+	OpenURL   string
+	OpenLabel string
+}
+
+func actionsFor(c *echo.Context, s *Server, slug, path string) FileActions {
 	switch {
 	case strings.HasPrefix(path, "functions/") && strings.HasSuffix(path, ".js"):
 		name := strings.TrimSuffix(strings.TrimPrefix(path, "functions/"), ".js")
-		return "/edit/" + slug + "/function/" + name, "", ""
+		return FileActions{EditURL: "/edit/" + slug + "/function/" + name}
 	case strings.HasPrefix(path, "_state/"):
-		return "", "/manage/" + slug, "view data"
+		return FileActions{OpenURL: "/manage/" + slug, OpenLabel: "view data"}
 	case strings.HasSuffix(path, ".html"):
-		return "/workspace/" + slug + "?page=" + url.QueryEscape(path), s.siteURL(c, slug, "/"+path), "open"
+		return FileActions{EditURL: "/workspace/" + slug + "?page=" + url.QueryEscape(path), OpenURL: s.siteURL(c, slug, "/"+path), OpenLabel: "open"}
 	case strings.HasPrefix(path, "assets/"):
-		return "", s.siteURL(c, slug, "/"+path), "open"
+		return FileActions{OpenURL: s.siteURL(c, slug, "/"+path), OpenLabel: "open"}
 	default:
-		return "", "", ""
+		return FileActions{}
 	}
 }
 

@@ -72,7 +72,7 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 				errs = append(errs, Error{File: file, Message: fmt.Sprintf("HTML parse error: %s", parseErr)})
 				continue
 			}
-			errs = append(errs, checkHTMLLinks(file, doc, fileSet, tmpl != nil && tmpl.EnablesFunctions)...)
+			errs = append(errs, checkHTMLLinks(file, doc, linkCheckContext{fileSet: fileSet, enablesFns: tmpl != nil && tmpl.EnablesFunctions})...)
 			errs = append(errs, checkInlineJS(file, doc)...)
 			errs = append(errs, suspiciousAttrValues(file, doc)...)
 			errs = append(errs, checkDesignSubstrate(file, doc)...)
@@ -332,18 +332,28 @@ func checkTemplateInvariants(ctx context.Context, s *store.Store, slug string, t
 	return errs
 }
 
+// linkCheckContext bundles the per-site state the link checks thread through:
+// the set of known files (for resolving relative links) and whether the site
+// has server-side functions enabled (so /api/* routes aren't flagged as
+// broken). Passing it as one value keeps the three-function chain from
+// threading the same two arguments each.
+type linkCheckContext struct {
+	fileSet    map[string]bool
+	enablesFns bool
+}
+
 // checkHTMLLinks walks a parsed HTML tree and checks all relative href/src
 // attributes against the known file set. External URLs are skipped. When
-// enablesFns is true, absolute /api/* paths are treated as valid dynamic
+// lc.enablesFns is true, absolute /api/* paths are treated as valid dynamic
 // routes (handled by apiHandler at runtime) and not flagged as broken.
-func checkHTMLLinks(filename string, doc *html.Node, fileSet map[string]bool, enablesFns bool) []Error {
+func checkHTMLLinks(filename string, doc *html.Node, lc linkCheckContext) []Error {
 	dir := path.Dir(filename)
 	var errs []Error
 
 	var walk func(*html.Node)
 	walk = func(n *html.Node) {
 		if n.Type == html.ElementNode {
-			errs = append(errs, checkNodeLinks(filename, dir, n, fileSet, enablesFns)...)
+			errs = append(errs, checkNodeLinks(filename, dir, n, lc)...)
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			walk(c)
@@ -354,21 +364,21 @@ func checkHTMLLinks(filename string, doc *html.Node, fileSet map[string]bool, en
 	return errs
 }
 
-func checkNodeLinks(filename, dir string, n *html.Node, fileSet map[string]bool, enablesFns bool) []Error {
+func checkNodeLinks(filename, dir string, n *html.Node, lc linkCheckContext) []Error {
 	var errs []Error
 	for _, attr := range n.Attr {
 		if attr.Key != "href" && attr.Key != "src" && attr.Key != "action" {
 			continue
 		}
-		err := checkLink(filename, dir, attr.Val, fileSet, enablesFns)
-		if err != nil {
-			errs = append(errs, *err)
-		}
+		errs = append(errs, checkLink(filename, dir, attr.Val, lc)...)
 	}
 	return errs
 }
 
-func checkLink(filename, dir, rawVal string, fileSet map[string]bool, enablesFns bool) *Error {
+// checkLink returns the broken-link error for one href/src value as a slice
+// (empty when the link is fine), matching the []Error contract the other
+// checks use.
+func checkLink(filename, dir, rawVal string, lc linkCheckContext) []Error {
 	link := strings.TrimSpace(rawVal)
 	if link == "" || link == "#" || isExternalLink(link) {
 		return nil
@@ -390,7 +400,7 @@ func checkLink(filename, dir, rawVal string, fileSet map[string]bool, enablesFns
 	// enablesFns=false — from false-positiving real function-backed forms.
 	if strings.HasPrefix(link, "/api/") {
 		name := strings.TrimPrefix(link, "/api/")
-		if enablesFns || fileSet["functions/"+name+".js"] {
+		if lc.enablesFns || lc.fileSet["functions/"+name+".js"] {
 			return nil
 		}
 	}
@@ -401,13 +411,13 @@ func checkLink(filename, dir, rawVal string, fileSet map[string]bool, enablesFns
 		return nil
 	}
 	resolved := path.Join(dir, link)
-	if fileSet[resolved] || fileSet[resolved+".html"] || fileSet[path.Join(resolved, "index.html")] {
+	if lc.fileSet[resolved] || lc.fileSet[resolved+".html"] || lc.fileSet[path.Join(resolved, "index.html")] {
 		return nil
 	}
-	return &Error{
+	return []Error{{
 		File:    filename,
 		Message: fmt.Sprintf("broken link %q (resolved to %q)", rawVal, resolved),
-	}
+	}}
 }
 
 func isExternalLink(link string) bool {

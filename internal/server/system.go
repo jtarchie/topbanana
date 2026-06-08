@@ -132,25 +132,34 @@ func mostRecentListings(perApp map[string][]editrec.Listing, n int) []slugListin
 // is the in-flight signal because some run paths can return without
 // stamping FinalStatus (crashes); we treat anything missing FinishedAt as
 // still running rather than mark it failed.
-func summarizeBuilds(transcripts []editrec.Transcript) (successful, failed, inFlight int) {
+// buildSummary tallies recent build transcripts by outcome for the system
+// dashboard's at-a-glance numbers.
+type buildSummary struct {
+	Successful int
+	Failed     int
+	InFlight   int
+}
+
+func summarizeBuilds(transcripts []editrec.Transcript) buildSummary {
+	var sum buildSummary
 	for _, t := range transcripts {
 		if t.FinishedAt.IsZero() {
-			inFlight++
+			sum.InFlight++
 			continue
 		}
 		switch t.FinalStatus {
 		case "completed":
-			successful++
+			sum.Successful++
 		case "failed":
-			failed++
+			sum.Failed++
 		default:
 			// Empty FinalStatus with a FinishedAt set shouldn't happen, but
 			// if it does count it as failed so the success-rate stat doesn't
 			// silently understate problems.
-			failed++
+			sum.Failed++
 		}
 	}
-	return
+	return sum
 }
 
 // storageBreakdownEntry is the input to aggregateStorage: one labeled
@@ -221,7 +230,7 @@ func (s *Server) systemHandler(c *echo.Context) error {
 		recentTranscripts = append(recentTranscripts, t)
 		buildRows = append(buildRows, makeBuildRow(r, t))
 	}
-	successful, _, _ := summarizeBuilds(recentTranscripts)
+	successful := summarizeBuilds(recentTranscripts).Successful
 
 	// Storage breakdown.
 	entries := []storageBreakdownEntry{{Label: "Apps (live files)", Bytes: perAppBytes, Count: perAppCount}}

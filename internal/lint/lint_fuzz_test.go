@@ -37,8 +37,8 @@ func FuzzHTMLLint(f *testing.F) {
 		if err != nil || doc == nil {
 			return
 		}
-		_ = checkHTMLLinks("index.html", doc, fileSet, false)
-		_ = checkHTMLLinks("index.html", doc, fileSet, true)
+		_ = checkHTMLLinks("index.html", doc, linkCheckContext{fileSet: fileSet, enablesFns: false})
+		_ = checkHTMLLinks("index.html", doc, linkCheckContext{fileSet: fileSet, enablesFns: true})
 		_ = checkInlineJS("index.html", doc)
 		_ = suspiciousAttrValues("index.html", doc)
 		_ = checkDesignSubstrate("index.html", doc)
