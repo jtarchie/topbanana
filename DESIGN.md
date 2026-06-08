@@ -201,7 +201,7 @@ The four daisyUI semantic colors (info, success, warning, error) all sit at ligh
 
 **The Hairline Rule.** Where another system would reach for `box-shadow`, this one reaches for `border border-base-300`. Cards, inputs, dropdowns, alert containers, status strips: 1px Rind borders carry the layering. The `--depth: 0` in the daisyUI theme is the doctrine, not a default to override.
 
-**The 70 / 60 Rule.** Muted body copy sits at `text-base-content/70`; captions, slug pills, timestamps at `/60`. Never lower than 60% without raising the type size to 16px or hitting AA explicitly. The single biggest contrast risk in the system is reaching for `/50` "for elegance" on small print.
+**The 70 / 60 Rule.** Muted body copy sits at `text-base-content/70`; captions, slug pills, timestamps at `/60`. Never lower than 60% without raising the type size to 16px or hitting AA explicitly. The single biggest contrast risk in the system is reaching for `/50` "for elegance" on small print. **The `/60` caption floor is calibrated for `base-100`; on `base-200` it does not hold** — measured, `base-content/60` on Pith is 4.37:1 (under AA for normal text) and `/50` is 3.25:1. Surfaces sitting on `base-200` (the footer, code pills, zebra rows) must use `/70` (6.03:1) for any text, caption included. Re-measure, don't assume, on every new surface tint.
 
 **The Dark-Mode Rule.** `lemonade-dark` is the brand dark mode — same Lemonade Pulp primary, the base ladder inverted (dark Banana-Bark surface, light Lemonade-Sky ink), still flat, still hairline. The theme toggle swaps `lemonade` ↔ `lemonade-dark`; `prefers-color-scheme: dark` lands on `lemonade-dark`. The `cyberpunk` daisyUI theme (hot pink on bright yellow, hard-cornered) remains reachable from Theme Studio but is not the auto dark target — PRODUCT.md's anti-references reject crypto/web3 dark-neon. New themes added to Theme Studio must keep that boundary explicit.
 
@@ -236,7 +236,7 @@ The four daisyUI semantic colors (info, success, warning, error) all sit at ligh
 The system is flat. `--depth: 0` is set in the daisyUI lemonade theme on purpose. Surfaces stack via the `base-100 → base-200 → base-300` lightness ladder and 1px Rind borders, never via shadow.
 
 The two exceptions, both narrow:
-1. The apps-list dropdown menu (`.dropdown-content`) carries daisyUI's default `shadow` token because it has to read as floating over the row underneath. This is the only stationary `shadow` use in the admin UI.
+1. Dropdown menus (`.dropdown-content`) carry a shadow because they read as floating over the content underneath: the apps-list row menu (daisyUI default `shadow`) and the collapsed mobile nav menu in the top bar (`shadow-md`, the preferred dropdown weight). These are the only stationary `shadow` uses in the admin UI; both still pair the shadow with a `border-base-300` hairline so they hold up on dark, where shadows nearly vanish.
 2. The native `<dialog>` confirm modal renders the browser's default `::backdrop` overlay (`rgba(0,0,0,.3)` via the `side-scrim` analog). This is system chrome, not authored elevation.
 
 ### Z-index scale
@@ -298,10 +298,10 @@ For every interactive component the system already ships: default, hover, focus,
 - **Placement:** above the content they relate to (flash messages above the page H1, quota warnings above the apps list, lint flash above the workspace canvas).
 
 ### Navigation
-- **Top bar** (`brand` partial): single horizontal `.navbar` with `bg-base-100`, `border-b border-base-300`, mascot SVG + wordmark on the left, ghost-button nav links on the right (Your apps / Users / System / Account), theme toggle at the far right.
+- **Top bar** (`brand` partial): single horizontal `.navbar` with `bg-base-100`, `border-b border-base-300`, mascot SVG + wordmark on the left, ghost-button nav links on the right (Your apps / Users / System / Account), theme toggle at the far right. The wordmark is `shrink-0`; when a site is scoped (`/ slug`), the slug is the flexible `truncate min-w-0` element so a long name ellipsizes instead of wrapping.
 - **Site subnav** (`site_subnav` partial): daisyUI `.tabs.tabs-bordered` under the top bar when scoped to a single site. Workspace / Manage tabs, plus a far-right "View site →" link.
-- **Active state:** `btn-active` on top-bar ghosts; `tab-active` on subnav tabs. Both use Banana Bark text on a slightly Pith fill — no Lemonade Pulp on inactive nav items.
-- **Mobile:** navbar wraps; subnav scrolls horizontally. There is no hamburger sidebar; the surface is shallow enough.
+- **Active state:** `btn-active` on top-bar ghosts; `tab-active` on subnav tabs. Both use Banana Bark text on a slightly Pith fill — no Lemonade Pulp on inactive nav items. The same active state mirrors into the collapsed mobile menu (daisyUI `menu` `<a class="active">`).
+- **Mobile:** the theme toggle stays visible; below `sm` (640px) the inline nav links collapse into a right-anchored dropdown (the same `dropdown` + `menu` component the apps list uses) behind a hamburger trigger. This is a menu, **not** a sidebar — the surface is shallow enough that it never grows past a single dropdown. The subnav scrolls / wraps horizontally. (Earlier docs claimed the navbar "wrapped" on mobile; it never did — the right-side group was `flex-none` and overflowed off-screen. The dropdown replaces that broken state.)
 
 ### Side panel (signature)
 - **Pattern:** fixed-position right-anchored panel (`width: min(420px, 100vw)`) with a `data-open="true"` data-attribute toggle. Slides in via `transform: translateX(0)` over 200ms ease. Backdrop (`.side-scrim`) is `rgba(0,0,0,.3)` and shares the same toggle.
