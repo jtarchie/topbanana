@@ -125,5 +125,5 @@ func (s *Server) canEdit(c *echo.Context, slug string) bool {
 	if user.Role == auth.RoleSuperAdmin {
 		return true
 	}
-	return s.ownerOf(slug) == user.Email
+	return s.registry.ownerOf(slug) == user.Email
 }

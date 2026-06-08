@@ -20,7 +20,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -108,21 +107,11 @@ type Server struct {
 	// internal mimetype table per request.
 	htmlMinifier *minify.M
 
-	// domainIndex maps lowercased custom hostnames to the slug that owns
-	// them. slugIndex is the set of real slugs in the bucket, used by
-	// HostAllowed so autocert won't ask Let's Encrypt for a cert for a
-	// scanner-invented hostname like "whm.apps.jtarchie.com" — every miss
-	// would otherwise burn a slot in the 50/week per-registered-domain rate
-	// limit. ownerIndex maps slug → owner email so role-filtered listings
-	// don't need an S3 GET per app. privateIndex flags slugs whose owner
-	// has marked them private — the subdomain proxy consults it on every
-	// hit so we don't pay an S3 round-trip for the gate. All four are
-	// rebuilt from one ListApps call; the same mutex guards them.
-	domainMu     sync.RWMutex
-	domainIndex  map[string]string
-	slugIndex    map[string]bool
-	ownerIndex   map[string]string
-	privateIndex map[string]bool
+	// registry is the in-memory index of every site (custom-domain → slug,
+	// slug existence, owner, privacy), rebuilt from one ListApps sweep. The
+	// routing, ownership, and privacy hot paths consult it instead of S3. See
+	// siteRegistry in site_registry.go.
+	registry *siteRegistry
 
 	// preWarmCert is the deps callback, captured here so settingsSubmitHandler
 	// can fire it without threading the function through every signature.
@@ -196,14 +185,11 @@ func New(d Deps) (*echo.Echo, *Server) {
 		tpl:          tpl,
 		systemInfo:   d.SystemInfo,
 		htmlMinifier: newHTMLMinifier(),
-		domainIndex:  map[string]string{},
-		slugIndex:    map[string]bool{},
-		ownerIndex:   map[string]string{},
-		privateIndex: map[string]bool{},
+		registry:     newSiteRegistry(d.Store, d.Build),
 		preWarmCert:  d.PreWarmCert,
 		mcpSecret:    d.MCPSecret,
 	}
-	s.initialRebuildDomainIndex(context.Background())
+	s.registry.initialRebuildDomainIndex(context.Background())
 	if s.mcpSecret != "" {
 		s.mcpOAuth = newMCPOAuthState()
 	}
@@ -362,13 +348,13 @@ func (s *Server) subdomainMiddleware() echo.MiddlewareFunc {
 				// correspond to a real app. Stops scanner traffic from
 				// generating per-request log noise and from waking up the S3
 				// lookup path.
-				if strings.Contains(slug, ".") || validateSlug(slug) != nil || !s.slugExists(slug) {
+				if strings.Contains(slug, ".") || validateSlug(slug) != nil || !s.registry.slugExists(slug) {
 					return notFound()
 				}
 				return s.dispatchSite(c, slug)
 			}
 
-			if slug, ok := s.lookupCustomDomain(host); ok {
+			if slug, ok := s.registry.lookupCustomDomain(host); ok {
 				c.Set("custom_domain", true)
 				return s.dispatchSite(c, slug)
 			}
@@ -387,7 +373,7 @@ func (s *Server) subdomainMiddleware() echo.MiddlewareFunc {
 // subdomain.
 func (s *Server) pathRouteHandler(c *echo.Context) error {
 	slug := c.Param("slug")
-	if validateSlug(slug) != nil || !s.slugExists(slug) {
+	if validateSlug(slug) != nil || !s.registry.slugExists(slug) {
 		return notFound()
 	}
 
@@ -406,7 +392,7 @@ func (s *Server) pathRouteHandler(c *echo.Context) error {
 // owner (or a super admin) gets a 404 so the existence of a private site
 // can't be inferred from the status code.
 func (s *Server) dispatchSite(c *echo.Context, slug string) error {
-	if s.isPrivate(slug) && !s.callerCanViewPrivate(c, slug) {
+	if s.registry.isPrivate(slug) && !s.callerCanViewPrivate(c, slug) {
 		return notFound()
 	}
 	reqPath := c.Request().URL.Path
@@ -427,7 +413,7 @@ func (s *Server) callerCanViewPrivate(c *echo.Context, slug string) bool {
 	if !ok {
 		return false
 	}
-	if email == s.ownerOf(slug) {
+	if email == s.registry.ownerOf(slug) {
 		return true
 	}
 	if s.auth == nil {
@@ -438,155 +424,6 @@ func (s *Server) callerCanViewPrivate(c *echo.Context, slug string) bool {
 		return false
 	}
 	return u.Role == auth.RoleSuperAdmin
-}
-
-// rebuildDomainIndex scans all sites and rebuilds the host → slug map. Called
-// after any settings save that changes Domains. Returns an error so the
-// initial startup rebuild can retry; runtime callers (settings handlers) just
-// log and continue — a stale index there only delays the next refresh.
-func (s *Server) rebuildDomainIndex(ctx context.Context) error {
-	apps, err := s.store.ListApps(ctx)
-	if err != nil {
-		return fmt.Errorf("list apps: %w", err)
-	}
-	idx := make(map[string]string, len(apps))
-	slugs := make(map[string]bool, len(apps))
-	owners := make(map[string]string, len(apps))
-	privates := make(map[string]bool, len(apps))
-	for _, slug := range apps {
-		slugs[slug] = true
-		meta := s.build.ReadMeta(ctx, slug)
-		if meta.OwnerID != "" {
-			owners[slug] = meta.OwnerID
-		}
-		if meta.Private {
-			privates[slug] = true
-		}
-		for _, d := range meta.Domains {
-			if existing, dup := idx[d]; dup && existing != slug {
-				slog.Warn("domain_index.duplicate", "domain", d, "kept", existing, "dropped", slug)
-				continue
-			}
-			idx[d] = slug
-		}
-	}
-	s.domainMu.Lock()
-	s.domainIndex = idx
-	s.slugIndex = slugs
-	s.ownerIndex = owners
-	s.privateIndex = privates
-	s.domainMu.Unlock()
-	slog.Info("domain_index.rebuilt", "domains", len(idx), "slugs", len(slugs), "owners", len(owners), "private", len(privates))
-	return nil
-}
-
-// ownerOf returns the owner email recorded in the index for a slug, or
-// the empty string if the slug is unowned (pre-migration data). Cheap —
-// one in-memory map lookup. The caller is expected to handle "":
-// authorizeSlug treats it as "only super admin can access."
-func (s *Server) ownerOf(slug string) string {
-	s.domainMu.RLock()
-	defer s.domainMu.RUnlock()
-	return s.ownerIndex[slug]
-}
-
-// isPrivate reports whether the slug is marked private. Consulted by the
-// subdomain dispatcher on every public-facing hit so we can gate the
-// proxy without an extra S3 round-trip per request.
-func (s *Server) isPrivate(slug string) bool {
-	s.domainMu.RLock()
-	defer s.domainMu.RUnlock()
-	return s.privateIndex[slug]
-}
-
-// setOwner refreshes a single slug's owner without rebuilding the whole
-// index. Called from buildHandler (after a new app is created) and from
-// the transfer handler in commit 8.
-func (s *Server) setOwner(slug, owner string) {
-	s.domainMu.Lock()
-	if s.ownerIndex == nil {
-		s.ownerIndex = map[string]string{}
-	}
-	s.ownerIndex[slug] = owner
-	s.domainMu.Unlock()
-}
-
-// countAppsFor returns the number of slugs the given email owns according
-// to the in-memory ownerIndex. Used by the quota check on /build and by
-// the over-quota banner on /apps. Empty email returns 0.
-func (s *Server) countAppsFor(email string) int {
-	if email == "" {
-		return 0
-	}
-	s.domainMu.RLock()
-	defer s.domainMu.RUnlock()
-	count := 0
-	for _, owner := range s.ownerIndex {
-		if owner == email {
-			count++
-		}
-	}
-	return count
-}
-
-// markSlug records a freshly-created slug so HostAllowed accepts it
-// immediately, without waiting for the next ListApps rebuild. Called from
-// buildHandler the moment a build is kicked off — the slug folder may not
-// exist in S3 yet, but the user is already redirected to its URL and we want
-// the first TLS handshake to succeed.
-func (s *Server) markSlug(slug string) {
-	s.domainMu.Lock()
-	if s.slugIndex == nil {
-		s.slugIndex = map[string]bool{}
-	}
-	s.slugIndex[slug] = true
-	s.domainMu.Unlock()
-}
-
-// slugExists reports whether slug names a real app in our index. Used by
-// HostAllowed to refuse ACME issuance for scanner-invented hostnames.
-func (s *Server) slugExists(slug string) bool {
-	s.domainMu.RLock()
-	defer s.domainMu.RUnlock()
-	return s.slugIndex[slug]
-}
-
-// initialRebuildDomainIndex retries the first rebuild a few times. If S3 is
-// briefly unreachable at boot and we silently start with an empty index, every
-// custom-domain ACME validation fails closed (HostPolicy denies unknown hosts)
-// until somebody saves settings — that's a long, silent outage. Keep retrying
-// for ~10s; if the bucket genuinely is dead, panic so the platform restarts us.
-func (s *Server) initialRebuildDomainIndex(ctx context.Context) {
-	var lastErr error
-	for i := range 5 {
-		if i > 0 {
-			time.Sleep(2 * time.Second)
-		}
-		err := s.rebuildDomainIndex(ctx)
-		if err == nil {
-			return
-		}
-		lastErr = err
-		slog.Warn("domain_index.startup_retry", "attempt", i+1, "err", err)
-	}
-	panic(fmt.Errorf("initial domain index rebuild failed after retries: %w", lastErr))
-}
-
-// rebuildDomainIndexLogging is the post-startup callsite: rebuild, log on
-// failure, keep serving. The old index stays in place if the rebuild errored.
-func (s *Server) rebuildDomainIndexLogging(ctx context.Context) {
-	err := s.rebuildDomainIndex(ctx)
-	if err != nil {
-		slog.Warn("domain_index.refresh_failed", "err", err)
-	}
-}
-
-// lookupCustomDomain returns the slug that owns host, if any.
-func (s *Server) lookupCustomDomain(host string) (string, bool) {
-	s.domainMu.RLock()
-	defer s.domainMu.RUnlock()
-	slug, ok := s.domainIndex[host]
-	return slug, ok
 }
 
 // hstsMiddleware advertises HSTS only when the request actually arrived over
@@ -632,9 +469,9 @@ func (s *Server) HostAllowed(host string) bool {
 		if validateSlug(prefix) != nil {
 			return false
 		}
-		return s.slugExists(prefix)
+		return s.registry.slugExists(prefix)
 	}
-	_, ok := s.lookupCustomDomain(host)
+	_, ok := s.registry.lookupCustomDomain(host)
 	return ok
 }
 
@@ -1074,7 +911,7 @@ func (s *Server) appsOverQuota(user *auth.User) (int, int) {
 	if quotaCap <= 0 {
 		return 0, 0
 	}
-	count := s.countAppsFor(user.Email)
+	count := s.registry.countAppsFor(user.Email)
 	if count <= quotaCap {
 		return 0, quotaCap
 	}
@@ -1328,7 +1165,7 @@ func (s *Server) buildHandler(c *echo.Context) error {
 	// AllowedModels merged over the operator defaults so build.Service
 	// dispatches each tier against the matching Runner.
 	if s.auth != nil {
-		quotaErr := auth.CheckMaxApps(user, s.countAppsFor(owner), s.auth.QuotaDefaults())
+		quotaErr := auth.CheckMaxApps(user, s.registry.countAppsFor(owner), s.auth.QuotaDefaults())
 		if quotaErr != nil {
 			return echo.NewHTTPError(http.StatusForbidden, quotaErr.Error())
 		}
@@ -1342,9 +1179,9 @@ func (s *Server) buildHandler(c *echo.Context) error {
 	// first TLS handshake to <slug>.<domain> (the progress page about to
 	// load) passes HostAllowed, and so /events + /status see ownership
 	// without waiting for the next ListApps rebuild.
-	s.markSlug(slug)
+	s.registry.markSlug(slug)
 	if owner != "" {
-		s.setOwner(slug, owner)
+		s.registry.setOwner(slug, owner)
 	}
 	return s.startBuild(c, build.Params{
 		Slug:         slug,
@@ -1898,7 +1735,7 @@ func (s *Server) settingsSubmitHandler(c *echo.Context) error {
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "save settings", err)
 	}
-	s.rebuildDomainIndexLogging(ctx)
+	s.registry.rebuildDomainIndexLogging(ctx)
 	if s.preWarmCert != nil {
 		for _, host := range added {
 			go s.preWarmCert(host)
@@ -2037,7 +1874,7 @@ func (s *Server) reassignAppsOwnedBy(ctx context.Context, from, to string) (int,
 			}
 			continue
 		}
-		s.setOwner(slug, to)
+		s.registry.setOwner(slug, to)
 		slog.Info("app.transfer", "slug", slug, "from", from, "to", to, "reason", "owner_delete")
 		count++
 	}
@@ -2063,7 +1900,7 @@ func (s *Server) settingsDeleteHandler(c *echo.Context) error {
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "delete app", err)
 	}
-	s.rebuildDomainIndexLogging(ctx)
+	s.registry.rebuildDomainIndexLogging(ctx)
 
 	slog.Info("app.delete", "slug", slug, "files", res.FilesDeleted, "snapshots", res.SnapshotsDeleted)
 	return c.Redirect(http.StatusSeeOther, "/apps?flash="+urlEscape("Deleted "+slug)) //nolint:wrapcheck
@@ -2087,7 +1924,7 @@ func (s *Server) parseDomains(raw, owningSlug string) ([]string, error) {
 		if host == s.domain || strings.HasSuffix(host, "."+s.domain) {
 			return nil, fmt.Errorf("domain %q overlaps the main app domain", host)
 		}
-		if other, ok := s.lookupCustomDomain(host); ok && other != owningSlug {
+		if other, ok := s.registry.lookupCustomDomain(host); ok && other != owningSlug {
 			return nil, fmt.Errorf("domain %q is already claimed by site %q", host, other)
 		}
 		if seen[host] {

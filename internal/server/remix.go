@@ -34,7 +34,7 @@ func (s *Server) remixHandler(c *echo.Context) error {
 	srcMeta := s.build.ReadMeta(ctx, srcSlug)
 
 	if s.auth != nil {
-		quotaErr := auth.CheckMaxApps(caller, s.countAppsFor(caller.Email), s.auth.QuotaDefaults())
+		quotaErr := auth.CheckMaxApps(caller, s.registry.countAppsFor(caller.Email), s.auth.QuotaDefaults())
 		if quotaErr != nil {
 			if errors.Is(quotaErr, auth.ErrMaxAppsReached) {
 				return echo.NewHTTPError(http.StatusForbidden, quotaErr.Error())
@@ -88,9 +88,9 @@ func (s *Server) remixHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "write remix meta", err)
 	}
 
-	s.markSlug(dstSlug)
-	s.setOwner(dstSlug, caller.Email)
-	s.rebuildDomainIndexLogging(ctx)
+	s.registry.markSlug(dstSlug)
+	s.registry.setOwner(dstSlug, caller.Email)
+	s.registry.rebuildDomainIndexLogging(ctx)
 
 	slog.Info("app.remix", "from", srcSlug, "to", dstSlug, "by", caller.Email)
 	flash := fmt.Sprintf("remixed+%s+as+%s", srcSlug, dstSlug)

@@ -331,7 +331,7 @@ func (s *Server) adminUserDeleteHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "delete user", err)
 	}
 	s.revokePendingInvitesFor(ctx, email)
-	s.rebuildDomainIndexLogging(ctx)
+	s.registry.rebuildDomainIndexLogging(ctx)
 
 	byEmail := ""
 	if current != nil {

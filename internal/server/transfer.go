@@ -51,7 +51,7 @@ func (s *Server) transferAppHandler(c *echo.Context) error {
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "write meta", err)
 	}
-	s.setOwner(slug, recipient.Email)
+	s.registry.setOwner(slug, recipient.Email)
 
 	callerEmail := ""
 	if caller != nil {

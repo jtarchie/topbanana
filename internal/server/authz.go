@@ -55,7 +55,7 @@ func (s *Server) authorizeSlug(c *echo.Context, slug string) (*auth.User, error)
 	if u.Role == auth.RoleSuperAdmin {
 		return u, nil
 	}
-	owner := s.ownerOf(slug)
+	owner := s.registry.ownerOf(slug)
 	if owner == "" || owner != u.Email {
 		return nil, notFound()
 	}

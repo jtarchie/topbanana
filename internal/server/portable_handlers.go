@@ -63,7 +63,7 @@ func (s *Server) importHandler(c *echo.Context) error {
 	}
 
 	if s.auth != nil {
-		quotaErr := auth.CheckMaxApps(caller, s.countAppsFor(caller.Email), s.auth.QuotaDefaults())
+		quotaErr := auth.CheckMaxApps(caller, s.registry.countAppsFor(caller.Email), s.auth.QuotaDefaults())
 		if quotaErr != nil {
 			if errors.Is(quotaErr, auth.ErrMaxAppsReached) {
 				return echo.NewHTTPError(http.StatusForbidden, quotaErr.Error())
@@ -128,10 +128,10 @@ func (s *Server) importHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "write imported meta", err)
 	}
 
-	s.markSlug(slug)
-	s.setOwner(slug, caller.Email)
+	s.registry.markSlug(slug)
+	s.registry.setOwner(slug, caller.Email)
 	s.snapshotBefore(ctx, slug, "import")
-	s.rebuildDomainIndexLogging(ctx)
+	s.registry.rebuildDomainIndexLogging(ctx)
 
 	slog.Info("app.import", "slug", slug, "files", result.FileCount, "by", caller.Email)
 	return c.Redirect(http.StatusSeeOther, "/workspace/"+slug) //nolint:wrapcheck

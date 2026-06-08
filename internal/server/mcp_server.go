@@ -158,7 +158,7 @@ func (s *Server) authorizeSlugOwner(ctx context.Context, email, slug string) (*a
 		if validateErr != nil {
 			return nil, fmt.Errorf("invalid slug %q: %w", slug, validateErr)
 		}
-		if user.Role != auth.RoleSuperAdmin && s.ownerOf(slug) != user.Email {
+		if user.Role != auth.RoleSuperAdmin && s.registry.ownerOf(slug) != user.Email {
 			return nil, fmt.Errorf("site %q not found", slug)
 		}
 	}
@@ -246,7 +246,7 @@ func (s *Server) registerListSites(srv *mcp.Server) {
 		sort.Strings(slugs)
 		out := make([]siteSummary, 0, len(slugs))
 		for _, slug := range slugs {
-			if user.Role != auth.RoleSuperAdmin && s.ownerOf(slug) != user.Email {
+			if user.Role != auth.RoleSuperAdmin && s.registry.ownerOf(slug) != user.Email {
 				continue
 			}
 			meta := s.build.ReadMeta(ctx, slug)
