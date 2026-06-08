@@ -639,19 +639,21 @@ func (s *Server) registerLintSite(srv *mcp.Server) {
 // mcpLintProblems shapes lint errors into the structured problems the MCP
 // lint_site result carries (file/message/kind/autofixable) plus the flat
 // "file: message" strings kept for older clients. autofixable mirrors the build
-// loop: only the design-substrate kind is mechanically repaired (by OptimizeCSS
-// / AutoFixDesignSubstrate); everything else is for the agent to fix.
+// loop: a kind in lint.AutoFixers is mechanically repaired (by OptimizeCSS,
+// which runs before this lint, for the /app.css link and the viewport meta);
+// everything else is for the agent to fix.
 func mcpLintProblems(errs []lint.Error) (problems []map[string]any, msgs []string) {
 	problems = make([]map[string]any, 0, len(errs))
 	msgs = make([]string, 0, len(errs))
 	for i := range errs {
 		e := &errs[i]
 		msgs = append(msgs, e.Error())
+		_, fixable := lint.AutoFixers[e.Kind]
 		problems = append(problems, map[string]any{
 			"file":        e.File,
 			"message":     e.Message,
 			"kind":        string(e.Kind),
-			"autofixable": e.Kind == lint.KindDesignSubstrate,
+			"autofixable": fixable,
 		})
 	}
 	return problems, msgs

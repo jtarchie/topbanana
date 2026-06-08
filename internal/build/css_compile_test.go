@@ -36,6 +36,9 @@ func TestSwapSubstrateForLocalCSS(t *testing.T) {
 	if !strings.Contains(out, `<link rel="stylesheet" href="/app.css">`) {
 		t.Errorf("local /app.css link not injected:\n%s", out)
 	}
+	if !strings.Contains(out, `name="viewport"`) || !strings.Contains(out, "width=device-width") {
+		t.Errorf("responsive viewport meta not injected:\n%s", out)
+	}
 	if !strings.Contains(out, `data-theme="synthwave"`) {
 		t.Error("swap should preserve the rest of the document (data-theme lost)")
 	}
@@ -50,10 +53,35 @@ func TestSwapSubstrateForLocalCSS(t *testing.T) {
 func TestSwapSubstrateForLocalCSS_AlreadyLocal(t *testing.T) {
 	t.Parallel()
 
-	page := `<html><head><link rel="stylesheet" href="/app.css"></head><body class="btn"></body></html>`
+	// Already carries both the viewport meta and /app.css with no CDN tags, so
+	// there is nothing left to inject or strip.
+	page := `<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/app.css"></head><body class="btn"></body></html>`
 	_, changed := swapSubstrateForLocalCSS(page)
 	if changed {
-		t.Error("expected changed=false for a page that already links /app.css with no CDN tags")
+		t.Error("expected changed=false for a complete page (viewport + /app.css, no CDN tags)")
+	}
+}
+
+// TestSwapSubstrateForLocalCSS_InjectsViewport pins the MCP/web parity: a page
+// that already links /app.css but omits the viewport meta still gets the
+// responsive viewport injected.
+func TestSwapSubstrateForLocalCSS_InjectsViewport(t *testing.T) {
+	t.Parallel()
+
+	page := `<html><head><link rel="stylesheet" href="/app.css"></head><body class="btn"></body></html>`
+	out, changed := swapSubstrateForLocalCSS(page)
+	if !changed {
+		t.Fatal("expected changed=true: the viewport meta is missing")
+	}
+	if !strings.Contains(out, "width=device-width") {
+		t.Errorf("responsive viewport meta not injected:\n%s", out)
+	}
+	if strings.Count(out, `href="/app.css"`) != 1 {
+		t.Errorf("must not duplicate the /app.css link:\n%s", out)
+	}
+	again, changed2 := swapSubstrateForLocalCSS(out)
+	if changed2 {
+		t.Errorf("swap not idempotent after viewport injection:\n%s", again)
 	}
 }
 

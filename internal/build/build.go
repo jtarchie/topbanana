@@ -593,8 +593,9 @@ func (svc *Service) Lint(ctx context.Context, slug string, tmpl *templates.SiteT
 }
 
 // AutoFix applies the in-code fixes for deterministically fixable lint errors
-// (currently KindDesignSubstrate — injecting the /app.css link) and returns the
-// residual errors that still need the agent. It reuses the exact path the build
+// (the kinds in lint.AutoFixers — injecting the /app.css link and the
+// responsive viewport meta) and returns the residual errors that still need the
+// agent. It reuses the exact path the build
 // retry loop runs before falling back to the LLM, so callers like the relint
 // endpoint can clear mechanical issues without spending an agent turn (and
 // without risking the agent regenerating a page from scratch). Fixes preserve
@@ -796,10 +797,12 @@ func recordUsage(rec *editrec.Recorder, u agent.Usage) {
 }
 
 // autoFixLint rewrites files in-place for any error whose Kind has a
-// deterministic fix, then returns the residual errors that still need the
-// agent. Files that also produced a KindSuspiciousAttr error are skipped —
-// see the AutoFixDesignSubstrate doc for why touching a parser-recovery
-// bug is unsafe.
+// deterministic fix (the kinds in lint.AutoFixers), then returns the residual
+// errors that still need the agent. Every applicable fixer is applied to a file
+// in one read/write pass, so a page missing both the /app.css link and the
+// viewport meta is repaired in a single go. Files that also produced a
+// KindSuspiciousAttr error are skipped — see the AutoFixDesignSubstrate doc for
+// why touching a parser-recovery bug is unsafe.
 func (svc *Service) autoFixLint(ctx context.Context, slug string, errs []lint.Error) []lint.Error {
 	blocked := map[string]bool{}
 	for _, e := range errs {
@@ -808,25 +811,38 @@ func (svc *Service) autoFixLint(ctx context.Context, slug string, errs []lint.Er
 		}
 	}
 
-	fixed := map[string]bool{}
+	// Collect the fixable kinds present per file, deduped — skipping blocked
+	// files and any error whose Kind has no registered fixer.
+	pending := map[string]map[lint.Kind]bool{}
 	for _, e := range errs {
-		if e.Kind != lint.KindDesignSubstrate || blocked[e.File] || fixed[e.File] {
+		if blocked[e.File] {
 			continue
 		}
-		obj, err := svc.store.Read(ctx, slug, e.File)
+		if _, ok := lint.AutoFixers[e.Kind]; !ok {
+			continue
+		}
+		if pending[e.File] == nil {
+			pending[e.File] = map[lint.Kind]bool{}
+		}
+		pending[e.File][e.Kind] = true
+	}
+
+	fixed := map[string]map[lint.Kind]bool{}
+	for file, kinds := range pending {
+		obj, err := svc.store.Read(ctx, slug, file)
 		if err != nil || obj.Content == "" {
 			continue
 		}
-		out, changed := lint.AutoFixDesignSubstrate(obj.Content)
-		if !changed {
+		content, done := applyAutoFixers(obj.Content, kinds)
+		if len(done) == 0 {
 			continue
 		}
-		err = svc.store.Write(ctx, slug, e.File, out, "text/html; charset=utf-8", nil)
+		err = svc.store.Write(ctx, slug, file, content, "text/html; charset=utf-8", nil)
 		if err != nil {
-			slog.Warn("build.autofix.write_failed", "slug", slug, "file", e.File, "error", err)
+			slog.Warn("build.autofix.write_failed", "slug", slug, "file", file, "error", err)
 			continue
 		}
-		fixed[e.File] = true
+		fixed[file] = done
 	}
 
 	if len(fixed) == 0 {
@@ -835,12 +851,28 @@ func (svc *Service) autoFixLint(ctx context.Context, slug string, errs []lint.Er
 
 	residual := make([]lint.Error, 0, len(errs))
 	for _, e := range errs {
-		if e.Kind == lint.KindDesignSubstrate && fixed[e.File] {
+		if fixed[e.File][e.Kind] {
 			continue
 		}
 		residual = append(residual, e)
 	}
 	return residual
+}
+
+// applyAutoFixers chains every registered fixer for the given kinds over
+// content, returning the rewritten content and the set of kinds that actually
+// changed it. The fixers are idempotent and all inject before </head>, so the
+// map-iteration order is irrelevant.
+func applyAutoFixers(content string, kinds map[lint.Kind]bool) (string, map[lint.Kind]bool) {
+	done := map[lint.Kind]bool{}
+	for kind := range kinds {
+		out, changed := lint.AutoFixers[kind](content)
+		if changed {
+			content = out
+			done[kind] = true
+		}
+	}
+	return content, done
 }
 
 // seedTemplate writes the template's skeleton files (if any) and the

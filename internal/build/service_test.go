@@ -855,6 +855,50 @@ func TestBrokenHTMLActuallyFailsLint(t *testing.T) {
 	}
 }
 
+// TestApplyAutoFixers exercises the deterministic heart of autoFixLint without
+// a store: a page missing both the /app.css link and the viewport meta is
+// repaired in one pass, a single requested kind fixes only that, and a complete
+// page changes nothing.
+func TestApplyAutoFixers(t *testing.T) {
+	t.Parallel()
+
+	bare := `<!DOCTYPE html><html><head><title>x</title></head><body></body></html>`
+
+	t.Run("both kinds fixed in one pass", func(t *testing.T) {
+		out, done := applyAutoFixers(bare, map[lint.Kind]bool{
+			lint.KindDesignSubstrate: true,
+			lint.KindMobileViewport:  true,
+		})
+		if !done[lint.KindDesignSubstrate] || !done[lint.KindMobileViewport] {
+			t.Fatalf("expected both kinds fixed, got %v", done)
+		}
+		if !strings.Contains(out, `href="/app.css"`) || !strings.Contains(out, "width=device-width") {
+			t.Errorf("both tags should be injected:\n%s", out)
+		}
+	})
+
+	t.Run("only the requested kind is applied", func(t *testing.T) {
+		out, done := applyAutoFixers(bare, map[lint.Kind]bool{lint.KindMobileViewport: true})
+		if done[lint.KindDesignSubstrate] {
+			t.Error("design substrate must not be fixed when not requested")
+		}
+		if !done[lint.KindMobileViewport] || strings.Contains(out, `href="/app.css"`) {
+			t.Errorf("only the viewport should be injected:\n%s", out)
+		}
+	})
+
+	t.Run("complete page changes nothing", func(t *testing.T) {
+		complete := `<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/app.css"></head><body></body></html>`
+		_, done := applyAutoFixers(complete, map[lint.Kind]bool{
+			lint.KindDesignSubstrate: true,
+			lint.KindMobileViewport:  true,
+		})
+		if len(done) != 0 {
+			t.Errorf("nothing should change on a complete page, got %v", done)
+		}
+	})
+}
+
 func TestShouldPolishEdit(t *testing.T) {
 	t.Parallel()
 

@@ -25,6 +25,12 @@ const cssCompileTimeout = 90 * time.Second
 // platform domain (the embedded admin sheet).
 const localStylesheetTag = `<link rel="stylesheet" href="/app.css">`
 
+// viewportMetaTag mirrors lint.viewportMetaTag: the responsive viewport every
+// page must declare. Injected here so OptimizeCSS-driven flows (the web build's
+// final pass and MCP lint_site) self-host it just like the /app.css link, so a
+// page authored without it still ends up mobile-friendly.
+const viewportMetaTag = `<meta name="viewport" content="width=device-width, initial-scale=1">`
+
 var (
 	// cdnDaisyLinkRE matches both the daisyUI base and themes <link> tags.
 	cdnDaisyLinkRE = regexp.MustCompile(`(?i)<link\b[^>]*cdn\.jsdelivr\.net/npm/daisyui[^>]*>`)
@@ -203,22 +209,33 @@ func (svc *Service) ensureDaisyUI() (string, error) {
 }
 
 // swapSubstrateForLocalCSS strips the three CDN substrate tags and injects the
-// self-hosted /app.css link before </head>. Idempotent: a page that already
-// links /app.css and carries no CDN tags is returned unchanged. Returns the
-// new content and whether anything changed.
+// self-hosted /app.css link and the responsive viewport meta before </head>.
+// Idempotent: a page that already carries both tags and no CDN tags is returned
+// unchanged. Returns the new content and whether anything changed.
 func swapSubstrateForLocalCSS(content string) (string, bool) {
 	out := cdnDaisyLinkRE.ReplaceAllString(content, "")
 	out = cdnTailwindScriptRE.ReplaceAllString(out, "")
 
-	hasLocal := strings.Contains(out, `href="/app.css"`)
-	if !hasLocal {
-		idx := strings.Index(strings.ToLower(out), "</head>")
-		if idx != -1 {
-			out = out[:idx] + localStylesheetTag + "\n" + out[idx:]
-		}
-	}
+	out = injectBeforeHeadClose(out, `href="/app.css"`, localStylesheetTag)
+	out = injectBeforeHeadClose(out, `name="viewport"`, viewportMetaTag)
+
 	if out == content {
 		return content, false
 	}
 	return out, true
+}
+
+// injectBeforeHeadClose inserts tag immediately before the closing </head> when
+// marker is absent from content. A no-op when the marker is already present or
+// the page has no </head>. marker is matched case-sensitively against the exact
+// form tag is injected as, so re-running never duplicates a tag this injected.
+func injectBeforeHeadClose(content, marker, tag string) string {
+	if strings.Contains(content, marker) {
+		return content
+	}
+	idx := strings.Index(strings.ToLower(content), "</head>")
+	if idx == -1 {
+		return content
+	}
+	return content[:idx] + tag + "\n" + content[idx:]
 }
