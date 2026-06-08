@@ -2,6 +2,7 @@ package build
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -9,6 +10,20 @@ import (
 
 	"github.com/jtarchie/topbanana/internal/agent"
 )
+
+// The edit-prompt format strings the agent sees on every visual-edit
+// submission. Kept as sibling .md files so they read as plain text and stay
+// easy to tweak; each one is a fmt.Sprintf format string with the placeholders
+// noted on its EditPrompt switch arm.
+
+//go:embed edit_site_prompt.md
+var editSitePromptFmt string // placeholders: %s = user prompt
+
+//go:embed edit_page_prompt.md
+var editPagePromptFmt string // placeholders: %s = page name, %s = user prompt
+
+//go:embed edit_selection_prompt.md
+var editSelectionPromptFmt string // placeholders: %s = page name, %s = selected HTML, %s = user prompt
 
 // editPrefetchTotalCap caps the total bytes of HTML page content we'll inline
 // into seeded read_file responses. Beyond this, we let the agent issue its
@@ -139,10 +154,10 @@ func pagesNamedInPrompt(pages []string, prompt string) []string {
 func EditPrompt(prompt, page, selection string) string {
 	switch {
 	case page == "":
-		return "You are editing an existing multi-page site. Apply the user's change by editing the existing files in place — do not rewrite pages from scratch and do not delete content the user did not ask you to remove.\n\nUser prompt:\n" + prompt
+		return fmt.Sprintf(editSitePromptFmt, prompt)
 	case selection == "":
-		return fmt.Sprintf("Edit only the page '%s'. Use read_file to see current content first.\n\n%s", page, prompt)
+		return fmt.Sprintf(editPagePromptFmt, page, prompt)
 	default:
-		return fmt.Sprintf("In page '%s', the user selected this content:\n\n```html\n%s\n```\n\nApply this instruction to that selection (use read_file first to see the surrounding context):\n%s", page, selection, prompt)
+		return fmt.Sprintf(editSelectionPromptFmt, page, selection, prompt)
 	}
 }
