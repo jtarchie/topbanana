@@ -29,11 +29,10 @@ func (s *adminController) register(e *echo.Echo, super echo.MiddlewareFunc) {
 	e.GET("/admin/users", s.adminUsersHandler, super)
 	e.POST("/admin/users/invite", s.adminInviteCreateHandler, super)
 	e.POST("/admin/invites/:token/revoke", s.adminInviteRevokeHandler, super)
-	e.POST("/admin/users/:email/disable", s.adminUserDisableHandler, super)
-	e.POST("/admin/users/:email/enable", s.adminUserEnableHandler, super)
-	e.POST("/admin/users/:email/sessions/revoke", s.adminUserRevokeSessionsHandler, super)
-	e.POST("/admin/users/:email/quotas", s.adminUserQuotasHandler, super)
-	e.POST("/admin/users/:email/delete", s.adminUserDeleteHandler, super)
+	e.PATCH("/admin/users/:email", s.adminUserSetDisabledHandler, super)
+	e.DELETE("/admin/users/:email/sessions", s.adminUserRevokeSessionsHandler, super)
+	e.PATCH("/admin/users/:email/quotas", s.adminUserQuotasHandler, super)
+	e.DELETE("/admin/users/:email", s.adminUserDeleteHandler, super)
 }
 
 // adminUserRow is one row in the user table on /admin/users. ModelAuthor /
@@ -188,16 +187,19 @@ func (s *adminController) adminInviteRevokeHandler(c *echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/admin/users?flash=invite+revoked") //nolint:wrapcheck
 }
 
-// adminUserDisableHandler flips the Disabled bit on a user record. Refuses
-// to disable the caller themselves so a super admin can't accidentally
-// lock themselves out.
-func (s *adminController) adminUserDisableHandler(c *echo.Context) error {
+// adminUserSetDisabledHandler toggles a user's Disabled flag — PATCH
+// /admin/users/:email with form field disabled=true|false. Disabling also
+// revokes the user's active sessions so a still-warm cookie can't slip through;
+// you can't disable yourself. (Merges the old enable/disable handlers, which
+// differed only in the boolean and the self-guard.)
+func (s *adminController) adminUserSetDisabledHandler(c *echo.Context) error {
 	email := emailParam(c)
 	if email == "" {
 		return notFound()
 	}
+	disabled := c.FormValue("disabled") == "true"
 	current := userFromContext(c)
-	if current != nil && current.Email == email {
+	if disabled && current != nil && current.Email == email {
 		return c.Redirect(http.StatusSeeOther, "/admin/users?error=cannot+disable+yourself") //nolint:wrapcheck
 	}
 	ctx := c.Request().Context()
@@ -208,42 +210,23 @@ func (s *adminController) adminUserDisableHandler(c *echo.Context) error {
 		}
 		return httpErr(http.StatusInternalServerError, "load user", err)
 	}
-	user.Disabled = true
+	user.Disabled = disabled
 	err = s.auth.Users.Save(ctx, user)
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "save user", err)
 	}
-	// Also drop any active sessions so the next request from that user
-	// can't slip through on a still-warm cookie.
+	if !disabled {
+		return c.Redirect(http.StatusSeeOther, "/admin/users?flash=user+enabled") //nolint:wrapcheck
+	}
+	// Disabling drops active sessions so the next request from that user can't
+	// slip through on a still-warm cookie.
 	revokeErr := s.auth.Sessions.RevokeAllForUser(ctx, email)
 	if revokeErr != nil {
-		// Best-effort: the disable already stuck; surface the partial
-		// success in the flash so the operator knows.
+		// Best-effort: the disable already stuck; surface the partial success
+		// in the flash so the operator knows.
 		return c.Redirect(http.StatusSeeOther, "/admin/users?flash=user+disabled+but+session+revoke+failed") //nolint:wrapcheck
 	}
 	return c.Redirect(http.StatusSeeOther, "/admin/users?flash=user+disabled") //nolint:wrapcheck
-}
-
-// adminUserEnableHandler clears the Disabled bit. Symmetric to disable.
-func (s *adminController) adminUserEnableHandler(c *echo.Context) error {
-	email := emailParam(c)
-	if email == "" {
-		return notFound()
-	}
-	ctx := c.Request().Context()
-	user, err := s.auth.Users.Load(ctx, email)
-	if err != nil {
-		if errors.Is(err, auth.ErrUserNotFound) {
-			return notFound()
-		}
-		return httpErr(http.StatusInternalServerError, "load user", err)
-	}
-	user.Disabled = false
-	err = s.auth.Users.Save(ctx, user)
-	if err != nil {
-		return httpErr(http.StatusInternalServerError, "save user", err)
-	}
-	return c.Redirect(http.StatusSeeOther, "/admin/users?flash=user+enabled") //nolint:wrapcheck
 }
 
 // emailParam reads the :email route parameter and resolves it to a canonical

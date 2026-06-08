@@ -108,21 +108,26 @@
                         aria-label="Edit quotas for {{ .Email }}">Quotas</button>
                 {{ if not .IsSelf }}
                   {{ if .Disabled }}
-                    <form method="POST" action="/admin/users/{{ .Email }}/enable">
+                    <form method="POST" action="/admin/users/{{ .Email }}">
+                      <input type="hidden" name="_method" value="PATCH">
+                      <input type="hidden" name="disabled" value="false">
                       <button class="btn btn-ghost btn-sm">Enable</button>
                     </form>
                   {{ else }}
-                    <form method="POST" action="/admin/users/{{ .Email }}/disable" class="js-confirm"
+                    <form method="POST" action="/admin/users/{{ .Email }}" class="js-confirm"
                           data-confirm-title="Disable {{ .Email }}?"
                           data-confirm="They will be signed out immediately and unable to sign in until re-enabled. Active sessions are revoked at the same time."
                           data-confirm-ok="Disable user"
                           data-confirm-slug="{{ .Email }}">
+                      <input type="hidden" name="_method" value="PATCH">
+                      <input type="hidden" name="disabled" value="true">
                       <button class="btn btn-ghost btn-sm text-error">Disable</button>
                     </form>
                   {{ end }}
-                  <form method="POST" action="/admin/users/{{ .Email }}/sessions/revoke" class="js-confirm"
+                  <form method="POST" action="/admin/users/{{ .Email }}/sessions" class="js-confirm"
                         data-confirm-title="Revoke active sessions?"
                         data-confirm="They will need to re-sign-in on every device." data-confirm-ok="Revoke" data-confirm-tone="primary">
+                    <input type="hidden" name="_method" value="DELETE">
                     <button class="btn btn-ghost btn-sm">Revoke sessions</button>
                   </form>
                   <button type="button" class="btn btn-ghost btn-sm text-error js-delete-trigger"
@@ -152,6 +157,7 @@
     <button type="button" class="btn btn-ghost btn-sm btn-square" data-close="quotas" aria-label="Close quotas panel">×</button>
   </header>
   <form id="quotas-form" method="POST" action="" class="flex flex-col min-h-0 flex-1">
+    <input type="hidden" name="_method" value="PATCH">
     <div class="flex-1 overflow-y-auto p-4 space-y-5">
       <fieldset class="fieldset">
         <legend class="fieldset-legend">Max apps</legend>
@@ -323,6 +329,7 @@
     <button type="button" class="btn btn-ghost btn-sm btn-square" data-close="delete" aria-label="Close delete panel">×</button>
   </header>
   <form id="delete-form" method="POST" action="" class="flex flex-col min-h-0 flex-1">
+    <input type="hidden" name="_method" value="DELETE">
     <div class="flex-1 overflow-y-auto p-4 space-y-5">
       <p class="text-sm text-base-content/70">Permanently deletes this user and revokes all their sessions. There's no undo. Choose what happens to the sites they own.</p>
 
@@ -383,7 +390,7 @@
     document.querySelectorAll('.js-delete-trigger').forEach(function (btn) {
       btn.addEventListener('click', function () {
         email = btn.dataset.email || '';
-        form.action = '/admin/users/' + encodeURIComponent(email) + '/delete';
+        form.action = '/admin/users/' + encodeURIComponent(email);
         target.textContent = email;
         code.textContent = email;
         confirmInput.value = '';

@@ -53,7 +53,7 @@ func TestAdminUserDelete_CascadeForTarget(t *testing.T) {
 	adminCookie := rig.session(t, testAdminUser, auth.RoleSuperAdmin)
 	bobCookie := rig.session(t, bob, auth.RoleAdmin)
 
-	resp := postForm(t, srv.URL, "/admin/users/"+bob+"/delete", adminCookie, url.Values{"confirm": {bob}})
+	resp := postForm(t, srv.URL, "/admin/users/"+bob, adminCookie, url.Values{"_method": {"DELETE"}, "confirm": {bob}})
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("delete status: got %d want 303", resp.StatusCode)
@@ -101,8 +101,8 @@ func TestAdminUserDelete_TransferThenDelete(t *testing.T) {
 	_ = rig.session(t, dave, auth.RoleAdmin)  // the user being deleted
 	_ = rig.session(t, carol, auth.RoleAdmin) // recipient must exist + be enabled
 
-	resp := postForm(t, srv.URL, "/admin/users/"+dave+"/delete", adminCookie,
-		url.Values{"confirm": {dave}, "disposition": {"transfer"}, "transfer_to": {carol}})
+	resp := postForm(t, srv.URL, "/admin/users/"+dave, adminCookie,
+		url.Values{"_method": {"DELETE"}, "confirm": {dave}, "disposition": {"transfer"}, "transfer_to": {carol}})
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("transfer-delete status: got %d want 303", resp.StatusCode)
@@ -136,7 +136,7 @@ func TestAdminUserDelete_RefusesSelf(t *testing.T) {
 
 	adminCookie := rig.session(t, testAdminUser, auth.RoleSuperAdmin)
 
-	resp := postForm(t, srv.URL, "/admin/users/"+testAdminUser+"/delete", adminCookie, url.Values{"confirm": {testAdminUser}})
+	resp := postForm(t, srv.URL, "/admin/users/"+testAdminUser, adminCookie, url.Values{"_method": {"DELETE"}, "confirm": {testAdminUser}})
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("self-delete status: got %d want 303", resp.StatusCode)
@@ -167,7 +167,7 @@ func TestAdminUserDelete_AnotherSuperAdmin(t *testing.T) {
 	adminCookie := rig.session(t, testAdminUser, auth.RoleSuperAdmin)
 	_ = rig.session(t, boss2, auth.RoleSuperAdmin) // second operator
 
-	resp := postForm(t, srv.URL, "/admin/users/"+boss2+"/delete", adminCookie, url.Values{"confirm": {boss2}})
+	resp := postForm(t, srv.URL, "/admin/users/"+boss2, adminCookie, url.Values{"_method": {"DELETE"}, "confirm": {boss2}})
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("delete super admin status: got %d want 303", resp.StatusCode)
@@ -200,7 +200,7 @@ func TestAdminUserDelete_UnknownEmail404(t *testing.T) {
 	const ghost = "ghost@test"
 	adminCookie := rig.session(t, testAdminUser, auth.RoleSuperAdmin)
 
-	resp := postForm(t, srv.URL, "/admin/users/"+ghost+"/delete", adminCookie, url.Values{"confirm": {ghost}})
+	resp := postForm(t, srv.URL, "/admin/users/"+ghost, adminCookie, url.Values{"_method": {"DELETE"}, "confirm": {ghost}})
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("unknown-email status: got %d want 404", resp.StatusCode)
@@ -224,7 +224,7 @@ func TestAdminUserDelete_RequiresSuperAdmin(t *testing.T) {
 	_ = rig.session(t, victim, auth.RoleAdmin)
 	regularCookie := rig.session(t, "regular@test", auth.RoleAdmin)
 
-	resp := postForm(t, srv.URL, "/admin/users/"+victim+"/delete", regularCookie, url.Values{"confirm": {victim}})
+	resp := postForm(t, srv.URL, "/admin/users/"+victim, regularCookie, url.Values{"_method": {"DELETE"}, "confirm": {victim}})
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("regular-admin status: got %d want 404", resp.StatusCode)
