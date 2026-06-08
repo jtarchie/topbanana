@@ -3,6 +3,7 @@ package build
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -363,8 +364,21 @@ func TestService_Start_HappyPathSeedsSkeletonWritesMetaCompletes(t *testing.T) {
 		t.Fatalf("status = %q, want completed", status)
 	}
 
-	if runner.calls.Load() != 1 {
-		t.Errorf("Runner.Run calls = %d, want 1 (no retries needed)", runner.calls.Load())
+	// Author run + polish run. The polish phase fires automatically on initial
+	// builds and re-uses the same scripted runner; both calls write valid HTML
+	// so neither lint nor polish can fail the build.
+	if runner.calls.Load() != 2 {
+		t.Errorf("Runner.Run calls = %d, want 2 (author + polish)", runner.calls.Load())
+	}
+	history := collectHistory(t, tracker, slug)
+	var sawPolishing bool
+	for _, ev := range history {
+		if ev.Type == events.TypeStatus && ev.Status == events.StatusPolishing {
+			sawPolishing = true
+		}
+	}
+	if !sawPolishing {
+		t.Errorf("expected a status=polishing event in the SSE stream; got %d events", len(history))
 	}
 
 	// MetaFile should record template, owner, and description from refreshDescription.
@@ -838,6 +852,226 @@ func TestBrokenHTMLActuallyFailsLint(t *testing.T) {
 	errs := lint.App(ctx, st, slug, templates.Get("blank"))
 	if len(errs) == 0 {
 		t.Fatalf("expected lint errors for broken HTML; got 0")
+	}
+}
+
+func TestShouldPolishEdit(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		prompt string
+		want   bool
+	}{
+		{"polish the about page", true},
+		{"Please polish the hero", true},
+		{"tighten up the spacing", true},
+		{"refine the typography", true},
+		{"clean up the navbar", true},
+		{"clean it up", true},
+		{"change the hero copy", false},
+		{"add a new section about pricing", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		t.Run(c.prompt, func(t *testing.T) {
+			t.Parallel()
+			got := shouldPolishEdit(c.prompt)
+			if got != c.want {
+				t.Errorf("shouldPolishEdit(%q) = %v, want %v", c.prompt, got, c.want)
+			}
+		})
+	}
+}
+
+// polishPrompt is the user-prompt fired by PolishPass. It must keep the
+// read-before-edit guardrail (so the agent does not rewrite pages from the
+// prompt alone — the same failure mode lintFixGuardrail guards against) and
+// it must reference Top Banana's design substrate so the polish stays on
+// theme tokens rather than custom CSS.
+func TestPolishPrompt_ReferencesCoreConstraints(t *testing.T) {
+	t.Parallel()
+
+	must := []string{
+		"polishing",         // identifies the phase
+		"in place",          // edit-in-place contract
+		"do not rewrite",    // forbid blind rewrites
+		`"done"`,            // explicit stop sentinel
+		"focus-visible",     // interaction-state requirement
+		"DaisyUI",           // self-hosted substrate cue
+		"text-base-content", // theme token cue
+	}
+	for _, want := range must {
+		if !strings.Contains(polishPrompt, want) {
+			t.Errorf("polishPrompt missing %q", want)
+		}
+	}
+}
+
+// TestService_Start_EditSkipsPolishByDefault locks in the cost guard: an
+// edit whose prompt does not opt into polish runs only the author turn —
+// no second editor.Run call for a polish pass, no StatusPolishing event.
+//
+// Not parallel: each Service test spins its own MinIO HTTP transport (idle
+// connections live until the SDK's keep-alive timeout). Running the polish
+// integration tests serially keeps the package's process-wide goleak check
+// from observing leftover persistConn goroutines at test-suite exit.
+func TestService_Start_EditSkipsPolishByDefault(t *testing.T) {
+	st := minioStoreForBuild(t)
+	if st == nil {
+		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
+	}
+
+	tracker := events.NewTracker()
+	t.Cleanup(tracker.Close)
+	runner := &scriptedRunner{bodies: []string{validIndexHTML}}
+	svc := NewWithConfig(Config{
+		Store:        st,
+		Events:       tracker,
+		Runner:       runner,
+		BuildTimeout: 30 * time.Second,
+	})
+
+	slug := buildSlug(t)
+	cleanupSlug(t, st, slug)
+
+	svc.Start(Params{
+		Slug:     slug,
+		Prompt:   "change the hero copy",
+		LogKey:   "test.edit.no_polish",
+		Template: templates.Get("blank"),
+		// SeedSkeleton omitted → this is an edit.
+	})
+
+	status := waitForTerminal(t, tracker, slug, 30*time.Second)
+	if status != events.StatusCompleted {
+		t.Fatalf("status = %q, want completed", status)
+	}
+	if got := runner.calls.Load(); got != 1 {
+		t.Errorf("Runner.Run calls = %d, want 1 (author only — edit without polish keyword)", got)
+	}
+	history := collectHistory(t, tracker, slug)
+	for _, ev := range history {
+		if ev.Type == events.TypeStatus && ev.Status == events.StatusPolishing {
+			t.Errorf("unexpected status=polishing event on a non-opt-in edit")
+		}
+	}
+}
+
+// TestService_Start_EditPolishesOnOptIn is the inverse: when the edit
+// prompt asks for polish ("polish the about page"), the polish phase
+// fires after the author run. Not parallel — same goleak reason as the
+// sibling polish test.
+func TestService_Start_EditPolishesOnOptIn(t *testing.T) {
+	st := minioStoreForBuild(t)
+	if st == nil {
+		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
+	}
+
+	tracker := events.NewTracker()
+	t.Cleanup(tracker.Close)
+	runner := &scriptedRunner{bodies: []string{validIndexHTML, validIndexHTML}}
+	svc := NewWithConfig(Config{
+		Store:        st,
+		Events:       tracker,
+		Runner:       runner,
+		BuildTimeout: 30 * time.Second,
+	})
+
+	slug := buildSlug(t)
+	cleanupSlug(t, st, slug)
+
+	svc.Start(Params{
+		Slug:     slug,
+		Prompt:   "polish the about page",
+		LogKey:   "test.edit.opt_in_polish",
+		Template: templates.Get("blank"),
+	})
+
+	status := waitForTerminal(t, tracker, slug, 30*time.Second)
+	if status != events.StatusCompleted {
+		t.Fatalf("status = %q, want completed", status)
+	}
+	if got := runner.calls.Load(); got != 2 {
+		t.Errorf("Runner.Run calls = %d, want 2 (author + polish on opt-in)", got)
+	}
+	history := collectHistory(t, tracker, slug)
+	var sawPolishing bool
+	for _, ev := range history {
+		if ev.Type == events.TypeStatus && ev.Status == events.StatusPolishing {
+			sawPolishing = true
+		}
+	}
+	if !sawPolishing {
+		t.Errorf("expected status=polishing event on an opt-in edit; got %d events", len(history))
+	}
+}
+
+// failOnNthRunner writes validIndexHTML on every Run call except the n-th
+// (1-indexed), where it returns an error. Used to assert that a polish-turn
+// failure does not promote to a build-level failure — the user still sees
+// status=completed.
+type failOnNthRunner struct {
+	calls      atomic.Int32
+	failOnCall int32
+	err        error
+}
+
+func (r *failOnNthRunner) Run(ctx context.Context, s *store.Store, slug, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, _ time.Time, _ bool, _ func(events.Event), _ *events.Tracker) (agent.Usage, error) {
+	n := r.calls.Add(1)
+	if n == r.failOnCall {
+		return agent.Usage{}, r.err
+	}
+	err := s.Write(ctx, slug, "index.html", validIndexHTML, "text/html; charset=utf-8", nil)
+	if err != nil {
+		return agent.Usage{}, fmt.Errorf("failOnNthRunner write: %w", err)
+	}
+	return agent.Usage{}, nil
+}
+
+func (r *failOnNthRunner) Describe(_ context.Context, _ *store.Store, _, _ string) (agent.SiteDescription, error) {
+	return agent.SiteDescription{}, nil
+}
+
+// TestService_Start_PolishFailureNonFatal locks in the best-effort contract:
+// if the polish turn errors, the build still reaches status=completed
+// (matching OptimizeCSS / refreshDescription failure behaviour). Not
+// parallel — same goleak reason as the sibling polish test.
+func TestService_Start_PolishFailureNonFatal(t *testing.T) {
+	st := minioStoreForBuild(t)
+	if st == nil {
+		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
+	}
+
+	tracker := events.NewTracker()
+	t.Cleanup(tracker.Close)
+	// Author run (call 1) writes a valid page → lint passes. Polish run
+	// (call 2) returns an error. Build should still complete.
+	runner := &failOnNthRunner{failOnCall: 2, err: errors.New("simulated polish failure")}
+	svc := NewWithConfig(Config{
+		Store:        st,
+		Events:       tracker,
+		Runner:       runner,
+		BuildTimeout: 30 * time.Second,
+	})
+
+	slug := buildSlug(t)
+	cleanupSlug(t, st, slug)
+
+	svc.Start(Params{
+		Slug:         slug,
+		Prompt:       "hello",
+		LogKey:       "test.build.polish_fail",
+		Template:     templates.Get("blank"),
+		SeedSkeleton: true,
+		OwnerID:      "tester@example.com",
+	})
+
+	status := waitForTerminal(t, tracker, slug, 30*time.Second)
+	if status != events.StatusCompleted {
+		t.Fatalf("status = %q, want completed (polish failure must not fail the build)", status)
+	}
+	if got := runner.calls.Load(); got != 2 {
+		t.Errorf("Runner.Run calls = %d, want 2 (author + failed polish)", got)
 	}
 }
 

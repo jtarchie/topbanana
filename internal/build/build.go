@@ -566,19 +566,7 @@ func (svc *Service) Start(p Params) {
 			svc.events.Fail(p.Slug, err)
 			return
 		}
-		// Polish pass: the post-lint tightening turn modelled on the
-		// /impeccable polish skill. Runs on initial builds always; on edits
-		// only when the prompt asks for it (keyword scan), so the typical
-		// small edit stays cheap. Best-effort like OptimizeCSS — a failure
-		// is logged and the build still completes. Runs before OptimizeCSS
-		// so any class additions flow through the Tailwind purge.
-		isEdit := !p.SeedSkeleton
-		if !isEdit || shouldPolishEdit(p.Prompt) {
-			perr := svc.PolishPass(ctx, editorRunner, p.Slug, p.Template, p.Attachments, isEdit, rec)
-			if perr != nil {
-				slog.Warn(p.LogKey+".polish_failed", "slug", p.Slug, "err", perr)
-			}
-		}
+		svc.maybePolish(ctx, editorRunner, p, rec)
 		// Compile a minimal, self-contained stylesheet for the finished site
 		// and rewrite its pages to link /app.css. Best-effort, exactly like
 		// refreshDescription: a failure (no CLI, compile error) logs and moves
@@ -661,6 +649,26 @@ func shouldPolishEdit(prompt string) bool {
 		}
 	}
 	return false
+}
+
+// maybePolish gates and dispatches the post-lint polish turn. Runs on every
+// initial build (SeedSkeleton == true); on edits only when the prompt asks
+// for it via shouldPolishEdit, so the typical "change the hero copy" edit
+// stays cheap. Best-effort like OptimizeCSS / refreshDescription: any
+// failure is logged and the build still completes.
+//
+// Extracted from Service.Start to keep its cognitive complexity under the
+// linter ceiling; the polish-eligibility decision is itself the kind of
+// branching that belongs in a named helper.
+func (svc *Service) maybePolish(ctx context.Context, editor Runner, p Params, rec *editrec.Recorder) {
+	isEdit := !p.SeedSkeleton
+	if isEdit && !shouldPolishEdit(p.Prompt) {
+		return
+	}
+	err := svc.PolishPass(ctx, editor, p.Slug, p.Template, p.Attachments, isEdit, rec)
+	if err != nil {
+		slog.Warn(p.LogKey+".polish_failed", "slug", p.Slug, "err", err)
+	}
 }
 
 // PolishPass runs one agent turn dedicated to design polish — the post-lint
