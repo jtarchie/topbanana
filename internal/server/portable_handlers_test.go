@@ -15,6 +15,7 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 
+	"github.com/jtarchie/topbanana/internal/archive"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/portable"
@@ -284,7 +285,7 @@ func craftValidArchive(t *testing.T, template, indexBody string) []byte {
 		Mode:    0644,
 		ModTime: time.Now(),
 		PAXRecords: map[string]string{
-			snapshot.PAXContentTypeKey: "application/json",
+			archive.PAXContentTypeKey: "application/json",
 		},
 	})
 	_, _ = tw.Write(mb)
@@ -295,7 +296,7 @@ func craftValidArchive(t *testing.T, template, indexBody string) []byte {
 		Mode:    0644,
 		ModTime: time.Now(),
 		PAXRecords: map[string]string{
-			snapshot.PAXContentTypeKey: "text/html",
+			archive.PAXContentTypeKey: "text/html",
 		},
 	})
 	_, _ = tw.Write([]byte(indexBody))

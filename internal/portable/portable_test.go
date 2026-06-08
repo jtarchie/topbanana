@@ -16,9 +16,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/klauspost/compress/zstd"
 
+	"github.com/jtarchie/topbanana/internal/archive"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/portable"
-	"github.com/jtarchie/topbanana/internal/snapshot"
 	"github.com/jtarchie/topbanana/internal/store"
 )
 
@@ -258,7 +258,7 @@ func buildHandCraftedArchive(t *testing.T, entries []tarEntry) []byte {
 			ModTime: time.Now(),
 		}
 		if e.contentType != "" {
-			hdr.PAXRecords = map[string]string{snapshot.PAXContentTypeKey: e.contentType}
+			hdr.PAXRecords = map[string]string{archive.PAXContentTypeKey: e.contentType}
 		}
 		err := tw.WriteHeader(hdr)
 		if err != nil {

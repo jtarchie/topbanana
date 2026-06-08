@@ -6,7 +6,6 @@
 package snapshot
 
 import (
-	"archive/tar"
 	"bytes"
 	"context"
 	"errors"
@@ -20,8 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/klauspost/compress/zstd"
-
+	"github.com/jtarchie/topbanana/internal/archive"
 	"github.com/jtarchie/topbanana/internal/store"
 )
 
@@ -32,61 +30,6 @@ import (
 const snapshotPrefix = "_snapshots/"
 
 const archiveContentType = "application/zstd"
-
-// PAX header key prefixes for per-file content type and S3 user metadata.
-// New archives are always written with the TOPBANANA.* prefix. Exported so
-// internal/portable can produce archives in the same wire format.
-const (
-	PAXContentTypeKey = "TOPBANANA.content-type"
-	PAXMetaPrefix     = "TOPBANANA.meta."
-)
-
-// Legacy PAX prefixes from before each rebrand, newest first. ContentTypeFromPAX
-// and MetadataFromPAX fall through these so archives written before a rebrand
-// still restore cleanly: BLOOMHOLLOW.* predates Top Banana, BUILDABEAR.*
-// predates Bloomhollow.
-var (
-	LegacyPAXContentTypeKeys = []string{"BLOOMHOLLOW.content-type", "BUILDABEAR.content-type"}
-	LegacyPAXMetaPrefixes    = []string{"BLOOMHOLLOW.meta.", "BUILDABEAR.meta."}
-)
-
-// ContentTypeFromPAX returns the per-file content type recorded in a tar
-// header's PAX records, checking the current key then each legacy key in
-// order. Returns "" when none is present (caller should fall back to the file
-// extension).
-func ContentTypeFromPAX(rec map[string]string) string {
-	if ct := rec[PAXContentTypeKey]; ct != "" {
-		return ct
-	}
-	for _, k := range LegacyPAXContentTypeKeys {
-		if ct := rec[k]; ct != "" {
-			return ct
-		}
-	}
-	return ""
-}
-
-// MetadataFromPAX extracts S3 user metadata from a tar header's PAX records,
-// honouring the current meta prefix and each legacy prefix. Returns nil when
-// no metadata records are present.
-func MetadataFromPAX(rec map[string]string) map[string]string {
-	var metadata map[string]string
-	prefixes := append([]string{PAXMetaPrefix}, LegacyPAXMetaPrefixes...)
-	for k, v := range rec {
-		for _, p := range prefixes {
-			rest, ok := strings.CutPrefix(k, p)
-			if !ok {
-				continue
-			}
-			if metadata == nil {
-				metadata = map[string]string{}
-			}
-			metadata[rest] = v
-			break
-		}
-	}
-	return metadata
-}
 
 // Reasons that show up in the History UI. Free-form strings — these constants
 // just keep callers consistent.
@@ -138,7 +81,7 @@ func (s *Service) Create(ctx context.Context, slug, reason string) (Snapshot, er
 	}
 
 	now := time.Now().UTC()
-	archive, err := buildArchive(ctx, s.store, slug, files, now)
+	arc, err := buildArchive(ctx, s.store, slug, files, now)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -146,11 +89,11 @@ func (s *Service) Create(ctx context.Context, slug, reason string) (Snapshot, er
 	key := snapshotKey(slug, now, reason)
 	metadata := map[string]string{
 		"reason":        reason,
-		"file-count":    strconv.Itoa(archive.FileCount),
-		"original-size": strconv.FormatInt(archive.OriginalBytes, 10),
+		"file-count":    strconv.Itoa(arc.FileCount),
+		"original-size": strconv.FormatInt(arc.OriginalBytes, 10),
 		"created":       now.Format(time.RFC3339),
 	}
-	err = s.store.WriteRaw(ctx, key, archive.Content, archiveContentType, metadata)
+	err = s.store.WriteRaw(ctx, key, arc.Content, archiveContentType, metadata)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("write archive %s: %w", key, err)
 	}
@@ -159,11 +102,11 @@ func (s *Service) Create(ctx context.Context, slug, reason string) (Snapshot, er
 		Key:       key,
 		Timestamp: now,
 		Reason:    reason,
-		SizeBytes: int64(len(archive.Content)),
-		FileCount: archive.FileCount,
+		SizeBytes: int64(len(arc.Content)),
+		FileCount: arc.FileCount,
 	}
 
-	slog.Info("snapshot.create", "slug", slug, "reason", reason, "files", archive.FileCount, "archive_bytes", len(archive.Content), "original_bytes", archive.OriginalBytes)
+	slog.Info("snapshot.create", "slug", slug, "reason", reason, "files", arc.FileCount, "archive_bytes", len(arc.Content), "original_bytes", arc.OriginalBytes)
 
 	if s.keep > 0 {
 		s.trim(ctx, slug)
@@ -298,11 +241,10 @@ type archiveResult struct {
 // archive bytes plus the file count and uncompressed payload size for metadata.
 func buildArchive(ctx context.Context, st *store.Store, slug string, files []string, ts time.Time) (archiveResult, error) {
 	var buf bytes.Buffer
-	zw, err := zstd.NewWriter(&buf)
+	aw, err := archive.NewWriter(&buf)
 	if err != nil {
-		return archiveResult{}, fmt.Errorf("init zstd: %w", err)
+		return archiveResult{}, err //nolint:wrapcheck // archive.NewWriter already contextualizes
 	}
-	tw := tar.NewWriter(zw)
 
 	var originalBytes int64
 	count := 0
@@ -312,42 +254,17 @@ func buildArchive(ctx context.Context, st *store.Store, slug string, files []str
 			return archiveResult{}, fmt.Errorf("read %s/%s: %w", slug, p, err)
 		}
 		body := []byte(obj.Content)
-		header := &tar.Header{
-			Name:    p,
-			Size:    int64(len(body)),
-			Mode:    0644,
-			ModTime: ts,
-		}
-		if obj.ContentType != "" {
-			header.PAXRecords = map[string]string{PAXContentTypeKey: obj.ContentType}
-		}
-		if len(obj.Metadata) > 0 {
-			if header.PAXRecords == nil {
-				header.PAXRecords = map[string]string{}
-			}
-			for k, v := range obj.Metadata {
-				header.PAXRecords[PAXMetaPrefix+k] = v
-			}
-		}
-		err = tw.WriteHeader(header)
+		err = aw.WriteFile(p, body, obj.ContentType, obj.Metadata, ts)
 		if err != nil {
-			return archiveResult{}, fmt.Errorf("tar header %s: %w", p, err)
-		}
-		_, err = tw.Write(body)
-		if err != nil {
-			return archiveResult{}, fmt.Errorf("tar write %s: %w", p, err)
+			return archiveResult{}, fmt.Errorf("archive %s: %w", p, err)
 		}
 		originalBytes += int64(len(body))
 		count++
 	}
 
-	err = tw.Close()
+	err = aw.Close()
 	if err != nil {
-		return archiveResult{}, fmt.Errorf("close tar: %w", err)
-	}
-	err = zw.Close()
-	if err != nil {
-		return archiveResult{}, fmt.Errorf("close zstd: %w", err)
+		return archiveResult{}, err //nolint:wrapcheck // archive.Close already contextualizes
 	}
 	return archiveResult{Content: buf.String(), FileCount: count, OriginalBytes: originalBytes}, nil
 }
@@ -355,35 +272,35 @@ func buildArchive(ctx context.Context, st *store.Store, slug string, files []str
 // ExtractArchive decodes the tar+zstd payload and writes each entry back
 // under `{slug}/`. Content type and metadata are restored from PAX records
 // when present; otherwise the content type is sniffed from the path.
-func ExtractArchive(ctx context.Context, st *store.Store, slug, archive string) error {
-	zr, err := zstd.NewReader(strings.NewReader(archive))
+func ExtractArchive(ctx context.Context, st *store.Store, slug, archiveData string) error {
+	// Trusted, self-produced archive — no decompression cap needed.
+	rd, err := archive.NewReader(strings.NewReader(archiveData), 0)
 	if err != nil {
 		return fmt.Errorf("open zstd: %w", err)
 	}
-	defer zr.Close()
+	defer rd.Close()
 
-	tr := tar.NewReader(zr)
 	for {
-		hdr, err := tr.Next()
+		hdr, err := rd.Next()
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {
 			return fmt.Errorf("tar next: %w", err)
 		}
-		body, err := io.ReadAll(tr)
+		body, err := io.ReadAll(rd)
 		if err != nil {
 			return fmt.Errorf("tar read %s: %w", hdr.Name, err)
 		}
 
-		contentType := ContentTypeFromPAX(hdr.PAXRecords)
+		contentType := archive.ContentTypeFromPAX(hdr.PAXRecords)
 		if contentType == "" {
 			if ext := path.Ext(hdr.Name); ext != "" {
 				contentType = mime.TypeByExtension(ext)
 			}
 		}
 
-		metadata := MetadataFromPAX(hdr.PAXRecords)
+		metadata := archive.MetadataFromPAX(hdr.PAXRecords)
 
 		err = st.Write(ctx, slug, hdr.Name, string(body), contentType, metadata)
 		if err != nil {

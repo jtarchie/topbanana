@@ -2,7 +2,7 @@
 // by the workspace Export tool and the landing-page Import flow.
 //
 // The wire format is a tar+zstd stream with the same PAX records as
-// internal/snapshot — content-type and S3 user metadata travel inside each
+// internal/archive — content-type and S3 user metadata travel inside each
 // entry — plus one synthetic `topbanana-export.json` entry at the top that
 // captures the template id, title, and description from the source site's
 // SiteMeta. The full `.topbanana.json` sidecar is intentionally *not*
@@ -28,10 +28,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/klauspost/compress/zstd"
-
+	"github.com/jtarchie/topbanana/internal/archive"
 	"github.com/jtarchie/topbanana/internal/build"
-	"github.com/jtarchie/topbanana/internal/snapshot"
 	"github.com/jtarchie/topbanana/internal/store"
 )
 
@@ -122,13 +120,12 @@ func Export(ctx context.Context, st *store.Store, slug string, meta build.SiteMe
 	}
 
 	var buf bytes.Buffer
-	zw, err := zstd.NewWriter(&buf)
+	aw, err := archive.NewWriter(&buf)
 	if err != nil {
-		return nil, fmt.Errorf("init zstd: %w", err)
+		return nil, err //nolint:wrapcheck // archive.NewWriter already contextualizes
 	}
-	tw := tar.NewWriter(zw)
 
-	err = writeTarEntry(tw, ManifestPath, manifestBytes, "application/json", nil, now)
+	err = aw.WriteFile(ManifestPath, manifestBytes, "application/json", nil, now)
 	if err != nil {
 		return nil, fmt.Errorf("write manifest entry: %w", err)
 	}
@@ -144,19 +141,15 @@ func Export(ctx context.Context, st *store.Store, slug string, meta build.SiteMe
 		if obj.Content == "" {
 			continue
 		}
-		writeErr := writeTarEntry(tw, p, []byte(obj.Content), obj.ContentType, obj.Metadata, now)
+		writeErr := aw.WriteFile(p, []byte(obj.Content), obj.ContentType, obj.Metadata, now)
 		if writeErr != nil {
 			return nil, fmt.Errorf("tar write %s: %w", p, writeErr)
 		}
 	}
 
-	err = tw.Close()
+	err = aw.Close()
 	if err != nil {
-		return nil, fmt.Errorf("close tar: %w", err)
-	}
-	err = zw.Close()
-	if err != nil {
-		return nil, fmt.Errorf("close zstd: %w", err)
+		return nil, err //nolint:wrapcheck // archive.Close already contextualizes
 	}
 	return buf.Bytes(), nil
 }
@@ -168,23 +161,22 @@ func Export(ctx context.Context, st *store.Store, slug string, meta build.SiteMe
 // only the handler knows whether the slug was already in the index.
 //
 //nolint:cyclop // many short-circuit branches are exactly the validation surface this function exists for.
-func Import(ctx context.Context, st *store.Store, slug string, archive []byte) (ImportResult, error) {
+func Import(ctx context.Context, st *store.Store, slug string, data []byte) (ImportResult, error) {
 	if slug == "" {
 		return ImportResult{}, errors.New("portable: slug is empty")
 	}
-	if len(archive) > MaxArchiveBytes {
+	if len(data) > MaxArchiveBytes {
 		return ImportResult{}, ErrArchiveTooLarge
 	}
 
-	zr, err := zstd.NewReader(bytes.NewReader(archive))
+	// Cap the total bytes the tar reader will see post-decompression so a
+	// small compressed archive cannot fan out into gigabytes of memory.
+	rd, err := archive.NewReader(bytes.NewReader(data), MaxExtractedBytes+1)
 	if err != nil {
 		return ImportResult{}, fmt.Errorf("%w: %w", ErrCorrupt, err)
 	}
-	defer zr.Close()
-
-	// Cap the total bytes the tar reader will see post-decompression so a
-	// small compressed archive cannot fan out into gigabytes of memory.
-	tr := tar.NewReader(io.LimitReader(zr, MaxExtractedBytes+1))
+	defer rd.Close()
+	tr := rd.Reader
 
 	var (
 		manifest    Manifest
@@ -273,34 +265,6 @@ func Cleanup(ctx context.Context, st *store.Store, slug string) error {
 	return nil
 }
 
-// writeTarEntry centralises the PAX-record dance shared by every tar entry
-// (manifest + each site file) so both code paths emit identical headers.
-func writeTarEntry(tw *tar.Writer, name string, body []byte, contentType string, metadata map[string]string, ts time.Time) error {
-	header := &tar.Header{
-		Name:    name,
-		Size:    int64(len(body)),
-		Mode:    0644,
-		ModTime: ts,
-	}
-	if contentType != "" {
-		header.PAXRecords = map[string]string{snapshot.PAXContentTypeKey: contentType}
-	}
-	if len(metadata) > 0 {
-		if header.PAXRecords == nil {
-			header.PAXRecords = map[string]string{}
-		}
-		for k, v := range metadata {
-			header.PAXRecords[snapshot.PAXMetaPrefix+k] = v
-		}
-	}
-	err := tw.WriteHeader(header)
-	if err != nil {
-		return err //nolint:wrapcheck // caller wraps with file path context
-	}
-	_, err = tw.Write(body)
-	return err //nolint:wrapcheck
-}
-
 // shouldSkipOnExport drops the instance-specific meta sidecars and the
 // `_state/` subtree from the archive so an importing instance cannot
 // inherit OwnerID, custom domains, or another user's form submissions.
@@ -332,13 +296,13 @@ func applyManifest(body []byte, manifest *Manifest, result *ImportResult) {
 // MIME-by-extension lookup when the archive doesn't carry the content type
 // explicitly.
 func decodePAX(hdr *tar.Header, name string) (string, map[string]string) {
-	contentType := snapshot.ContentTypeFromPAX(hdr.PAXRecords)
+	contentType := archive.ContentTypeFromPAX(hdr.PAXRecords)
 	if contentType == "" {
 		if ext := path.Ext(name); ext != "" {
 			contentType = mime.TypeByExtension(ext)
 		}
 	}
-	return contentType, snapshot.MetadataFromPAX(hdr.PAXRecords)
+	return contentType, archive.MetadataFromPAX(hdr.PAXRecords)
 }
 
 // cleanArchiveName trims a leading "./" and rejects names that try to escape
