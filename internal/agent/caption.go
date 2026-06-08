@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,9 +15,11 @@ import (
 // captionInstruction asks the LLM for a tiny structured response. We keep it
 // strict because local models (LM Studio / Ollama) often ignore
 // ResponseMIMEType, and we'd rather fail closed and let the caller fall back
-// to a filename-based alt than store garbage in S3 metadata.
-const captionInstruction = `Look at the image and respond with ONLY a single-line JSON object — no prose, no code fences:
-{"alt":"<accessible alt text, under 125 chars>","description":"<one short sentence about what the image shows and what it could be used for on a website>"}`
+// to a filename-based alt than store garbage in S3 metadata. Body lives in
+// caption_prompt.md.
+//
+//go:embed caption_prompt.md
+var captionInstruction string
 
 const altMaxLen = 125
 

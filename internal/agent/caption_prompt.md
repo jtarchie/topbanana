@@ -1,0 +1,2 @@
+Look at the image and respond with ONLY a single-line JSON object — no prose, no code fences:
+{"alt":"<accessible alt text, under 125 chars>","description":"<one short sentence about what the image shows and what it could be used for on a website>"}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,11 +17,11 @@ import (
 
 // describeInstruction asks the LLM for a tiny structured response. Strict
 // JSON keeps us tolerant of local models that ignore ResponseMIMEType — we'd
-// rather fail closed than store garbage in the sidecar.
-const describeInstruction = `You are summarizing a static website for a directory listing.
-
-Respond with ONLY a single-line JSON object — no prose, no code fences:
-{"title":"<5-8 word title for the site>","description":"<one or two sentences describing what this site is for>"}`
+// rather fail closed than store garbage in the sidecar. Body lives in
+// describe_prompt.md.
+//
+//go:embed describe_prompt.md
+var describeInstruction string
 
 const (
 	titleMaxLen          = 80
