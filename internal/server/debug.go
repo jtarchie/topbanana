@@ -18,6 +18,17 @@ import (
 	"github.com/jtarchie/topbanana/internal/editrec"
 )
 
+// debugController serves the per-site "what did the agent actually do" surface:
+// the build/edit transcript list, a single transcript's detail, and the
+// served-vs-stored cache check. All reads, all owner-scoped.
+type debugController struct{ *Server }
+
+func (s *debugController) register(g *echo.Group, owns echo.MiddlewareFunc) {
+	g.GET("/debug/:slug", s.debugHandler, owns)
+	g.GET("/debug/:slug/edit", s.debugDetailHandler, owns)
+	g.GET("/debug/:slug/cache-check", s.debugCacheCheckHandler, owns)
+}
+
 type debugRow struct {
 	Key       string
 	LogKey    string
@@ -85,7 +96,7 @@ type debugDetailData struct {
 	Empty           bool
 }
 
-func (s *Server) debugHandler(c *echo.Context) error {
+func (s *debugController) debugHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {
@@ -132,7 +143,7 @@ func (s *Server) debugHandler(c *echo.Context) error {
 	})
 }
 
-func (s *Server) debugDetailHandler(c *echo.Context) error {
+func (s *debugController) debugDetailHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {
@@ -228,7 +239,7 @@ func (s *Server) debugDetailHandler(c *echo.Context) error {
 // bytes match what's in storage. CDN/browser caching is the prime suspect
 // when "agent ran, file looks fixed in storage, but the live site still
 // shows the old version."
-func (s *Server) debugCacheCheckHandler(c *echo.Context) error {
+func (s *debugController) debugCacheCheckHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	err := validateSlug(slug)
 	if err != nil {

@@ -20,6 +20,17 @@ import (
 	"github.com/jtarchie/topbanana/internal/state"
 )
 
+// functionsController serves the admin-side server-side-function surface: the
+// per-function editor page and the "run this function once" test endpoint. The
+// public /api/:name runtime dispatch (apiHandler) stays on Server — it's part
+// of the subdomain serve path, not the admin UI.
+type functionsController struct{ *Server }
+
+func (s *functionsController) register(g *echo.Group, owns echo.MiddlewareFunc) {
+	g.GET("/edit/:slug/function/:name", s.functionEditHandler, owns)
+	g.POST("/test/:slug/api/:name", s.functionTestHandler, owns)
+}
+
 // maxCASRetries caps the number of times we'll re-run a handler after an
 // ErrConflict from state.Store.Save. Three is enough to ride through bursts
 // of two or three concurrent writers; beyond that we surface 503 so callers
@@ -390,7 +401,7 @@ func translateSandboxError(err error, slug, name string) error {
 // functionEditHandler renders the per-function source-view + test page. The
 // test endpoint POSTs JSON to /test/:slug/api/:name; live log streaming reuses
 // the existing /events/:slug SSE feed.
-func (s *Server) functionEditHandler(c *echo.Context) error {
+func (s *functionsController) functionEditHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	name := c.Param("name")
 	err := validateSlug(slug)
@@ -448,7 +459,7 @@ type functionTestResponse struct {
 	Body        string            `json:"body"`
 }
 
-func (s *Server) functionTestHandler(c *echo.Context) error {
+func (s *functionsController) functionTestHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	name := c.Param("name")
 	err := validateSlug(slug)

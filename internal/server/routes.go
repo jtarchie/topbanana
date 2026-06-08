@@ -52,10 +52,7 @@ func (s *Server) mountRoutes(e *echo.Echo) {
 		authMux := http.NewServeMux()
 		s.auth.Passkey.MountRoutes(authMux, "/auth/")
 		e.Any("/auth/*", echo.WrapHandler(authMux))
-		e.GET("/login", s.loginHandler)
-		e.GET("/register", s.registerHandler)
-		e.POST("/register/finish", s.registerFinishHandler)
-		e.POST("/logout", s.logoutHandler)
+		(&accountController{s}).registerAuthPages(e)
 	}
 
 	// MCP surface (bearer-protected /mcp + its OAuth authorization server).
@@ -78,22 +75,12 @@ func (s *Server) mountRoutes(e *echo.Echo) {
 	admin.POST("/build", s.buildHandler, promptWithAttachmentsBodyCap)
 	admin.GET("/apps", s.appsHandler)
 	admin.GET("/system", s.systemHandler)
-	admin.GET("/account", s.accountHandler)
-	admin.POST("/account/sign-out-everywhere", s.accountSignOutEverywhereHandler)
-	admin.POST("/account/delete", s.accountDeleteHandler)
-	admin.POST("/account/passkeys/delete", s.accountRemovePasskeyHandler)
+	(&accountController{s}).registerAccount(admin)
 
 	// Super-admin-only surfaces. requireSuperAdmin layers role check on
 	// top of requireUser, so these routes live outside the regular admin
 	// group (which only checks logged-in).
-	e.GET("/admin/users", s.adminUsersHandler, s.requireSuperAdmin)
-	e.POST("/admin/users/invite", s.adminInviteCreateHandler, s.requireSuperAdmin)
-	e.POST("/admin/invites/:token/revoke", s.adminInviteRevokeHandler, s.requireSuperAdmin)
-	e.POST("/admin/users/:email/disable", s.adminUserDisableHandler, s.requireSuperAdmin)
-	e.POST("/admin/users/:email/enable", s.adminUserEnableHandler, s.requireSuperAdmin)
-	e.POST("/admin/users/:email/sessions/revoke", s.adminUserRevokeSessionsHandler, s.requireSuperAdmin)
-	e.POST("/admin/users/:email/quotas", s.adminUserQuotasHandler, s.requireSuperAdmin)
-	e.POST("/admin/users/:email/delete", s.adminUserDeleteHandler, s.requireSuperAdmin)
+	(&adminController{s}).register(e, s.requireSuperAdmin)
 	// Per-slug routes carry the ownership gate as route-level middleware
 	// so a regular admin gets a 404 on every slug they don't own without
 	// each handler having to repeat the check.
@@ -107,8 +94,7 @@ func (s *Server) mountRoutes(e *echo.Echo) {
 	admin.POST("/edit/:slug/visual", s.visualEditSaveHandler, owns, promptBodyCap)
 	admin.GET("/edit/:slug/theme", s.redirectToWorkspace, owns)
 	admin.POST("/edit/:slug/theme", s.themeStudioApplyHandler, owns)
-	admin.GET("/edit/:slug/function/:name", s.functionEditHandler, owns)
-	admin.POST("/test/:slug/api/:name", s.functionTestHandler, owns)
+	(&functionsController{s}).register(admin, owns)
 	(&assetsController{s}).register(admin, owns)
 	admin.GET("/export/:slug", s.exportHandler, owns)
 	admin.POST("/import", s.importHandler, middleware.BodyLimit(portable.MaxArchiveBytes+(64*1024)))
@@ -124,8 +110,6 @@ func (s *Server) mountRoutes(e *echo.Echo) {
 	admin.POST("/history/:slug/delete", s.historyDeleteHandler, owns)
 	admin.GET("/data/:slug", s.dataHandler, owns)
 	admin.GET("/files/:slug", s.filesHandler, owns)
-	admin.GET("/debug/:slug", s.debugHandler, owns)
-	admin.GET("/debug/:slug/edit", s.debugDetailHandler, owns)
-	admin.GET("/debug/:slug/cache-check", s.debugCacheCheckHandler, owns)
+	(&debugController{s}).register(admin, owns)
 	admin.POST("/clarify/:slug", s.clarifyHandler, owns, promptBodyCap)
 }

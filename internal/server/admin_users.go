@@ -18,6 +18,24 @@ import (
 	"github.com/jtarchie/topbanana/internal/model"
 )
 
+// adminController serves the super-admin-only user-management surface: the user
+// table, invites, enable/disable, session revocation, quota edits, and user
+// deletion. Routes carry requireSuperAdmin (not just requireUser). The cascade
+// helpers (refuseLastSuperAdmin, disposeOwnedSites, otherEnabledSuperAdmins)
+// stay on Server.
+type adminController struct{ *Server }
+
+func (s *adminController) register(e *echo.Echo, super echo.MiddlewareFunc) {
+	e.GET("/admin/users", s.adminUsersHandler, super)
+	e.POST("/admin/users/invite", s.adminInviteCreateHandler, super)
+	e.POST("/admin/invites/:token/revoke", s.adminInviteRevokeHandler, super)
+	e.POST("/admin/users/:email/disable", s.adminUserDisableHandler, super)
+	e.POST("/admin/users/:email/enable", s.adminUserEnableHandler, super)
+	e.POST("/admin/users/:email/sessions/revoke", s.adminUserRevokeSessionsHandler, super)
+	e.POST("/admin/users/:email/quotas", s.adminUserQuotasHandler, super)
+	e.POST("/admin/users/:email/delete", s.adminUserDeleteHandler, super)
+}
+
 // adminUserRow is one row in the user table on /admin/users. ModelAuthor /
 // ModelEditor / ModelUtility / ModelVision are the per-tier overrides; an
 // empty string means "inherit the system default for this tier".
@@ -75,7 +93,7 @@ var suggestedModels = []string{
 
 // adminUsersHandler renders the super-admin user/invite page. Filters
 // nothing — super admin sees every user and every unconsumed invite.
-func (s *Server) adminUsersHandler(c *echo.Context) error {
+func (s *adminController) adminUsersHandler(c *echo.Context) error {
 	ctx := c.Request().Context()
 	current := userFromContext(c)
 
@@ -138,7 +156,7 @@ func (s *Server) adminUsersHandler(c *echo.Context) error {
 
 // adminInviteCreateHandler accepts a form post to issue a new invite.
 // Body fields: email (required), role (admin | super_admin).
-func (s *Server) adminInviteCreateHandler(c *echo.Context) error {
+func (s *adminController) adminInviteCreateHandler(c *echo.Context) error {
 	email := auth.NormalizeEmail(c.FormValue("email"))
 	role := strings.TrimSpace(c.FormValue("role"))
 	if email == "" {
@@ -158,7 +176,7 @@ func (s *Server) adminInviteCreateHandler(c *echo.Context) error {
 }
 
 // adminInviteRevokeHandler deletes an invite outright.
-func (s *Server) adminInviteRevokeHandler(c *echo.Context) error {
+func (s *adminController) adminInviteRevokeHandler(c *echo.Context) error {
 	token := c.Param("token")
 	if token == "" {
 		return notFound()
@@ -173,7 +191,7 @@ func (s *Server) adminInviteRevokeHandler(c *echo.Context) error {
 // adminUserDisableHandler flips the Disabled bit on a user record. Refuses
 // to disable the caller themselves so a super admin can't accidentally
 // lock themselves out.
-func (s *Server) adminUserDisableHandler(c *echo.Context) error {
+func (s *adminController) adminUserDisableHandler(c *echo.Context) error {
 	email := emailParam(c)
 	if email == "" {
 		return notFound()
@@ -207,7 +225,7 @@ func (s *Server) adminUserDisableHandler(c *echo.Context) error {
 }
 
 // adminUserEnableHandler clears the Disabled bit. Symmetric to disable.
-func (s *Server) adminUserEnableHandler(c *echo.Context) error {
+func (s *adminController) adminUserEnableHandler(c *echo.Context) error {
 	email := emailParam(c)
 	if email == "" {
 		return notFound()
@@ -253,7 +271,7 @@ func normalizeEmailParam(raw string) string {
 // adminUserRevokeSessionsHandler drops every session for the target
 // user without changing the Disabled bit. Useful when a device is lost
 // and the user is about to re-enroll.
-func (s *Server) adminUserRevokeSessionsHandler(c *echo.Context) error {
+func (s *adminController) adminUserRevokeSessionsHandler(c *echo.Context) error {
 	email := emailParam(c)
 	if email == "" {
 		return notFound()
@@ -289,7 +307,7 @@ func (s *Server) otherEnabledSuperAdmins(ctx context.Context, excludeEmail strin
 // yourself (self-deletion lives on /account, which clears your own cookie) and
 // refuses to delete the last enabled super admin. Requires typing the target
 // email to confirm.
-func (s *Server) adminUserDeleteHandler(c *echo.Context) error {
+func (s *adminController) adminUserDeleteHandler(c *echo.Context) error {
 	email := emailParam(c)
 	if email == "" {
 		return notFound()
@@ -403,7 +421,7 @@ func (s *Server) disposeOwnedSites(c *echo.Context, email, transferTo string) (a
 // adminUserQuotasHandler accepts a form post to update a user's MaxApps
 // + per-tier model overrides. Empty MaxApps means "use system default";
 // each empty model field means "inherit the system default for that tier".
-func (s *Server) adminUserQuotasHandler(c *echo.Context) error {
+func (s *adminController) adminUserQuotasHandler(c *echo.Context) error {
 	email := emailParam(c)
 	if email == "" {
 		return notFound()

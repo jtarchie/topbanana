@@ -14,6 +14,31 @@ import (
 	"github.com/jtarchie/topbanana/internal/auth"
 )
 
+// accountController serves identity: the unauthenticated passkey entry pages
+// (login/register/logout) and the signed-in account-management surface
+// (profile, sign-out-everywhere, delete account, remove passkey). Shared
+// session helpers (currentSessionEmail) stay on Server.
+type accountController struct{ *Server }
+
+// registerAuthPages mounts the unauthenticated passkey entry pages on the root
+// router (they can't sit behind requireUser). Called from the s.auth != nil
+// block, alongside the passkey library's own /auth/* mux.
+func (s *accountController) registerAuthPages(e *echo.Echo) {
+	e.GET("/login", s.loginHandler)
+	e.GET("/register", s.registerHandler)
+	e.POST("/register/finish", s.registerFinishHandler)
+	e.POST("/logout", s.logoutHandler)
+}
+
+// registerAccount mounts the signed-in account-management routes on the
+// requireUser admin group.
+func (s *accountController) registerAccount(g *echo.Group) {
+	g.GET("/account", s.accountHandler)
+	g.POST("/account/sign-out-everywhere", s.accountSignOutEverywhereHandler)
+	g.POST("/account/delete", s.accountDeleteHandler)
+	g.POST("/account/passkeys/delete", s.accountRemovePasskeyHandler)
+}
+
 // loginData backs templates/login.html. The page itself doesn't yet know
 // who the user is — the form posts to /auth/passkey/loginBegin which
 // returns the challenge. Embeds Chrome so the shared brand + footer
@@ -71,7 +96,7 @@ type accountData struct {
 
 // loginHandler renders the email-entry form. Available unauthenticated;
 // the form is self-driving via JS once the user submits.
-func (s *Server) loginHandler(c *echo.Context) error {
+func (s *accountController) loginHandler(c *echo.Context) error {
 	return s.render(c, "login", loginData{Chrome: Chrome{Active: "login"}})
 }
 
@@ -79,7 +104,7 @@ func (s *Server) loginHandler(c *echo.Context) error {
 // the user record so the subsequent WebAuthn ceremony succeeds. Renders
 // the enrollment page. Returns 404 for missing/used/expired invites so
 // the existence of the token isn't probeable.
-func (s *Server) registerHandler(c *echo.Context) error {
+func (s *accountController) registerHandler(c *echo.Context) error {
 	if s.auth == nil {
 		return notFound()
 	}
@@ -116,7 +141,7 @@ func (s *Server) registerHandler(c *echo.Context) error {
 //
 // Idempotent: re-consuming an already-consumed-by-the-same-email invite
 // is a no-op.
-func (s *Server) registerFinishHandler(c *echo.Context) error {
+func (s *accountController) registerFinishHandler(c *echo.Context) error {
 	if s.auth == nil {
 		return notFound()
 	}
@@ -143,7 +168,7 @@ func (s *Server) registerFinishHandler(c *echo.Context) error {
 
 // logoutHandler clears the user-session cookie and the underlying S3
 // record. Redirects to /login on success.
-func (s *Server) logoutHandler(c *echo.Context) error {
+func (s *accountController) logoutHandler(c *echo.Context) error {
 	if s.auth == nil {
 		return notFound()
 	}
@@ -154,7 +179,7 @@ func (s *Server) logoutHandler(c *echo.Context) error {
 // accountHandler renders the logged-in user's passkey list and the "add
 // another" UI. Mounted under the admin group so requireUser handles the
 // session lookup + disabled-user check before we get here.
-func (s *Server) accountHandler(c *echo.Context) error {
+func (s *accountController) accountHandler(c *echo.Context) error {
 	user := userFromContext(c)
 	if user == nil {
 		// Defensive: requireUser should have redirected, but if a future
@@ -194,7 +219,7 @@ func (s *Server) accountHandler(c *echo.Context) error {
 // user — this device included — so a lost or stolen device loses access
 // immediately. Reversible (sign back in with a passkey), so the client-side
 // modal confirmation is enough; no typed confirmation server-side.
-func (s *Server) accountSignOutEverywhereHandler(c *echo.Context) error {
+func (s *accountController) accountSignOutEverywhereHandler(c *echo.Context) error {
 	if s.auth == nil {
 		return notFound()
 	}
@@ -222,7 +247,7 @@ func (s *Server) accountSignOutEverywhereHandler(c *echo.Context) error {
 // (especially the last one) could leave the platform with no administrator and
 // no in-app recovery path; another super admin must remove them instead.
 // Requires the typed-email confirmation as the irreversible-action guard.
-func (s *Server) accountDeleteHandler(c *echo.Context) error {
+func (s *accountController) accountDeleteHandler(c *echo.Context) error {
 	if s.auth == nil {
 		return notFound()
 	}
@@ -269,7 +294,7 @@ func (s *Server) accountDeleteHandler(c *echo.Context) error {
 // the last passkey — that would lock the user out for good (passkey-only auth,
 // no password fallback). Reloads the record before mutating so it doesn't alias
 // the cached pointer other in-flight requests may be reading.
-func (s *Server) accountRemovePasskeyHandler(c *echo.Context) error {
+func (s *accountController) accountRemovePasskeyHandler(c *echo.Context) error {
 	if s.auth == nil {
 		return notFound()
 	}
