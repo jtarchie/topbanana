@@ -87,19 +87,20 @@ func acceptedAssetTypes() []string {
 // re-verify ownership and re-enforce the server's own size ceiling rather than
 // trusting the ticket, then hand off to the shared storeUploadedAsset.
 func (s *Server) uploadTicketHandler(c *echo.Context) error {
-	email, slug, maxBytes, err := auth.ParseUploadTicket(s.mcpSecret, c.Param("token"))
+	ticket, err := auth.ParseUploadTicket(s.mcpSecret, c.Param("token"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, "invalid or expired upload ticket")
 	}
+	slug := ticket.Slug
 	// Re-check ownership at upload time (the ticket only proves it was valid at
 	// mint): the user might be disabled or the slug reassigned since.
-	_, err = s.authorizeSlugOwner(c.Request().Context(), email, slug)
+	_, err = s.authorizeSlugOwner(c.Request().Context(), ticket.Email, slug)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusForbidden, "not authorized for this site")
 	}
 
 	// Never trust the ticket's cap beyond the server's own ceiling.
-	limit := maxBytes
+	limit := ticket.MaxBytes
 	if limit <= 0 || limit > maxUploadBytes {
 		limit = maxUploadBytes
 	}

@@ -226,11 +226,11 @@ func (s *Server) systemHandler(c *echo.Context) error {
 	// Storage breakdown.
 	entries := []storageBreakdownEntry{{Label: "Apps (live files)", Bytes: perAppBytes, Count: perAppCount}}
 	for _, p := range reservedPrefixes {
-		b, n, sumErr := s.store.SumBytesUnderPrefix(ctx, p.Prefix)
+		stats, sumErr := s.store.SumBytesUnderPrefix(ctx, p.Prefix)
 		if sumErr != nil {
 			slog.Warn("system.prefix_sum", "prefix", p.Prefix, "err", sumErr)
 		}
-		entries = append(entries, storageBreakdownEntry{Label: p.Label, Bytes: b, Count: n})
+		entries = append(entries, storageBreakdownEntry{Label: p.Label, Bytes: stats.TotalBytes, Count: stats.ObjectCount})
 	}
 	storage := aggregateStorage(entries)
 

@@ -65,10 +65,18 @@ func MintUploadTicket(secret, email, slug string, ttl time.Duration, maxBytes in
 	return signed, nil
 }
 
+// UploadTicket is a validated upload ticket's claims: the owner email, the
+// target slug, and the per-file size cap.
+type UploadTicket struct {
+	Email    string
+	Slug     string
+	MaxBytes int64
+}
+
 // ParseUploadTicket validates a ticket's HMAC signature, audience, and expiry
-// and returns the owner email, target slug, and per-file size cap. Any failure
-// collapses to a single error so callers never leak why a ticket was rejected.
-func ParseUploadTicket(secret, token string) (email, slug string, maxBytes int64, err error) {
+// and returns the decoded UploadTicket. Any failure collapses to a single
+// error so callers never leak why a ticket was rejected.
+func ParseUploadTicket(secret, token string) (UploadTicket, error) {
 	var claims uploadTicketClaims
 	parsed, perr := jwt.ParseWithClaims(token, &claims, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -77,10 +85,10 @@ func ParseUploadTicket(secret, token string) (email, slug string, maxBytes int64
 		return []byte(secret), nil
 	}, jwt.WithAudience(uploadTicketAudience))
 	if perr != nil || !parsed.Valid {
-		return "", "", 0, errors.New("auth: invalid upload ticket")
+		return UploadTicket{}, errors.New("auth: invalid upload ticket")
 	}
 	if claims.Subject == "" || claims.Slug == "" {
-		return "", "", 0, errors.New("auth: invalid upload ticket")
+		return UploadTicket{}, errors.New("auth: invalid upload ticket")
 	}
-	return claims.Subject, claims.Slug, claims.MaxBytes, nil
+	return UploadTicket{Email: claims.Subject, Slug: claims.Slug, MaxBytes: claims.MaxBytes}, nil
 }

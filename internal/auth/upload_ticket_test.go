@@ -13,18 +13,18 @@ func TestUploadTicketRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
-	email, slug, maxBytes, err := ParseUploadTicket(testSecret, tok)
+	ticket, err := ParseUploadTicket(testSecret, tok)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if email != "user@example.com" { // NormalizeEmail lowercases
-		t.Errorf("email = %q, want normalized", email)
+	if ticket.Email != "user@example.com" { // NormalizeEmail lowercases
+		t.Errorf("email = %q, want normalized", ticket.Email)
 	}
-	if slug != "fast-flame-71" {
-		t.Errorf("slug = %q", slug)
+	if ticket.Slug != "fast-flame-71" {
+		t.Errorf("slug = %q", ticket.Slug)
 	}
-	if maxBytes != 5<<20 {
-		t.Errorf("maxBytes = %d", maxBytes)
+	if ticket.MaxBytes != 5<<20 {
+		t.Errorf("maxBytes = %d", ticket.MaxBytes)
 	}
 }
 
@@ -51,11 +51,11 @@ func TestParseUploadTicketRejections(t *testing.T) {
 		t.Fatalf("mint: %v", err)
 	}
 
-	_, _, _, err = ParseUploadTicket("a-different-secret", good)
+	_, err = ParseUploadTicket("a-different-secret", good)
 	if err == nil {
 		t.Error("wrong secret must be rejected")
 	}
-	_, _, _, err = ParseUploadTicket(testSecret, good+"x")
+	_, err = ParseUploadTicket(testSecret, good+"x")
 	if err == nil {
 		t.Error("tampered token must be rejected")
 	}
@@ -64,7 +64,7 @@ func TestParseUploadTicketRejections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mint expired: %v", err)
 	}
-	_, _, _, err = ParseUploadTicket(testSecret, expired)
+	_, err = ParseUploadTicket(testSecret, expired)
 	if err == nil {
 		t.Error("expired ticket must be rejected")
 	}
@@ -79,7 +79,7 @@ func TestUploadTicketAudienceSeparation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("mint mcp: %v", err)
 	}
-	_, _, _, err = ParseUploadTicket(testSecret, mcpTok)
+	_, err = ParseUploadTicket(testSecret, mcpTok)
 	if err == nil {
 		t.Error("an MCP bearer token must not parse as an upload ticket")
 	}

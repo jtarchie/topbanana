@@ -463,27 +463,33 @@ func (s *Store) ListPrefix(ctx context.Context, prefix string) ([]string, error)
 	return keys, nil
 }
 
+// PrefixStats is the aggregate of SumBytesUnderPrefix: total bytes and object
+// count beneath a bucket prefix.
+type PrefixStats struct {
+	TotalBytes  int64
+	ObjectCount int
+}
+
 // SumBytesUnderPrefix aggregates total bytes + object count beneath an
 // arbitrary bucket prefix in a single ListObjectsV2 sweep — no per-object
 // reads. Used by the system dashboard to break storage down by reserved
 // area (_snapshots/, _edits/, _acme/, _state/) without round-tripping each
-// archive. Returns (0, 0, nil) for a prefix with no objects so callers can
-// render a zero row without special-casing missing folders.
-func (s *Store) SumBytesUnderPrefix(ctx context.Context, prefix string) (int64, int, error) {
+// archive. Returns a zero PrefixStats for a prefix with no objects so callers
+// can render a zero row without special-casing missing folders.
+func (s *Store) SumBytesUnderPrefix(ctx context.Context, prefix string) (PrefixStats, error) {
 	out, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
 		Bucket: aws.String(s.bucket),
 		Prefix: aws.String(prefix),
 	})
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to sum prefix %s: %w", prefix, err)
+		return PrefixStats{}, fmt.Errorf("failed to sum prefix %s: %w", prefix, err)
 	}
-	var total int64
-	count := 0
+	var stats PrefixStats
 	for _, obj := range out.Contents {
-		total += aws.ToInt64(obj.Size)
-		count++
+		stats.TotalBytes += aws.ToInt64(obj.Size)
+		stats.ObjectCount++
 	}
-	return total, count, nil
+	return stats, nil
 }
 
 // ListApps returns the slugs of every site in the bucket. Top-level prefixes

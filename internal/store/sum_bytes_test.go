@@ -51,15 +51,15 @@ func TestSumBytesUnderPrefix(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			bytes, count, err := s.SumBytesUnderPrefix(ctx, tc.prefix)
+			stats, err := s.SumBytesUnderPrefix(ctx, tc.prefix)
 			if err != nil {
 				t.Fatalf("SumBytesUnderPrefix: %v", err)
 			}
-			if bytes != tc.wantBytes {
-				t.Errorf("bytes: got %d want %d", bytes, tc.wantBytes)
+			if stats.TotalBytes != tc.wantBytes {
+				t.Errorf("bytes: got %d want %d", stats.TotalBytes, tc.wantBytes)
 			}
-			if count != tc.wantCount {
-				t.Errorf("count: got %d want %d", count, tc.wantCount)
+			if stats.ObjectCount != tc.wantCount {
+				t.Errorf("count: got %d want %d", stats.ObjectCount, tc.wantCount)
 			}
 		})
 	}
