@@ -55,18 +55,13 @@
 
       <div>
         <div class="flex items-center justify-between mb-2">
-          <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Images</h2>
-          <button type="button" id="open-image-drawer" class="btn btn-ghost btn-xs">Browse</button>
+          <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+            Images{{ if .Assets }} <span class="text-base-content/40 normal-case font-normal">({{ len .Assets }})</span>{{ end }}
+          </h2>
+          <button type="button" id="open-image-drawer" class="btn btn-ghost btn-xs">{{ if .Assets }}Browse{{ else }}Upload{{ end }}</button>
         </div>
-        {{ if .Assets }}
-        <ul class="space-y-1">
-          {{ range .Assets }}
-          <li class="text-xs"><code class="bg-base-200 px-1 rounded font-mono">{{ .Path }}</code>{{ if .Alt }} <span class="text-base-content/60 italic block ml-1">{{ .Alt }}</span>{{ end }}</li>
-          {{ end }}
-        </ul>
-        {{ else }}
+        {{ if not .Assets }}
         <p class="text-xs text-base-content/60 italic">No images yet.</p>
-        <button type="button" class="btn btn-ghost btn-xs mt-1" id="open-image-drawer-empty">Upload one</button>
         {{ end }}
       </div>
 
@@ -771,7 +766,6 @@
       if (btn) btn.addEventListener('click', function () { pickInsert = !!(opts && opts.pick); TBImageDrawer.open(); });
     }
     bind('open-image-drawer', { pick: false });
-    bind('open-image-drawer-empty', { pick: false });
     bind('prompt-pick-image', { pick: true });
   })();
 </script>
