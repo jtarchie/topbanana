@@ -32,6 +32,12 @@ const (
 	// deepen the corruption — only the agent can repair the original
 	// quoting before any substrate fix is meaningful.
 	KindSuspiciousAttr Kind = "suspicious_attr"
+	// KindMobileViewport identifies a page missing a responsive viewport
+	// declaration (`<meta name="viewport" content="width=device-width, ...">`).
+	// Without it mobile browsers render the page at a ~980px desktop width and
+	// zoom out, so the design is not mobile-friendly. Mechanical when the tag
+	// is simply absent — AutoFixMobileViewport injects the canonical form.
+	KindMobileViewport Kind = "mobile_viewport"
 )
 
 type Error struct {
@@ -76,6 +82,7 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 			errs = append(errs, checkInlineJS(file, doc)...)
 			errs = append(errs, suspiciousAttrValues(file, doc)...)
 			errs = append(errs, checkDesignSubstrate(file, doc)...)
+			errs = append(errs, checkMobileViewport(file, doc)...)
 		case strings.HasSuffix(file, ".js"):
 			// JS files are allowed under functions/ only — JSFile rejects
 			// .js files anywhere else. The agent's path validation also
@@ -217,6 +224,116 @@ func AutoFixDesignSubstrate(content string) (string, bool) {
 		return content, false
 	}
 	return content[:closeIdx] + localStylesheetTag + "\n" + content[closeIdx:], true
+}
+
+// viewportMetaTag is the canonical responsive viewport declaration every page
+// must carry so phones render at their real width instead of a zoomed-out
+// ~980px desktop viewport. AutoFixMobileViewport injects exactly this form, and
+// the CSS step (build.swapSubstrateForLocalCSS) injects an identical tag.
+const viewportMetaTag = `<meta name="viewport" content="width=device-width, initial-scale=1">`
+
+// viewportPresence records, during one document walk, whether a viewport meta
+// exists at all (meta) and whether it is responsive — its content opts into
+// the device width (responsive). The split lets the lint flag a present-but-
+// non-responsive tag while AutoFixMobileViewport declines to stack a second
+// meta on top of one that already exists (the author must repair the value).
+type viewportPresence struct {
+	meta       bool
+	responsive bool
+}
+
+func (p *viewportPresence) inspect(n *html.Node) {
+	if n.Type != html.ElementNode || n.Data != "meta" {
+		return
+	}
+	var isViewport bool
+	var content string
+	for _, a := range n.Attr {
+		switch {
+		case strings.EqualFold(a.Key, "name") && strings.EqualFold(strings.TrimSpace(a.Val), "viewport"):
+			isViewport = true
+		case strings.EqualFold(a.Key, "content"):
+			content = a.Val
+		}
+	}
+	if !isViewport {
+		return
+	}
+	p.meta = true
+	if strings.Contains(strings.ToLower(content), "width=device-width") {
+		p.responsive = true
+	}
+}
+
+// checkMobileViewport verifies a page declares a responsive viewport — a
+// `<meta name="viewport">` element whose content opts into width=device-width.
+// A missing tag, or one pinned to a desktop width, both fail: mobile browsers
+// would render the page at a ~980px viewport and zoom out. Element-based (like
+// checkDesignSubstrate) so a tag swallowed by a malformed earlier attribute is
+// not mistaken for present.
+func checkMobileViewport(file string, doc *html.Node) []Error {
+	var p viewportPresence
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		p.inspect(n)
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+
+	if p.responsive {
+		return nil
+	}
+	return []Error{{
+		File:    file,
+		Kind:    KindMobileViewport,
+		Message: "missing responsive viewport — every page must include `<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">` in <head>. Without width=device-width, phones render the page at a ~980px desktop width and zoom out, so the design is not mobile-friendly.",
+	}}
+}
+
+// AutoFixMobileViewport injects the canonical viewport meta right before the
+// closing </head> when the page carries no viewport meta at all. Idempotent,
+// and deliberately conservative: a page that already has a viewport meta — even
+// a non-responsive one — is left untouched so the fix never stacks a second,
+// conflicting meta on top of one the author wrote (checkMobileViewport still
+// flags the bad value for the agent to repair). Like AutoFixDesignSubstrate,
+// callers must not invoke it on a file that also produced a KindSuspiciousAttr
+// error. Returns the new content and whether anything changed.
+func AutoFixMobileViewport(content string) (string, bool) {
+	doc, err := html.Parse(strings.NewReader(content))
+	if err != nil {
+		return content, false
+	}
+	var p viewportPresence
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		p.inspect(n)
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+	if p.meta {
+		return content, false
+	}
+	lower := strings.ToLower(content)
+	closeIdx := strings.Index(lower, "</head>")
+	if closeIdx == -1 {
+		return content, false
+	}
+	return content[:closeIdx] + viewportMetaTag + "\n" + content[closeIdx:], true
+}
+
+// AutoFixers maps each deterministically fixable lint Kind to the in-code
+// transform that repairs it. The build retry loop (build.autoFixLint) applies
+// every applicable fixer before falling back to an agent turn, and the MCP
+// lint_site result marks a problem autofixable iff its Kind is a key here. Each
+// fixer is idempotent and injects before </head>, so several may be chained
+// over one page in any order.
+var AutoFixers = map[Kind]func(string) (string, bool){
+	KindDesignSubstrate: AutoFixDesignSubstrate,
+	KindMobileViewport:  AutoFixMobileViewport,
 }
 
 // suspiciousAttrValues flags an attribute value that contains an embedded

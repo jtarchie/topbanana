@@ -208,6 +208,119 @@ func TestAutoFixDesignSubstrate(t *testing.T) {
 	})
 }
 
+// TestCheckMobileViewport covers the three states the responsive-viewport
+// check distinguishes: a responsive tag passes, an absent tag fails, and a
+// viewport meta pinned to a desktop width (no width=device-width) also fails.
+func TestCheckMobileViewport(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		head    string
+		wantErr bool
+	}{
+		{
+			name:    "responsive viewport passes",
+			head:    `<meta name="viewport" content="width=device-width, initial-scale=1">`,
+			wantErr: false,
+		},
+		{
+			name:    "single-quoted responsive viewport passes",
+			head:    `<meta name='viewport' content='width=device-width, initial-scale=1'>`,
+			wantErr: false,
+		},
+		{
+			name:    "missing viewport fails",
+			head:    `<title>x</title>`,
+			wantErr: true,
+		},
+		{
+			name:    "non-responsive viewport fails",
+			head:    `<meta name="viewport" content="width=1024">`,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			src := `<!DOCTYPE html><html><head>` + tc.head + `</head><body></body></html>`
+			doc, err := html.Parse(strings.NewReader(src))
+			if err != nil {
+				t.Fatalf("html.Parse: %v", err)
+			}
+			errs := checkMobileViewport("index.html", doc)
+			if tc.wantErr && len(errs) == 0 {
+				t.Fatalf("checkMobileViewport(%q) = nil, want error", tc.head)
+			}
+			if !tc.wantErr && len(errs) != 0 {
+				t.Fatalf("checkMobileViewport(%q) = %+v, want nil", tc.head, errs)
+			}
+			for _, e := range errs {
+				if e.Kind != KindMobileViewport {
+					t.Errorf("expected KindMobileViewport, got %q", e.Kind)
+				}
+			}
+		})
+	}
+}
+
+func TestAutoFixMobileViewport(t *testing.T) {
+	t.Parallel()
+
+	const want = `name="viewport"`
+
+	t.Run("injects the viewport when head lacks it", func(t *testing.T) {
+		in := `<!DOCTYPE html><html><head><title>x</title></head><body></body></html>`
+		out, changed := AutoFixMobileViewport(in)
+		if !changed {
+			t.Fatal("expected changed=true")
+		}
+		if !strings.Contains(out, "width=device-width") {
+			t.Errorf("missing responsive viewport in output: %s", out)
+		}
+		if strings.Index(out, want) > strings.Index(out, "</head>") {
+			t.Errorf("viewport must be injected before </head>: %s", out)
+		}
+	})
+
+	t.Run("idempotent when already present", func(t *testing.T) {
+		in := `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body></body></html>`
+		out, changed := AutoFixMobileViewport(in)
+		if changed {
+			t.Fatalf("expected changed=false when a viewport meta is already present:\n%s", out)
+		}
+		if strings.Count(out, want) != 1 {
+			t.Errorf("must not duplicate the viewport meta: %s", out)
+		}
+	})
+
+	t.Run("leaves a present-but-non-responsive viewport untouched", func(t *testing.T) {
+		// The author wrote a desktop-pinned viewport. The fix must NOT stack a
+		// second meta on top of it — checkMobileViewport still flags the value
+		// so the agent repairs the one that's there.
+		in := `<!DOCTYPE html><html><head><meta name="viewport" content="width=1024"></head><body></body></html>`
+		out, changed := AutoFixMobileViewport(in)
+		if changed {
+			t.Fatalf("expected changed=false; a viewport meta exists:\n%s", out)
+		}
+		if strings.Count(out, want) != 1 {
+			t.Errorf("must not add a second viewport meta: %s", out)
+		}
+	})
+
+	t.Run("returns unchanged when no </head>", func(t *testing.T) {
+		in := `<html><body></body></html>`
+		out, changed := AutoFixMobileViewport(in)
+		if changed {
+			t.Fatal("expected changed=false when </head> is absent")
+		}
+		if out != in {
+			t.Errorf("content must be returned unchanged when fix is skipped")
+		}
+	})
+}
+
 func TestErrorKindClassification(t *testing.T) {
 	t.Parallel()
 
@@ -220,6 +333,16 @@ func TestErrorKindClassification(t *testing.T) {
 		if e.Kind != KindDesignSubstrate {
 			t.Errorf("expected KindDesignSubstrate, got %q for %q", e.Kind, e.Message)
 		}
+	}
+	// The same bare doc has no viewport meta → the viewport error must carry
+	// the auto-fix kind so the build loop and MCP both know it's mechanical.
+	for _, e := range checkMobileViewport("index.html", doc) {
+		if e.Kind != KindMobileViewport {
+			t.Errorf("expected KindMobileViewport, got %q for %q", e.Kind, e.Message)
+		}
+	}
+	if _, ok := AutoFixers[KindMobileViewport]; !ok {
+		t.Error("AutoFixers must register a fixer for KindMobileViewport")
 	}
 
 	// Suspicious-attr fixture from the existing test: unclosed viewport
