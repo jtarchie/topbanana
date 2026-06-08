@@ -194,6 +194,10 @@ func New(d Deps) (*echo.Echo, *Server) {
 
 	e := echo.New()
 	e.HTTPErrorHandler = s.httpErrorHandler
+	// methodOverride runs Pre (before routing) so an HTML form that can only
+	// POST can still reach a PATCH/PUT/DELETE route by carrying the verb in a
+	// `_method` field; the router then matches the rewritten method.
+	e.Pre(methodOverrideMiddleware())
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	e.Use(slogecho.New(logger))
 	e.Use(hstsMiddleware())

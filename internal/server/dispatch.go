@@ -1,12 +1,39 @@
 package server
 
 import (
+	"net/http"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/jtarchie/topbanana/internal/auth"
 )
+
+// methodOverrideMiddleware lets an HTML form — which can only emit GET or POST —
+// drive a PATCH/PUT/DELETE route by carrying the intended verb in a `_method`
+// field (urlencoded body) or the X-HTTP-Method-Override header (fetch clients).
+// It runs Pre (before routing) so the router matches on the rewritten method.
+// Only POST is eligible, and only the three mutating overrides are honored, so a
+// stray field can't downgrade a POST to GET. The body is read only for
+// urlencoded posts, leaving multipart upload/attachment routes untouched.
+func methodOverrideMiddleware() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			r := c.Request()
+			if r.Method == http.MethodPost {
+				override := r.Header.Get("X-HTTP-Method-Override")
+				if override == "" && strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") {
+					override = r.PostFormValue("_method")
+				}
+				switch strings.ToUpper(override) {
+				case http.MethodPut, http.MethodPatch, http.MethodDelete:
+					r.Method = strings.ToUpper(override)
+				}
+			}
+			return next(c)
+		}
+	}
+}
 
 // subdomainMiddleware dispatches by Host:
 //
