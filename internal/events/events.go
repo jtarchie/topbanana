@@ -30,6 +30,7 @@ const (
 	StatusCompleted = "completed"
 	StatusFailed    = "failed"
 	StatusLinting   = "linting"
+	StatusPolishing = "polishing"
 	StatusRetry     = "retry"
 )
 
@@ -54,7 +55,7 @@ const (
 // reconnect.
 type Event struct {
 	Type    string    `json:"type"`              // "status" | "tool" | "question"
-	Status  string    `json:"status,omitempty"`  // for type=status: building|completed|failed|linting|retry
+	Status  string    `json:"status,omitempty"`  // for type=status: building|completed|failed|linting|polishing|retry
 	Tool    string    `json:"tool,omitempty"`    // for type=tool: write_file|read_file|list_files|list_assets
 	Phase   string    `json:"phase,omitempty"`   // for type=tool: start|done|error; for type=question: ask|answer|timeout
 	Path    string    `json:"path,omitempty"`    // for type=tool: file path the tool acted on

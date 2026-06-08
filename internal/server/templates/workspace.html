@@ -518,6 +518,7 @@
       switch (ev.status) {
         case 'building': return 'Building your site…';
         case 'linting': return 'Validating output…';
+        case 'polishing': return 'Polishing the details…';
         case 'retry': return 'Fixing issues: ' + (ev.message || '');
         case 'completed': return 'Your site is ready.';
         case 'failed': return 'Build failed: ' + (ev.message || 'unknown error');
@@ -649,7 +650,7 @@
 
       if (ev.type === 'status') {
         if (ev.status === 'building') setStep('design');
-        if (ev.status === 'linting' || ev.status === 'retry') setStep('polish');
+        if (ev.status === 'linting' || ev.status === 'retry' || ev.status === 'polishing') setStep('polish');
         if (ev.status === 'completed') {
           setStep('done');
           toast('Your site is ready.', 'success');

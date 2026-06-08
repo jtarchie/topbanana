@@ -163,5 +163,5 @@ func (s *Server) buildInFlight(slug string) bool {
 		return false
 	}
 	st := s.events.Get(slug)
-	return st != nil && (st.Status == "building" || st.Status == "linting" || st.Status == "retry")
+	return st != nil && (st.Status == "building" || st.Status == "linting" || st.Status == "retry" || st.Status == "polishing")
 }
