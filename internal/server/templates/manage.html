@@ -210,7 +210,7 @@
   <section class="pt-8 border-t border-base-300" aria-labelledby="duplicate-heading">
     <h2 id="duplicate-heading" class="text-lg font-semibold tracking-tight">Duplicate this site</h2>
     <p class="text-sm text-base-content/70 mt-2">Copies every file into a new app you own. The original is untouched. Custom domains and the private flag do not carry over.</p>
-    <form method="POST" action="/manage/{{ .Slug }}/remix"
+    <form method="POST" action="/apps/{{ .Slug }}/remix"
           class="mt-3 js-confirm"
           data-confirm-title="Duplicate this site?"
           data-confirm="A new app will be created with the same files. You'll own both, and your quota counts the copy."

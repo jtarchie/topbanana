@@ -28,7 +28,7 @@ type functionsController struct{ *Server }
 
 func (s *functionsController) register(g *echo.Group, owns echo.MiddlewareFunc) {
 	g.GET("/edit/:slug/function/:name", s.functionEditHandler, owns)
-	g.POST("/test/:slug/api/:name", s.functionTestHandler, owns)
+	g.POST("/functions/:slug/:name/test", s.functionTestHandler, owns)
 }
 
 // maxCASRetries caps the number of times we'll re-run a handler after an

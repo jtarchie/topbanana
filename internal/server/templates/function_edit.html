@@ -111,7 +111,7 @@
       var ct = document.getElementById('content_type').value;
       var body = document.getElementById('body').value;
       var payload = JSON.stringify({ method: method, content_type: ct, body: body });
-      fetch('/test/{{ .Slug }}/api/{{ .Name }}', {
+      fetch('/functions/{{ .Slug }}/{{ .Name }}/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: payload

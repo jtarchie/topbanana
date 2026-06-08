@@ -73,7 +73,7 @@
           {{ if .Page }}
           <a href="/edit/{{ .Slug }}/visual?page={{ .Page }}" class="btn btn-ghost btn-sm justify-start font-normal">Visual editor</a>
           {{ end }}
-          <form method="POST" action="/relint/{{ .Slug }}" class="contents">
+          <form method="POST" action="/apps/{{ .Slug }}/lint" class="contents">
             <button type="submit" class="btn btn-ghost btn-sm justify-start font-normal">Validate site</button>
           </form>
           <a href="/export/{{ .Slug }}" class="btn btn-ghost btn-sm justify-start font-normal">Export site</a>

@@ -48,7 +48,7 @@ func TestRemixHandler_CopiesFilesAndRewritesMeta(t *testing.T) {
 	t.Cleanup(httpSrv.Close)
 
 	// POST and capture the 303 target without following it.
-	req, err := http.NewRequest(http.MethodPost, httpSrv.URL+"/manage/"+src+"/remix", nil)
+	req, err := http.NewRequest(http.MethodPost, httpSrv.URL+"/apps/"+src+"/remix", nil)
 	if err != nil {
 		t.Fatalf("new POST remix: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestRemixHandler_RejectsNonOwner(t *testing.T) {
 	t.Cleanup(httpSrv.Close)
 
 	// No cookie attached — requireUser bounces to /login.
-	req, _ := http.NewRequest(http.MethodPost, httpSrv.URL+"/manage/"+src+"/remix", nil)
+	req, _ := http.NewRequest(http.MethodPost, httpSrv.URL+"/apps/"+src+"/remix", nil)
 	req.Host = "localhost"
 	noRedirect := &http.Client{
 		CheckRedirect: func(*http.Request, []*http.Request) error {

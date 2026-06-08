@@ -47,7 +47,7 @@ func TestRelint_DeterministicAutoFix_SkipsAgent(t *testing.T) {
 
 	mustWrite(t, ctx, st, slug, "index.html", substrateMissingPage, "text/html; charset=utf-8")
 
-	req := httptest.NewRequest(http.MethodPost, "/relint/"+slug, nil)
+	req := httptest.NewRequest(http.MethodPost, "/apps/"+slug+"/lint", nil)
 	req.Host = "localhost"
 	req.AddCookie(testSessionCookie)
 	rec := httptest.NewRecorder()
