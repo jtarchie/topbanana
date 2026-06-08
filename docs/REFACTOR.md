@@ -43,17 +43,30 @@ Verified **non-issues** (audit false positives — code already correct, no chan
 `mcpOAuthState.clients` (both accesses are inside locked methods); `kv.go` "panics" (there
 are none — the file has no `panic`).
 
-Remaining (lower value or higher risk — deliberately deferred, all mechanical):
-- Admin-panel verbs (super-admin only, audit-LOW): `enable`/`disable`/`quotas`→PATCH,
-  user `delete`→DELETE, `sessions/revoke`→DELETE — JS-driven forms; method-override is in
-  place, so each is a route+form+test change.
-- Path-noun cleanups (POST stays, audit-LOW): `/relint/:slug`→`/sites/:slug/lint`,
-  `/test/:slug/api/:name`→`.../functions/:name/test`, `/manage/:slug/remix`. (The broader
-  `/workspace`→`/sites/:slug` noun consolidation is nav-wide churn, audit-LOW — kept stable.)
-- Dedup `internal/archive` (tar+zstd): touches the legacy-PAX wire-format compat that
-  CLAUDE.md flags as load-bearing — do with care + round-trip tests, not in a rush.
-- Result-objects long tail + parameter objects (Workstreams 2/3 below): high-churn,
-  low-individual-value; `Subscribe`/`runnerForTier` skipped (12+ test sites each, hotpath).
+Also landed (second pass):
+- ✅ **Admin-panel verbs**: `PATCH /admin/users/:email` (enable/disable, `disabled` field —
+  merges the old enable/disable handlers), `PATCH .../quotas`, `DELETE /admin/users/:email`,
+  `DELETE .../sessions`. Inline + JS-driven forms carry `_method`.
+- ✅ **Path-noun cleanups**: `POST /apps/:slug/lint` (relint), `POST /functions/:slug/:name/test`,
+  `POST /apps/:slug/remix` — `/apps/:slug` now consistently hosts app-lifecycle actions
+  (lint/remix/transfer/DELETE).
+- ✅ **`internal/archive`**: shared tar+zstd codec (PAX contract incl. legacy prefixes + Writer
+  + capped Reader) used by snapshot + portable; wire format byte-identical, round-trip +
+  legacy-PAX tests pass.
+- ✅ **More result/parameter objects**: `lint.linkCheckContext` + `checkLink`→`[]Error`;
+  `FileActions`, `buildSummary`, `PageParts` (server); `sandbox.InvokeRequest` (7 args → struct).
+
+Deliberately NOT done (sound rationale, not avoidance):
+- `agent` `ToolBuildContext` / `build` `PipelineContext`: internal-only param objects on the
+  LLM-critical build path. The 16 tool constructors take *different* dependency subsets, so a
+  single context trades a param-list smell for an over-broad-dependency smell (anti-SRP); and
+  the real behavior isn't covered by the deterministic tests that run here (real-LLM e2e is
+  excluded). Higher risk than reward — left for a focused pass with real-LLM verification.
+- `Subscribe` / `runnerForTier` result objects: 12+ test call sites each, hot paths, named
+  returns already self-document.
+- Trivial single-caller result objects (`parseFrontmatter`, `fetchServed`, `collectSubmissions`,
+  `AutoFixDesignSubstrate`, sandbox `coerce*`): negligible clarity gain; `mcpJSON`'s middle
+  `any` return is the MCP SDK handler contract, not removable.
 
 ## Preserve (do not churn — already well-factored)
 
