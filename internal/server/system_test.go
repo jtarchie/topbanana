@@ -58,10 +58,10 @@ func TestSummarizeBuilds(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotS, gotF, gotI := summarizeBuilds(tc.in)
-			if gotS != tc.wantSuccess || gotF != tc.wantFailed || gotI != tc.wantInFlight {
+			got := summarizeBuilds(tc.in)
+			if got.Successful != tc.wantSuccess || got.Failed != tc.wantFailed || got.InFlight != tc.wantInFlight {
 				t.Errorf("got (success=%d, failed=%d, inFlight=%d), want (success=%d, failed=%d, inFlight=%d)",
-					gotS, gotF, gotI, tc.wantSuccess, tc.wantFailed, tc.wantInFlight)
+					got.Successful, got.Failed, got.InFlight, tc.wantSuccess, tc.wantFailed, tc.wantInFlight)
 			}
 		})
 	}
