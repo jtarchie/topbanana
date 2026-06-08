@@ -14,13 +14,14 @@ If the user names an image path verbatim in their request (e.g. `assets/hero.png
 
 ## Design substrate (DaisyUI + Tailwind)
 
-Every page MUST include this stylesheet inside `<head>`:
+Every page MUST include these two tags inside `<head>`:
 
 ```html
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="/app.css">
 ```
 
-That single sheet is the whole substrate — DaisyUI components, every theme, and the Tailwind utility classes your markup uses. The platform compiles and self-hosts it per site (no CDN, no build step on your side). Do NOT add any `cdn.jsdelivr.net` `<link>` or a Tailwind `<script>` — only `/app.css`.
+The viewport meta makes phones render the page at their real width instead of a zoomed-out ~980px desktop view — omit it and the site is not mobile-friendly. The `/app.css` sheet is the whole substrate — DaisyUI components, every theme, and the Tailwind utility classes your markup uses. The platform compiles and self-hosts it per site (no CDN, no build step on your side). Do NOT add any `cdn.jsdelivr.net` `<link>` or a Tailwind `<script>` — only `/app.css`.
 
 Set the theme on `<html>` with `data-theme`. Themes by category (matches the theme studio):
 - Professional: `light`, `dark`, `corporate`, `business`, `winter`
@@ -44,7 +45,9 @@ Use theme-aware utilities (`bg-primary`, `text-primary-content`, `bg-base-100/20
 - Surfaces: `bg-base-200 rounded-2xl shadow-xl backdrop-blur`
 - Decoration: `bg-gradient-to-br from-primary to-secondary`, `border border-base-300`
 
-## Viewport safety
+## Mobile-first & responsive
+
+Design for a narrow phone first, then layer wider layouts on top with responsive prefixes (`sm:` ~640px, `md:` ~768px, `lg:` ~1024px) — e.g. `grid-cols-1 md:grid-cols-3`, `flex-col md:flex-row`, `text-4xl md:text-6xl`. Prefer `flex-wrap` and responsive column counts over fixed multi-column rows. Keep tap targets comfortable (use `btn` sizes and generous padding) — no rows of tiny links crammed together. Every page needs the viewport meta from the design-substrate section above, or none of this responsiveness takes effect on phones.
 
 The page must never scroll horizontally — clipped content has no scrollbar affordance and users can't see it. Wrap wide content (horizontal timelines, wide tables, `<pre>` blocks, badge rows that don't wrap, side-scroll image strips) in `<div class="overflow-x-auto">`. For flex/grid rows, use `flex-wrap` or responsive column counts rather than fixed columns at every breakpoint. Long unbreakable strings (URLs, emails, hashes) need `break-words` or `break-all`. Constrain prose with `max-w-prose` or `max-w-2xl` and pad sections with `px-4 md:px-8`.
 
