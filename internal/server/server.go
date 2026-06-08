@@ -311,6 +311,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 	admin.POST("/upload/:slug", s.uploadHandler, owns)
 	admin.GET("/assets/:slug", s.assetsListHandler, owns)
 	admin.PATCH("/assets/:slug/*", s.assetMetadataPatchHandler, owns)
+	admin.DELETE("/assets/:slug/*", s.assetDeleteHandler, owns)
 	admin.GET("/export/:slug", s.exportHandler, owns)
 	admin.POST("/import", s.importHandler, middleware.BodyLimit(portable.MaxArchiveBytes+(64*1024)))
 	admin.POST("/files/:slug/delete", s.deleteFileHandler, owns)

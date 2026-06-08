@@ -52,6 +52,7 @@
     var uploadBtn = el("tb-drawer-upload");
     var uploadInput = el("tb-drawer-upload-input");
     var insertBtn = el("tb-drawer-insert");
+    var deleteBtn = el("tb-drawer-delete");
     var backBtn = el("tb-drawer-back");
     var altIn = el("tb-drawer-detail-alt");
     var descIn = el("tb-drawer-detail-desc");
@@ -69,6 +70,7 @@
         insertBtn.addEventListener("click", function () { self.insertSelected(); });
       }
     }
+    if (deleteBtn) deleteBtn.addEventListener("click", function () { self.deleteSelected(); });
     if (backBtn) backBtn.addEventListener("click", function () { self.showGrid(); });
 
     // Autosave: debounce on input (so a fast typist doesn't fire a PATCH per
@@ -254,6 +256,33 @@
     if (this.saveTimer) { clearTimeout(this.saveTimer); this.saveTimer = null; this.saveDetail(); }
     try { this.onInsert(this.selected); } catch (e) { setStatus("Insert failed: " + e, "err"); return; }
     this.close();
+  };
+
+  TBImageDrawer.prototype.deleteSelected = function () {
+    if (!this.selected) return;
+    var self = this;
+    var path = self.selected.path;
+    var ok = window.confirm("Delete " + path + "?\n\nPages that reference this image will render a broken image until you replace it or edit them.");
+    if (!ok) return;
+    // Cancel any in-flight autosave for this asset — the DELETE makes its
+    // metadata moot, and a racing PATCH on a deleted key would just 404.
+    if (self.saveTimer) { clearTimeout(self.saveTimer); self.saveTimer = null; }
+    setStatus("Deleting…");
+    fetch("/assets/" + self.slug + "/" + path, {
+      method: "DELETE",
+      credentials: "same-origin",
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+      })
+      .then(function () {
+        self.assets = self.assets.filter(function (a) { return a.path !== path; });
+        self.selected = null;
+        self.showGrid();
+        self.renderGrid();
+        setStatus("Deleted", "ok");
+      })
+      .catch(function (err) { setStatus("Delete failed: " + err, "err"); });
   };
 
   TBImageDrawer.prototype.upload = function (files) {

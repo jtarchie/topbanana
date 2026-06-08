@@ -127,6 +127,40 @@ func decodeAssetPatch(r *http.Request) (assetMetadataPatch, error) {
 	return patch, nil
 }
 
+// assetDeleteHandler removes a single asset under `{slug}/assets/...`. Mirrors
+// the PATCH handler's shape (wildcard path, same validation, same 404-on-
+// missing semantics). Snapshots the site before the delete so the History
+// panel can restore it. Pages that referenced the image will render a broken
+// image until the next edit; the drawer's confirm copy warns about that.
+func (s *Server) assetDeleteHandler(c *echo.Context) error {
+	slug := c.Param("slug")
+	err := validateSlug(slug)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	relPath, err := normalizeAssetPath(c.Param("*"))
+	if err != nil {
+		return err
+	}
+
+	obj, err := s.store.Read(c.Request().Context(), slug, relPath)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "read asset", err)
+	}
+	if obj == nil || obj.Content == "" {
+		return echo.NewHTTPError(http.StatusNotFound, "asset not found")
+	}
+
+	s.snapshotBefore(c.Request().Context(), slug, snapshot.ReasonUpload)
+
+	err = s.store.Delete(c.Request().Context(), slug, relPath)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "delete asset", err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"ok": true, "path": relPath}) //nolint:wrapcheck
+}
+
 // assetMetadataPatchHandler updates the alt/description metadata on an asset
 // without rewriting its bytes. Path is taken from the wildcard route param so
 // `assets/photo.png` round-trips intact. Validates slug + path, caps lengths

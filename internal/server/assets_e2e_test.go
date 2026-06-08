@@ -220,6 +220,92 @@ func TestAssetMetadataPatchHandler_404OnMissing(t *testing.T) {
 	}
 }
 
+// TestAssetDeleteHandler_RemovesObject seeds an asset, DELETEs it, and
+// confirms the object is gone from the bucket.
+func TestAssetDeleteHandler_RemovesObject(t *testing.T) {
+	st := minioStore(t)
+	if st == nil {
+		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
+	}
+	ctx := context.Background()
+	slug := freshSlug(t)
+	snapSvc := snapshot.New(st, 0)
+	cleanupSlug(t, ctx, st, snapSvc, slug)
+	handler := buildServer(t, st, snapSvc)
+
+	err := st.Write(ctx, slug, "assets/doomed.png", "bytes", "image/png", nil)
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/assets/"+slug+"/assets/doomed.png", nil)
+	req.Host = "localhost"
+	req.AddCookie(testSessionCookie)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%q", rec.Code, rec.Body.String())
+	}
+	obj, err := st.Read(ctx, slug, "assets/doomed.png")
+	if err != nil {
+		t.Fatalf("read after delete: %v", err)
+	}
+	if obj != nil && obj.Content != "" {
+		t.Errorf("asset survived delete: %q", obj.Content)
+	}
+}
+
+// TestAssetDeleteHandler_404OnMissing matches the PATCH 404 semantics: a
+// DELETE for a non-existent asset must 404 rather than report success.
+// Returning 200 here would let a typo (or a stale drawer cache) read as a
+// successful delete, hiding the real state.
+func TestAssetDeleteHandler_404OnMissing(t *testing.T) {
+	st := minioStore(t)
+	if st == nil {
+		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
+	}
+	ctx := context.Background()
+	slug := freshSlug(t)
+	snapSvc := snapshot.New(st, 0)
+	cleanupSlug(t, ctx, st, snapSvc, slug)
+	handler := buildServer(t, st, snapSvc)
+
+	req := httptest.NewRequest(http.MethodDelete, "/assets/"+slug+"/assets/never-was.png", nil)
+	req.Host = "localhost"
+	req.AddCookie(testSessionCookie)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d want 404; body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+// TestAssetDeleteHandler_RejectsTraversal confirms `..` segments are blocked
+// before any S3 traffic, matching the PATCH handler.
+func TestAssetDeleteHandler_RejectsTraversal(t *testing.T) {
+	st := minioStore(t)
+	if st == nil {
+		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
+	}
+	snapSvc := snapshot.New(st, 0)
+	handler := buildServer(t, st, snapSvc)
+	slug := freshSlug(t)
+	ctx := context.Background()
+	cleanupSlug(t, ctx, st, snapSvc, slug)
+
+	req := httptest.NewRequest(http.MethodDelete, "/assets/"+slug+"/assets/../../etc/passwd", nil)
+	req.Host = "localhost"
+	req.AddCookie(testSessionCookie)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status: got %d want 400; body=%q", rec.Code, rec.Body.String())
+	}
+}
+
 // TestAssetMetadataPatchHandler_RejectsTraversal ensures path validation runs
 // even though the wildcard route accepts arbitrary slashes — a `..` segment
 // must 400 instead of falling through to the store.
