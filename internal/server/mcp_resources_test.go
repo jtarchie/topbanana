@@ -66,6 +66,17 @@ func TestMCPDesignGuide(t *testing.T) {
 	}
 }
 
+// TestEmbeddedDesignGuideNonEmpty guards against design_guide.md being
+// emptied or accidentally truncated. //go:embed errors at compile time if a
+// file is missing, but a zero-byte file would slip through and serve an
+// empty MCP resource at topbanana://guide/design.
+func TestEmbeddedDesignGuideNonEmpty(t *testing.T) {
+	t.Parallel()
+	if mcpDesignGuide == "" {
+		t.Error("mcpDesignGuide embedded body is empty — was design_guide.md emptied?")
+	}
+}
+
 func TestTemplateByID(t *testing.T) {
 	t.Parallel()
 	// The registry always carries the default "blank" template.

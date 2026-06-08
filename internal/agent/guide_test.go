@@ -18,3 +18,21 @@ func TestGuideAccessors(t *testing.T) {
 		t.Error("FunctionsGuide() should document module.exports")
 	}
 }
+
+// TestEmbeddedPromptsNonEmpty guards against a sibling *_prompt.md file being
+// emptied or accidentally truncated. //go:embed errors at compile time if a
+// file is missing, but a zero-byte file would slip through and the LLM would
+// silently get an empty instruction.
+func TestEmbeddedPromptsNonEmpty(t *testing.T) {
+	t.Parallel()
+	for name, body := range map[string]string{
+		"systemPrompt":        systemPrompt,
+		"functionsPrompt":     functionsPrompt,
+		"describeInstruction": describeInstruction,
+		"captionInstruction":  captionInstruction,
+	} {
+		if body == "" {
+			t.Errorf("%s embedded prompt is empty — was the .md file emptied?", name)
+		}
+	}
+}

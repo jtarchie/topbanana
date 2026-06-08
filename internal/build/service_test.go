@@ -883,6 +883,24 @@ func TestShouldPolishEdit(t *testing.T) {
 	}
 }
 
+// TestEmbeddedPromptsNonEmpty guards against a sibling *_prompt.md file being
+// emptied or accidentally truncated. //go:embed errors at compile time if a
+// file is missing, but a zero-byte file would slip through and the LLM would
+// silently get an empty instruction.
+func TestEmbeddedPromptsNonEmpty(t *testing.T) {
+	t.Parallel()
+	for name, body := range map[string]string{
+		"polishPrompt":           polishPrompt,
+		"editSitePromptFmt":      editSitePromptFmt,
+		"editPagePromptFmt":      editPagePromptFmt,
+		"editSelectionPromptFmt": editSelectionPromptFmt,
+	} {
+		if body == "" {
+			t.Errorf("%s embedded prompt is empty — was the .md file emptied?", name)
+		}
+	}
+}
+
 // polishPrompt is the user-prompt fired by PolishPass. It must keep the
 // read-before-edit guardrail (so the agent does not rewrite pages from the
 // prompt alone — the same failure mode lintFixGuardrail guards against) and
