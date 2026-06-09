@@ -45,10 +45,9 @@ type filesView struct {
 }
 
 func (s *sitesController) filesHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 
 	entries, err := s.store.ListWithMeta(c.Request().Context(), slug)
@@ -63,7 +62,7 @@ func (s *sitesController) filesHandler(c *echo.Context) error {
 	rows := make([]fileRow, 0, len(entries))
 	var totalBytes int64
 	for _, e := range entries {
-		act := actionsFor(c, s.Server, slug, e.Path)
+		act := s.fileActionsFor(c, slug, e.Path)
 		_, classifyErr := classifyUserPath(e.Path)
 		rows = append(rows, fileRow{
 			Path:       e.Path,
@@ -110,7 +109,7 @@ type FileActions struct {
 	OpenLabel string
 }
 
-func actionsFor(c *echo.Context, s *Server, slug, path string) FileActions {
+func (s *Server) fileActionsFor(c *echo.Context, slug, path string) FileActions {
 	switch {
 	case strings.HasPrefix(path, "functions/") && strings.HasSuffix(path, ".js"):
 		name := strings.TrimSuffix(strings.TrimPrefix(path, "functions/"), ".js")

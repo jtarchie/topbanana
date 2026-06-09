@@ -77,6 +77,11 @@ type UploadTicket struct {
 // and returns the decoded UploadTicket. Any failure collapses to a single
 // error so callers never leak why a ticket was rejected.
 func ParseUploadTicket(secret, token string) (UploadTicket, error) {
+	// Fail closed on an empty secret, symmetric with MintUploadTicket: an empty
+	// HMAC key makes every ticket forgeable, so don't let one verify.
+	if secret == "" {
+		return UploadTicket{}, errors.New("auth: invalid upload ticket")
+	}
 	var claims uploadTicketClaims
 	parsed, perr := jwt.ParseWithClaims(token, &claims, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {

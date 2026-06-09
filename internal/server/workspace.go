@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/jtarchie/topbanana/internal/build"
+	"github.com/jtarchie/topbanana/internal/events"
 )
 
 // workspaceData backs the unified design surface at /workspace/:slug. It
@@ -43,10 +44,9 @@ type workspaceData struct {
 }
 
 func (s *sitesController) workspaceHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 	page := c.QueryParam("page")
 	err = validatePage(page)
@@ -163,5 +163,5 @@ func (s *Server) buildInFlight(slug string) bool {
 		return false
 	}
 	st := s.events.Get(slug)
-	return st != nil && (st.Status == "building" || st.Status == "linting" || st.Status == "retry" || st.Status == "polishing")
+	return st != nil && events.IsActive(st.Status)
 }

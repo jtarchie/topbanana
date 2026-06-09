@@ -90,7 +90,7 @@ func (s *sitesController) remixHandler(c *echo.Context) error {
 
 	s.registry.markSlug(dstSlug)
 	s.registry.setOwner(dstSlug, caller.Email)
-	s.registry.rebuildDomainIndexLogging(ctx)
+	s.registry.rebuildIndexesLogging(ctx)
 
 	slog.Info("app.remix", "from", srcSlug, "to", dstSlug, "by", caller.Email)
 	flash := fmt.Sprintf("remixed+%s+as+%s", srcSlug, dstSlug)

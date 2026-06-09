@@ -73,6 +73,13 @@ func MintMCPToken(secret, email string, ttl time.Duration) (string, error) {
 // we never leak why a token was rejected.
 func MCPTokenVerifier(secret string) mcpauth.TokenVerifier {
 	return func(_ context.Context, token string, _ *http.Request) (*mcpauth.TokenInfo, error) {
+		// Fail closed on an empty secret, symmetric with MintMCPToken: an empty
+		// HMAC key makes every token forgeable. The only caller gates this
+		// behind --mcp-secret today, but keeping the guard local means the
+		// invariant doesn't depend on a check in another package.
+		if secret == "" {
+			return nil, mcpauth.ErrInvalidToken
+		}
 		var claims mcpClaims
 		parsed, err := jwt.ParseWithClaims(token, &claims, func(t *jwt.Token) (any, error) {
 			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {

@@ -45,7 +45,7 @@ func methodOverrideMiddleware() echo.MiddlewareFunc {
 
 // subdomainMiddleware dispatches by Host:
 //
-//  1. main domain (or loopback) → admin routes (gated by requireAdmin).
+//  1. main domain (or loopback) → admin routes (gated by requireUser).
 //  2. `*.<domain>` subdomain    → proxy/api for that slug.
 //  3. registered custom domain  → proxy/api for the owning slug, with the
 //     custom-domain flag set so cache headers go public and the toolbar

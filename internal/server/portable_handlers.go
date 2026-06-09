@@ -131,7 +131,7 @@ func (s *sitesController) importHandler(c *echo.Context) error {
 	s.registry.markSlug(slug)
 	s.registry.setOwner(slug, caller.Email)
 	s.snapshotBefore(ctx, slug, "import")
-	s.registry.rebuildDomainIndexLogging(ctx)
+	s.registry.rebuildIndexesLogging(ctx)
 
 	slog.Info("app.import", "slug", slug, "files", result.FileCount, "by", caller.Email)
 	return c.Redirect(http.StatusSeeOther, "/workspace/"+slug) //nolint:wrapcheck

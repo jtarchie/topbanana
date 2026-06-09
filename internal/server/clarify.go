@@ -14,10 +14,9 @@ type clarifyRequest struct {
 // clarifyHandler receives the user's answer to an ask_user question and
 // delivers it to the waiting agent goroutine via the events tracker.
 func (s *sitesController) clarifyHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 
 	var in clarifyRequest

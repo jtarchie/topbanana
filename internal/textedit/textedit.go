@@ -72,29 +72,63 @@ func applyTolerantEdit(content, oldText, newText string) (string, bool) {
 	type span struct{ start, end int }
 	var found []span
 	for i := 0; i <= len(content); i++ {
-		// Find the smallest j > i such that CollapseWS(content[i:j]) == target.
-		// Once equal we record it and resume the outer loop past the match;
-		// once it exceeds target length we abandon this start.
-		for j := i; j <= len(content); j++ {
-			collapsed := CollapseWS(content[i:j])
-			if collapsed == target {
-				found = append(found, span{i, j})
-				if len(found) > 1 {
-					return "", false // ambiguous — bail
-				}
-				i = j - 1 // -1 because outer loop's i++ will bump it
-				break
-			}
-			if len(collapsed) > len(target) {
-				break
-			}
+		j := matchCollapsedFrom(content, i, target)
+		if j < 0 {
+			continue
 		}
+		found = append(found, span{i, j})
+		if len(found) > 1 {
+			return "", false // ambiguous — bail
+		}
+		i = j - 1 // -1 because outer loop's i++ will bump it past the match
 	}
 	if len(found) != 1 {
 		return "", false
 	}
 	m := found[0]
 	return content[:m.start] + newText + content[m.end:], true
+}
+
+// matchCollapsedFrom returns the smallest j such that CollapseWS(content[i:j])
+// == target, or -1 if no prefix of content[i:] collapses to target. It scans
+// once, collapsing whitespace on the fly and comparing each emitted byte
+// against target as it goes — the moment the collapsed prefix diverges from
+// target it bails (the collapsed form only grows, so it can never recover).
+//
+// This is a behaviour-preserving rewrite of the old "recompute CollapseWS on
+// every candidate substring" inner loop: that was worst-case O(len·target²) per
+// start (cubic over the file on pathological input like a long whitespace-free
+// data: URI), whereas this is linear in the bytes consumed before divergence.
+// CollapseWS only treats ASCII space/tab/CR/LF as whitespace, and every other
+// byte — including UTF-8 continuation bytes — is emitted verbatim, so a byte-at-
+// a-time scan produces exactly the same collapsed bytes as CollapseWS.
+func matchCollapsedFrom(content string, i int, target string) int {
+	matched := 0 // bytes of target matched by CollapseWS(content[i:j]) so far
+	inWS := false
+	for j := i; ; j++ {
+		if matched == len(target) {
+			return j
+		}
+		if j >= len(content) {
+			return -1
+		}
+		var c byte
+		switch content[j] {
+		case ' ', '\t', '\n', '\r':
+			if inWS {
+				continue // inside a whitespace run — collapsed away, no output byte
+			}
+			inWS = true
+			c = ' '
+		default:
+			inWS = false
+			c = content[j]
+		}
+		if c != target[matched] {
+			return -1 // diverged from target prefix; this start can't match
+		}
+		matched++
+	}
 }
 
 // CollapseWS collapses every run of ASCII whitespace to a single space.

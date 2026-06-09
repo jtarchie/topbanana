@@ -97,10 +97,9 @@ type debugDetailData struct {
 }
 
 func (s *debugController) debugHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 
 	rows, err := editrec.List(c.Request().Context(), s.store, slug)
@@ -144,10 +143,9 @@ func (s *debugController) debugHandler(c *echo.Context) error {
 }
 
 func (s *debugController) debugDetailHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 
 	key := c.QueryParam("key")
@@ -240,10 +238,9 @@ func (s *debugController) debugDetailHandler(c *echo.Context) error {
 // when "agent ran, file looks fixed in storage, but the live site still
 // shows the old version."
 func (s *debugController) debugCacheCheckHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 	page := c.QueryParam("path")
 	if page == "" {

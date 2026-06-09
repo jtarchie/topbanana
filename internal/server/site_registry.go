@@ -37,8 +37,8 @@ type siteRegistry struct {
 	privateIndex map[string]bool
 }
 
-// newSiteRegistry returns an empty registry; call initialRebuildDomainIndex (or
-// rebuildDomainIndex) to populate it from the bucket.
+// newSiteRegistry returns an empty registry; call initialRebuildIndexes (or
+// rebuildIndexes) to populate it from the bucket.
 func newSiteRegistry(st *store.Store, b *build.Service) *siteRegistry {
 	return &siteRegistry{
 		store:        st,
@@ -50,11 +50,12 @@ func newSiteRegistry(st *store.Store, b *build.Service) *siteRegistry {
 	}
 }
 
-// rebuildDomainIndex scans all sites and rebuilds the host → slug map. Called
-// after any settings save that changes Domains. Returns an error so the
-// initial startup rebuild can retry; runtime callers (settings handlers) just
-// log and continue — a stale index there only delays the next refresh.
-func (r *siteRegistry) rebuildDomainIndex(ctx context.Context) error {
+// rebuildIndexes scans all sites and rebuilds all four indexes (domain → slug,
+// slug existence, owner, privacy) in one sweep. Called after any settings save
+// that changes Domains, ownership, or privacy. Returns an error so the initial
+// startup rebuild can retry; runtime callers (settings handlers) just log and
+// continue — a stale index there only delays the next refresh.
+func (r *siteRegistry) rebuildIndexes(ctx context.Context) error {
 	apps, err := r.store.ListApps(ctx)
 	if err != nil {
 		return fmt.Errorf("list apps: %w", err)
@@ -74,7 +75,7 @@ func (r *siteRegistry) rebuildDomainIndex(ctx context.Context) error {
 		}
 		for _, d := range meta.Domains {
 			if existing, dup := idx[d]; dup && existing != slug {
-				slog.Warn("domain_index.duplicate", "domain", d, "kept", existing, "dropped", slug)
+				slog.Warn("site_index.duplicate", "domain", d, "kept", existing, "dropped", slug)
 				continue
 			}
 			idx[d] = slug
@@ -86,7 +87,7 @@ func (r *siteRegistry) rebuildDomainIndex(ctx context.Context) error {
 	r.ownerIndex = owners
 	r.privateIndex = privates
 	r.mu.Unlock()
-	slog.Info("domain_index.rebuilt", "domains", len(idx), "slugs", len(slugs), "owners", len(owners), "private", len(privates))
+	slog.Info("site_index.rebuilt", "domains", len(idx), "slugs", len(slugs), "owners", len(owners), "private", len(privates))
 	return nil
 }
 
@@ -161,33 +162,33 @@ func (r *siteRegistry) slugExists(slug string) bool {
 	return r.slugIndex[slug]
 }
 
-// initialRebuildDomainIndex retries the first rebuild a few times. If S3 is
+// initialRebuildIndexes retries the first rebuild a few times. If S3 is
 // briefly unreachable at boot and we silently start with an empty index, every
 // custom-domain ACME validation fails closed (HostPolicy denies unknown hosts)
 // until somebody saves settings — that's a long, silent outage. Keep retrying
 // for ~10s; if the bucket genuinely is dead, panic so the platform restarts us.
-func (r *siteRegistry) initialRebuildDomainIndex(ctx context.Context) {
+func (r *siteRegistry) initialRebuildIndexes(ctx context.Context) {
 	var lastErr error
 	for i := range 5 {
 		if i > 0 {
 			time.Sleep(2 * time.Second)
 		}
-		err := r.rebuildDomainIndex(ctx)
+		err := r.rebuildIndexes(ctx)
 		if err == nil {
 			return
 		}
 		lastErr = err
-		slog.Warn("domain_index.startup_retry", "attempt", i+1, "err", err)
+		slog.Warn("site_index.startup_retry", "attempt", i+1, "err", err)
 	}
-	panic(fmt.Errorf("initial domain index rebuild failed after retries: %w", lastErr))
+	panic(fmt.Errorf("initial site index rebuild failed after retries: %w", lastErr))
 }
 
-// rebuildDomainIndexLogging is the post-startup callsite: rebuild, log on
+// rebuildIndexesLogging is the post-startup callsite: rebuild, log on
 // failure, keep serving. The old index stays in place if the rebuild errored.
-func (r *siteRegistry) rebuildDomainIndexLogging(ctx context.Context) {
-	err := r.rebuildDomainIndex(ctx)
+func (r *siteRegistry) rebuildIndexesLogging(ctx context.Context) {
+	err := r.rebuildIndexes(ctx)
 	if err != nil {
-		slog.Warn("domain_index.refresh_failed", "err", err)
+		slog.Warn("site_index.refresh_failed", "err", err)
 	}
 }
 

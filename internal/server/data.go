@@ -24,10 +24,9 @@ type dataRow struct {
 // rendering of the same data lives inline on /manage/:slug; legacy GETs to
 // /data/:slug without the format query are redirected there.
 func (s *sitesController) dataHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 
 	format := c.QueryParam("format")

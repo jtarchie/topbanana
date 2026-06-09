@@ -282,7 +282,7 @@ func (s *accountController) accountDeleteHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "delete user", err)
 	}
 	s.revokePendingInvitesFor(ctx, email)
-	s.registry.rebuildDomainIndexLogging(ctx)
+	s.registry.rebuildIndexesLogging(ctx)
 	s.auth.Passkey.Logout(c.Response(), c.Request())
 
 	slog.Info("account.delete", "email", email, "apps", apps)

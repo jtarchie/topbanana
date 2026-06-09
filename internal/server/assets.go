@@ -54,10 +54,9 @@ type assetEntry struct {
 // alt/description metadata the drawer renders alongside thumbnails. Mirrors
 // the agent's list_assets tool but adds size/modified/URL the UI needs.
 func (s *assetsController) assetsListHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 
 	entries, err := s.store.ListWithMeta(c.Request().Context(), slug)
@@ -147,10 +146,9 @@ func decodeAssetPatch(r *http.Request) (assetMetadataPatch, error) {
 // panel can restore it. Pages that referenced the image will render a broken
 // image until the next edit; the drawer's confirm copy warns about that.
 func (s *assetsController) assetDeleteHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 	relPath, err := normalizeAssetPath(c.Param("*"))
 	if err != nil {
@@ -181,10 +179,9 @@ func (s *assetsController) assetDeleteHandler(c *echo.Context) error {
 // to match the vision-captioner, and snapshots the site before the change so
 // metadata edits are restorable from the History panel.
 func (s *assetsController) assetMetadataPatchHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 	relPath, err := normalizeAssetPath(c.Param("*"))
 	if err != nil {
@@ -233,10 +230,9 @@ func (s *assetsController) assetMetadataPatchHandler(c *echo.Context) error {
 // drawer, enforces the size ceiling, and hands the bytes to the shared
 // storeUploadedAsset (sniff + caption + snapshot + write).
 func (s *assetsController) uploadHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 
 	header, err := c.FormFile("file")

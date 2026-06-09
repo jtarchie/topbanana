@@ -322,7 +322,7 @@ func (s *Server) registerConfigureSite(srv *mcp.Server) {
 		}
 		// Refresh the in-memory indexes so a private flip takes effect for
 		// routing immediately, like the web settings handler does.
-		s.registry.rebuildDomainIndexLogging(ctx)
+		s.registry.rebuildIndexesLogging(ctx)
 
 		return mcpJSON(map[string]any{
 			"ok": true, "slug": in.Slug,

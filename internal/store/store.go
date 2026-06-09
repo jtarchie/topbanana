@@ -77,7 +77,7 @@ func isCompressibleContentType(contentType string) bool {
 }
 
 func (s *Store) Write(ctx context.Context, slug, path, content, contentType string, metadata map[string]string) error {
-	err := validateObjectPath(path)
+	err := ValidateObjectPath(path)
 	if err != nil {
 		return err
 	}
@@ -150,12 +150,13 @@ func cloneMetadata(m map[string]string) map[string]string {
 	return out
 }
 
-// validateObjectPath rejects relative-traversal segments, absolute paths, and
+// ValidateObjectPath rejects relative-traversal segments, absolute paths, and
 // Windows separators. The proxy handler already gates on this before reaching
 // here, but every caller of Read/Write benefits from the same check —
 // otherwise a future agent tool or handler could write objects at keys like
-// `slug/../other/...` that escape the per-tenant prefix.
-func validateObjectPath(path string) error {
+// `slug/../other/...` that escape the per-tenant prefix. Exported so the server
+// proxy/validatePage path can share this exact rule instead of re-deriving it.
+func ValidateObjectPath(path string) error {
 	if strings.Contains(path, "..") || strings.HasPrefix(path, "/") || strings.Contains(path, `\`) {
 		return fmt.Errorf("invalid object path %q", path)
 	}
@@ -163,7 +164,7 @@ func validateObjectPath(path string) error {
 }
 
 func (s *Store) Read(ctx context.Context, slug, path string) (*S3Object, error) {
-	err := validateObjectPath(path)
+	err := ValidateObjectPath(path)
 	if err != nil {
 		return nil, err
 	}
@@ -340,11 +341,11 @@ func (s *Store) Delete(ctx context.Context, slug, path string) error {
 // Preserves the source object's content-type and user metadata. Evicts the
 // destination from the ARC cache so subsequent Reads pick up the new object.
 func (s *Store) Copy(ctx context.Context, slug, srcPath, dstPath string) error {
-	err := validateObjectPath(srcPath)
+	err := ValidateObjectPath(srcPath)
 	if err != nil {
 		return err
 	}
-	err = validateObjectPath(dstPath)
+	err = ValidateObjectPath(dstPath)
 	if err != nil {
 		return err
 	}
@@ -371,7 +372,7 @@ func (s *Store) Copy(ctx context.Context, slug, srcPath, dstPath string) error {
 // (URL-escape values so unicode round-trips through ASCII-only S3 headers).
 // Evicts the ARC cache so the next Read sees fresh metadata.
 func (s *Store) UpdateMetadata(ctx context.Context, slug, path, contentType string, metadata map[string]string) error {
-	err := validateObjectPath(path)
+	err := ValidateObjectPath(path)
 	if err != nil {
 		return err
 	}

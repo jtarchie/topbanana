@@ -5,6 +5,8 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -157,18 +159,7 @@ func renderTemplateDetail(t *templates.SiteTemplate) string {
 }
 
 func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	// Stable, deterministic order without importing sort here would be odd;
-	// the catalog is small so a simple insertion keeps allocations down.
-	for i := 1; i < len(keys); i++ {
-		for j := i; j > 0 && keys[j-1] > keys[j]; j-- {
-			keys[j-1], keys[j] = keys[j], keys[j-1]
-		}
-	}
-	return keys
+	return slices.Sorted(maps.Keys(m))
 }
 
 // registerEditPrompts registers the guided entry points for editing. add_function

@@ -187,7 +187,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		preWarmCert:  d.PreWarmCert,
 		mcpSecret:    d.MCPSecret,
 	}
-	s.registry.initialRebuildDomainIndex(context.Background())
+	s.registry.initialRebuildIndexes(context.Background())
 	if s.mcpSecret != "" {
 		s.mcpOAuth = newMCPOAuthState()
 	}
@@ -302,10 +302,9 @@ func (s *Server) startBuild(c *echo.Context, p build.Params) error {
 // the workspace now — as the main editor for /edit, and as side panels for
 // theme + history.
 func (s *sitesController) redirectToWorkspace(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 	return c.Redirect(http.StatusFound, "/workspace/"+slug) //nolint:wrapcheck
 }
@@ -314,10 +313,9 @@ func (s *sitesController) redirectToWorkspace(c *echo.Context) error {
 // replaces settings and folds in the data table + advanced links + danger
 // zone.
 func (s *sitesController) redirectToManage(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 	return c.Redirect(http.StatusFound, "/manage/"+slug) //nolint:wrapcheck
 }
@@ -496,7 +494,7 @@ func (s *sitesController) appsHandler(c *echo.Context) error {
 		if len(meta.Domains) > 0 {
 			primaryDomain = meta.Domains[0]
 		}
-		lastEdited, editedAt := lastEditedFor(ctx, s.Server, app)
+		lastEdited, editedAt := s.lastEditedFor(ctx, app)
 		links = append(links, appLink{
 			Name:          app,
 			Title:         meta.Title,
@@ -561,7 +559,7 @@ func (s *Server) siteNameOrSlug(ctx context.Context, slug string) string {
 // site). The transcript list is small (capped by retention in editrec.Trim),
 // so this is O(N) per app card. The raw timestamp lets the apps template
 // emit a sort key without re-parsing the humanized form.
-func lastEditedFor(ctx context.Context, s *Server, slug string) (string, int64) {
+func (s *Server) lastEditedFor(ctx context.Context, slug string) (string, int64) {
 	rows, err := editrec.List(ctx, s.store, slug)
 	if err != nil || len(rows) == 0 {
 		return "", 0
@@ -957,7 +955,7 @@ func streamLiveEvents(ctx context.Context, w io.Writer, sub chan events.Event, s
 			}
 			nextID++
 			flush()
-			if e.Type == events.TypeStatus && (e.Status == events.StatusCompleted || e.Status == events.StatusFailed) {
+			if e.Type == events.TypeStatus && events.IsTerminal(e.Status) {
 				return
 			}
 		case <-ctx.Done():
@@ -1183,7 +1181,10 @@ func validatePage(page string) error {
 // separators. Used by both the static proxy and validatePage so a single
 // rule covers every code path that reaches the storage layer.
 func isTraversal(p string) bool {
-	return strings.Contains(p, "..") || strings.HasPrefix(p, "/") || strings.Contains(p, `\`)
+	// Delegate to the storage layer's canonical rule so the proxy/validatePage
+	// gate and the per-Read/Write gate can never drift, and both stay covered
+	// by the same fuzz target.
+	return store.ValidateObjectPath(p) != nil
 }
 
 // reservedSlugs collide with platform routes/hosts and cannot be used as
@@ -1216,6 +1217,20 @@ func validateSlug(slug string) error {
 		return fmt.Errorf("slug %q is reserved", slug)
 	}
 	return nil
+}
+
+// slugParam reads and validates the :slug route param, returning a 400 on a
+// malformed slug. Every per-slug admin route already runs behind
+// requireSlugOwnership (which validates first), so this is defence-in-depth for
+// handlers invoked directly — e.g. from a unit test — and a one-line stand-in
+// for the validate-or-400 prelude the handlers used to repeat verbatim.
+func slugParam(c *echo.Context) (string, error) {
+	slug := c.Param("slug")
+	err := validateSlug(slug)
+	if err != nil {
+		return "", echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	return slug, nil
 }
 
 func (s *sitesController) editSubmitHandler(c *echo.Context) error {
@@ -1271,10 +1286,9 @@ func (s *sitesController) editSubmitHandler(c *echo.Context) error {
 // them back to the agent for a fix-up build. On clean sites it redirects to
 // the edit page with a flash banner — no LLM cycles spent.
 func (s *sitesController) relintHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 
 	if existing := s.events.Get(slug); existing != nil && existing.Status == events.StatusBuilding {
@@ -1328,10 +1342,9 @@ func (s *sitesController) relintHandler(c *echo.Context) error {
 }
 
 func (s *sitesController) settingsSubmitHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 
 	ctx := c.Request().Context()
@@ -1361,7 +1374,7 @@ func (s *sitesController) settingsSubmitHandler(c *echo.Context) error {
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "save settings", err)
 	}
-	s.registry.rebuildDomainIndexLogging(ctx)
+	s.registry.rebuildIndexesLogging(ctx)
 	if s.preWarmCert != nil {
 		for _, host := range added {
 			go s.preWarmCert(host)
@@ -1512,10 +1525,9 @@ func (s *Server) reassignAppsOwnedBy(ctx context.Context, from, to string) (int,
 // caller must POST `confirm` equal to the slug — the typed-slug guard is the
 // only safety check.
 func (s *sitesController) settingsDeleteHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 	if c.FormValue("confirm") != slug {
 		return echo.NewHTTPError(http.StatusBadRequest, "confirmation does not match slug")
@@ -1526,7 +1538,7 @@ func (s *sitesController) settingsDeleteHandler(c *echo.Context) error {
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "delete app", err)
 	}
-	s.registry.rebuildDomainIndexLogging(ctx)
+	s.registry.rebuildIndexesLogging(ctx)
 
 	slog.Info("app.delete", "slug", slug, "files", res.FilesDeleted, "snapshots", res.SnapshotsDeleted)
 	return c.Redirect(http.StatusSeeOther, "/apps?flash="+urlEscape("Deleted "+slug)) //nolint:wrapcheck

@@ -99,10 +99,9 @@ func renderSetupNotes(notes string) template.HTML {
 }
 
 func (s *sitesController) manageHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 
 	ctx := c.Request().Context()

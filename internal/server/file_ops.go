@@ -17,10 +17,9 @@ import (
 // `path` so an accidental curl (or a stray click that bypasses the JS modal)
 // still can't delete the wrong file.
 func (s *sitesController) deleteFileHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 	path := c.FormValue("path")
 	_, err = classifyUserPath(path)
@@ -53,10 +52,9 @@ func (s *sitesController) deleteFileHandler(c *echo.Context) error {
 // renames (HTML → asset, etc.) are rejected so the file stays in an area
 // the agent and the rest of the platform understand.
 func (s *sitesController) renameFileHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 
 	from := c.FormValue("from")

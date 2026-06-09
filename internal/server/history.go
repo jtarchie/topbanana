@@ -23,10 +23,9 @@ type historyRow struct {
 }
 
 func (s *sitesController) historyRestoreHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 	if s.snapshot == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "snapshots are not configured")
@@ -45,10 +44,9 @@ func (s *sitesController) historyRestoreHandler(c *echo.Context) error {
 }
 
 func (s *sitesController) historyDeleteHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
 	if s.snapshot == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "snapshots are not configured")

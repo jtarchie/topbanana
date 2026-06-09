@@ -132,7 +132,7 @@ func buildServer(t *testing.T, st *store.Store, snapSvc *snapshot.Service) http.
 }
 
 // TestHistoryRestoreHandler_EndToEnd drives POST /history/:slug/restore through
-// the full Echo stack (subdomainMiddleware → requireAdmin → handler →
+// the full Echo stack (subdomainMiddleware → requireUser → handler →
 // snapshot.Restore) against a real Minio bucket, then asserts both the HTTP
 // response and the on-disk state.
 func TestHistoryRestoreHandler_EndToEnd(t *testing.T) {

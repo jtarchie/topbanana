@@ -402,12 +402,11 @@ func translateSandboxError(err error, slug, name string) error {
 // test endpoint POSTs JSON to /test/:slug/api/:name; live log streaming reuses
 // the existing /events/:slug SSE feed.
 func (s *functionsController) functionEditHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	name := c.Param("name")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
+	name := c.Param("name")
 	err = validateFunctionPathName(name)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
@@ -460,12 +459,11 @@ type functionTestResponse struct {
 }
 
 func (s *functionsController) functionTestHandler(c *echo.Context) error {
-	slug := c.Param("slug")
-	name := c.Param("name")
-	err := validateSlug(slug)
+	slug, err := slugParam(c)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		return err
 	}
+	name := c.Param("name")
 	err = validateFunctionPathName(name)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())

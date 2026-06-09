@@ -55,7 +55,7 @@ var cli struct {
 
 	BuildTimeout time.Duration `default:"15m" env:"BUILD_TIMEOUT" help:"Wall-clock cap per build (initial agent run plus any lint retries). Bump for slower local models; lower for cloud-only deployments." name:"build-timeout"`
 
-	TailwindCLI string `env:"TAILWIND_CLI" help:"Path to the Tailwind standalone binary used for the post-build per-site CSS compile. Empty falls back to a 'tailwindcss' or 'npx @tailwindcss/cli' on PATH; if none resolves, sites keep the CDN substrate tags." name:"tailwind-cli"`
+	TailwindCLI string `env:"TAILWIND_CLI" help:"Path to the Tailwind standalone binary used for the post-build per-site CSS compile. Empty falls back to a 'tailwindcss' or 'npx @tailwindcss/cli' on PATH; if none resolves, the per-site CSS compile is skipped and /app.css 404s (pages render unstyled — there is no CDN fallback)." name:"tailwind-cli"`
 
 	LLMModel        string `default:"lmstudio/google/gemma-4-26b-a4b" env:"LLM_MODEL"                                                                                                                                         help:"LLM model as provider/model-name. Used for the Author tier (initial site generation) and as the fallback for any tier-specific flag left unset."    name:"llm-model"`
 	LLMEditorModel  string `env:"LLM_EDITOR_MODEL"                    help:"Model for the Editor tier: /edit, /relint, and lint-retry passes inside a build. Falls back to --llm-model when empty."                           name:"llm-editor-model"`

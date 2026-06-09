@@ -34,6 +34,26 @@ const (
 	StatusRetry     = "retry"
 )
 
+// IsTerminal reports whether a status means the run has finished (either
+// outcome). Terminal entries stop the live SSE stream and become eligible for
+// the TerminalTTL sweep.
+func IsTerminal(status string) bool {
+	return status == StatusCompleted || status == StatusFailed
+}
+
+// IsActive reports whether a status means a run is still in flight. It is the
+// complement of IsTerminal over the known statuses, exposed separately so
+// callers that only care about "should I show the progress strip" don't have
+// to enumerate the non-terminal states themselves.
+func IsActive(status string) bool {
+	switch status {
+	case StatusBuilding, StatusLinting, StatusRetry, StatusPolishing:
+		return true
+	default:
+		return false
+	}
+}
+
 // Event types.
 const (
 	TypeStatus   = "status"
@@ -54,10 +74,10 @@ const (
 // Event is the payload streamed to subscribers and recorded for replay on
 // reconnect.
 type Event struct {
-	Type    string    `json:"type"`              // "status" | "tool" | "question"
-	Status  string    `json:"status,omitempty"`  // for type=status: building|completed|failed|linting|polishing|retry
-	Tool    string    `json:"tool,omitempty"`    // for type=tool: write_file|read_file|list_files|list_assets
-	Phase   string    `json:"phase,omitempty"`   // for type=tool: start|done|error; for type=question: ask|answer|timeout
+	Type    string    `json:"type"`              // one of the Type* consts (status | tool | function | question)
+	Status  string    `json:"status,omitempty"`  // for type=status: one of the Status* consts
+	Tool    string    `json:"tool,omitempty"`    // for type=tool/function: the tool that acted (see the build agent's tool set)
+	Phase   string    `json:"phase,omitempty"`   // for type=tool/function: a Phase* const; for type=question: PhaseAsk|PhaseAnswer|PhaseTimeout
 	Path    string    `json:"path,omitempty"`    // for type=tool: file path the tool acted on
 	Message string    `json:"message,omitempty"` // optional human-readable detail (errors, retry reason)
 	Time    time.Time `json:"time"`
