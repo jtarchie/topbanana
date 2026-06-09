@@ -148,8 +148,15 @@ func validateURL(field string, raw any, schema map[string]any, required bool) (a
 	}
 	s := clean.(string)
 	u, perr := url.Parse(s)
-	if perr != nil || u.Scheme == "" || u.Host == "" {
+	if perr != nil || u.Host == "" {
 		return nil, &validationError{Field: field, Message: "must be a valid URL"}
+	}
+	// Restrict to http/https. The `url` type implies a safe, linkable web URL
+	// that a handler can echo into an href; permitting javascript:, data:, or
+	// other schemes here would make the type a stored-XSS / open-redirect vector
+	// the moment a handler trusts it.
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, &validationError{Field: field, Message: "must be an http or https URL"}
 	}
 	return s, nil
 }
