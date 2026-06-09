@@ -14,6 +14,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/hashicorp/golang-lru/arc/v2"
+
+	"github.com/jtarchie/topbanana/internal/compressutil"
 )
 
 type Store struct {
@@ -47,6 +49,33 @@ type S3Object struct {
 
 const DefaultContentType = "text/html; charset=utf-8"
 
+// isCompressibleContentType reports whether a written object should be
+// zstd-compressed at rest. The allowlist covers everything text-y the platform
+// stores (HTML pages, the compiled app.css, JSON sidecars, inline JS for MCP
+// functions, hand-authored SVGs) and excludes pre-compressed binary blobs
+// (JPEG/PNG/GIF/WEBP, fonts) — re-compressing those wastes CPU and usually
+// grows them slightly. Read sniffs the stored bytes (compressutil.HasMagic) so
+// the on-write decision is purely about which content types pay the CPU to be
+// compressed; switching the policy doesn't require a migration.
+func isCompressibleContentType(contentType string) bool {
+	ct := strings.ToLower(strings.TrimSpace(contentType))
+	if i := strings.IndexByte(ct, ';'); i >= 0 {
+		ct = strings.TrimSpace(ct[:i])
+	}
+	if strings.HasPrefix(ct, "text/") {
+		return true
+	}
+	switch ct {
+	case "application/json",
+		"application/javascript",
+		"application/xml",
+		"application/xhtml+xml",
+		"image/svg+xml":
+		return true
+	}
+	return false
+}
+
 func (s *Store) Write(ctx context.Context, slug, path, content, contentType string, metadata map[string]string) error {
 	err := validateObjectPath(path)
 	if err != nil {
@@ -67,10 +96,23 @@ func (s *Store) Write(ctx context.Context, slug, path, content, contentType stri
 		}
 	}
 
+	// Compress text-y payloads at rest. ContentType stays unchanged because
+	// callers (proxy, agent, MCP, lint) consume the decompressed form via
+	// Read — the stored representation is an implementation detail of this
+	// package, not part of the external object contract.
+	body := content
+	if isCompressibleContentType(contentType) {
+		compressed, cerr := compressutil.Compress([]byte(content))
+		if cerr != nil {
+			return fmt.Errorf("failed to compress object %s: %w", key, cerr)
+		}
+		body = string(compressed)
+	}
+
 	out, err := s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(s.bucket),
 		Key:         aws.String(key),
-		Body:        strings.NewReader(content),
+		Body:        strings.NewReader(body),
 		ContentType: aws.String(contentType),
 		Metadata:    encoded,
 	})
@@ -157,6 +199,14 @@ func (s *Store) Read(ctx context.Context, slug, path string) (*S3Object, error) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to read object %s/%s: %w", slug, path, err)
 	}
+	// Sniff zstd magic and decompress. Pre-compression objects (raw HTML,
+	// CSS, JSON written before this package learned to compress) pass
+	// through unchanged. No metadata flag needed because the magic bytes
+	// don't collide with anything the platform stores in plaintext.
+	payload, err := compressutil.MaybeDecompress(b)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decompress object %s/%s: %w", slug, path, err)
+	}
 	etag := ""
 	if out.ETag != nil {
 		etag = *out.ETag
@@ -180,7 +230,7 @@ func (s *Store) Read(ctx context.Context, slug, path string) (*S3Object, error) 
 	}
 
 	obj := &S3Object{
-		Content:     string(b),
+		Content:     string(payload),
 		ETag:        etag,
 		ContentType: contentType,
 		Metadata:    metadata,

@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"github.com/jtarchie/topbanana/internal/compressutil"
 	"github.com/jtarchie/topbanana/internal/editrec"
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/store"
@@ -232,6 +233,141 @@ func TestRecorderHandlesMutatorError(t *testing.T) {
 	}
 	if len(tr.ToolCalls) != 2 {
 		t.Errorf("expected 2 tool calls (start+error), got %d", len(tr.ToolCalls))
+	}
+}
+
+// TestRecordEdit covers the one-shot helper the MCP edit tools use: a direct
+// store write with no agent loop still produces a transcript with a single
+// tool call + a single before/after FileChange, tagged with the caller's log
+// key and marked completed. This is what makes MCP edits show up under the
+// /system dashboard's Recent builds / Last edited.
+func TestRecordEdit(t *testing.T) {
+	s := minioStore(t)
+	if s == nil {
+		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run editrec integration tests")
+	}
+	ctx := context.Background()
+	slug := freshSlug(t)
+	cleanup(t, ctx, s, slug)
+
+	editrec.RecordEdit(ctx, s, slug, "mcp", "edit_file", "index.html", "<p>old</p>", "<p>new</p>")
+
+	tr := mustReadOnlyTranscript(t, ctx, s, slug)
+	if tr.LogKey != "mcp" {
+		t.Errorf("LogKey = %q, want %q", tr.LogKey, "mcp")
+	}
+	if tr.FinalStatus != events.StatusCompleted {
+		t.Errorf("FinalStatus = %q, want %q", tr.FinalStatus, events.StatusCompleted)
+	}
+	if tr.FinishedAt.IsZero() {
+		t.Error("FinishedAt unset — would render as in-progress")
+	}
+	if len(tr.ToolCalls) != 1 {
+		t.Fatalf("ToolCalls = %d, want 1", len(tr.ToolCalls))
+	}
+	if tr.ToolCalls[0].Tool != "edit_file" {
+		t.Errorf("ToolCalls[0].Tool = %q, want edit_file", tr.ToolCalls[0].Tool)
+	}
+	if len(tr.FileChanges) != 1 {
+		t.Fatalf("FileChanges = %d, want 1", len(tr.FileChanges))
+	}
+	fc := tr.FileChanges[0]
+	if !strings.Contains(fc.BeforeContent, "old") || !strings.Contains(fc.AfterContent, "new") {
+		t.Errorf("FileChange before/after = %q / %q", fc.BeforeContent, fc.AfterContent)
+	}
+	if fc.BeforeSHA256 == fc.AfterSHA256 {
+		t.Error("expected before/after sha256 to differ")
+	}
+}
+
+// TestRecordEditDelete checks the delete shape: a non-empty before and an
+// empty after, so the transcript records what was removed.
+func TestRecordEditDelete(t *testing.T) {
+	s := minioStore(t)
+	if s == nil {
+		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run editrec integration tests")
+	}
+	ctx := context.Background()
+	slug := freshSlug(t)
+	cleanup(t, ctx, s, slug)
+
+	editrec.RecordEdit(ctx, s, slug, "mcp", "delete_file", "about.html", "<p>bye</p>", "")
+
+	tr := mustReadOnlyTranscript(t, ctx, s, slug)
+	if len(tr.FileChanges) != 1 {
+		t.Fatalf("FileChanges = %d, want 1", len(tr.FileChanges))
+	}
+	fc := tr.FileChanges[0]
+	if !strings.Contains(fc.BeforeContent, "bye") {
+		t.Errorf("BeforeContent = %q, want it to contain %q", fc.BeforeContent, "bye")
+	}
+	if fc.AfterSize != 0 || fc.AfterContent != "" {
+		t.Errorf("after a delete, AfterSize/AfterContent = %d / %q, want 0 / empty", fc.AfterSize, fc.AfterContent)
+	}
+}
+
+// TestFinishWritesZstd confirms the on-disk transcript is zstd-compressed.
+// This is what shrinks the "Build transcripts" row on /system's Storage
+// breakdown — the byte count S3 reports is the compressed size.
+func TestFinishWritesZstd(t *testing.T) {
+	s := minioStore(t)
+	if s == nil {
+		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run editrec integration tests")
+	}
+	ctx := context.Background()
+	slug := freshSlug(t)
+	cleanup(t, ctx, s, slug)
+
+	rec := editrec.New(slug, "edit", strings.Repeat("user prompt that compresses well. ", 100), "", 0)
+	rec.Finish(ctx, s, events.StatusCompleted, nil)
+
+	rows, err := editrec.List(ctx, s, slug)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("List err=%v rows=%d, want 1", err, len(rows))
+	}
+	raw, err := s.ReadRaw(ctx, rows[0].Key)
+	if err != nil {
+		t.Fatalf("ReadRaw: %v", err)
+	}
+	body := []byte(raw.Content)
+	if !compressutil.HasMagic(body) {
+		t.Fatalf("stored transcript not zstd-compressed (first four bytes %x)", body[:min(4, len(body))])
+	}
+	// Sanity-check round-trip: Read should decode the gzipped body back to
+	// the original prompt.
+	tr, err := editrec.Read(ctx, s, rows[0].Key)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if !strings.HasPrefix(tr.UserPrompt, "user prompt that compresses well.") {
+		t.Errorf("round-trip UserPrompt = %q", tr.UserPrompt)
+	}
+}
+
+// TestReadDecodesLegacyUncompressed verifies that transcripts written before
+// gzip-at-rest landed (raw JSON in S3) still decode through Read. Magic-byte
+// sniffing in maybeGunzip is what makes this work with no migration step.
+func TestReadDecodesLegacyUncompressed(t *testing.T) {
+	s := minioStore(t)
+	if s == nil {
+		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run editrec integration tests")
+	}
+	ctx := context.Background()
+	slug := freshSlug(t)
+	cleanup(t, ctx, s, slug)
+
+	key := editrec.Key(slug, time.Now().UTC(), "legacy")
+	plain := `{"slug":"` + slug + `","log_key":"legacy","user_prompt":"old format","tool_calls":[],"file_changes":[]}`
+	err := s.WriteRaw(ctx, key, plain, "application/json", nil)
+	if err != nil {
+		t.Fatalf("seed legacy: %v", err)
+	}
+	tr, err := editrec.Read(ctx, s, key)
+	if err != nil {
+		t.Fatalf("Read legacy: %v", err)
+	}
+	if tr.UserPrompt != "old format" {
+		t.Errorf("legacy UserPrompt = %q, want %q", tr.UserPrompt, "old format")
 	}
 }
 

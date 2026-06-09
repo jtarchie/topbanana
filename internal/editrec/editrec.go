@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jtarchie/topbanana/internal/compressutil"
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/store"
 )
@@ -209,6 +210,27 @@ func (r *Recorder) AddUsage(u Usage) {
 	r.transcript.Usage.Responses += u.Responses
 }
 
+// RecordEdit writes a single-change transcript for a direct (non-agent) file
+// mutation — the MCP edit tools, which write to the store directly rather than
+// driving the build agent. before/after are the file contents around the edit
+// (before=="" for a create, after=="" for a delete), captured by the caller so
+// no extra store reads happen here. Best-effort: a failed write is logged and
+// swallowed by Finish, so recording never fails the edit that produced it.
+func RecordEdit(ctx context.Context, st *store.Store, slug, logKey, tool, path, before, after string) {
+	if st == nil {
+		return
+	}
+	r := New(slug, logKey, "", path, 0)
+	r.transcript.ToolCalls = append(r.transcript.ToolCalls, ToolCall{
+		Timestamp: time.Now().UTC(),
+		Tool:      tool,
+		Phase:     events.PhaseDone,
+		Path:      path,
+	})
+	r.appendChange(pendingBefore{tool: tool, path: path, content: before}, after, 0)
+	r.Finish(ctx, st, events.StatusCompleted, nil)
+}
+
 // Wrap returns an emit callback that records each event into the transcript
 // (reading before/after content for mutator tools) and forwards every event
 // to downstream. ctx and st are captured for the duration of the run; cancel
@@ -361,19 +383,39 @@ func (r *Recorder) Finish(ctx context.Context, st *store.Store, finalStatus stri
 		slog.Warn("editrec.too_large", "slug", slug, "bytes", len(body), "cap", MaxTranscriptBytes)
 		return
 	}
+	// zstd the body before storing. Transcripts are write-once and JSON
+	// (repeated keys, ASCII content snippets) compresses ~5-10x, which is the
+	// dominant fraction of `_edits/` on the /system Storage breakdown. Read
+	// sniffs zstd magic so pre-compression transcripts still load.
+	stored, err := compressutil.Compress(body)
+	if err != nil {
+		slog.Warn("editrec.zstd_failed", "slug", slug, "err", err)
+		return
+	}
 	key := Key(slug, startedAt, logKey)
-	err = st.WriteRaw(ctx, key, string(body), contentType, nil)
+	err = st.WriteRaw(ctx, key, string(stored), contentType, nil)
 	if err != nil {
 		slog.Warn("editrec.write_failed", "slug", slug, "key", key, "err", err)
 		return
 	}
-	slog.Info("editrec.write", "slug", slug, "key", key, "tool_calls", toolCount, "file_changes", changeCount, "bytes", len(body))
+	slog.Info("editrec.write", "slug", slug, "key", key, "tool_calls", toolCount, "file_changes", changeCount, "bytes", len(body), "stored_bytes", len(stored))
 }
+
+// keyTimeLayout is the timestamp segment of a transcript key. Nanosecond
+// precision so rapid same-second edits (the MCP edit tools fire several per
+// second, with no per-slug serialization) get distinct keys instead of
+// silently overwriting one another. Contains no '-', so the {ts}-{logkey}
+// split in parseKey is unaffected, and it sorts lexicographically.
+const keyTimeLayout = "20060102T150405.000000000Z"
+
+// keyTimeLayoutLegacy is the original second-resolution layout. parseKey still
+// accepts it so transcripts written before the precision bump keep listing.
+const keyTimeLayoutLegacy = "20060102T150405Z"
 
 // Key returns the bucket key for a transcript with the given timestamp +
 // log_key. The compact RFC3339 basic form sorts lexicographically.
 func Key(slug string, startedAt time.Time, logKey string) string {
-	return fmt.Sprintf("%s%s/%s-%s.json", Prefix, slug, startedAt.UTC().Format("20060102T150405Z"), logKey)
+	return fmt.Sprintf("%s%s/%s-%s.json", Prefix, slug, startedAt.UTC().Format(keyTimeLayout), logKey)
 }
 
 // Listing is the row data returned by List — just enough to render the
@@ -413,8 +455,12 @@ func Read(ctx context.Context, st *store.Store, key string) (Transcript, error) 
 	if obj == nil || obj.Content == "" {
 		return Transcript{}, nil
 	}
+	payload, err := compressutil.MaybeDecompress([]byte(obj.Content))
+	if err != nil {
+		return Transcript{}, fmt.Errorf("decode transcript %s: %w", key, err)
+	}
 	var t Transcript
-	err = json.Unmarshal([]byte(obj.Content), &t)
+	err = json.Unmarshal(payload, &t)
 	if err != nil {
 		return Transcript{}, fmt.Errorf("decode transcript %s: %w", key, err)
 	}
@@ -469,7 +515,11 @@ func parseKey(key string) (time.Time, string) {
 	if idx <= 0 {
 		return time.Time{}, name
 	}
-	ts, err := time.Parse("20060102T150405Z", name[:idx])
+	// Newer keys carry a nanosecond timestamp; older ones are second-resolution.
+	ts, err := time.Parse(keyTimeLayout, name[:idx])
+	if err != nil {
+		ts, err = time.Parse(keyTimeLayoutLegacy, name[:idx])
+	}
 	if err != nil {
 		return time.Time{}, name[idx+1:]
 	}
