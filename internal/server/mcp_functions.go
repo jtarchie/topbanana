@@ -69,12 +69,15 @@ func (s *Server) registerWriteFunction(srv *mcp.Server) {
 		if len(in.Source) > mcpMaxFileBytes {
 			return nil, nil, fmt.Errorf("source too large: %d bytes (max %d)", len(in.Source), mcpMaxFileBytes)
 		}
-		err = s.store.Write(ctx, in.Slug, mcpFunctionPath(in.Name), in.Source, mcpJSCType, nil)
+		fnPath := mcpFunctionPath(in.Name)
+		before := s.mcpPriorContent(ctx, in.Slug, fnPath)
+		err = s.store.Write(ctx, in.Slug, fnPath, in.Source, mcpJSCType, nil)
 		if err != nil {
 			return nil, nil, fmt.Errorf("write function %q: %w", in.Name, err)
 		}
+		s.mcpRecordEdit(ctx, in.Slug, "write_function", fnPath, before, in.Source)
 		return mcpJSON(map[string]any{
-			"ok": true, "slug": in.Slug, "name": in.Name, "path": mcpFunctionPath(in.Name),
+			"ok": true, "slug": in.Slug, "name": in.Name, "path": fnPath,
 			"endpoint": "/api/" + in.Name, "next": mcpFunctionNudge,
 		})
 	})
@@ -130,10 +133,12 @@ func (s *Server) registerEditFunction(srv *mcp.Server) {
 		if len(edit.Content) > mcpMaxFileBytes {
 			return nil, nil, fmt.Errorf("source too large after edit: %d bytes (max %d)", len(edit.Content), mcpMaxFileBytes)
 		}
-		err = s.store.Write(ctx, in.Slug, mcpFunctionPath(in.Name), edit.Content, mcpJSCType, nil)
+		fnPath := mcpFunctionPath(in.Name)
+		err = s.store.Write(ctx, in.Slug, fnPath, edit.Content, mcpJSCType, nil)
 		if err != nil {
 			return nil, nil, fmt.Errorf("write function %q: %w", in.Name, err)
 		}
+		s.mcpRecordEdit(ctx, in.Slug, "edit_function", fnPath, src, edit.Content)
 		return mcpJSON(map[string]any{
 			"ok": true, "slug": in.Slug, "name": in.Name, "replacements": edit.Count, "note": edit.Note,
 			"next": mcpFunctionNudge,
@@ -155,10 +160,13 @@ func (s *Server) registerDeleteFunction(srv *mcp.Server) {
 		if err != nil {
 			return nil, nil, err
 		}
-		err = s.store.Delete(ctx, in.Slug, mcpFunctionPath(in.Name))
+		fnPath := mcpFunctionPath(in.Name)
+		before := s.mcpPriorContent(ctx, in.Slug, fnPath)
+		err = s.store.Delete(ctx, in.Slug, fnPath)
 		if err != nil {
 			return nil, nil, fmt.Errorf("delete function %q: %w", in.Name, err)
 		}
+		s.mcpRecordEdit(ctx, in.Slug, "delete_function", fnPath, before, "")
 		return mcpJSON(map[string]any{"ok": true, "slug": in.Slug, "name": in.Name})
 	})
 }

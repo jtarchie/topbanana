@@ -346,10 +346,14 @@ func (s *Server) registerWriteFile(srv *mcp.Server) {
 		if len(in.Content) > mcpMaxFileBytes {
 			return nil, nil, fmt.Errorf("content too large: %d bytes (max %d)", len(in.Content), mcpMaxFileBytes)
 		}
+		// Snapshot the prior content (if any) so the transcript carries a real
+		// before/after diff for overwrites; best-effort, empty for a create.
+		before := s.mcpPriorContent(ctx, in.Slug, in.Path)
 		err = s.store.Write(ctx, in.Slug, in.Path, in.Content, mcpContentType(in.Path), nil)
 		if err != nil {
 			return nil, nil, fmt.Errorf("write %q: %w", in.Path, err)
 		}
+		s.mcpRecordEdit(ctx, in.Slug, "write_file", in.Path, before, in.Content)
 		return mcpJSON(map[string]any{
 			"ok": true, "slug": in.Slug, "path": in.Path,
 			"url": s.mcpPageURL(in.Slug, in.Path), "next": mcpLintNudge,
@@ -381,7 +385,7 @@ func (s *Server) registerEditFile(srv *mcp.Server) {
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in editFileInput) (*mcp.CallToolResult, any, error) {
 		var count int
 		var note string
-		_, err := s.mcpApplyToFile(ctx, in.Slug, in.Path, func(content string) (string, error) {
+		_, err := s.mcpApplyToFile(ctx, in.Slug, "edit_file", in.Path, func(content string) (string, error) {
 			edit, aerr := textedit.ApplyEdit(content, in.OldText, in.NewText, in.ReplaceAll)
 			if aerr != nil {
 				return "", aerr
@@ -412,7 +416,7 @@ func (s *Server) registerReplaceLines(srv *mcp.Server) {
 		Name:        "replace_lines",
 		Description: "Replace lines start_line..end_line (1-indexed, inclusive) of an HTML page in a site the caller owns. Empty new_text deletes the range.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in replaceLinesInput) (*mcp.CallToolResult, any, error) {
-		_, err := s.mcpApplyToFile(ctx, in.Slug, in.Path, func(content string) (string, error) {
+		_, err := s.mcpApplyToFile(ctx, in.Slug, "replace_lines", in.Path, func(content string) (string, error) {
 			return textedit.SpliceLines(content, in.StartLine, in.EndLine, in.NewText)
 		})
 		if err != nil {
@@ -437,7 +441,7 @@ func (s *Server) registerInsertAtLine(srv *mcp.Server) {
 		Name:        "insert_at_line",
 		Description: "Insert content after a given line in an HTML page in a site the caller owns, without replacing anything. after_line=0 prepends, after_line=total_lines appends.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in insertAtLineInput) (*mcp.CallToolResult, any, error) {
-		_, err := s.mcpApplyToFile(ctx, in.Slug, in.Path, func(content string) (string, error) {
+		_, err := s.mcpApplyToFile(ctx, in.Slug, "insert_at_line", in.Path, func(content string) (string, error) {
 			return textedit.InsertAfterLine(content, in.AfterLine, in.Content)
 		})
 		if err != nil {
@@ -450,12 +454,37 @@ func (s *Server) registerInsertAtLine(srv *mcp.Server) {
 	})
 }
 
+// mcpPriorContent reads the current content at path, best-effort, to use as
+// the before-snapshot of a recorded edit. Returns "" when the file is absent
+// or unreadable (a create has no prior content).
+func (s *Server) mcpPriorContent(ctx context.Context, slug, path string) string {
+	prev, err := s.store.Read(ctx, slug, path)
+	if err != nil || prev == nil {
+		return ""
+	}
+	return prev.Content
+}
+
+// mcpRecordEdit logs a direct MCP file mutation to build history under the
+// "mcp" log key and trims to the configured retention, mirroring the tail of
+// build.Service.Start. MCP edit tools write to the store directly, so without
+// this they'd leave no transcript — invisible to list_runs, the /system
+// dashboard's Recent builds / Last edited, and the Debug viewer. Best-effort
+// and synchronous (the request ctx is still live before the tool returns).
+func (s *Server) mcpRecordEdit(ctx context.Context, slug, tool, path, before, after string) {
+	editrec.RecordEdit(ctx, s.store, slug, "mcp", tool, path, before, after)
+	if s.systemInfo.EditsKeep > 0 {
+		editrec.Trim(ctx, s.store, slug, s.systemInfo.EditsKeep)
+	}
+}
+
 // mcpApplyToFile is the shared read-modify-write the surgical edit tools run:
 // authorize, validate the HTML path, read the current file (error if missing),
 // apply the caller's pure transform, enforce the per-file cap, and write back
 // preserving the stored content type. Returns the updated content; edit_file
-// captures its replacement count/note through the transform closure.
-func (s *Server) mcpApplyToFile(ctx context.Context, slug, p string, transform func(string) (string, error)) (string, error) {
+// captures its replacement count/note through the transform closure. tool names
+// the calling MCP tool so the recorded transcript attributes the change.
+func (s *Server) mcpApplyToFile(ctx context.Context, slug, tool, p string, transform func(string) (string, error)) (string, error) {
 	_, err := s.mcpUserAndAuthorize(ctx, slug)
 	if err != nil {
 		return "", err
@@ -486,6 +515,7 @@ func (s *Server) mcpApplyToFile(ctx context.Context, slug, p string, transform f
 	if err != nil {
 		return "", fmt.Errorf("write %q: %w", p, err)
 	}
+	s.mcpRecordEdit(ctx, slug, tool, p, obj.Content, updated)
 	return updated, nil
 }
 
@@ -586,10 +616,12 @@ func (s *Server) registerDeleteFile(srv *mcp.Server) {
 		if err != nil {
 			return nil, nil, err
 		}
+		before := s.mcpPriorContent(ctx, in.Slug, in.Path)
 		err = s.store.Delete(ctx, in.Slug, in.Path)
 		if err != nil {
 			return nil, nil, fmt.Errorf("delete %q: %w", in.Path, err)
 		}
+		s.mcpRecordEdit(ctx, in.Slug, "delete_file", in.Path, before, "")
 		return mcpJSON(map[string]any{
 			"ok": true, "slug": in.Slug, "path": in.Path, "next": mcpLintNudge,
 		})
