@@ -303,7 +303,27 @@ func (u Usage) CacheHitRatio() float64 {
 	return float64(u.Cached) / float64(u.Prompt)
 }
 
-func Run(ctx context.Context, llm adkmodel.LLM, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []Attachment, seeds []SeedToolCall, reasoningEffort genai.ThinkingLevel, bctx BuildContext, emit func(events.Event), tracker *events.Tracker) (Usage, error) {
+// RunRequest bundles the per-build inputs to Run. ctx, llm, emit, and tracker
+// stay positional as the ambient collaborators; everything describing *what* to
+// build lives here, so call sites are self-documenting and a transposed
+// argument can't silently swap, say, Slug and Prompt (two adjacent strings) or
+// Attachments and Seeds (two adjacent slices).
+type RunRequest struct {
+	Store           *store.Store
+	Slug            string
+	Prompt          string
+	Template        *templates.SiteTemplate
+	Attachments     []Attachment
+	Seeds           []SeedToolCall
+	ReasoningEffort genai.ThinkingLevel
+	BuildContext    BuildContext
+}
+
+func Run(ctx context.Context, llm adkmodel.LLM, req RunRequest, emit func(events.Event), tracker *events.Tracker) (Usage, error) {
+	s, slug, prompt := req.Store, req.Slug, req.Prompt
+	tmpl, attachments, seeds := req.Template, req.Attachments, req.Seeds
+	reasoningEffort, bctx := req.ReasoningEffort, req.BuildContext
+
 	if emit == nil {
 		emit = func(events.Event) {}
 	}

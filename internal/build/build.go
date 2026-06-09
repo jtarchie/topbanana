@@ -171,7 +171,16 @@ func (r agentRunner) Run(ctx context.Context, s *store.Store, slug, prompt strin
 		SiteURL: r.siteURL(slug),
 		IsEdit:  isEdit,
 	}
-	usage, err := agent.Run(ctx, r.llm, s, slug, prompt, tmpl, attachments, seeds, r.reasoningEffort, bctx, emit, tracker)
+	usage, err := agent.Run(ctx, r.llm, agent.RunRequest{
+		Store:           s,
+		Slug:            slug,
+		Prompt:          prompt,
+		Template:        tmpl,
+		Attachments:     attachments,
+		Seeds:           seeds,
+		ReasoningEffort: r.reasoningEffort,
+		BuildContext:    bctx,
+	}, emit, tracker)
 	if err != nil {
 		return usage, fmt.Errorf("agent run: %w", err)
 	}
