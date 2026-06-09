@@ -24,7 +24,7 @@ import (
 // Slugs themselves can't start with "_" (validateSlug), so these only apply
 // to paths *within* a real slug — e.g. blocking GET /_state/data.json from
 // leaking persisted form data on a site at slug.example.com.
-var reservedProxyPrefixes = []string{"_state/", ".topbanana/", ".bloomhollow/", ".buildabear/"}
+var reservedProxyPrefixes = []string{store.StateDir, ".topbanana/", ".bloomhollow/", ".buildabear/"}
 
 // reservedProxyPaths are exact bucket paths the static proxy must never
 // serve. `.topbanana.json` is the per-site metadata sidecar; `.bloomhollow.json`

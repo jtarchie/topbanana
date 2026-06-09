@@ -30,8 +30,9 @@ import (
 // Prefix is the bucket-level prefix transcripts live under. Sits outside any
 // user-slug namespace because slugs cannot start with `_` (validateSlug), so
 // transcripts can never collide with a real site or be served by the
-// subdomain proxy.
-const Prefix = "_edits/"
+// subdomain proxy. Defined in the store keyspace registry (store.EditsPrefix)
+// so every reserved area lives in one place.
+const Prefix = store.EditsPrefix
 
 const contentType = "application/json"
 

@@ -6,12 +6,14 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/jtarchie/topbanana/internal/editrec"
 	"github.com/jtarchie/topbanana/internal/model"
+	"github.com/jtarchie/topbanana/internal/store"
 )
 
 // recentBuildsWindow is how many of the most recent transcripts across all
@@ -195,16 +197,20 @@ func aggregateStorage(entries []storageBreakdownEntry) systemStorage {
 	}
 }
 
-// reservedPrefixes is the fixed list of non-slug bucket prefixes the system
-// dashboard sums independently of per-app file walks.
+// reservedPrefixes is the fixed list of BUCKET-LEVEL reserved prefixes the
+// system dashboard sums independently of per-app file walks, sourced from the
+// store keyspace registry. Form data deliberately isn't here: it lives in-slug
+// at `{slug}/_state/` (store.StateDir), so a bucket-level sum over "_state/"
+// always reported zero — that row is now computed from the per-app walk in
+// collectAppRows instead. The ACME row sums the default prefix; an operator
+// who overrides --acme-cache-prefix sees zero here (pre-existing behaviour).
 var reservedPrefixes = []struct {
 	Label  string
 	Prefix string
 }{
-	{Label: "Snapshots", Prefix: "_snapshots/"},
-	{Label: "Build transcripts", Prefix: "_edits/"},
-	{Label: "TLS certs (ACME)", Prefix: "_acme/"},
-	{Label: "Form data", Prefix: "_state/"},
+	{Label: "Snapshots", Prefix: store.SnapshotsPrefix},
+	{Label: "Build transcripts", Prefix: store.EditsPrefix},
+	{Label: "TLS certs (ACME)", Prefix: store.DefaultACMEPrefix},
 }
 
 func (s *Server) systemHandler(c *echo.Context) error {
@@ -215,7 +221,7 @@ func (s *Server) systemHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "list apps", err)
 	}
 
-	appRows, perAppBytes, perAppCount, transcriptsByApp, customDomains, lastActivity := s.collectAppRows(ctx, apps)
+	appRows, usage, transcriptsByApp, customDomains, lastActivity := s.collectAppRows(ctx, apps)
 
 	// Recent builds — flatten + sort + slice + read the top window.
 	recent := mostRecentListings(transcriptsByApp, recentBuildsWindow)
@@ -232,8 +238,13 @@ func (s *Server) systemHandler(c *echo.Context) error {
 	}
 	successful := summarizeBuilds(recentTranscripts).Successful
 
-	// Storage breakdown.
-	entries := []storageBreakdownEntry{{Label: "Apps (live files)", Bytes: perAppBytes, Count: perAppCount}}
+	// Storage breakdown. Live files and form data both come from the per-app
+	// walk (form data is in-slug, invisible to a bucket-level prefix sum); the
+	// bucket-level reserved areas are summed directly.
+	entries := []storageBreakdownEntry{
+		{Label: "Apps (live files)", Bytes: usage.LiveBytes, Count: usage.LiveCount},
+		{Label: "Form data", Bytes: usage.FormBytes, Count: usage.FormCount},
+	}
 	for _, p := range reservedPrefixes {
 		stats, sumErr := s.store.SumBytesUnderPrefix(ctx, p.Prefix)
 		if sumErr != nil {
@@ -267,13 +278,24 @@ func (s *Server) systemHandler(c *echo.Context) error {
 	})
 }
 
+// appsUsage aggregates the per-app file walk for the storage breakdown,
+// splitting user-visible files from the in-slug `_state/` form data so the
+// dashboard's "Apps (live files)" and "Form data" rows don't double-count.
+// Form data lives at `{slug}/_state/`, so it can only be measured from this
+// walk — a bucket-level prefix sum never sees it.
+type appsUsage struct {
+	LiveBytes int64
+	LiveCount int
+	FormBytes int64
+	FormCount int
+}
+
 // collectAppRows walks ListApps and, for each, gathers size + edit count +
 // most recent transcript timestamp. Returns the rows sorted by descending
 // size plus aggregate counters used elsewhere on the page.
 func (s *Server) collectAppRows(ctx context.Context, apps []string) (
 	rows []systemAppRow,
-	totalBytes int64,
-	totalCount int,
+	usage appsUsage,
 	transcriptsByApp map[string][]editrec.Listing,
 	customDomains int,
 	lastActivity time.Time,
@@ -289,9 +311,14 @@ func (s *Server) collectAppRows(ctx context.Context, apps []string) (
 		var slugBytes int64
 		for _, f := range files {
 			slugBytes += f.Size
+			if strings.HasPrefix(f.Path, store.StateDir) {
+				usage.FormBytes += f.Size
+				usage.FormCount++
+			} else {
+				usage.LiveBytes += f.Size
+				usage.LiveCount++
+			}
 		}
-		totalBytes += slugBytes
-		totalCount += len(files)
 
 		meta := s.build.ReadMeta(ctx, slug)
 		customDomains += len(meta.Domains)
@@ -320,7 +347,7 @@ func (s *Server) collectAppRows(ctx context.Context, apps []string) (
 		rows = append(rows, row)
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Bytes > rows[j].Bytes })
-	return rows, totalBytes, totalCount, transcriptsByApp, customDomains, lastActivity
+	return rows, usage, transcriptsByApp, customDomains, lastActivity
 }
 
 // makeBuildRow formats one (listing, transcript) pair for the recent-builds

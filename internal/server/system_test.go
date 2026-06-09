@@ -1,10 +1,13 @@
 package server
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/editrec"
+	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
 func TestSummarizeBuilds(t *testing.T) {
@@ -189,4 +192,44 @@ func TestAggregateStorage(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestCollectAppRows_SplitsFormDataFromLiveFiles pins the dashboard fix: form
+// data lives at `{slug}/_state/...` (in-slug), so it must be measured from the
+// per-app walk and split out of the "Apps (live files)" total — the previous
+// bucket-level sum over "_state/" always reported zero while the bytes were
+// silently folded into the apps row.
+func TestCollectAppRows_SplitsFormDataFromLiveFiles(t *testing.T) {
+	ctx := context.Background()
+	st := storetest.New(t, 0)
+	s := &Server{store: st, build: build.NewWithConfig(build.Config{Store: st})}
+
+	const slug = "usagetest"
+	mustWrite := func(path, content, ct string) {
+		t.Helper()
+		err := st.Write(ctx, slug, path, content, ct, nil)
+		if err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	mustWrite("index.html", "<h1>hello</h1>", "text/html; charset=utf-8")
+	mustWrite("about.html", "<p>about</p>", "text/html; charset=utf-8")
+	mustWrite("_state/data.json", `{"submissions":[1,2,3]}`, "application/json")
+
+	rows, usage, _, _, _ := s.collectAppRows(ctx, []string{slug})
+
+	// Stored sizes are zstd-compressed (an implementation detail of the store),
+	// so assert the split — counts and the no-double-counting invariant — rather
+	// than exact byte values.
+	if usage.FormCount != 1 || usage.FormBytes <= 0 {
+		t.Errorf("form usage = %+v, want exactly 1 file with non-zero bytes", usage)
+	}
+	if usage.LiveCount != 2 || usage.LiveBytes <= 0 {
+		t.Errorf("live usage = %+v, want exactly 2 files (state file must not be counted as live)", usage)
+	}
+	// The per-app row keeps the full size (live + state) — it answers "how big
+	// is this app", not the breakdown question.
+	if len(rows) != 1 || rows[0].Bytes != usage.LiveBytes+usage.FormBytes {
+		t.Errorf("app row = %+v, want total bytes %d", rows, usage.LiveBytes+usage.FormBytes)
+	}
 }

@@ -26,8 +26,9 @@ import (
 // snapshotPrefix is the bucket-level prefix under which all archives live.
 // Sits outside any user-slug namespace (leading underscore is reserved by
 // slug validation) so archives never appear in per-site listings or in
-// subdomain routing.
-const snapshotPrefix = "_snapshots/"
+// subdomain routing. Defined in the store keyspace registry
+// (store.SnapshotsPrefix) so every reserved area lives in one place.
+const snapshotPrefix = store.SnapshotsPrefix
 
 const archiveContentType = "application/zstd"
 

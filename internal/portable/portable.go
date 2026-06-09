@@ -50,8 +50,10 @@ const (
 
 // stateDirPrefix is the per-site KV-state directory that lives under
 // `{slug}/_state/`. It holds form-submission data scoped to the source
-// instance; an importer should never inherit that history.
-const stateDirPrefix = "_state/"
+// instance; an importer should never inherit that history. Defined in the
+// store keyspace registry (store.StateDir) so every reserved area lives in
+// one place.
+const stateDirPrefix = store.StateDir
 
 // reservedPaths are top-level entries inside `{slug}/` that the import path
 // silently drops even if a hand-crafted archive contains them. Defense in

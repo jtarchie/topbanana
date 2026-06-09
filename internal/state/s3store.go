@@ -13,11 +13,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
+
+	"github.com/jtarchie/topbanana/internal/store"
 )
 
-// stateBlobKey is the per-site path inside the bucket. Lives under `_state/`
-// so it's clearly out-of-band relative to user-visible pages and assets.
-const stateBlobKey = "_state/data.json"
+// stateBlobKey is the per-site path inside the bucket. Lives under the
+// reserved in-slug `_state/` dir (store.StateDir — the keyspace registry) so
+// it's clearly out-of-band relative to user-visible pages and assets.
+const stateBlobKey = store.StateDir + "data.json"
 
 // stateContentType matches the actual payload. S3 echoes it back on GET; we
 // don't currently inspect it, but it makes the bucket readable to a human

@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/jtarchie/topbanana/internal/store"
 )
 
 // fileRow is one row of the explorer table.
@@ -114,7 +116,7 @@ func (s *Server) fileActionsFor(c *echo.Context, slug, path string) FileActions 
 	case strings.HasPrefix(path, "functions/") && strings.HasSuffix(path, ".js"):
 		name := strings.TrimSuffix(strings.TrimPrefix(path, "functions/"), ".js")
 		return FileActions{EditURL: "/edit/" + slug + "/function/" + name}
-	case strings.HasPrefix(path, "_state/"):
+	case strings.HasPrefix(path, store.StateDir):
 		return FileActions{OpenURL: "/manage/" + slug, OpenLabel: "view data"}
 	case strings.HasSuffix(path, ".html"):
 		return FileActions{EditURL: "/workspace/" + slug + "?page=" + url.QueryEscape(path), OpenURL: s.siteURL(c, slug, "/"+path), OpenLabel: "open"}
