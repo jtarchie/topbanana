@@ -533,7 +533,15 @@ func (svc *Service) PolishPass(ctx context.Context, editor Runner, slug string, 
 
 	emit(events.Event{Type: events.TypeStatus, Status: events.StatusPolishing})
 
-	usage, err := editor.Run(ctx, svc.store, slug, polishPrompt, tmpl, attachments, svc.EditSeeds(ctx, slug, polishPrompt), time.Now(), isEdit, emit, svc.events)
+	usage, err := editor.Run(ctx, svc.store, RunRequest{
+		Slug:        slug,
+		Prompt:      polishPrompt,
+		Template:    tmpl,
+		Attachments: attachments,
+		Seeds:       svc.EditSeeds(ctx, slug, polishPrompt),
+		BuildStart:  time.Now(),
+		IsEdit:      isEdit,
+	}, emit, svc.events)
 	recordUsage(rec, usage)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -575,7 +583,15 @@ func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slu
 	// dates mid-flight and invalidate the per-build prefix.
 	buildStart := time.Now()
 
-	usage, err := author.Run(ctx, svc.store, slug, prompt, tmpl, attachments, seeds, buildStart, isEdit, emit, svc.events)
+	usage, err := author.Run(ctx, svc.store, RunRequest{
+		Slug:        slug,
+		Prompt:      prompt,
+		Template:    tmpl,
+		Attachments: attachments,
+		Seeds:       seeds,
+		BuildStart:  buildStart,
+		IsEdit:      isEdit,
+	}, emit, svc.events)
 	recordUsage(rec, usage)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -622,7 +638,15 @@ func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slu
 		// LintFixPrompt names them) so the fix-up edits in place rather than
 		// writing blind.
 		fixPrompt := LintFixPrompt(residual)
-		usage, err := editor.Run(ctx, svc.store, slug, fixPrompt, tmpl, attachments, svc.EditSeeds(ctx, slug, fixPrompt), buildStart, isEdit, emit, svc.events)
+		usage, err := editor.Run(ctx, svc.store, RunRequest{
+			Slug:        slug,
+			Prompt:      fixPrompt,
+			Template:    tmpl,
+			Attachments: attachments,
+			Seeds:       svc.EditSeeds(ctx, slug, fixPrompt),
+			BuildStart:  buildStart,
+			IsEdit:      isEdit,
+		}, emit, svc.events)
 		recordUsage(rec, usage)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {

@@ -21,7 +21,6 @@ import (
 	"github.com/jtarchie/topbanana/internal/snapshot"
 	"github.com/jtarchie/topbanana/internal/state"
 	"github.com/jtarchie/topbanana/internal/store"
-	"github.com/jtarchie/topbanana/internal/templates"
 )
 
 // stubRunner is a deterministic agent.Runner used by the happy-path test. It
@@ -47,10 +46,10 @@ const stubIndexHTML = `<!DOCTYPE html>
 </html>
 `
 
-func (r *stubRunner) Run(ctx context.Context, s *store.Store, slug, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, _ time.Time, _ bool, emit func(events.Event), _ *events.Tracker) (agent.Usage, error) {
+func (r *stubRunner) Run(ctx context.Context, s *store.Store, req build.RunRequest, emit func(events.Event), _ *events.Tracker) (agent.Usage, error) {
 	now := time.Now().UTC()
 	emit(events.Event{Type: events.TypeTool, Tool: "write_file", Phase: events.PhaseStart, Path: "/index.html", Time: now})
-	err := s.Write(ctx, slug, "index.html", stubIndexHTML, "text/html; charset=utf-8", nil)
+	err := s.Write(ctx, req.Slug, "index.html", stubIndexHTML, "text/html; charset=utf-8", nil)
 	if err != nil {
 		emit(events.Event{Type: events.TypeTool, Tool: "write_file", Phase: events.PhaseError, Path: "/index.html", Message: err.Error(), Time: time.Now().UTC()})
 		return agent.Usage{}, fmt.Errorf("stub write: %w", err)

@@ -25,8 +25,24 @@ import (
 // flows unchanged into every retry, so the agent sees the same "today" all
 // the way through a single build. isEdit comes from !Params.SeedSkeleton.
 type Runner interface {
-	Run(ctx context.Context, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, buildStart time.Time, isEdit bool, emit func(events.Event), tracker *events.Tracker) (agent.Usage, error)
+	Run(ctx context.Context, s *store.Store, req RunRequest, emit func(events.Event), tracker *events.Tracker) (agent.Usage, error)
 	Describe(ctx context.Context, s *store.Store, slug, userPrompt string) (agent.SiteDescription, error)
+}
+
+// RunRequest bundles the per-turn inputs to Runner.Run. ctx, the store, emit,
+// and tracker stay positional as the ambient collaborators; everything that
+// describes the turn lives here so call sites and the half-dozen test stubs
+// read clearly instead of threading an 11-value positional list. Prompt and
+// Seeds change between the initial build and each lint-retry fix-up; BuildStart
+// is captured once and flows unchanged so the agent sees the same "today".
+type RunRequest struct {
+	Slug        string
+	Prompt      string
+	Template    *templates.SiteTemplate
+	Attachments []agent.Attachment
+	Seeds       []agent.SeedToolCall
+	BuildStart  time.Time
+	IsEdit      bool
 }
 
 // agentRunner is the production Runner — a thin shim over package agent that
@@ -76,20 +92,20 @@ func (r agentRunner) siteURL(slug string) string {
 	return fmt.Sprintf("%s://%s.%s%s", scheme, slug, r.domain, port)
 }
 
-func (r agentRunner) Run(ctx context.Context, s *store.Store, slug, prompt string, tmpl *templates.SiteTemplate, attachments []agent.Attachment, seeds []agent.SeedToolCall, buildStart time.Time, isEdit bool, emit func(events.Event), tracker *events.Tracker) (agent.Usage, error) {
+func (r agentRunner) Run(ctx context.Context, s *store.Store, req RunRequest, emit func(events.Event), tracker *events.Tracker) (agent.Usage, error) {
 	bctx := agent.BuildContext{
-		Now:     buildStart,
-		Slug:    slug,
-		SiteURL: r.siteURL(slug),
-		IsEdit:  isEdit,
+		Now:     req.BuildStart,
+		Slug:    req.Slug,
+		SiteURL: r.siteURL(req.Slug),
+		IsEdit:  req.IsEdit,
 	}
 	usage, err := agent.Run(ctx, r.llm, agent.RunRequest{
 		Store:           s,
-		Slug:            slug,
-		Prompt:          prompt,
-		Template:        tmpl,
-		Attachments:     attachments,
-		Seeds:           seeds,
+		Slug:            req.Slug,
+		Prompt:          req.Prompt,
+		Template:        req.Template,
+		Attachments:     req.Attachments,
+		Seeds:           req.Seeds,
 		ReasoningEffort: r.reasoningEffort,
 		BuildContext:    bctx,
 	}, emit, tracker)

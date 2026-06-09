@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/jtarchie/topbanana/internal/agent"
+	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/snapshot"
 	"github.com/jtarchie/topbanana/internal/store"
-	"github.com/jtarchie/topbanana/internal/templates"
 )
 
 // failingRunner returns an error on its first Run call. Used to exercise
@@ -26,7 +26,7 @@ import (
 // and a subsequent GET on the workspace must still render.
 type failingRunner struct{}
 
-func (failingRunner) Run(context.Context, *store.Store, string, string, *templates.SiteTemplate, []agent.Attachment, []agent.SeedToolCall, time.Time, bool, func(events.Event), *events.Tracker) (agent.Usage, error) {
+func (failingRunner) Run(context.Context, *store.Store, build.RunRequest, func(events.Event), *events.Tracker) (agent.Usage, error) {
 	return agent.Usage{}, errors.New("scripted failure")
 }
 

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"iter"
 	"testing"
-	"time"
 
 	adkmodel "google.golang.org/adk/model"
 
@@ -13,7 +12,6 @@ import (
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/model"
 	"github.com/jtarchie/topbanana/internal/store"
-	"github.com/jtarchie/topbanana/internal/templates"
 )
 
 // fakeRunner is a Runner that records its identity but does no work. The
@@ -21,7 +19,7 @@ import (
 // them — they only assert which Runner runnerForTier returns.
 type fakeRunner struct{ id string }
 
-func (f *fakeRunner) Run(_ context.Context, _ *store.Store, _, _ string, _ *templates.SiteTemplate, _ []agent.Attachment, _ []agent.SeedToolCall, _ time.Time, _ bool, _ func(events.Event), _ *events.Tracker) (agent.Usage, error) {
+func (f *fakeRunner) Run(_ context.Context, _ *store.Store, _ RunRequest, _ func(events.Event), _ *events.Tracker) (agent.Usage, error) {
 	panic("fakeRunner.Run should not be called in cache tests")
 }
 
