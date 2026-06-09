@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
 // TestAuth_SessionCookieName_DerivedFromPrefix locks in the fact that
@@ -36,10 +38,7 @@ func TestAuth_SessionCookieName_DerivedFromPrefix(t *testing.T) {
 func TestAuth_SessionCookieName_TracksLibraryWriteSide(t *testing.T) {
 	t.Parallel()
 
-	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run library integration tests")
-	}
+	st := storetest.New(t, 0)
 
 	suffix := freshSuffix()
 	probeEmail := "probe+" + suffix + "@example.com"
@@ -54,6 +53,7 @@ func TestAuth_SessionCookieName_TracksLibraryWriteSide(t *testing.T) {
 	if err != nil {
 		t.Fatalf("auth.New: %v", err)
 	}
+	t.Cleanup(func() { _ = a.Close() })
 
 	// Seed the probe user so UserStore.Create can find it. The library
 	// refuses to mint a brand-new user on registerBegin by design — our

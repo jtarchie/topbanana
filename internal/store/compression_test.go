@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
 // repeatableHTML returns a redundant HTML string of at least n bytes so the
@@ -20,10 +22,7 @@ func repeatableHTML(n int) string {
 // on /system's Storage breakdown. Asserted via the size ListWithMeta reports,
 // which is exactly the figure summed into the breakdown total.
 func TestWriteCompressesText(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run store integration tests")
-	}
+	s := storetest.New(t, 0)
 	ctx := context.Background()
 	slug := "compress-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	t.Cleanup(func() {
@@ -64,10 +63,7 @@ func TestWriteCompressesText(t *testing.T) {
 // re-compression. Re-zstd'ing a PNG burns CPU and typically grows the payload
 // slightly because the header isn't redundant.
 func TestWriteSkipsImage(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run store integration tests")
-	}
+	s := storetest.New(t, 0)
 	ctx := context.Background()
 	slug := "compress-img-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	t.Cleanup(func() {
@@ -108,10 +104,7 @@ func TestWriteSkipsImage(t *testing.T) {
 // plaintext unchanged. This is what makes the compression rollout free of a
 // migration: every pre-compression object in S3 still loads through Read.
 func TestReadDecodesLegacyUncompressed(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run store integration tests")
-	}
+	s := storetest.New(t, 0)
 	ctx := context.Background()
 	slug := "compress-legacy-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	t.Cleanup(func() {

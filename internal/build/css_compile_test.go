@@ -122,9 +122,6 @@ printf '%s' '/* stub */.btn{color:red}' > "$out"
 
 func TestOptimizeCSS_WithStubCLI(t *testing.T) {
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run optimizeCSS integration tests")
-	}
 	ctx := context.Background()
 	slug := buildSlug(t)
 	cleanupSlug(t, st, slug)
@@ -165,9 +162,6 @@ func TestOptimizeCSS_WithStubCLI(t *testing.T) {
 // the page's arbitrary-value utility purged in, and no CDN references.
 func TestOptimizeCSS_RealCompile(t *testing.T) {
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run optimizeCSS integration tests")
-	}
 	_, err := exec.LookPath("tailwindcss")
 	if err != nil {
 		t.Skip("no tailwindcss on PATH for the real-compile test")
@@ -210,9 +204,6 @@ func TestOptimizeCSS_RealCompile(t *testing.T) {
 // compiled, so the design-substrate lint then passes.
 func TestOptimizeCSS_InjectsLinkForSubstrateLessPage(t *testing.T) {
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run optimizeCSS integration tests")
-	}
 	_, err := exec.LookPath("tailwindcss")
 	if err != nil {
 		t.Skip("no tailwindcss on PATH for the real-compile test")
@@ -246,9 +237,6 @@ func TestOptimizeCSS_InjectsLinkForSubstrateLessPage(t *testing.T) {
 
 func TestOptimizeCSS_GracefulWhenCompileFails(t *testing.T) {
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run optimizeCSS integration tests")
-	}
 	ctx := context.Background()
 	slug := buildSlug(t)
 	cleanupSlug(t, st, slug)

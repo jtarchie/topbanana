@@ -6,53 +6,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
-	"strconv"
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/klauspost/compress/zstd"
 
 	"github.com/jtarchie/topbanana/internal/archive"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/portable"
 	"github.com/jtarchie/topbanana/internal/store"
+	"github.com/jtarchie/topbanana/internal/storetest"
 )
-
-// minioStore mirrors the helper in snapshot_test so portable tests can run
-// against the same dev minio set up by `task minio:ready`.
-func minioStore(t *testing.T) *store.Store {
-	t.Helper()
-	endpoint := os.Getenv("AWS_ENDPOINT_URL")
-	bucket := os.Getenv("S3_BUCKET")
-	if endpoint == "" || bucket == "" {
-		return nil
-	}
-	cfg, err := config.LoadDefaultConfig(context.Background())
-	if err != nil {
-		t.Fatalf("load aws config: %v", err)
-	}
-	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(endpoint)
-		o.UsePathStyle = true
-	})
-	s, err := store.New(client, bucket, 0)
-	if err != nil {
-		t.Fatalf("store.New: %v", err)
-	}
-	err = s.EnsureBucket(context.Background())
-	if err != nil {
-		t.Fatalf("ensure bucket: %v", err)
-	}
-	return s
-}
 
 func freshSlug(t *testing.T, prefix string) string {
 	t.Helper()
-	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	return storetest.FreshSlug(t, prefix)
 }
 
 func cleanupSlug(t *testing.T, ctx context.Context, s *store.Store, slug string) {
@@ -89,10 +57,7 @@ func TestImportRejectsCorruptArchive(t *testing.T) {
 //
 //nolint:cyclop // single end-to-end script asserts many independent invariants on one round-trip.
 func TestExportImportRoundTrip(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run portable integration tests")
-	}
+	s := storetest.New(t, 0)
 
 	ctx := context.Background()
 	src := freshSlug(t, "porttest-src")
@@ -177,10 +142,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 // TestImportRequiresIndex builds an archive with one stray asset but no
 // index.html and verifies Import refuses it.
 func TestImportRequiresIndex(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run portable integration tests")
-	}
+	s := storetest.New(t, 0)
 
 	ctx := context.Background()
 	dst := freshSlug(t, "porttest-noindex")
@@ -201,10 +163,7 @@ func TestImportRequiresIndex(t *testing.T) {
 // ignored — defense in depth against a crafted archive that an export-side
 // filter wouldn't catch on this instance.
 func TestImportFiltersReservedPaths(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run portable integration tests")
-	}
+	s := storetest.New(t, 0)
 
 	ctx := context.Background()
 	dst := freshSlug(t, "porttest-defense")

@@ -2,51 +2,20 @@ package editrec_test
 
 import (
 	"context"
-	"os"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/jtarchie/topbanana/internal/compressutil"
 	"github.com/jtarchie/topbanana/internal/editrec"
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/store"
+	"github.com/jtarchie/topbanana/internal/storetest"
 )
-
-func minioStore(t *testing.T) *store.Store {
-	t.Helper()
-	endpoint := os.Getenv("AWS_ENDPOINT_URL")
-	bucket := os.Getenv("S3_BUCKET")
-	if endpoint == "" || bucket == "" {
-		return nil
-	}
-	cfg, err := config.LoadDefaultConfig(context.Background())
-	if err != nil {
-		t.Fatalf("load aws config: %v", err)
-	}
-	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(endpoint)
-		o.UsePathStyle = true
-	})
-	s, err := store.New(client, bucket, 0)
-	if err != nil {
-		t.Fatalf("store.New: %v", err)
-	}
-	err = s.EnsureBucket(context.Background())
-	if err != nil {
-		t.Fatalf("ensure bucket: %v", err)
-	}
-	return s
-}
 
 func freshSlug(t *testing.T) string {
 	t.Helper()
-	return "edittest-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	return storetest.FreshSlug(t, "edittest")
 }
 
 func cleanup(t *testing.T, ctx context.Context, s *store.Store, slug string) {
@@ -67,10 +36,7 @@ func cleanup(t *testing.T, ctx context.Context, s *store.Store, slug string) {
 // callback receives start/done events for write_file, the recorder reads
 // before/after content from the store, and Finish persists a transcript.
 func TestRecorderCapturesWriteFile(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run editrec integration tests")
-	}
+	s := storetest.New(t, 0)
 	ctx := context.Background()
 	slug := freshSlug(t)
 	cleanup(t, ctx, s, slug)
@@ -152,10 +118,7 @@ func assertFileChange(t *testing.T, tr editrec.Transcript, wantBefore, wantAfter
 // TestRecorderSkipsNonMutators verifies that read-only tools appear in the
 // tool-call timeline but don't produce file-change entries.
 func TestRecorderSkipsNonMutators(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run editrec integration tests")
-	}
+	s := storetest.New(t, 0)
 	ctx := context.Background()
 	slug := freshSlug(t)
 	cleanup(t, ctx, s, slug)
@@ -185,10 +148,7 @@ func TestRecorderSkipsNonMutators(t *testing.T) {
 // reports success but never calls a mutator. Transcript shows zero file
 // changes — distinguishing "never wrote" from "wrote but served stale."
 func TestRecorderRecordsAgentNoWrite(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run editrec integration tests")
-	}
+	s := storetest.New(t, 0)
 	ctx := context.Background()
 	slug := freshSlug(t)
 	cleanup(t, ctx, s, slug)
@@ -211,10 +171,7 @@ func TestRecorderRecordsAgentNoWrite(t *testing.T) {
 // TestRecorderHandlesMutatorError verifies an error phase doesn't leave a
 // dangling before-snapshot and doesn't emit a phantom FileChange.
 func TestRecorderHandlesMutatorError(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run editrec integration tests")
-	}
+	s := storetest.New(t, 0)
 	ctx := context.Background()
 	slug := freshSlug(t)
 	cleanup(t, ctx, s, slug)
@@ -242,10 +199,7 @@ func TestRecorderHandlesMutatorError(t *testing.T) {
 // key and marked completed. This is what makes MCP edits show up under the
 // /system dashboard's Recent builds / Last edited.
 func TestRecordEdit(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run editrec integration tests")
-	}
+	s := storetest.New(t, 0)
 	ctx := context.Background()
 	slug := freshSlug(t)
 	cleanup(t, ctx, s, slug)
@@ -283,10 +237,7 @@ func TestRecordEdit(t *testing.T) {
 // TestRecordEditDelete checks the delete shape: a non-empty before and an
 // empty after, so the transcript records what was removed.
 func TestRecordEditDelete(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run editrec integration tests")
-	}
+	s := storetest.New(t, 0)
 	ctx := context.Background()
 	slug := freshSlug(t)
 	cleanup(t, ctx, s, slug)
@@ -310,10 +261,7 @@ func TestRecordEditDelete(t *testing.T) {
 // This is what shrinks the "Build transcripts" row on /system's Storage
 // breakdown — the byte count S3 reports is the compressed size.
 func TestFinishWritesZstd(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run editrec integration tests")
-	}
+	s := storetest.New(t, 0)
 	ctx := context.Background()
 	slug := freshSlug(t)
 	cleanup(t, ctx, s, slug)
@@ -348,10 +296,7 @@ func TestFinishWritesZstd(t *testing.T) {
 // gzip-at-rest landed (raw JSON in S3) still decode through Read. Magic-byte
 // sniffing in maybeGunzip is what makes this work with no migration step.
 func TestReadDecodesLegacyUncompressed(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run editrec integration tests")
-	}
+	s := storetest.New(t, 0)
 	ctx := context.Background()
 	slug := freshSlug(t)
 	cleanup(t, ctx, s, slug)
@@ -374,10 +319,7 @@ func TestReadDecodesLegacyUncompressed(t *testing.T) {
 // TestRecorderTrim verifies retention drops oldest transcripts beyond the
 // keep cap.
 func TestRecorderTrim(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run editrec integration tests")
-	}
+	s := storetest.New(t, 0)
 	ctx := context.Background()
 	slug := freshSlug(t)
 	cleanup(t, ctx, s, slug)

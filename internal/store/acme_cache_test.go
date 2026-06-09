@@ -4,52 +4,18 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"os"
 	"strconv"
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/jtarchie/topbanana/internal/store"
+	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
-// minioStore mirrors the snapshot_test helper: returns nil when the env vars
-// aren't set so callers can t.Skip().
-func minioStore(t *testing.T) *store.Store {
-	t.Helper()
-	endpoint := os.Getenv("AWS_ENDPOINT_URL")
-	bucket := os.Getenv("S3_BUCKET")
-	if endpoint == "" || bucket == "" {
-		return nil
-	}
-	cfg, err := config.LoadDefaultConfig(context.Background())
-	if err != nil {
-		t.Fatalf("load aws config: %v", err)
-	}
-	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(endpoint)
-		o.UsePathStyle = true
-	})
-	s, err := store.New(client, bucket, 0)
-	if err != nil {
-		t.Fatalf("store.New: %v", err)
-	}
-	err = s.EnsureBucket(context.Background())
-	if err != nil {
-		t.Fatalf("ensure bucket: %v", err)
-	}
-	return s
-}
-
 func TestACMECache_RoundTrip(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("AWS_ENDPOINT_URL / S3_BUCKET not set; skipping minio integration test")
-	}
+	s := storetest.New(t, 0)
 	ctx := context.Background()
 	// Unique prefix per run so parallel tests / leftover state don't collide.
 	prefix := "_acme-test-" + strconv.FormatInt(time.Now().UnixNano(), 36) + "/"

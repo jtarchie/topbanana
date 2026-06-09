@@ -6,15 +6,14 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
 func TestInviteStore_IssueAndGetRoundtrip(t *testing.T) {
 	t.Parallel()
 
-	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run invite store tests")
-	}
+	st := storetest.New(t, 0)
 
 	is := NewInviteStore(st)
 	ctx := context.Background()
@@ -54,10 +53,7 @@ func TestInviteStore_IssueAndGetRoundtrip(t *testing.T) {
 func TestInviteStore_GetUnknownTokenReturnsNotFound(t *testing.T) {
 	t.Parallel()
 
-	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run invite store tests")
-	}
+	st := storetest.New(t, 0)
 	is := NewInviteStore(st)
 
 	_, err := is.Get(context.Background(), "no-such-token-"+freshSuffix())
@@ -69,10 +65,7 @@ func TestInviteStore_GetUnknownTokenReturnsNotFound(t *testing.T) {
 func TestInviteStore_GetExpiredReturnsExpired(t *testing.T) {
 	t.Parallel()
 
-	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run invite store tests")
-	}
+	st := storetest.New(t, 0)
 	is := NewInviteStore(st)
 	ctx := context.Background()
 
@@ -93,10 +86,7 @@ func TestInviteStore_GetExpiredReturnsExpired(t *testing.T) {
 func TestInviteStore_ConsumeMarksUsedAndGetReturnsNotFound(t *testing.T) {
 	t.Parallel()
 
-	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run invite store tests")
-	}
+	st := storetest.New(t, 0)
 	is := NewInviteStore(st)
 	ctx := context.Background()
 
@@ -124,10 +114,7 @@ func TestInviteStore_ConsumeMarksUsedAndGetReturnsNotFound(t *testing.T) {
 func TestInviteStore_ConsumeTwiceBySameConsumerIsIdempotent(t *testing.T) {
 	t.Parallel()
 
-	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run invite store tests")
-	}
+	st := storetest.New(t, 0)
 	is := NewInviteStore(st)
 	ctx := context.Background()
 
@@ -151,10 +138,7 @@ func TestInviteStore_ConsumeTwiceBySameConsumerIsIdempotent(t *testing.T) {
 func TestInviteStore_ConsumeByDifferentEmailRejected(t *testing.T) {
 	t.Parallel()
 
-	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run invite store tests")
-	}
+	st := storetest.New(t, 0)
 	is := NewInviteStore(st)
 	ctx := context.Background()
 
@@ -180,10 +164,7 @@ func TestInviteStore_ConsumeByDifferentEmailRejected(t *testing.T) {
 func TestInviteStore_RevokeDeletesRecord(t *testing.T) {
 	t.Parallel()
 
-	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run invite store tests")
-	}
+	st := storetest.New(t, 0)
 	is := NewInviteStore(st)
 	ctx := context.Background()
 
@@ -206,10 +187,7 @@ func TestInviteStore_RevokeDeletesRecord(t *testing.T) {
 func TestInviteStore_ListIncludesIssued(t *testing.T) {
 	t.Parallel()
 
-	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run invite store tests")
-	}
+	st := storetest.New(t, 0)
 	is := NewInviteStore(st)
 	ctx := context.Background()
 
@@ -239,10 +217,7 @@ func TestInviteStore_ListIncludesIssued(t *testing.T) {
 func TestInviteStore_IssueOrReuseBootstrap_ReusesUnconsumed(t *testing.T) {
 	t.Parallel()
 
-	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run invite store tests")
-	}
+	st := storetest.New(t, 0)
 	is := NewInviteStore(st)
 	ctx := context.Background()
 
@@ -268,10 +243,7 @@ func TestInviteStore_IssueOrReuseBootstrap_ReusesUnconsumed(t *testing.T) {
 func TestInviteStore_IssueOrReuseBootstrap_IssuesAfterConsume(t *testing.T) {
 	t.Parallel()
 
-	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run invite store tests")
-	}
+	st := storetest.New(t, 0)
 	is := NewInviteStore(st)
 	ctx := context.Background()
 

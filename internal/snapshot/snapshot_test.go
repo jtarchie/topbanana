@@ -5,53 +5,20 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/klauspost/compress/zstd"
 
 	"github.com/jtarchie/topbanana/internal/snapshot"
 	"github.com/jtarchie/topbanana/internal/store"
+	"github.com/jtarchie/topbanana/internal/storetest"
 )
-
-// minioStore connects to the dev minio (or any S3-compatible backend exposed
-// via AWS_ENDPOINT_URL + S3_BUCKET) and returns a Store. Returns nil when the
-// env vars aren't set so the caller can t.Skip().
-func minioStore(t *testing.T) *store.Store {
-	t.Helper()
-	endpoint := os.Getenv("AWS_ENDPOINT_URL")
-	bucket := os.Getenv("S3_BUCKET")
-	if endpoint == "" || bucket == "" {
-		return nil
-	}
-	cfg, err := config.LoadDefaultConfig(context.Background())
-	if err != nil {
-		t.Fatalf("load aws config: %v", err)
-	}
-	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(endpoint)
-		o.UsePathStyle = true
-	})
-	s, err := store.New(client, bucket, 0)
-	if err != nil {
-		t.Fatalf("store.New: %v", err)
-	}
-	err = s.EnsureBucket(context.Background())
-	if err != nil {
-		t.Fatalf("ensure bucket: %v", err)
-	}
-	return s
-}
 
 func freshSlug(t *testing.T) string {
 	t.Helper()
-	return "snaptest-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	return storetest.FreshSlug(t, "snaptest")
 }
 
 func mustWrite(t *testing.T, ctx context.Context, s *store.Store, slug, path, content, ct string) {
@@ -86,10 +53,7 @@ func cleanupSlug(t *testing.T, ctx context.Context, s *store.Store, svc *snapsho
 }
 
 func TestSnapshotCreateAndList(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run snapshot integration tests")
-	}
+	s := storetest.New(t, 0)
 
 	ctx := context.Background()
 	slug := freshSlug(t)
@@ -126,10 +90,7 @@ func TestSnapshotCreateAndList(t *testing.T) {
 }
 
 func TestSnapshotRestore(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run snapshot integration tests")
-	}
+	s := storetest.New(t, 0)
 
 	ctx := context.Background()
 	slug := freshSlug(t)
@@ -188,10 +149,7 @@ func TestSnapshotRestore(t *testing.T) {
 // archives; Restore must read its per-file content type and metadata via the
 // legacy fallback, otherwise old snapshots silently lose their type info.
 func TestSnapshotRestoreReadsLegacyPAXHeaders(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run snapshot integration tests")
-	}
+	s := storetest.New(t, 0)
 
 	ctx := context.Background()
 	slug := freshSlug(t)
@@ -262,10 +220,7 @@ func TestSnapshotRestoreReadsLegacyPAXHeaders(t *testing.T) {
 }
 
 func TestRetentionTrim(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run snapshot integration tests")
-	}
+	s := storetest.New(t, 0)
 
 	ctx := context.Background()
 	slug := freshSlug(t)

@@ -5,21 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-
 	"github.com/jtarchie/topbanana/internal/agent"
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/lint"
 	"github.com/jtarchie/topbanana/internal/store"
+	"github.com/jtarchie/topbanana/internal/storetest"
 	"github.com/jtarchie/topbanana/internal/templates"
 )
 
@@ -255,9 +251,6 @@ func TestService_Lint_FlagsMissingIndexHTML(t *testing.T) {
 	t.Parallel()
 
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
-	}
 
 	svc := NewWithConfig(Config{Store: st})
 	slug := buildSlug(t)
@@ -293,9 +286,6 @@ func TestService_Start_FailsWhenNoIndexHTML(t *testing.T) {
 	t.Parallel()
 
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
-	}
 
 	tracker := events.NewTracker()
 	t.Cleanup(tracker.Close)
@@ -333,9 +323,6 @@ func TestService_Start_HappyPathSeedsSkeletonWritesMetaCompletes(t *testing.T) {
 	t.Parallel()
 
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
-	}
 
 	tracker := events.NewTracker()
 	t.Cleanup(tracker.Close)
@@ -398,9 +385,6 @@ func TestService_Start_LintRetryFixesAndCompletes(t *testing.T) {
 	t.Parallel()
 
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
-	}
 
 	tracker := events.NewTracker()
 	t.Cleanup(tracker.Close)
@@ -469,9 +453,6 @@ func TestService_AutoFix_DesignSubstratePreservesContent(t *testing.T) {
 	t.Parallel()
 
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
-	}
 
 	svc := NewWithConfig(Config{Store: st})
 	slug := buildSlug(t)
@@ -515,9 +496,6 @@ func TestService_Start_MaxLintRetriesExceededFails(t *testing.T) {
 	t.Parallel()
 
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
-	}
 
 	tracker := events.NewTracker()
 	t.Cleanup(tracker.Close)
@@ -556,9 +534,6 @@ func TestService_Start_TimeoutFailsWithDeadlineMessage(t *testing.T) {
 	t.Parallel()
 
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
-	}
 
 	tracker := events.NewTracker()
 	t.Cleanup(tracker.Close)
@@ -600,9 +575,6 @@ func TestService_WriteMeta_ReadMetaRoundtrip(t *testing.T) {
 	t.Parallel()
 
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
-	}
 
 	svc := NewWithConfig(Config{Store: st})
 
@@ -639,9 +611,6 @@ func TestService_ReadMeta_MissingReturnsZeroValue(t *testing.T) {
 	t.Parallel()
 
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
-	}
 
 	svc := NewWithConfig(Config{Store: st})
 	got := svc.ReadMeta(context.Background(), "no-such-slug-"+buildSuffix())
@@ -659,9 +628,6 @@ func TestService_ReadMeta_FallsBackToLegacySidecar(t *testing.T) {
 	t.Parallel()
 
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
-	}
 
 	svc := NewWithConfig(Config{Store: st})
 
@@ -718,30 +684,12 @@ func TestService_ReadMeta_FallsBackToLegacySidecar(t *testing.T) {
 
 // --- helpers ----------------------------------------------------------------
 
+// minioStoreForBuild returns the test store: in-memory by default, S3/Minio
+// when AWS_ENDPOINT_URL + S3_BUCKET are set (see internal/storetest). Kept as a
+// named wrapper so the many call sites read unchanged.
 func minioStoreForBuild(t *testing.T) *store.Store {
 	t.Helper()
-	endpoint := os.Getenv("AWS_ENDPOINT_URL")
-	bucket := os.Getenv("S3_BUCKET")
-	if endpoint == "" || bucket == "" {
-		return nil
-	}
-	cfg, err := config.LoadDefaultConfig(context.Background())
-	if err != nil {
-		t.Fatalf("load aws config: %v", err)
-	}
-	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(endpoint)
-		o.UsePathStyle = true
-	})
-	s, err := store.New(client, bucket, 0)
-	if err != nil {
-		t.Fatalf("store.New: %v", err)
-	}
-	err = s.EnsureBucket(context.Background())
-	if err != nil {
-		t.Fatalf("ensure bucket: %v", err)
-	}
-	return s
+	return storetest.New(t, 0)
 }
 
 func buildSuffix() string { return strconv.FormatInt(time.Now().UnixNano(), 36) }
@@ -838,9 +786,6 @@ func TestBrokenHTMLActuallyFailsLint(t *testing.T) {
 	t.Parallel()
 
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
-	}
 	ctx := context.Background()
 	slug := buildSlug(t)
 	cleanupSlug(t, st, slug)
@@ -979,9 +924,6 @@ func TestPolishPrompt_ReferencesCoreConstraints(t *testing.T) {
 // from observing leftover persistConn goroutines at test-suite exit.
 func TestService_Start_EditSkipsPolishByDefault(t *testing.T) {
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
-	}
 
 	tracker := events.NewTracker()
 	t.Cleanup(tracker.Close)
@@ -1025,9 +967,6 @@ func TestService_Start_EditSkipsPolishByDefault(t *testing.T) {
 // sibling polish test.
 func TestService_Start_EditPolishesOnOptIn(t *testing.T) {
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
-	}
 
 	tracker := events.NewTracker()
 	t.Cleanup(tracker.Close)
@@ -1100,9 +1039,6 @@ func (r *failOnNthRunner) Describe(_ context.Context, _ *store.Store, _, _ strin
 // parallel — same goleak reason as the sibling polish test.
 func TestService_Start_PolishFailureNonFatal(t *testing.T) {
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
-	}
 
 	tracker := events.NewTracker()
 	t.Cleanup(tracker.Close)
@@ -1143,9 +1079,6 @@ func TestValidHTMLPassesLint(t *testing.T) {
 	t.Parallel()
 
 	st := minioStoreForBuild(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run build service tests")
-	}
 	ctx := context.Background()
 	slug := buildSlug(t)
 	cleanupSlug(t, st, slug)

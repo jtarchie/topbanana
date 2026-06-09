@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
 // TestUpdateMetadata_PreservesBytes_ReplacesMetadata exercises UpdateMetadata
@@ -13,10 +15,7 @@ import (
 // new metadata must overwrite the old one (including unicode that has to
 // URL-escape on the wire).
 func TestUpdateMetadata_PreservesBytes_ReplacesMetadata(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run store integration tests")
-	}
+	s := storetest.New(t, 0)
 	ctx := context.Background()
 	slug := "umeta-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	t.Cleanup(func() {
@@ -66,10 +65,7 @@ func TestUpdateMetadata_PreservesBytes_ReplacesMetadata(t *testing.T) {
 // TestUpdateMetadata_RejectsBadPath ensures the path validator runs before any
 // S3 traffic, matching Read/Write.
 func TestUpdateMetadata_RejectsBadPath(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run store integration tests")
-	}
+	s := storetest.New(t, 0)
 	err := s.UpdateMetadata(context.Background(), "anyslug", "../escape", "", nil)
 	if err == nil {
 		t.Fatal("expected error for traversal path")

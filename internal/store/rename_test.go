@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
 // TestRenameRoundTrip exercises Copy + Rename against a live Minio bucket:
@@ -14,10 +16,7 @@ import (
 //
 //nolint:cyclop // single end-to-end script keeps the related assertions next to each other.
 func TestRenameRoundTrip(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run store integration tests")
-	}
+	s := storetest.New(t, 0)
 	ctx := context.Background()
 	slug := "rename-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	t.Cleanup(func() {

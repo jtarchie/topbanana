@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
 // TestStore_ConcurrentSamePathWrites documents what S3 actually gives us when
@@ -17,10 +19,7 @@ import (
 //
 // Skips when minio env vars aren't set, same as the other store tests.
 func TestStore_ConcurrentSamePathWrites(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("AWS_ENDPOINT_URL / S3_BUCKET not set; skipping minio integration test")
-	}
+	s := storetest.New(t, 0)
 	ctx := context.Background()
 	slug := "concurrent-write-test-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	path := "index.html"

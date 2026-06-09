@@ -5,13 +5,12 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
 func TestSumBytesUnderPrefix(t *testing.T) {
-	s := minioStore(t)
-	if s == nil {
-		t.Skip("AWS_ENDPOINT_URL / S3_BUCKET not set; skipping minio integration test")
-	}
+	s := storetest.New(t, 0)
 	ctx := context.Background()
 	// Unique prefix per run so concurrent test runs (and leftover bucket
 	// state from prior runs that didn't clean up) don't collide on counts.

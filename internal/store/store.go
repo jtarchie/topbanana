@@ -2,38 +2,62 @@ package store
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/url"
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/hashicorp/golang-lru/arc/v2"
 
 	"github.com/jtarchie/topbanana/internal/compressutil"
 )
 
+// Store is the platform's object-storage abstraction. It owns the cross-cutting
+// rules — compression at rest, slug-prefix path validation, metadata
+// URL-encoding, and the ARC read cache — and delegates the actual byte movement
+// to an objectBackend (S3 in production, an in-memory map in tests). See
+// backend.go for the seam.
 type Store struct {
-	client *s3.Client
-	bucket string
-	cache  *arc.ARCCache[string, *S3Object]
+	backend objectBackend
+	cache   *arc.ARCCache[string, *S3Object]
 }
 
+// New returns a Store backed by a real S3 bucket via client.
 func New(client *s3.Client, bucket string, cacheSize int) (*Store, error) {
-	var cache *arc.ARCCache[string, *S3Object]
-	if cacheSize > 0 {
-		var err error
-		cache, err = arc.NewARC[string, *S3Object](cacheSize)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create ARC cache: %w", err)
-		}
+	s := &Store{backend: &s3Backend{client: client, bucket: bucket}}
+	err := s.initCache(cacheSize)
+	if err != nil {
+		return nil, err
 	}
-	return &Store{client: client, bucket: bucket, cache: cache}, nil
+	return s, nil
+}
+
+// NewInMemory returns a Store backed by an in-process map instead of S3. It runs
+// the same compression, path-validation, metadata-encoding, and caching logic as
+// New, so tests across the storage layer (and everything built on it — editrec,
+// snapshot, portable, build, auth) get deterministic coverage without a live
+// Minio. cacheSize behaves as in New (<= 0 disables the ARC cache).
+func NewInMemory(cacheSize int) (*Store, error) {
+	s := &Store{backend: newMemoryBackend()}
+	err := s.initCache(cacheSize)
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+func (s *Store) initCache(cacheSize int) error {
+	if cacheSize <= 0 {
+		return nil
+	}
+	cache, err := arc.NewARC[string, *S3Object](cacheSize)
+	if err != nil {
+		return fmt.Errorf("failed to create ARC cache: %w", err)
+	}
+	s.cache = cache
+	return nil
 }
 
 type S3Object struct {
@@ -88,13 +112,7 @@ func (s *Store) Write(ctx context.Context, slug, path, content, contentType stri
 
 	// S3 user-defined metadata must be ASCII. URL-encode so unicode (e.g. an
 	// alt-text with em-dashes or non-Latin characters) round-trips safely.
-	var encoded map[string]string
-	if len(metadata) > 0 {
-		encoded = make(map[string]string, len(metadata))
-		for k, v := range metadata {
-			encoded[k] = url.QueryEscape(v)
-		}
-	}
+	encoded := encodeMetadata(metadata)
 
 	// Compress text-y payloads at rest. ContentType stays unchanged because
 	// callers (proxy, agent, MCP, lint) consume the decompressed form via
@@ -109,26 +127,13 @@ func (s *Store) Write(ctx context.Context, slug, path, content, contentType stri
 		body = string(compressed)
 	}
 
-	out, err := s.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(s.bucket),
-		Key:         aws.String(key),
-		Body:        strings.NewReader(body),
-		ContentType: aws.String(contentType),
-		Metadata:    encoded,
-	})
+	etag, err := s.backend.put(ctx, key, []byte(body), contentType, encoded)
 	if err != nil {
-		return fmt.Errorf("failed to write object %s: %w", key, err)
+		return err
 	}
 
-	// s itself is guaranteed non-nil here: callers (server, portable)
-	// always pass a real *Store; calling Write on nil would have panicked
-	// on the PutObject call above.
-	if s.cache != nil { //nolint:nilaway // see comment.
-		etag := ""
-		if out != nil && out.ETag != nil {
-			etag = *out.ETag
-		}
-		s.cache.Add(key, &S3Object{ //nolint:nilaway // see comment on outer if.
+	if s.cache != nil {
+		s.cache.Add(key, &S3Object{
 			Content:     content,
 			ETag:        etag,
 			ContentType: contentType,
@@ -137,6 +142,38 @@ func (s *Store) Write(ctx context.Context, slug, path, content, contentType stri
 	}
 
 	return nil
+}
+
+// encodeMetadata URL-escapes metadata values so unicode round-trips through
+// S3's ASCII-only headers. Returns nil for empty input (so the backend stores
+// no metadata at all rather than an empty map).
+func encodeMetadata(metadata map[string]string) map[string]string {
+	if len(metadata) == 0 {
+		return nil
+	}
+	encoded := make(map[string]string, len(metadata))
+	for k, v := range metadata {
+		encoded[k] = url.QueryEscape(v)
+	}
+	return encoded
+}
+
+// decodeMetadata reverses encodeMetadata: lowercases keys (S3 normalizes header
+// keys) and URL-unescapes values, falling back to the raw value if it isn't
+// valid escaping (a pre-encoding object).
+func decodeMetadata(raw map[string]string) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(raw))
+	for k, v := range raw {
+		dec, decErr := url.QueryUnescape(v)
+		if decErr != nil {
+			dec = v
+		}
+		out[strings.ToLower(k)] = dec
+	}
+	return out
 }
 
 func cloneMetadata(m map[string]string) map[string]string {
@@ -178,63 +215,34 @@ func (s *Store) Read(ctx context.Context, slug, path string) (*S3Object, error) 
 		slog.Debug("store.cache", "slug", slug, "path", path, "hit", false)
 	}
 
-	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(key),
-	})
+	raw, err := s.backend.get(ctx, key)
 	if err != nil {
-		var nsk *types.NoSuchKey
-		if errors.As(err, &nsk) {
-			obj := &S3Object{}
-			if s.cache != nil {
-				s.cache.Add(key, obj)
-			}
-			return obj, nil
-		}
 		return nil, fmt.Errorf("failed to get object %s/%s: %w", slug, path, err)
 	}
-	defer func() {
-		_ = out.Body.Close()
-	}()
-	b, err := io.ReadAll(out.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read object %s/%s: %w", slug, path, err)
-	}
-	// Sniff zstd magic and decompress. Pre-compression objects (raw HTML,
-	// CSS, JSON written before this package learned to compress) pass
-	// through unchanged. No metadata flag needed because the magic bytes
-	// don't collide with anything the platform stores in plaintext.
-	payload, err := compressutil.MaybeDecompress(b)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decompress object %s/%s: %w", slug, path, err)
-	}
-	etag := ""
-	if out.ETag != nil {
-		etag = *out.ETag
-	}
-	contentType := ""
-	if out.ContentType != nil {
-		contentType = *out.ContentType
+	if raw == nil {
+		// Clean miss: cache an empty object so repeat lookups don't re-hit the
+		// backend, matching the prior NoSuchKey behaviour.
+		obj := &S3Object{}
+		if s.cache != nil {
+			s.cache.Add(key, obj)
+		}
+		return obj, nil
 	}
 
-	// Decode user-defined metadata (URL-escaped on write).
-	var metadata map[string]string
-	if len(out.Metadata) > 0 {
-		metadata = make(map[string]string, len(out.Metadata))
-		for k, v := range out.Metadata {
-			dec, decErr := url.QueryUnescape(v)
-			if decErr != nil {
-				dec = v
-			}
-			metadata[strings.ToLower(k)] = dec
-		}
+	// Sniff zstd magic and decompress. Pre-compression objects (raw HTML, CSS,
+	// JSON written before this package learned to compress) pass through
+	// unchanged. No metadata flag needed because the magic bytes don't collide
+	// with anything the platform stores in plaintext.
+	payload, err := compressutil.MaybeDecompress(raw.body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decompress object %s/%s: %w", slug, path, err)
 	}
 
 	obj := &S3Object{
 		Content:     string(payload),
-		ETag:        etag,
-		ContentType: contentType,
-		Metadata:    metadata,
+		ETag:        raw.etag,
+		ContentType: raw.contentType,
+		Metadata:    decodeMetadata(raw.metadata),
 	}
 
 	if s.cache != nil {
@@ -246,16 +254,13 @@ func (s *Store) Read(ctx context.Context, slug, path string) (*S3Object, error) 
 
 func (s *Store) List(ctx context.Context, slug string) ([]string, error) {
 	prefix := slug + "/"
-	out, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket: aws.String(s.bucket),
-		Prefix: aws.String(prefix),
-	})
+	infos, err := s.backend.list(ctx, prefix)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list objects in %s: %w", slug, err)
 	}
-	files := make([]string, 0, len(out.Contents))
-	for _, obj := range out.Contents {
-		name := strings.TrimPrefix(aws.ToString(obj.Key), prefix)
+	files := make([]string, 0, len(infos))
+	for _, info := range infos {
+		name := strings.TrimPrefix(info.key, prefix)
 		if name != "" {
 			files = append(files, name)
 		}
@@ -264,7 +269,7 @@ func (s *Store) List(ctx context.Context, slug string) ([]string, error) {
 }
 
 // FileEntry is one row of ListWithMeta — the data the file explorer renders.
-// LastModified comes straight from S3 and is already UTC.
+// LastModified comes straight from the backend and is already UTC.
 type FileEntry struct {
 	Path         string
 	Size         int64
@@ -272,64 +277,37 @@ type FileEntry struct {
 }
 
 // ListWithMeta is like List but returns size and last-modified for each
-// object, parsed from the ListObjectsV2 response (no extra GETs). The flat
-// List is kept for callers that only need names — changing its signature would
-// touch every existing caller for no gain.
+// object, parsed from the listing response (no extra GETs). The flat List is
+// kept for callers that only need names — changing its signature would touch
+// every existing caller for no gain.
 func (s *Store) ListWithMeta(ctx context.Context, slug string) ([]FileEntry, error) {
 	prefix := slug + "/"
-	out, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket: aws.String(s.bucket),
-		Prefix: aws.String(prefix),
-	})
+	infos, err := s.backend.list(ctx, prefix)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list objects in %s: %w", slug, err)
 	}
-	files := make([]FileEntry, 0, len(out.Contents))
-	for _, obj := range out.Contents {
-		name := strings.TrimPrefix(aws.ToString(obj.Key), prefix)
+	files := make([]FileEntry, 0, len(infos))
+	for _, info := range infos {
+		name := strings.TrimPrefix(info.key, prefix)
 		if name == "" {
 			continue
 		}
-		entry := FileEntry{Path: name, Size: aws.ToInt64(obj.Size)}
-		if obj.LastModified != nil {
-			entry.LastModified = *obj.LastModified
-		}
-		files = append(files, entry)
+		files = append(files, FileEntry{Path: name, Size: info.size, LastModified: info.lastModified})
 	}
 	return files, nil
 }
 
 func (s *Store) EnsureBucket(ctx context.Context) error {
-	_, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{
-		Bucket: aws.String(s.bucket),
-	})
-	if err == nil {
-		return nil
-	}
-	_, err = s.client.CreateBucket(ctx, &s3.CreateBucketInput{
-		Bucket: aws.String(s.bucket),
-	})
-	if err != nil {
-		var owned *types.BucketAlreadyOwnedByYou
-		var exists *types.BucketAlreadyExists
-		if errors.As(err, &owned) || errors.As(err, &exists) {
-			return nil
-		}
-		return fmt.Errorf("failed to create bucket %s: %w", s.bucket, err)
-	}
-	return nil
+	return s.backend.ensureBucket(ctx)
 }
 
 // Delete removes a single object at `{slug}/{path}`. Cache entry, if any, is
 // evicted so subsequent Reads don't return a phantom object.
 func (s *Store) Delete(ctx context.Context, slug, path string) error {
 	key := slug + "/" + path
-	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(key),
-	})
+	err := s.backend.remove(ctx, key)
 	if err != nil {
-		return fmt.Errorf("failed to delete object %s: %w", key, err)
+		return err
 	}
 	if s.cache != nil {
 		s.cache.Remove(key)
@@ -337,9 +315,9 @@ func (s *Store) Delete(ctx context.Context, slug, path string) error {
 	return nil
 }
 
-// Copy duplicates `{slug}/{srcPath}` to `{slug}/{dstPath}` via s3.CopyObject.
-// Preserves the source object's content-type and user metadata. Evicts the
-// destination from the ARC cache so subsequent Reads pick up the new object.
+// Copy duplicates `{slug}/{srcPath}` to `{slug}/{dstPath}`. Preserves the
+// source object's content-type and user metadata. Evicts the destination from
+// the ARC cache so subsequent Reads pick up the new object.
 func (s *Store) Copy(ctx context.Context, slug, srcPath, dstPath string) error {
 	err := ValidateObjectPath(srcPath)
 	if err != nil {
@@ -351,13 +329,9 @@ func (s *Store) Copy(ctx context.Context, slug, srcPath, dstPath string) error {
 	}
 	srcKey := slug + "/" + srcPath
 	dstKey := slug + "/" + dstPath
-	_, err = s.client.CopyObject(ctx, &s3.CopyObjectInput{
-		Bucket:     aws.String(s.bucket),
-		Key:        aws.String(dstKey),
-		CopySource: aws.String(s.bucket + "/" + srcKey),
-	})
+	err = s.backend.copyObject(ctx, srcKey, dstKey)
 	if err != nil {
-		return fmt.Errorf("failed to copy %s to %s: %w", srcKey, dstKey, err)
+		return err
 	}
 	if s.cache != nil {
 		s.cache.Remove(dstKey)
@@ -366,39 +340,18 @@ func (s *Store) Copy(ctx context.Context, slug, srcPath, dstPath string) error {
 }
 
 // UpdateMetadata replaces the user-defined metadata on `{slug}/{path}` without
-// touching its bytes. S3 has no in-place metadata update, so this is a
-// CopyObject onto the same key with MetadataDirective=REPLACE — the bytes are
-// rewritten server-side and the new metadata wins. Encoding mirrors Write
-// (URL-escape values so unicode round-trips through ASCII-only S3 headers).
-// Evicts the ARC cache so the next Read sees fresh metadata.
+// touching its bytes. Encoding mirrors Write (URL-escape values so unicode
+// round-trips through ASCII-only metadata). Evicts the ARC cache so the next
+// Read sees fresh metadata.
 func (s *Store) UpdateMetadata(ctx context.Context, slug, path, contentType string, metadata map[string]string) error {
 	err := ValidateObjectPath(path)
 	if err != nil {
 		return err
 	}
 	key := slug + "/" + path
-
-	var encoded map[string]string
-	if len(metadata) > 0 {
-		encoded = make(map[string]string, len(metadata))
-		for k, v := range metadata {
-			encoded[k] = url.QueryEscape(v)
-		}
-	}
-
-	input := &s3.CopyObjectInput{
-		Bucket:            aws.String(s.bucket),
-		Key:               aws.String(key),
-		CopySource:        aws.String(s.bucket + "/" + key),
-		Metadata:          encoded,
-		MetadataDirective: types.MetadataDirectiveReplace,
-	}
-	if contentType != "" {
-		input.ContentType = aws.String(contentType)
-	}
-	_, err = s.client.CopyObject(ctx, input)
+	err = s.backend.replaceMeta(ctx, key, contentType, encodeMetadata(metadata))
 	if err != nil {
-		return fmt.Errorf("failed to update metadata on %s: %w", key, err)
+		return err
 	}
 	if s.cache != nil {
 		s.cache.Remove(key)
@@ -434,82 +387,39 @@ func (s *Store) WriteRaw(ctx context.Context, key, content, contentType string, 
 	if contentType == "" {
 		contentType = DefaultContentType
 	}
-	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(s.bucket),
-		Key:         aws.String(key),
-		Body:        strings.NewReader(content),
-		ContentType: aws.String(contentType),
-		Metadata:    metadata,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to write raw object %s: %w", key, err)
-	}
-	return nil
+	_, err := s.backend.put(ctx, key, []byte(content), contentType, metadata)
+	return err
 }
 
 // ReadRaw is the symmetric counterpart to WriteRaw: fetches an object by
 // absolute bucket key. Returns an S3Object with empty Content for missing
-// keys (no error). Bypasses the ARC cache.
+// keys (no error). Bypasses the ARC cache and does not URL-decode metadata.
 func (s *Store) ReadRaw(ctx context.Context, key string) (*S3Object, error) {
-	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(key),
-	})
+	raw, err := s.backend.get(ctx, key)
 	if err != nil {
-		var nsk *types.NoSuchKey
-		if errors.As(err, &nsk) {
-			return &S3Object{}, nil
-		}
 		return nil, fmt.Errorf("failed to get raw object %s: %w", key, err)
 	}
-	defer func() { _ = out.Body.Close() }()
-	b, err := io.ReadAll(out.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read raw object %s: %w", key, err)
+	if raw == nil {
+		return &S3Object{}, nil
 	}
-	etag := ""
-	if out.ETag != nil {
-		etag = *out.ETag
-	}
-	contentType := ""
-	if out.ContentType != nil {
-		contentType = *out.ContentType
-	}
-	var metadata map[string]string
-	if len(out.Metadata) > 0 {
-		metadata = make(map[string]string, len(out.Metadata))
-		for k, v := range out.Metadata {
-			metadata[strings.ToLower(k)] = v
-		}
-	}
-	return &S3Object{Content: string(b), ETag: etag, ContentType: contentType, Metadata: metadata}, nil
+	return &S3Object{Content: string(raw.body), ETag: raw.etag, ContentType: raw.contentType, Metadata: raw.metadata}, nil
 }
 
 // DeleteRaw removes an object by absolute bucket key.
 func (s *Store) DeleteRaw(ctx context.Context, key string) error {
-	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(key),
-	})
-	if err != nil {
-		return fmt.Errorf("failed to delete raw object %s: %w", key, err)
-	}
-	return nil
+	return s.backend.remove(ctx, key)
 }
 
 // ListPrefix returns absolute bucket keys under the given prefix. Used to
 // enumerate snapshot archives at `_snapshots/{slug}/`.
 func (s *Store) ListPrefix(ctx context.Context, prefix string) ([]string, error) {
-	out, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket: aws.String(s.bucket),
-		Prefix: aws.String(prefix),
-	})
+	infos, err := s.backend.list(ctx, prefix)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list prefix %s: %w", prefix, err)
+		return nil, err
 	}
-	keys := make([]string, 0, len(out.Contents))
-	for _, obj := range out.Contents {
-		keys = append(keys, aws.ToString(obj.Key))
+	keys := make([]string, 0, len(infos))
+	for _, info := range infos {
+		keys = append(keys, info.key)
 	}
 	return keys, nil
 }
@@ -522,42 +432,34 @@ type PrefixStats struct {
 }
 
 // SumBytesUnderPrefix aggregates total bytes + object count beneath an
-// arbitrary bucket prefix in a single ListObjectsV2 sweep — no per-object
-// reads. Used by the system dashboard to break storage down by reserved
-// area (_snapshots/, _edits/, _acme/, _state/) without round-tripping each
-// archive. Returns a zero PrefixStats for a prefix with no objects so callers
-// can render a zero row without special-casing missing folders.
+// arbitrary bucket prefix in a single listing sweep — no per-object reads.
+// Used by the system dashboard to break storage down by reserved area
+// (_snapshots/, _edits/, _acme/, _state/) without round-tripping each archive.
+// Returns a zero PrefixStats for a prefix with no objects so callers can render
+// a zero row without special-casing missing folders.
 func (s *Store) SumBytesUnderPrefix(ctx context.Context, prefix string) (PrefixStats, error) {
-	out, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket: aws.String(s.bucket),
-		Prefix: aws.String(prefix),
-	})
+	infos, err := s.backend.list(ctx, prefix)
 	if err != nil {
-		return PrefixStats{}, fmt.Errorf("failed to sum prefix %s: %w", prefix, err)
+		return PrefixStats{}, err
 	}
 	var stats PrefixStats
-	for _, obj := range out.Contents {
-		stats.TotalBytes += aws.ToInt64(obj.Size)
+	for _, info := range infos {
+		stats.TotalBytes += info.size
 		stats.ObjectCount++
 	}
 	return stats, nil
 }
 
 // ListApps returns the slugs of every site in the bucket. Top-level prefixes
-// that start with "_" are reserved (e.g. _snapshots/) and excluded — slugs
-// are restricted to [a-z0-9-] so this can never hide a real app.
+// that start with "_" are reserved (e.g. _snapshots/) and excluded — slugs are
+// restricted to [a-z0-9-] so this can never hide a real app.
 func (s *Store) ListApps(ctx context.Context) ([]string, error) {
-	out, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
-		Bucket:    aws.String(s.bucket),
-		Delimiter: aws.String("/"),
-	})
+	tops, err := s.backend.listApps(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list apps: %w", err)
+		return nil, err
 	}
-	apps := make([]string, 0, len(out.CommonPrefixes))
-	for _, cp := range out.CommonPrefixes {
-		prefix := aws.ToString(cp.Prefix)
-		app := strings.TrimSuffix(prefix, "/")
+	apps := make([]string, 0, len(tops))
+	for _, app := range tops {
 		if app == "" || strings.HasPrefix(app, "_") {
 			continue
 		}
