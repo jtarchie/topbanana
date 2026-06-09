@@ -737,25 +737,32 @@
 </script>
 {{ template "panel_js" . }}
 <script>
-  // Image drawer wiring — Browse opens the panel; Reference image opens with
-  // an insert callback that pastes `assets/<path>` into the prompt textarea
-  // at the cursor. The agent honors literal `assets/...` mentions per the
-  // updated system prompt, so the model no longer has to guess which image
-  // the user meant.
+  // Image drawer wiring — both entry buttons (the sidebar Images "Browse"
+  // and the prompt-side "Pick image…") open the same drawer; clicking
+  // Insert always pastes an `assets/<path>` reference into the prompt
+  // textarea at the cursor. The agent honors literal `assets/...` mentions
+  // per the updated system prompt, so the model no longer has to guess
+  // which image the user meant.
   (function () {
     if (!window.TBImageDrawer) return;
-    var pickInsert = false;
     TBImageDrawer.init({
       slug: {{ .SlugJSON }},
       mode: "insert",
       onInsert: function (asset) {
-        if (!pickInsert) return;
-        pickInsert = false;
         var ta = document.getElementById('prompt');
         if (!ta) return;
         var snippet = '`' + asset.path + '`';
+        // Default selection on a never-focused textarea is 0,0 — so if the
+        // user typed elsewhere first and then opened the drawer without
+        // ever clicking inside the prompt, naively trusting selectionStart
+        // would prepend the snippet ahead of their existing text. When
+        // there's no real cursor to honor, append at the end instead.
         var start = ta.selectionStart || 0;
         var end = ta.selectionEnd || 0;
+        var notFocused = document.activeElement !== ta;
+        if (notFocused && start === 0 && end === 0 && ta.value.length > 0) {
+          start = end = ta.value.length;
+        }
         var pre = ta.value.slice(0, start);
         var post = ta.value.slice(end);
         var pad = pre && !/\s$/.test(pre) ? ' ' : '';
@@ -766,12 +773,12 @@
         toast('Added ' + asset.path + ' — describe how to use it.');
       },
     });
-    function bind(id, opts) {
+    function bind(id) {
       var btn = document.getElementById(id);
-      if (btn) btn.addEventListener('click', function () { pickInsert = !!(opts && opts.pick); TBImageDrawer.open(); });
+      if (btn) btn.addEventListener('click', function () { TBImageDrawer.open(); });
     }
-    bind('open-image-drawer', { pick: false });
-    bind('prompt-pick-image', { pick: true });
+    bind('open-image-drawer');
+    bind('prompt-pick-image');
   })();
 </script>
 </body>

@@ -88,6 +88,7 @@
   var initialCSS = {{.CSSJSON}};
   var assets = {{.AssetsJSON}};
   var canvasCSS = {{.CanvasCSSJSON}};
+  var canvasBase = {{.CanvasBaseJSON}};
   var pageTheme = {{.ThemeJSON}};
 
   var editor = grapesjs.init({
@@ -109,10 +110,21 @@
   window.editor = editor;
 
   // Mirror the page's data-theme onto the canvas <html> so daisyUI resolves the
-  // right palette (the canvas iframe starts themeless).
+  // right palette (the canvas iframe starts themeless). Also inject a
+  // <base href> pointing at the site's subdomain so relative asset URLs
+  // (e.g. an <img src="assets/photo.png"> the user just inserted) resolve
+  // against the published origin rather than /edit/:slug/ — without this,
+  // a freshly inserted image renders as a broken placeholder even though
+  // editor.getHtml() (and the saved page) has the correct relative src.
   editor.on('load', function(){
     var cdoc = editor.Canvas.getDocument();
-    if (cdoc && cdoc.documentElement && pageTheme) cdoc.documentElement.setAttribute('data-theme', pageTheme);
+    if (!cdoc) return;
+    if (cdoc.documentElement && pageTheme) cdoc.documentElement.setAttribute('data-theme', pageTheme);
+    if (canvasBase && cdoc.head && !cdoc.head.querySelector('base')) {
+      var base = cdoc.createElement('base');
+      base.setAttribute('href', canvasBase);
+      cdoc.head.insertBefore(base, cdoc.head.firstChild);
+    }
   });
 
   var statusEl = document.getElementById('status');
