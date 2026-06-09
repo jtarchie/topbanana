@@ -146,6 +146,28 @@ const localStylesheetHref = "/app.css"
 // localStylesheetTag is the canonical form AutoFixDesignSubstrate injects.
 const localStylesheetTag = `<link rel="stylesheet" href="/app.css">`
 
+// walkDOM does a depth-first pre-order traversal of the parse tree, invoking
+// visit on every node. Every DOM-based check shares it instead of redeclaring
+// the recursive closure inline.
+func walkDOM(n *html.Node, visit func(*html.Node)) {
+	visit(n)
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		walkDOM(c, visit)
+	}
+}
+
+// injectBeforeHeadClose splices tag (plus a newline) in immediately before the
+// first case-insensitive </head>. Returns (content, false) unchanged when the
+// document has no </head>. The auto-fixers share it so the "insert into <head>"
+// mechanics live in one place.
+func injectBeforeHeadClose(content, tag string) (string, bool) {
+	closeIdx := strings.Index(strings.ToLower(content), "</head>")
+	if closeIdx == -1 {
+		return content, false
+	}
+	return content[:closeIdx] + tag + "\n" + content[closeIdx:], true
+}
+
 // substratePresence records whether the self-hosted stylesheet link was found
 // as a well-formed DOM node during one pass over a document.
 type substratePresence struct {
@@ -172,14 +194,7 @@ func (p *substratePresence) inspect(n *html.Node) {
 // unstyled.
 func checkDesignSubstrate(file string, doc *html.Node) []Error {
 	var p substratePresence
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		p.inspect(n)
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
-	}
-	walk(doc)
+	walkDOM(doc, p.inspect)
 
 	if p.local {
 		return nil
@@ -207,23 +222,11 @@ func AutoFixDesignSubstrate(content string) (string, bool) {
 		return content, false
 	}
 	var p substratePresence
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		p.inspect(n)
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
-	}
-	walk(doc)
+	walkDOM(doc, p.inspect)
 	if p.local {
 		return content, false
 	}
-	lower := strings.ToLower(content)
-	closeIdx := strings.Index(lower, "</head>")
-	if closeIdx == -1 {
-		return content, false
-	}
-	return content[:closeIdx] + localStylesheetTag + "\n" + content[closeIdx:], true
+	return injectBeforeHeadClose(content, localStylesheetTag)
 }
 
 // viewportMetaTag is the canonical responsive viewport declaration every page
@@ -273,14 +276,7 @@ func (p *viewportPresence) inspect(n *html.Node) {
 // not mistaken for present.
 func checkMobileViewport(file string, doc *html.Node) []Error {
 	var p viewportPresence
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		p.inspect(n)
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
-	}
-	walk(doc)
+	walkDOM(doc, p.inspect)
 
 	if p.responsive {
 		return nil
@@ -306,23 +302,11 @@ func AutoFixMobileViewport(content string) (string, bool) {
 		return content, false
 	}
 	var p viewportPresence
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		p.inspect(n)
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
-	}
-	walk(doc)
+	walkDOM(doc, p.inspect)
 	if p.meta {
 		return content, false
 	}
-	lower := strings.ToLower(content)
-	closeIdx := strings.Index(lower, "</head>")
-	if closeIdx == -1 {
-		return content, false
-	}
-	return content[:closeIdx] + viewportMetaTag + "\n" + content[closeIdx:], true
+	return injectBeforeHeadClose(content, viewportMetaTag)
 }
 
 // AutoFixers maps each deterministically fixable lint Kind to the in-code
@@ -347,29 +331,25 @@ var AutoFixers = map[Kind]func(string) (string, bool){
 // <link href="...daisyui..."> on the same line.
 func suspiciousAttrValues(file string, doc *html.Node) []Error {
 	var errs []Error
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if n.Type == html.ElementNode {
-			for _, attr := range n.Attr {
-				name := findEmbeddedTagName(attr.Val)
-				if name == "" {
-					continue
-				}
-				errs = append(errs, Error{
-					File:    file,
-					Kind:    KindSuspiciousAttr,
-					Message: fmt.Sprintf("<%s> attribute %q has a value containing an embedded <%s> tag — the value is missing a closing quote and is swallowing the following element. Re-read the file, then rewrite the broken attribute so its quoted value ends before the next tag begins.", n.Data, attr.Key, name),
-				})
-				// One error per element is plenty; the agent will re-read
-				// the whole file to fix it.
-				break
+	walkDOM(doc, func(n *html.Node) {
+		if n.Type != html.ElementNode {
+			return
+		}
+		for _, attr := range n.Attr {
+			name := findEmbeddedTagName(attr.Val)
+			if name == "" {
+				continue
 			}
+			errs = append(errs, Error{
+				File:    file,
+				Kind:    KindSuspiciousAttr,
+				Message: fmt.Sprintf("<%s> attribute %q has a value containing an embedded <%s> tag — the value is missing a closing quote and is swallowing the following element. Re-read the file, then rewrite the broken attribute so its quoted value ends before the next tag begins.", n.Data, attr.Key, name),
+			})
+			// One error per element is plenty; the agent will re-read
+			// the whole file to fix it.
+			break
 		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
-	}
-	walk(doc)
+	})
 	return errs
 }
 
@@ -467,16 +447,11 @@ func checkHTMLLinks(filename string, doc *html.Node, lc linkCheckContext) []Erro
 	dir := path.Dir(filename)
 	var errs []Error
 
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
+	walkDOM(doc, func(n *html.Node) {
 		if n.Type == html.ElementNode {
 			errs = append(errs, checkNodeLinks(filename, dir, n, lc)...)
 		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
-		}
-	}
-	walk(doc)
+	})
 
 	return errs
 }

@@ -166,15 +166,12 @@ func (s *Server) authorizeSlugOwner(ctx context.Context, email, slug string) (*a
 }
 
 // mcpSiteURL builds the public URL for a slug, mirroring the subdomain (prod)
-// vs. path-based (local dev) split used elsewhere in the server.
+// vs. path-based (local dev) split used elsewhere in the server. The dev branch
+// is just mcpBaseURL + /s/{slug}, so it reuses mcpBaseURL rather than
+// re-deriving the loopback scheme/port logic.
 func (s *Server) mcpSiteURL(slug string) string {
-	host := stripPort(s.domain)
-	if fallThroughHosts[host] {
-		base := "http://" + s.domain
-		if s.port != "" && s.port != "80" {
-			base += ":" + s.port
-		}
-		return base + "/s/" + slug
+	if fallThroughHosts[stripPort(s.domain)] {
+		return s.mcpBaseURL() + "/s/" + slug
 	}
 	return "https://" + slug + "." + s.domain
 }
@@ -537,48 +534,24 @@ func (s *Server) registerGrepFiles(srv *mcp.Server) {
 		if in.Pattern == "" {
 			return nil, nil, errors.New("pattern is required")
 		}
-		maxRes := in.MaxResults
-		if maxRes <= 0 {
-			maxRes = mcpGrepDefaultMax
-		}
-		if maxRes > mcpGrepHardCap {
-			maxRes = mcpGrepHardCap
-		}
 		files, err := s.store.List(ctx, in.Slug)
 		if err != nil {
 			return nil, nil, fmt.Errorf("list files: %w", err)
 		}
-		sort.Strings(files)
-		matches := make([]textedit.GrepMatch, 0, maxRes)
-		total, truncated := 0, false
-		for _, f := range files {
-			if !textedit.GrepEligible(f) {
-				continue
+		// Shared with the build agent's grep_files tool so caps and scan
+		// semantics stay identical across both search surfaces.
+		matches, total, truncated := textedit.GrepFiles(files, func(path string) (string, bool) {
+			obj, rerr := s.store.Read(ctx, in.Slug, path)
+			if rerr != nil {
+				return "", false
 			}
-			obj, rerr := s.store.Read(ctx, in.Slug, f)
-			if rerr != nil || obj.Content == "" {
-				continue
-			}
-			for _, m := range textedit.MatchLines(f, obj.Content, in.Pattern, mcpGrepSnippetMax) {
-				total++
-				if len(matches) < maxRes {
-					matches = append(matches, m)
-				} else {
-					truncated = true
-				}
-			}
-		}
+			return obj.Content, true
+		}, in.Pattern, in.MaxResults)
 		return mcpJSON(map[string]any{
 			"slug": in.Slug, "matches": matches, "total_matches": total, "truncated": truncated,
 		})
 	})
 }
-
-const (
-	mcpGrepDefaultMax = 50
-	mcpGrepHardCap    = 200
-	mcpGrepSnippetMax = 200
-)
 
 type listFilesInput struct {
 	Slug string `json:"slug" jsonschema:"The site slug"`

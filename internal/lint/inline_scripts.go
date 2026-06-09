@@ -16,26 +16,23 @@ import (
 func checkInlineJS(filename string, doc *html.Node) []Error {
 	var errs []Error
 	idx := 0
-	var walk func(*html.Node)
-	walk = func(n *html.Node) {
-		if n.Type == html.ElementNode && n.Data == "script" && isLintableScript(n) {
-			idx++
-			src := scriptText(n)
-			if strings.TrimSpace(src) != "" {
-				_, err := parser.ParseFile(nil, filename, src, 0)
-				if err != nil {
-					errs = append(errs, Error{
-						File:    filename,
-						Message: fmt.Sprintf("inline <script> #%d parse error: %s", idx, err),
-					})
-				}
-			}
+	walkDOM(doc, func(n *html.Node) {
+		if n.Type != html.ElementNode || n.Data != "script" || !isLintableScript(n) {
+			return
 		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			walk(c)
+		idx++
+		src := scriptText(n)
+		if strings.TrimSpace(src) == "" {
+			return
 		}
-	}
-	walk(doc)
+		_, err := parser.ParseFile(nil, filename, src, 0)
+		if err != nil {
+			errs = append(errs, Error{
+				File:    filename,
+				Message: fmt.Sprintf("inline <script> #%d parse error: %s", idx, err),
+			})
+		}
+	})
 	return errs
 }
 

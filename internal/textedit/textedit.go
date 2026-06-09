@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 )
 
@@ -440,4 +441,53 @@ func TruncateSnippet(line string, limit int) string {
 		return line
 	}
 	return line[:limit] + "…"
+}
+
+// Grep result caps, shared by the build agent's grep_files tool and the MCP
+// grep_files tool so the two search surfaces return consistent results.
+const (
+	GrepDefaultMax = 50  // default max matches when the caller doesn't ask
+	GrepHardCap    = 200 // absolute ceiling regardless of the caller's request
+	GrepSnippetMax = 200 // per-line snippet byte cap
+)
+
+// GrepFiles runs a literal substring search across files, reading each via the
+// read callback (which returns the content and whether it's present/non-empty).
+// It sorts files for deterministic output, skips ineligible paths
+// (GrepEligible), clamps maxResults into [1, GrepHardCap] (0 → GrepDefaultMax),
+// and accumulates matches up to that cap. Returns the matches, the total number
+// of hits found (which may exceed len(matches)), and whether the cap truncated
+// the result. Both the agent and MCP grep tools call this so their cap and
+// scan semantics can't drift.
+func GrepFiles(files []string, read func(path string) (content string, ok bool), pattern string, maxResults int) ([]GrepMatch, int, bool) {
+	if maxResults <= 0 {
+		maxResults = GrepDefaultMax
+	}
+	if maxResults > GrepHardCap {
+		maxResults = GrepHardCap
+	}
+	sorted := append([]string(nil), files...)
+	sort.Strings(sorted)
+
+	out := make([]GrepMatch, 0, maxResults)
+	total := 0
+	truncated := false
+	for _, f := range sorted {
+		if !GrepEligible(f) {
+			continue
+		}
+		content, ok := read(f)
+		if !ok || content == "" {
+			continue
+		}
+		for _, m := range MatchLines(f, content, pattern, GrepSnippetMax) {
+			total++
+			if len(out) < maxResults {
+				out = append(out, m)
+			} else {
+				truncated = true
+			}
+		}
+	}
+	return out, total, truncated
 }

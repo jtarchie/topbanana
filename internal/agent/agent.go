@@ -156,17 +156,11 @@ type grepFilesArgs struct {
 	MaxResults int    `json:"max_results,omitempty"`
 }
 
-type grepMatch struct {
-	Path       string `json:"path"`
-	LineNumber int    `json:"line_number"`
-	Snippet    string `json:"snippet"`
-}
-
 type grepFilesResult struct {
-	Matches      []grepMatch `json:"matches"`
-	TotalMatches int         `json:"total_matches"`
-	Truncated    bool        `json:"truncated,omitempty"`
-	Error        string      `json:"error,omitempty"`
+	Matches      []textedit.GrepMatch `json:"matches"`
+	TotalMatches int                  `json:"total_matches"`
+	Truncated    bool                 `json:"truncated,omitempty"`
+	Error        string               `json:"error,omitempty"`
 }
 
 type listFilesResult struct {
@@ -974,41 +968,18 @@ func newEditFileTool(s *store.Store, slug string, emit func(events.Event), state
 					Note: "old_text and new_text are identical; no change made",
 				}, nil
 			}
-			state.writeMu.Lock()
-			defer state.writeMu.Unlock()
-			obj, err := s.Read(tctx, slug, args.Path)
+			var count int
+			var note string
+			sig := toolSignature("edit_file", args.Path, args.OldText, args.NewText)
+			_, _, err := applyToFile(tctx, s, slug, args.Path, "edit_file", sig, state, func(content string) (string, error) {
+				edit, applyErr := applyEdit(content, args.OldText, args.NewText, args.ReplaceAll)
+				if applyErr != nil {
+					return "", applyErr
+				}
+				count, note = edit.Count, edit.Note
+				return edit.Content, nil
+			})
 			if err != nil {
-				slog.Warn("agent.edit_file", "slug", slug, "path", args.Path, "err", err)
-				em.fail(args.Path, err)
-				return editFileResult{Error: err.Error()}, nil
-			}
-			if obj.Content == "" {
-				em.fail(args.Path, errors.New("file not found"))
-				return editFileResult{Error: "file not found: " + args.Path}, nil
-			}
-			edit, applyErr := applyEdit(obj.Content, args.OldText, args.NewText, args.ReplaceAll)
-			updated, count, note := edit.Content, edit.Count, edit.Note
-			if applyErr != nil {
-				em.fail(args.Path, applyErr)
-				return editFileResult{Error: applyErr.Error()}, nil
-			}
-			if len(updated) > maxHTMLFileBytes {
-				sizeErr := fmt.Errorf("content too large after edit: %d bytes (max %d)", len(updated), maxHTMLFileBytes)
-				em.fail(args.Path, sizeErr)
-				return editFileResult{Error: sizeErr.Error()}, nil
-			}
-			guardErr := state.guard.Allow(toolSignature("edit_file", args.Path, args.OldText, args.NewText))
-			if guardErr != nil {
-				em.fail(args.Path, guardErr)
-				return editFileResult{Error: guardErr.Error()}, nil
-			}
-			contentType := obj.ContentType
-			if contentType == "" {
-				contentType = "text/html; charset=utf-8"
-			}
-			err = s.Write(tctx, slug, args.Path, updated, contentType, obj.Metadata)
-			if err != nil {
-				slog.Warn("agent.edit_file", "slug", slug, "path", args.Path, "err", err)
 				em.fail(args.Path, err)
 				return editFileResult{Error: err.Error()}, nil
 			}
@@ -1042,41 +1013,12 @@ func newReplaceLinesTool(s *store.Store, slug string, emit func(events.Event), s
 				em.fail(args.Path, pathErr)
 				return editFileResult{Error: pathErr.Error()}, nil
 			}
-			state.writeMu.Lock()
-			defer state.writeMu.Unlock()
-			obj, err := s.Read(tctx, slug, args.Path)
+			sig := toolSignature("replace_lines", args.Path,
+				fmt.Sprintf("%d-%d", args.StartLine, args.EndLine), args.NewText)
+			_, _, err := applyToFile(tctx, s, slug, args.Path, "replace_lines", sig, state, func(content string) (string, error) {
+				return spliceLines(content, args.StartLine, args.EndLine, args.NewText)
+			})
 			if err != nil {
-				slog.Warn("agent.replace_lines", "slug", slug, "path", args.Path, "err", err)
-				em.fail(args.Path, err)
-				return editFileResult{Error: err.Error()}, nil
-			}
-			if obj.Content == "" {
-				em.fail(args.Path, errors.New("file not found"))
-				return editFileResult{Error: "file not found: " + args.Path}, nil
-			}
-			updated, err := spliceLines(obj.Content, args.StartLine, args.EndLine, args.NewText)
-			if err != nil {
-				em.fail(args.Path, err)
-				return editFileResult{Error: err.Error()}, nil
-			}
-			if len(updated) > maxHTMLFileBytes {
-				sizeErr := fmt.Errorf("content too large after replace_lines: %d bytes (max %d)", len(updated), maxHTMLFileBytes)
-				em.fail(args.Path, sizeErr)
-				return editFileResult{Error: sizeErr.Error()}, nil
-			}
-			guardErr := state.guard.Allow(toolSignature("replace_lines", args.Path,
-				fmt.Sprintf("%d-%d", args.StartLine, args.EndLine), args.NewText))
-			if guardErr != nil {
-				em.fail(args.Path, guardErr)
-				return editFileResult{Error: guardErr.Error()}, nil
-			}
-			contentType := obj.ContentType
-			if contentType == "" {
-				contentType = "text/html; charset=utf-8"
-			}
-			err = s.Write(tctx, slug, args.Path, updated, contentType, obj.Metadata)
-			if err != nil {
-				slog.Warn("agent.replace_lines", "slug", slug, "path", args.Path, "err", err)
 				em.fail(args.Path, err)
 				return editFileResult{Error: err.Error()}, nil
 			}
@@ -1110,41 +1052,11 @@ func newInsertAtLineTool(s *store.Store, slug string, emit func(events.Event), s
 				em.fail(args.Path, pathErr)
 				return editFileResult{Error: pathErr.Error()}, nil
 			}
-			state.writeMu.Lock()
-			defer state.writeMu.Unlock()
-			obj, err := s.Read(tctx, slug, args.Path)
+			sig := toolSignature("insert_at_line", args.Path, strconv.Itoa(args.AfterLine), args.Content)
+			_, _, err := applyToFile(tctx, s, slug, args.Path, "insert_at_line", sig, state, func(content string) (string, error) {
+				return insertAfterLine(content, args.AfterLine, args.Content)
+			})
 			if err != nil {
-				slog.Warn("agent.insert_at_line", "slug", slug, "path", args.Path, "err", err)
-				em.fail(args.Path, err)
-				return editFileResult{Error: err.Error()}, nil
-			}
-			if obj.Content == "" {
-				em.fail(args.Path, errors.New("file not found"))
-				return editFileResult{Error: "file not found: " + args.Path}, nil
-			}
-			updated, err := insertAfterLine(obj.Content, args.AfterLine, args.Content)
-			if err != nil {
-				em.fail(args.Path, err)
-				return editFileResult{Error: err.Error()}, nil
-			}
-			if len(updated) > maxHTMLFileBytes {
-				sizeErr := fmt.Errorf("content too large after insert_at_line: %d bytes (max %d)", len(updated), maxHTMLFileBytes)
-				em.fail(args.Path, sizeErr)
-				return editFileResult{Error: sizeErr.Error()}, nil
-			}
-			guardErr := state.guard.Allow(toolSignature("insert_at_line", args.Path,
-				strconv.Itoa(args.AfterLine), args.Content))
-			if guardErr != nil {
-				em.fail(args.Path, guardErr)
-				return editFileResult{Error: guardErr.Error()}, nil
-			}
-			contentType := obj.ContentType
-			if contentType == "" {
-				contentType = "text/html; charset=utf-8"
-			}
-			err = s.Write(tctx, slug, args.Path, updated, contentType, obj.Metadata)
-			if err != nil {
-				slog.Warn("agent.insert_at_line", "slug", slug, "path", args.Path, "err", err)
 				em.fail(args.Path, err)
 				return editFileResult{Error: err.Error()}, nil
 			}
@@ -1158,6 +1070,50 @@ func newInsertAtLineTool(s *store.Store, slug string, emit func(events.Event), s
 		return nil, fmt.Errorf("create insert_at_line tool: %w", err)
 	}
 	return t, nil
+}
+
+// applyToFile is the shared read-modify-write core behind the agent's three
+// HTML edit tools (edit_file, replace_lines, insert_at_line). Under writeMu it
+// reads the file, refuses a missing one, runs transform, enforces the per-file
+// size cap, applies the anti-loop guard, preserves the stored content type, and
+// writes the result back, logging infra (read/write) failures under the tool's
+// key. It returns the prior and written content; the caller owns the emit
+// lifecycle, the success log, and the tool-specific result shape. Mirrors the
+// server's mcpApplyToFile so the two edit surfaces keep identical not-found /
+// size-cap / content-type semantics — extract once, can't drift.
+func applyToFile(ctx context.Context, s *store.Store, slug, path, tool, guardSig string, state *buildState, transform func(string) (string, error)) (before, after string, err error) {
+	state.writeMu.Lock()
+	defer state.writeMu.Unlock()
+
+	obj, err := s.Read(ctx, slug, path)
+	if err != nil {
+		slog.Warn("agent."+tool, "slug", slug, "path", path, "err", err)
+		return "", "", fmt.Errorf("read %q: %w", path, err)
+	}
+	if obj.Content == "" {
+		return "", "", fmt.Errorf("file not found: %s", path)
+	}
+	updated, err := transform(obj.Content)
+	if err != nil {
+		return obj.Content, "", err
+	}
+	if len(updated) > maxHTMLFileBytes {
+		return obj.Content, "", fmt.Errorf("content too large after edit: %d bytes (max %d)", len(updated), maxHTMLFileBytes)
+	}
+	err = state.guard.Allow(guardSig)
+	if err != nil {
+		return obj.Content, "", err
+	}
+	contentType := obj.ContentType
+	if contentType == "" {
+		contentType = "text/html; charset=utf-8"
+	}
+	err = s.Write(ctx, slug, path, updated, contentType, obj.Metadata)
+	if err != nil {
+		slog.Warn("agent."+tool, "slug", slug, "path", path, "err", err)
+		return obj.Content, "", fmt.Errorf("write %q: %w", path, err)
+	}
+	return obj.Content, updated, nil
 }
 
 // spliceLines replaces lines start..end (1-indexed, inclusive) with newText.
@@ -1180,12 +1136,6 @@ func applyEdit(content, oldText, newText string, replaceAll bool) (textedit.Edit
 	return textedit.ApplyEdit(content, oldText, newText, replaceAll)
 }
 
-const (
-	grepDefaultMax = 50
-	grepHardCap    = 200
-	grepSnippetMax = 200
-)
-
 func newGrepFilesTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
 	em := emitter{emit: emit, tool: "grep_files"}
 	t, err := functiontool.New(
@@ -1199,77 +1149,31 @@ func newGrepFilesTool(s *store.Store, slug string, emit func(events.Event)) (too
 				em.fail("", errors.New("pattern required"))
 				return grepFilesResult{Error: "pattern is required"}, nil
 			}
-			maxRes := args.MaxResults
-			if maxRes <= 0 {
-				maxRes = grepDefaultMax
-			}
-			if maxRes > grepHardCap {
-				maxRes = grepHardCap
-			}
 			files, err := s.List(tctx, slug)
 			if err != nil {
 				slog.Warn("agent.grep_files", "slug", slug, "err", err)
 				em.fail("", err)
 				return grepFilesResult{Error: err.Error()}, nil
 			}
-			sort.Strings(files)
-			out := make([]grepMatch, 0, maxRes)
-			total := 0
-			truncated := false
-			for _, f := range files {
-				if !grepEligible(f) {
-					continue
+			// Shared with the MCP grep_files tool so caps and scan semantics
+			// stay identical across both search surfaces.
+			matches, total, truncated := textedit.GrepFiles(files, func(path string) (string, bool) {
+				obj, rerr := s.Read(tctx, slug, path)
+				if rerr != nil {
+					return "", false
 				}
-				obj, rerr := s.Read(tctx, slug, f)
-				if rerr != nil || obj.Content == "" {
-					continue
-				}
-				out, total, truncated = appendFileMatches(out, total, maxRes, truncated, f, obj.Content, args.Pattern)
-			}
+				return obj.Content, true
+			}, args.Pattern, args.MaxResults)
 			slog.Info("agent.grep_files", "slug", slug, "pattern_len", len(args.Pattern),
-				"total", total, "returned", len(out), "truncated", truncated)
+				"total", total, "returned", len(matches), "truncated", truncated)
 			em.done("")
-			return grepFilesResult{Matches: out, TotalMatches: total, Truncated: truncated}, nil
+			return grepFilesResult{Matches: matches, TotalMatches: total, Truncated: truncated}, nil
 		},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create grep_files tool: %w", err)
 	}
 	return t, nil
-}
-
-// appendFileMatches scans a single file's content for the literal pattern and
-// extends out with up to (maxRes - len(out)) new matches. Anything past the cap
-// is counted in totalMatches and flips truncated to true. Extracting this
-// keeps newGrepFilesTool's cognitive complexity in check.
-func appendFileMatches(out []grepMatch, totalMatches, maxRes int, truncated bool, path, content, pattern string) ([]grepMatch, int, bool) {
-	if !strings.Contains(content, pattern) {
-		return out, totalMatches, truncated
-	}
-	for i, line := range strings.Split(content, "\n") {
-		if !strings.Contains(line, pattern) {
-			continue
-		}
-		totalMatches++
-		if len(out) < maxRes {
-			out = append(out, grepMatch{
-				Path: path, LineNumber: i + 1, Snippet: truncateSnippet(line),
-			})
-		} else {
-			truncated = true
-		}
-	}
-	return out, totalMatches, truncated
-}
-
-// grepEligible decides whether a stored path is worth grepping. Delegates to
-// internal/textedit, shared with the MCP grep_files tool.
-func grepEligible(path string) bool {
-	return textedit.GrepEligible(path)
-}
-
-func truncateSnippet(line string) string {
-	return textedit.TruncateSnippet(line, grepSnippetMax)
 }
 
 func newListFilesTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
