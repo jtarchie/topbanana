@@ -50,8 +50,26 @@ linters:
     - nestif # Deeply nested if blocks
     # Security
     - gosec # Go security checker; respects existing //nolint:gosec markers
+    # Architecture
+    - depguard # Enforce the internal import-direction (no upward dep on the HTTP layer)
 
   settings:
+    depguard:
+      rules:
+        # Lock the clean upward-only layering the codebase review verified:
+        # internal/server is the composition root (HTTP routing, the MCP server,
+        # OAuth, admin, the proxy). Domain packages below it (store, build,
+        # agent, auth, lint, …) must never import it, so the dependency arrow
+        # only ever points down. Only cmd/ wires the server up, and
+        # internal/server's own external (package server_test) tests import it —
+        # both are exempted below.
+        no-server-import:
+          deny:
+            - pkg: github.com/jtarchie/topbanana/internal/server
+              desc: internal/server is the composition root; domain packages must not take an upward dependency on the HTTP layer.
+          files:
+            - "!**/cmd/**"
+            - "!**/internal/server/**"
     wrapcheck:
       # internal/textedit is a leaf utility whose errors are descriptive,
       # caller-facing strings (e.g. "old_text not found ... use grep_files").
