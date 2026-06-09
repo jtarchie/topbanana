@@ -62,15 +62,15 @@
     {{/* Below sm the inline nav would run off-screen, so it collapses into this
          menu. Reuses the dropdown component the apps list uses — not a sidebar;
          the surface stays shallow. Mirrors the active state of the inline nav. */}}
-    <div class="dropdown dropdown-end sm:hidden">
+    <div class="dropdown sm:hidden">
       <button type="button" class="btn btn-ghost btn-sm btn-square" aria-label="Open menu" aria-haspopup="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" class="h-5 w-5"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
       </button>
-      <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-dropdown w-52 p-2 mt-2 shadow-md border border-base-300">
-        <li><a href="/apps"{{ if eq .Active `apps` }} class="active"{{ end }}>Your apps</a></li>
-        {{ if .IsSuperAdmin }}<li><a href="/admin/users"{{ if eq .Active `admin_users` }} class="active"{{ end }}>Users</a></li>{{ end }}
-        <li><a href="/system"{{ if eq .Active `system` }} class="active"{{ end }}>System</a></li>
-        <li><a href="/account"{{ if eq .Active `account` }} class="active"{{ end }}>Account</a></li>
+      <ul tabindex="0" class="dropdown-content menu menu-lg fixed inset-x-2 top-16 w-auto gap-1 bg-base-100 rounded-box z-dropdown p-2 shadow-lg border border-base-300">
+        <li><a href="/apps" class="py-3{{ if eq .Active `apps` }} active{{ end }}">Your apps</a></li>
+        {{ if .IsSuperAdmin }}<li><a href="/admin/users" class="py-3{{ if eq .Active `admin_users` }} active{{ end }}">Users</a></li>{{ end }}
+        <li><a href="/system" class="py-3{{ if eq .Active `system` }} active{{ end }}">System</a></li>
+        <li><a href="/account" class="py-3{{ if eq .Active `account` }} active{{ end }}">Account</a></li>
       </ul>
     </div>
   </div>
