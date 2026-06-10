@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
-	slogecho "github.com/samber/slog-echo"
+	slogecho "github.com/samber/slog-echo/v2"
 	"github.com/tdewolff/minify/v2"
 
 	"github.com/jtarchie/topbanana/internal/assets"
