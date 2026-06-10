@@ -77,6 +77,7 @@ func TestWorkspaceProgress_StatusStripUpdatesFromSSE(t *testing.T) {
 
 	var statusText string
 	var doneStepActive bool
+	var copyTarget string
 	err := chromedp.Run(navCtx,
 		network.SetCookies([]*network.CookieParam{{
 			Name:   testSessionCookie.Name,
@@ -103,6 +104,16 @@ func TestWorkspaceProgress_StatusStripUpdatesFromSSE(t *testing.T) {
 			var li = document.querySelector('[data-step="done"]');
 			return !!(li && li.classList.contains('step-primary'));
 		})()`, &doneStepActive),
+		// On completion the SSE handler reveals the "what's next" success
+		// panel. WaitVisible blocks until the `hidden` class is removed; a
+		// client-side regression in the reveal would time out here.
+		chromedp.WaitVisible(`#build-success`, chromedp.ByID),
+		chromedp.Evaluate(`(function(){
+			var sp = document.getElementById('build-success');
+			if (!sp) return '';
+			var btn = sp.querySelector('.js-copy[data-copy]');
+			return btn ? (btn.getAttribute('data-copy') || '') : '';
+		})()`, &copyTarget),
 	)
 	if err != nil {
 		if shouldSkipChrome(err) {
@@ -115,6 +126,10 @@ func TestWorkspaceProgress_StatusStripUpdatesFromSSE(t *testing.T) {
 	}
 	if !doneStepActive {
 		t.Errorf("status strip's 'done' step never became step-primary")
+	}
+	// The success panel's Copy-link button must carry the live site address.
+	if !strings.Contains(copyTarget, slug) {
+		t.Errorf("build-success copy button data-copy = %q, want it to contain slug %q", copyTarget, slug)
 	}
 }
 

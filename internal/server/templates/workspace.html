@@ -97,7 +97,44 @@
         <h1 class="text-lg font-semibold tracking-tight">
           {{ if .Page }}Edit <code class="font-mono bg-base-200 px-1.5 py-0.5 rounded text-base">{{ .Page }}</code>{{ else }}Edit this site{{ end }}
         </h1>
+        {{ if .SiteURL }}
+        <div class="flex items-center gap-1 text-sm">
+          <a href="{{ .SiteURL }}" target="_blank" rel="noopener"
+             class="link link-hover font-mono text-xs truncate max-w-[16rem]">{{ .SiteURL }}</a>
+          <button type="button" class="btn btn-ghost btn-xs js-copy" data-copy="{{ .SiteURL }}"
+                  data-copied-label="Copied!" aria-label="Copy your site address">Copy link</button>
+        </div>
+        {{ end }}
       </header>
+
+      {{ if .SiteURL }}
+      {{/* Revealed by the SSE handler on a fresh build completion — plain-English
+           "what's next" guidance with a prominent way to share the live address.
+           Always rendered (it only needs .SiteURL) but hidden until completion. */}}
+      <div id="build-success" class="hidden alert alert-success flex-col items-start gap-2"
+           role="status" aria-live="polite" tabindex="-1">
+        <div class="flex items-center gap-2 font-semibold">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="M8 12.5l2.5 2.5L16 9.5"></path>
+          </svg>
+          <span>Your site is live!</span>
+        </div>
+        <p class="text-sm">Anyone with this address can visit it:</p>
+        <div class="flex items-center gap-2 flex-wrap">
+          <code class="font-mono text-sm bg-base-100 px-2 py-1 rounded break-all">{{ .SiteURL }}</code>
+          <button type="button" class="btn btn-sm btn-primary js-copy" data-copy="{{ .SiteURL }}"
+                  data-copied-label="Copied!" aria-label="Copy your site address">Copy link</button>
+          <a class="btn btn-sm btn-ghost" href="{{ .SiteURL }}" target="_blank" rel="noopener">View site</a>
+        </div>
+        <ul class="text-sm text-base-content/70 list-disc ml-5 space-y-0.5">
+          <li>Share the link by text or email so others can see it.</li>
+          <li>Want changes? Type what you'd like below and press Apply change.</li>
+        </ul>
+      </div>
+      {{ end }}
+
       {{ if .Page }}
       <div class="flex flex-wrap items-center gap-2 text-sm">
         <form method="POST" action="/files/{{ .Slug }}"
@@ -525,7 +562,7 @@
         case 'polishing': return 'Polishing the details…';
         case 'retry': return 'Fixing issues: ' + (ev.message || '');
         case 'completed': return 'Your site is ready.';
-        case 'failed': return 'Build failed: ' + (ev.message || 'unknown error');
+        case 'failed': return "We couldn't finish — here's what happened:";
         default: return '';
       }
     }
@@ -663,12 +700,33 @@
             mascot.classList.add('mascot-celebrate');
             setTimeout(function () { mascot.classList.remove('mascot-celebrate'); }, 700);
           }
+          // Reveal the "what's next" guidance immediately, decoupled from the
+          // 600ms preview reload below, so it never races that timeout.
+          var sp = document.getElementById('build-success');
+          if (sp) { sp.classList.remove('hidden'); sp.focus(); }
         }
         statusEl.textContent = statusMsg(ev);
         if (ev.status === 'failed') {
           errorMsg.textContent = ev.message || 'Unknown error.';
           errorEl.classList.remove('hidden');
           toast(ev.message || 'Build failed.', 'error');
+          // Keep the raw technical text out of the way but reachable: a
+          // collapsible disclosure for anyone who wants to debug, without
+          // confronting a non-technical user with jargon.
+          if (ev.detail && !document.getElementById('build-error-detail')) {
+            var det = document.createElement('details');
+            det.id = 'build-error-detail';
+            det.className = 'text-xs basis-full';
+            var sum = document.createElement('summary');
+            sum.className = 'cursor-pointer text-error/70 hover:text-error';
+            sum.textContent = 'Technical details';
+            det.appendChild(sum);
+            var pre = document.createElement('pre');
+            pre.className = 'mt-1 whitespace-pre-wrap break-words text-error/80';
+            pre.textContent = ev.detail;
+            det.appendChild(pre);
+            errorEl.querySelector('.max-w-6xl').appendChild(det);
+          }
           // Re-arm the form so the user can edit the prompt and retry without
           // a refresh, then surface a Try-again button that restores the last
           // prompt and focuses the composer.
@@ -736,6 +794,7 @@
   {{ end }}
 </script>
 {{ template "panel_js" . }}
+{{ template "copy_js" . }}
 <script>
   // Image drawer wiring — both entry buttons (the sidebar Images "Browse"
   // and the prompt-side "Pick image…") open the same drawer; clicking

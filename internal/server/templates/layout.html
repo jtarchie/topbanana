@@ -276,6 +276,50 @@
 </script>
 {{- end }}
 
+{{ define "copy_js" -}}
+<script>
+  // Copy-to-clipboard for any button opting in with `.js-copy` + `data-copy`.
+  // On success we flash the button's `data-copied-label` (default "Copied!")
+  // for ~1.5s. Falls back to a hidden <textarea> + execCommand for the rare
+  // non-secure context where navigator.clipboard is unavailable. Bound via
+  // event delegation on document so buttons revealed after load (e.g. the
+  // workspace build-success panel) work without re-running this.
+  (function () {
+    function flash(btn) {
+      var original = btn.textContent;
+      btn.textContent = btn.dataset.copiedLabel || 'Copied!';
+      btn.disabled = true;
+      setTimeout(function () {
+        btn.textContent = original;
+        btn.disabled = false;
+      }, 1500);
+    }
+    function legacyCopy(text) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'absolute';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) { /* best effort */ }
+      document.body.removeChild(ta);
+    }
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest ? e.target.closest('.js-copy') : null;
+      if (!btn) return;
+      var text = btn.dataset.copy || '';
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { flash(btn); }, function () { legacyCopy(text); flash(btn); });
+      } else {
+        legacyCopy(text);
+        flash(btn);
+      }
+    });
+  })();
+</script>
+{{- end }}
+
 {{ define "confirm_dialog" -}}
 <dialog id="confirm-modal" class="modal">
   <div class="modal-box">

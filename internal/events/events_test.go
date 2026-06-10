@@ -37,6 +37,43 @@ func TestTracker_StartCompleteFail(t *testing.T) {
 	}
 }
 
+// A humanized build failure carries a friendly Message plus the raw technical
+// text in Detail. Emit must set Status.Error from the Message (the friendly
+// text) and preserve Detail on the recorded event so the SSE replay can show
+// it behind a disclosure on reconnect.
+func TestTracker_EmitFailedCarriesFriendlyMessageAndDetail(t *testing.T) {
+	t.Parallel()
+
+	tr := NewTracker()
+	t.Cleanup(tr.Close)
+	tr.Start("f")
+	tr.Emit("f", Event{
+		Type:    TypeStatus,
+		Status:  StatusFailed,
+		Message: "Something went wrong while building your site.",
+		Detail:  "lint errors after 3 retries: index.html: broken link",
+	})
+
+	got := tr.Get("f")
+	if got == nil || got.Status != StatusFailed {
+		t.Fatalf("status = %+v, want failed", got)
+	}
+	if got.Error != "Something went wrong while building your site." {
+		t.Errorf("Error = %q, want friendly Message", got.Error)
+	}
+
+	history, _, _ := tr.Subscribe("f")
+	var last Event
+	for _, e := range history {
+		if e.Type == TypeStatus && e.Status == StatusFailed {
+			last = e
+		}
+	}
+	if last.Detail != "lint errors after 3 retries: index.html: broken link" {
+		t.Errorf("replayed Detail = %q, want raw detail preserved", last.Detail)
+	}
+}
+
 func TestTracker_GetUnknownReturnsNil(t *testing.T) {
 	t.Parallel()
 

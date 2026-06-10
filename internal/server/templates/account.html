@@ -142,44 +142,7 @@
 </main>
 {{ template "footer" . }}
 {{ template "webauthn_js" . }}
-<script>
-  // Copy-to-clipboard for the MCP connect command. Mirrors the .js-copy
-  // helper used on admin_users.html — same data-copy / data-copied-label
-  // contract, including a hidden-textarea fallback for non-secure contexts.
-  (function () {
-    function flash(btn) {
-      var original = btn.textContent;
-      btn.textContent = btn.dataset.copiedLabel || 'Copied!';
-      btn.disabled = true;
-      setTimeout(function () {
-        btn.textContent = original;
-        btn.disabled = false;
-      }, 1500);
-    }
-    function legacyCopy(text) {
-      var ta = document.createElement('textarea');
-      ta.value = text;
-      ta.setAttribute('readonly', '');
-      ta.style.position = 'absolute';
-      ta.style.left = '-9999px';
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand('copy'); } catch (e) { /* best effort */ }
-      document.body.removeChild(ta);
-    }
-    document.querySelectorAll('.js-copy').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var text = btn.dataset.copy || '';
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(text).then(function () { flash(btn); }, function () { legacyCopy(text); flash(btn); });
-        } else {
-          legacyCopy(text);
-          flash(btn);
-        }
-      });
-    });
-  })();
-</script>
+{{ template "copy_js" . }}
 <script>
   (async function () {
     var btn = document.getElementById('add-passkey');

@@ -419,7 +419,7 @@ func (svc *Service) Start(p Params) {
 					editrec.Trim(ctx, svc.store, p.Slug, svc.editsKeep)
 				}
 			}
-			svc.events.Fail(p.Slug, err)
+			svc.emitFailure(p.Slug, err)
 			return
 		}
 		svc.maybePolish(ctx, editorRunner, p, rec)
@@ -438,6 +438,25 @@ func (svc *Service) Start(p Params) {
 		}
 		svc.events.Complete(p.Slug)
 	}()
+}
+
+// emitFailure translates a raw build failure into a plain-English status event
+// for the user (HumanizeFailure), keeping the technical text in Detail so the
+// workspace can tuck it behind a "Technical details" disclosure. Emits directly
+// (rather than events.Fail) so the friendly Message and raw Detail ride the same
+// terminal status event.
+func (svc *Service) emitFailure(slug string, err error) {
+	headline, hint, detail := HumanizeFailure(err.Error())
+	msg := headline
+	if hint != "" {
+		msg = headline + " " + hint
+	}
+	svc.events.Emit(slug, events.Event{
+		Type:    events.TypeStatus,
+		Status:  events.StatusFailed,
+		Message: msg,
+		Detail:  detail,
+	})
 }
 
 // Lint runs the standard lint pass against a site. Exposed so callers (like

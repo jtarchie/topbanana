@@ -76,12 +76,18 @@ func TestBuild_FailurePath_E2E(t *testing.T) {
 	// `failed`, the scripted error message must come through, and the
 	// stream must close cleanly within the deadline (not hang on the
 	// tracker waiting for a goroutine that never emits the terminal event).
-	status, message := consumeBuildTerminal(t, client, httpSrv.URL, slug, 30*time.Second)
+	status, message, detail := consumeBuildTerminal(t, client, httpSrv.URL, slug, 30*time.Second)
 	if status != "failed" {
 		t.Fatalf("status = %q, want failed", status)
 	}
-	if !strings.Contains(message, "scripted failure") {
-		t.Errorf("failure message = %q, want scripted-failure indication", message)
+	// The user-facing message is humanized (a wrapped agent error hits the
+	// generic friendly fallback); the raw "scripted failure" is preserved in
+	// the event's Detail so the workspace can show it behind a disclosure.
+	if !strings.Contains(message, "Something went wrong") {
+		t.Errorf("failure message = %q, want friendly fallback text", message)
+	}
+	if !strings.Contains(detail, "scripted failure") {
+		t.Errorf("failure detail = %q, want raw scripted-failure text", detail)
 	}
 
 	// /apps must NOT list a slug whose build failed. Catches the regression
@@ -133,7 +139,7 @@ func TestBuild_FailurePath_E2E(t *testing.T) {
 // consumeBuildTerminal is a leaner sibling of consumeBuild (happy_path_e2e_test.go)
 // that returns the terminal status string and message rather than t.Fatal-ing on
 // "failed" — the failure path is exactly what we want to observe here.
-func consumeBuildTerminal(t *testing.T, c *http.Client, base, slug string, deadline time.Duration) (string, string) {
+func consumeBuildTerminal(t *testing.T, c *http.Client, base, slug string, deadline time.Duration) (status, message, detail string) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, base+"/events/"+slug, nil)
 	if err != nil {
@@ -159,7 +165,7 @@ func consumeBuildTerminal(t *testing.T, c *http.Client, base, slug string, deadl
 	end := time.NewTimer(deadline)
 	defer end.Stop()
 	type result struct {
-		status, msg string
+		status, msg, detail string
 	}
 	done := make(chan result, 1)
 	go func() {
@@ -172,6 +178,7 @@ func consumeBuildTerminal(t *testing.T, c *http.Client, base, slug string, deadl
 				Type    string `json:"type"`
 				Status  string `json:"status"`
 				Message string `json:"message"`
+				Detail  string `json:"detail"`
 			}
 			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 			err := json.Unmarshal([]byte(payload), &ev)
@@ -179,7 +186,7 @@ func consumeBuildTerminal(t *testing.T, c *http.Client, base, slug string, deadl
 				continue
 			}
 			if ev.Type == "status" && (ev.Status == "completed" || ev.Status == "failed") {
-				done <- result{ev.Status, ev.Message}
+				done <- result{ev.Status, ev.Message, ev.Detail}
 				return
 			}
 		}
@@ -187,10 +194,10 @@ func consumeBuildTerminal(t *testing.T, c *http.Client, base, slug string, deadl
 	}()
 	select {
 	case r := <-done:
-		return r.status, r.msg
+		return r.status, r.msg, r.detail
 	case <-end.C:
 		t.Fatalf("build did not reach a terminal status within %s", deadline)
-		return "", ""
+		return "", "", ""
 	}
 }
 

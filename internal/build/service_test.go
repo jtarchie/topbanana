@@ -526,8 +526,11 @@ func TestService_Start_MaxLintRetriesExceededFails(t *testing.T) {
 		t.Fatalf("status = %q, want failed", status)
 	}
 	got := tracker.Get(slug)
-	if !strings.Contains(got.Error, "lint errors after") {
-		t.Errorf("failure message = %q, want lint-retry exhaustion", got.Error)
+	// The user-facing failure is humanized (HumanizeFailure); the broken
+	// relative link maps to the friendly broken-link headline. The raw
+	// "lint errors after …" text now lives in the event's Detail field.
+	if !strings.Contains(got.Error, "link pointed to a page") {
+		t.Errorf("failure message = %q, want friendly broken-link text", got.Error)
 	}
 }
 
@@ -567,8 +570,10 @@ func TestService_Start_TimeoutFailsWithDeadlineMessage(t *testing.T) {
 		t.Fatalf("status = %q, want failed", status)
 	}
 	got := tracker.Get(slug)
-	if !strings.Contains(got.Error, "timed out") {
-		t.Errorf("failure message = %q, want timeout indication", got.Error)
+	// Humanized: the raw "build timed out after …" maps to the friendly
+	// "taking longer than expected" headline (raw kept in event Detail).
+	if !strings.Contains(got.Error, "taking longer") {
+		t.Errorf("failure message = %q, want friendly timeout text", got.Error)
 	}
 }
 

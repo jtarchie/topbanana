@@ -80,6 +80,7 @@ type Event struct {
 	Phase   string    `json:"phase,omitempty"`   // for type=tool/function: a Phase* const; for type=question: PhaseAsk|PhaseAnswer|PhaseTimeout
 	Path    string    `json:"path,omitempty"`    // for type=tool: file path the tool acted on
 	Message string    `json:"message,omitempty"` // optional human-readable detail (errors, retry reason)
+	Detail  string    `json:"detail,omitempty"`  // for type=status/failed: raw technical text behind the friendly Message
 	Time    time.Time `json:"time"`
 
 	// Question fields — only set when Type == TypeQuestion.
