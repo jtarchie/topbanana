@@ -56,11 +56,15 @@ When building or modifying agents for this project, keep in mind the `systemProm
 5.  **Relative Paths**: All links between pages must use relative URLs (e.g., `<a href="about.html">`).
 
 ## Code Organization
+- `internal/store/`: the storage layer — `Store` owns compression-at-rest, slug-prefix path validation, metadata encoding, and the ARC cache over an `objectBackend` seam (S3 in production, in-memory for tests via `store.NewInMemory`). `keyspace.go` is the single registry of reserved bucket prefixes (`_snapshots/`, `_edits/`, `_acme/`, in-slug `_state/`) — never re-declare those literals.
+- `internal/storetest/`: shared test helper. `storetest.New(t, n)` returns an in-memory store by default, or real S3/Minio when `AWS_ENDPOINT_URL` + `S3_BUCKET` are set — the whole suite runs deterministically in plain `go test`, and the same tests double as Minio conformance.
+- `internal/server/`: the HTTP layer and composition root, split by concern (`routes.go`, `dispatch.go`, `proxy.go`, `sse.go`, `attachments.go`, `uploads.go`, `app_lifecycle.go`, per-feature topic files). **Import direction is enforced by a depguard rule**: nothing outside `cmd/` may import `internal/server`; push shared logic *down* into a domain package, never sideways.
+- `internal/server/mcp_*.go`: the MCP edit surface + its OAuth authorization server. **Deliberately in-package** (not extracted): the tools share `Server`'s store/build/auth/registry plus a few private helpers (`invokeWithCAS`, `collectSubmissions`, `loadFunctionSource`, `storeUploadedAsset`). Keep new tools within that surface; if one needs more of `Server`, reconsider extraction first.
+- `internal/agent/`: the build agent — `agent.go` (runner + tools), `instruction.go` (cache-stable prompt assembly), `state.go` (per-run state, anti-loop guard). Pure edit transforms live in `internal/textedit`, shared byte-for-byte with the MCP tools.
+- `internal/build/`: build orchestration (`build.go`), the agent seam (`runner.go` — `Runner`/`RunRequest`), and the per-site sidecar (`meta.go` — `SiteMeta`/`ReadMeta`/`WriteMeta`).
 - `internal/model/`: LLM provider resolution logic.
 - `internal/templates/sites/{id}/`: Site templates the user picks from. Each ships a `prompt.md` (JSON frontmatter + system addendum for the agent), an optional `skeleton/` (seed files), and a `README.md` (contributor docs).
 - `static/`: Static assets like the landing page and agent system prompts.
-- `s3store.go`: The core storage abstraction layer.
-- `server.go`: The web server implementation and subdomain proxying logic.
 
 ## Adding a new site template
 Every directory under `internal/templates/sites/` must contain:
@@ -93,6 +97,6 @@ The design substrate is **compiled, not CDN-loaded**. daisyUI v5 is vendored in 
 - `optimizeCSS` runs *after* lint, so a page links `/app.css` before the file exists — both the lint broken-link check and the proxy must tolerate that ordering.
 
 ## Implementation Details (for developers)
-- **Subdomain Proxying**: The `subdomainMiddleware` in `server.go` is the heart of the routing. It strips the domain part to find the "slug" and uses that slug to query S3.
+- **Subdomain Proxying**: The `subdomainMiddleware` in `internal/server/dispatch.go` is the heart of the routing. It strips the domain part to find the "slug" and uses that slug to query S3 (the serve path itself lives in `internal/server/proxy.go`).
 - **S3 Path Structure**: Files are stored as `{slug}/{path}` within the bucket.
 - **Logging**: Uses `slog`. Request logs include method, URI, status, latency, and host.
