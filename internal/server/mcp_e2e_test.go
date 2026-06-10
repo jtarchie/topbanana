@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,8 +13,10 @@ import (
 	"github.com/jtarchie/topbanana/internal/auth"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/events"
+	"github.com/jtarchie/topbanana/internal/sandbox"
 	"github.com/jtarchie/topbanana/internal/server"
 	"github.com/jtarchie/topbanana/internal/snapshot"
+	"github.com/jtarchie/topbanana/internal/state"
 	"github.com/jtarchie/topbanana/internal/store"
 )
 
@@ -52,6 +55,8 @@ func buildMCPTestServer(t *testing.T, st *store.Store, slug, ownerEmail string) 
 		Store:     st,
 		Build:     build.New(st, nil, tracker, snapshot.New(st, 0)),
 		Events:    tracker,
+		Sandbox:   sandbox.New(sandbox.Config{}),
+		State:     state.NewMemory(),
 		Snapshot:  snapshot.New(st, 0),
 		Auth:      authSvc,
 		Domain:    "localhost",
@@ -213,6 +218,99 @@ func TestMCP_BadTokenRejectedByBearerMiddleware(t *testing.T) {
 	}, nil)
 	if err == nil {
 		t.Fatal("connect with a forged bearer token should fail at the middleware")
+	}
+}
+
+// TestMCP_FullToolSurfaceLifecycle walks the remaining registered tools as one
+// authoring session: site discovery, the page write/read/replace/insert/delete
+// pipeline, configure_site flipping functions on, the full function lifecycle
+// including a real sandboxed test_function run, transcript listing/fetch, and
+// lint_site — all over the real HTTP stack with a real bearer token.
+func TestMCP_FullToolSurfaceLifecycle(t *testing.T) {
+	st := minioStore(t)
+	ctx := context.Background()
+	slug := freshSlug(t)
+	const owner = "owner@example.com"
+
+	srv := buildMCPTestServer(t, st, slug, owner)
+	seedUser(t, srv, st, owner)
+	session := connectMCP(t, srv, owner)
+
+	mustOK := func(name string, args map[string]any) string {
+		t.Helper()
+		res, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+		if err != nil {
+			t.Fatalf("%s transport error: %v", name, err)
+		}
+		if res.IsError {
+			t.Fatalf("%s errored: %s", name, toolText(res))
+		}
+		return toolText(res)
+	}
+	mustContain := func(name string, args map[string]any, needle string) {
+		t.Helper()
+		out := mustOK(name, args)
+		if !strings.Contains(out, needle) {
+			t.Fatalf("%s output missing %q: %s", name, needle, out)
+		}
+	}
+
+	// Site discovery.
+	mustContain("list_sites", nil, slug)
+	mustContain("get_site", map[string]any{"slug": slug}, slug)
+
+	// Page pipeline: write → read → replace_lines → insert_at_line compose to
+	// an exact document, then delete removes it.
+	mustOK("write_file", map[string]any{"slug": slug, "path": "about.html", "content": "alpha\nbeta\ngamma"})
+	mustContain("read_file", map[string]any{"slug": slug, "path": "about.html"}, "beta")
+	mustOK("replace_lines", map[string]any{"slug": slug, "path": "about.html", "start_line": 3, "end_line": 3, "new_text": "GAMMA"})
+	mustOK("insert_at_line", map[string]any{"slug": slug, "path": "about.html", "after_line": 1, "content": "inserted"})
+	obj, err := st.Read(ctx, slug, "about.html")
+	if err != nil || obj.Content != "alpha\ninserted\nbeta\nGAMMA" {
+		t.Fatalf("page pipeline content = %q (%v)", obj.Content, err)
+	}
+	mustOK("delete_file", map[string]any{"slug": slug, "path": "about.html"})
+	obj, err = st.Read(ctx, slug, "about.html")
+	if err != nil || obj.Content != "" {
+		t.Fatalf("delete_file did not remove the page: %q (%v)", obj.Content, err)
+	}
+
+	// configure_site persists the title and enables functions for the next leg.
+	mustOK("configure_site", map[string]any{"slug": slug, "title": "Banana Stand", "enable_functions": true})
+	sidecar, err := st.Read(ctx, slug, build.MetaFile)
+	if err != nil || !strings.Contains(sidecar.Content, "Banana Stand") {
+		t.Fatalf("configure_site did not persist the title: %q (%v)", sidecar.Content, err)
+	}
+
+	// Function lifecycle, including a real sandboxed invocation.
+	const src = `module.exports = function (req) { return response.json({answer: "pong"}); };`
+	mustOK("write_function", map[string]any{"slug": slug, "name": "ping", "source": src})
+	mustContain("list_functions", map[string]any{"slug": slug}, "ping")
+	mustContain("read_function", map[string]any{"slug": slug, "name": "ping"}, "pong")
+	mustOK("edit_function", map[string]any{"slug": slug, "name": "ping", "old_text": `"pong"`, "new_text": `"PONG"`})
+	mustContain("test_function", map[string]any{"slug": slug, "name": "ping"}, "PONG")
+	mustOK("delete_function", map[string]any{"slug": slug, "name": "ping"})
+	if out := mustOK("list_functions", map[string]any{"slug": slug}); strings.Contains(out, "ping") {
+		t.Fatalf("function still listed after delete: %s", out)
+	}
+
+	// The mutations above were recorded as run transcripts; fetch one back.
+	var runs struct {
+		Runs []string `json:"runs"`
+	}
+	out := mustOK("list_runs", map[string]any{"slug": slug})
+	err = json.Unmarshal([]byte(out), &runs)
+	if err != nil || len(runs.Runs) == 0 {
+		t.Fatalf("list_runs = %s (%v), want at least one transcript", out, err)
+	}
+	if tr := mustOK("get_run_transcript", map[string]any{"slug": slug, "key": runs.Runs[0]}); tr == "" {
+		t.Fatal("get_run_transcript returned empty")
+	}
+
+	// lint_site reports on the seeded page (the minimal index.html lacks the
+	// design substrate, so problems are expected — the point is the tool runs).
+	if out := mustOK("lint_site", map[string]any{"slug": slug}); out == "" {
+		t.Fatal("lint_site returned empty")
 	}
 }
 
