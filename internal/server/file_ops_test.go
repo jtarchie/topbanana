@@ -43,9 +43,6 @@ func postFileOps(t *testing.T, srvURL, path string, form url.Values) *http.Respo
 
 func TestDeleteFileHandler(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)
 	slug := "del-" + freshSlug(t)
@@ -114,9 +111,6 @@ func TestDeleteFileHandler(t *testing.T) {
 
 func TestRenameFileHandler(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)
 	slug := "ren-" + freshSlug(t)
@@ -211,9 +205,6 @@ func TestRenameFileHandler(t *testing.T) {
 // handlers (login redirect, not 400 or 200).
 func TestFileOpsRejectsNonOwner(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)
 	slug := "guard-" + freshSlug(t)

@@ -66,9 +66,6 @@ func buildServerWithSandbox(t *testing.T, st *store.Store, snapSvc *snapshot.Ser
 // in ~150µs (sandbox never invoked).
 func TestAPIHandler_EnablesFunctionsOverrideHonoredOnEmptyTemplate(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	slug := "apigate-" + freshSlug(t)
 	snapSvc := snapshot.New(st, 0)
@@ -121,9 +118,6 @@ func TestAPIHandler_EnablesFunctionsOverrideHonoredOnEmptyTemplate(t *testing.T)
 // fallback whose EnablesFunctions is false.
 func TestAPIHandler_EmptyTemplateWithoutOverrideStays404(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	slug := "apigate-noop-" + freshSlug(t)
 	snapSvc := snapshot.New(st, 0)

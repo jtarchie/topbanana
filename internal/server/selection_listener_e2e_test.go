@@ -23,9 +23,6 @@ import (
 // domain branch must stay untouched so CDN cache safety holds.
 func TestSelectionListener_AlwaysInjected(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 
 	ctx := context.Background()
 	subdomainSlug := freshSlug(t)

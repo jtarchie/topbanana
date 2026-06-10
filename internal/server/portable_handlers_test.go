@@ -27,9 +27,6 @@ import (
 // excludes the meta sidecar, and carries the right Content-Disposition.
 func TestExportHandler_DownloadsArchive(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)
@@ -99,9 +96,6 @@ func TestExportHandler_DownloadsArchive(t *testing.T) {
 // new slug is in /apps and has the expected file contents + meta.
 func TestImportHandler_CreatesNewSite(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)
@@ -160,9 +154,6 @@ func TestImportHandler_CreatesNewSite(t *testing.T) {
 // surfaces when the user uploads a tarball missing index.html.
 func TestImportHandler_RejectsArchiveWithoutIndex(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 
 	snapSvc := snapshot.New(st, 0)
 	handler := buildServer(t, st, snapSvc)
@@ -198,9 +189,6 @@ func TestImportHandler_RejectsArchiveWithoutIndex(t *testing.T) {
 // non-tar.zst payload (e.g., someone uploading a zip by mistake).
 func TestImportHandler_RejectsCorruptArchive(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 
 	snapSvc := snapshot.New(st, 0)
 	handler := buildServer(t, st, snapSvc)
@@ -226,9 +214,6 @@ func TestImportHandler_RejectsCorruptArchive(t *testing.T) {
 // route — an unauthenticated request gets bounced to /login by requireUser.
 func TestExportHandler_RejectsNonOwner(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)

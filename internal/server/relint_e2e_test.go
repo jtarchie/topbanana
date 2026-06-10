@@ -34,9 +34,6 @@ const substrateMissingPage = `<!DOCTYPE html>
 // /app.css link.
 func TestRelint_DeterministicAutoFix_SkipsAgent(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 
 	ctx := context.Background()
 	slug := freshSlug(t)

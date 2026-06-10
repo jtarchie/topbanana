@@ -130,9 +130,6 @@ func buildServerWithRunnerAndInfo(t *testing.T, st *store.Store, snapSvc *snapsh
 //nolint:gocognit,cyclop // single end-to-end script intentionally walks many steps.
 func TestHappyPath_EndToEnd(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)

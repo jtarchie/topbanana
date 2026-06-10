@@ -26,9 +26,6 @@ import (
 // Skips when Chrome isn't installed or MinIO env isn't set.
 func TestWorkspaceProgress_StatusStripUpdatesFromSSE(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	chromePath := chromeExecPath()
 	if chromePath == "" {
 		t.Skip("no Chrome binary found — skipping browser test")

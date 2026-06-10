@@ -18,9 +18,6 @@ import (
 // wrong gate.
 func TestLegalPages_PublicAccess(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 
 	snapSvc := snapshot.New(st, 0)
 	handler := buildServer(t, st, snapSvc)
@@ -99,9 +96,6 @@ func TestLegalPages_PublicAccess(t *testing.T) {
 // quietly fall back to the hardcoded 2026.
 func TestLegalFooterOnLandingPage(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 
 	snapSvc := snapshot.New(st, 0)
 	handler := buildServer(t, st, snapSvc)

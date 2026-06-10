@@ -36,9 +36,6 @@ func (failingRunner) Describe(context.Context, *store.Store, string, string) (ag
 
 func TestBuild_FailurePath_E2E(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)

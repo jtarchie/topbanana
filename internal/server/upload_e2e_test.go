@@ -63,9 +63,6 @@ func multipartUpload(t *testing.T, target, field string, files map[string][]byte
 // no caption, never crash.
 func TestUploadHandler_ImageNoPanic(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	slug := freshSlug(t)
 	snapSvc := snapshot.New(st, 0)
@@ -108,9 +105,6 @@ func TestUploadHandler_ImageNoPanic(t *testing.T) {
 // 415 (and that the rejection, too, doesn't panic on the caption path).
 func TestUploadHandler_RejectsNonImage(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	slug := freshSlug(t)
 	snapSvc := snapshot.New(st, 0)
@@ -133,9 +127,6 @@ func TestUploadHandler_RejectsNonImage(t *testing.T) {
 // generic tagline.
 func TestEditSubmit_BadAttachmentShowsDetail(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	slug := freshSlug(t)
 	snapSvc := snapshot.New(st, 0)
@@ -163,9 +154,6 @@ func TestEditSubmit_BadAttachmentShowsDetail(t *testing.T) {
 // starts (303 to the workspace) instead of being rejected at parse time.
 func TestEditSubmit_AcceptsMessyAttachment(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	slug := freshSlug(t)
 	snapSvc := snapshot.New(st, 0)
@@ -193,9 +181,6 @@ func TestEditSubmit_AcceptsMessyAttachment(t *testing.T) {
 // configured custom-domain CNAME target in the copy-paste DNS instructions.
 func TestManagePage_ShowsCNAMETarget(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	slug := freshSlug(t)
 	snapSvc := snapshot.New(st, 0)

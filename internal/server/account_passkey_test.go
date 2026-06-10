@@ -45,9 +45,6 @@ func credForm(id string) url.Values {
 // leaves exactly the other bound.
 func TestAccountRemovePasskey_DropsOneKeepsRest(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)
 	rig := newPrivateRig(t, st, snapSvc)
@@ -83,9 +80,6 @@ func TestAccountRemovePasskey_DropsOneKeepsRest(t *testing.T) {
 // the user can't lock themselves out (passkey-only auth, no password reset).
 func TestAccountRemovePasskey_RefusesLast(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)
 	rig := newPrivateRig(t, st, snapSvc)

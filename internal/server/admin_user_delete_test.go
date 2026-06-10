@@ -35,9 +35,6 @@ func metaOwner(t *testing.T, ctx context.Context, rig *privateTestRig, slug stri
 // admin's own) survive.
 func TestAdminUserDelete_CascadeForTarget(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)
 	rig := newPrivateRig(t, st, snapSvc)
@@ -83,9 +80,6 @@ func TestAdminUserDelete_CascadeForTarget(t *testing.T) {
 // user's sites alive under the new owner instead of destroying them.
 func TestAdminUserDelete_TransferThenDelete(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)
 	rig := newPrivateRig(t, st, snapSvc)
@@ -125,9 +119,6 @@ func TestAdminUserDelete_TransferThenDelete(t *testing.T) {
 // from the admin table — that path lives on /account.
 func TestAdminUserDelete_RefusesSelf(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)
 	rig := newPrivateRig(t, st, snapSvc)
@@ -154,9 +145,6 @@ func TestAdminUserDelete_RefusesSelf(t *testing.T) {
 // super admin as long as one remains (the caller).
 func TestAdminUserDelete_AnotherSuperAdmin(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)
 	rig := newPrivateRig(t, st, snapSvc)
@@ -189,9 +177,6 @@ func TestAdminUserDelete_AnotherSuperAdmin(t *testing.T) {
 // nonexistent user is a 404, not a redirect.
 func TestAdminUserDelete_UnknownEmail404(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	snapSvc := snapshot.New(st, 0)
 	rig := newPrivateRig(t, st, snapSvc)
 	srv := httptest.NewServer(rig.handler)
@@ -211,9 +196,6 @@ func TestAdminUserDelete_UnknownEmail404(t *testing.T) {
 // at all — requireSuperAdmin answers 404 so the route's existence stays hidden.
 func TestAdminUserDelete_RequiresSuperAdmin(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)
 	rig := newPrivateRig(t, st, snapSvc)

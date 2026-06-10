@@ -24,9 +24,6 @@ import (
 //nolint:cyclop // single end-to-end script intentionally walks many steps.
 func TestSystem_Populated(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)
@@ -144,9 +141,6 @@ func TestSystem_Populated(t *testing.T) {
 // suite locally.
 func TestSystem_EmptyBucket(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 
 	snapSvc := snapshot.New(st, 0)
 	runner := &stubRunner{title: "empty", desc: "empty"}

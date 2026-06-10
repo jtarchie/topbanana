@@ -87,9 +87,6 @@ func writeMeta(t *testing.T, ctx context.Context, st *store.Store, slug string, 
 // the same private slug and see the expected status.
 func TestPrivateGating_Subdomain(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)
@@ -155,9 +152,6 @@ func TestPrivateGating_Subdomain(t *testing.T) {
 // it off un-gates the subdomain.
 func TestPrivateToggle_SettingsRoundTrip(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)

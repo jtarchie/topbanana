@@ -18,9 +18,6 @@ import (
 // response.
 func TestAssetsListHandler_FiltersToAssetsPrefix(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	slug := freshSlug(t)
 	snapSvc := snapshot.New(st, 0)
@@ -91,9 +88,6 @@ func TestAssetsListHandler_FiltersToAssetsPrefix(t *testing.T) {
 // session, matching the rest of the admin surface.
 func TestAssetsListHandler_RejectsUnauth(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	snapSvc := snapshot.New(st, 0)
 	handler := buildServer(t, st, snapSvc)
 
@@ -111,9 +105,6 @@ func TestAssetsListHandler_RejectsUnauth(t *testing.T) {
 // stick while the bytes stay identical.
 func TestAssetMetadataPatchHandler_ReplacesMetadata(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	slug := freshSlug(t)
 	snapSvc := snapshot.New(st, 0)
@@ -160,9 +151,6 @@ func TestAssetMetadataPatchHandler_ReplacesMetadata(t *testing.T) {
 // whether the caption came from the model or the user.
 func TestAssetMetadataPatchHandler_AltCapped(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	slug := freshSlug(t)
 	snapSvc := snapshot.New(st, 0)
@@ -198,9 +186,6 @@ func TestAssetMetadataPatchHandler_AltCapped(t *testing.T) {
 // path.
 func TestAssetMetadataPatchHandler_404OnMissing(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	slug := freshSlug(t)
 	snapSvc := snapshot.New(st, 0)
@@ -224,9 +209,6 @@ func TestAssetMetadataPatchHandler_404OnMissing(t *testing.T) {
 // confirms the object is gone from the bucket.
 func TestAssetDeleteHandler_RemovesObject(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	slug := freshSlug(t)
 	snapSvc := snapshot.New(st, 0)
@@ -262,9 +244,6 @@ func TestAssetDeleteHandler_RemovesObject(t *testing.T) {
 // successful delete, hiding the real state.
 func TestAssetDeleteHandler_404OnMissing(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	slug := freshSlug(t)
 	snapSvc := snapshot.New(st, 0)
@@ -286,9 +265,6 @@ func TestAssetDeleteHandler_404OnMissing(t *testing.T) {
 // before any S3 traffic, matching the PATCH handler.
 func TestAssetDeleteHandler_RejectsTraversal(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	snapSvc := snapshot.New(st, 0)
 	handler := buildServer(t, st, snapSvc)
 	slug := freshSlug(t)
@@ -311,9 +287,6 @@ func TestAssetDeleteHandler_RejectsTraversal(t *testing.T) {
 // must 400 instead of falling through to the store.
 func TestAssetMetadataPatchHandler_RejectsTraversal(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	snapSvc := snapshot.New(st, 0)
 	handler := buildServer(t, st, snapSvc)
 	slug := freshSlug(t)

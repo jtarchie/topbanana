@@ -5,15 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"strconv"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/jtarchie/topbanana/internal/auth"
 	"github.com/jtarchie/topbanana/internal/build"
@@ -22,41 +15,22 @@ import (
 	"github.com/jtarchie/topbanana/internal/snapshot"
 	"github.com/jtarchie/topbanana/internal/state"
 	"github.com/jtarchie/topbanana/internal/store"
+	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
-// minioStore mirrors the helper in internal/snapshot/snapshot_test.go: returns
-// a Store backed by the dev Minio (or any S3-compatible backend exposed via
-// AWS_ENDPOINT_URL + S3_BUCKET), or nil so the caller can t.Skip when env
-// isn't set.
+// minioStore returns the test store: in-memory by default, S3/Minio when
+// AWS_ENDPOINT_URL + S3_BUCKET are set (see internal/storetest). Never nil —
+// the `if st == nil { t.Skip }` gates this used to require are gone, so the
+// server e2e suite runs deterministically in plain `go test`. Kept as a named
+// wrapper so the many call sites read unchanged.
 func minioStore(t *testing.T) *store.Store {
 	t.Helper()
-	endpoint := os.Getenv("AWS_ENDPOINT_URL")
-	bucket := os.Getenv("S3_BUCKET")
-	if endpoint == "" || bucket == "" {
-		return nil
-	}
-	cfg, err := config.LoadDefaultConfig(context.Background())
-	if err != nil {
-		t.Fatalf("load aws config: %v", err)
-	}
-	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(endpoint)
-		o.UsePathStyle = true
-	})
-	s, err := store.New(client, bucket, 0)
-	if err != nil {
-		t.Fatalf("store.New: %v", err)
-	}
-	err = s.EnsureBucket(context.Background())
-	if err != nil {
-		t.Fatalf("ensure bucket: %v", err)
-	}
-	return s
+	return storetest.New(t, 0)
 }
 
 func freshSlug(t *testing.T) string {
 	t.Helper()
-	return "srvtest-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	return storetest.FreshSlug(t, "srvtest")
 }
 
 func mustWrite(t *testing.T, ctx context.Context, s *store.Store, slug, path, content, ct string) {
@@ -137,9 +111,6 @@ func buildServer(t *testing.T, st *store.Store, snapSvc *snapshot.Service) http.
 // response and the on-disk state.
 func TestHistoryRestoreHandler_EndToEnd(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 
 	ctx := context.Background()
 	slug := freshSlug(t)
@@ -209,9 +180,6 @@ func TestHistoryRestoreHandler_EndToEnd(t *testing.T) {
 // in 725d605 swapped that for a 303 redirect so the user has a way back in.)
 func TestHistoryRestoreHandler_RejectsUnauth(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	snapSvc := snapshot.New(st, 0)
 	handler := buildServer(t, st, snapSvc)
 
@@ -234,9 +202,6 @@ func TestHistoryRestoreHandler_RejectsUnauth(t *testing.T) {
 // asserts the slug's files and snapshots are gone.
 func TestSettingsDeleteHandler_EndToEnd(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 
 	ctx := context.Background()
 	slug := freshSlug(t)

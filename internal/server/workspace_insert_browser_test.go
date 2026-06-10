@@ -23,9 +23,6 @@ import (
 // contract so the sidebar entry can't silently regress to a no-op.
 func TestWorkspaceInsertImage_AddsRefToPrompt(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	chromePath := chromeExecPath()
 	if chromePath == "" {
 		t.Skip("no Chrome binary found — skipping browser test")

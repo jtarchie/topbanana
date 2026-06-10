@@ -15,9 +15,6 @@ import (
 // precompiled, self-contained stylesheet as text/css with no CDN references.
 func TestAppCSSHandler_ServesEmbeddedSheet(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	snapSvc := snapshot.New(st, 0)
 	handler := buildServer(t, st, snapSvc)
 	srv := httptest.NewServer(handler)
@@ -51,9 +48,6 @@ func TestAppCSSHandler_ServesEmbeddedSheet(t *testing.T) {
 // the editor renders components as published, not unstyled.
 func TestVisualEditorLoadsSiteAppCSSIntoCanvas(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	slug := "vised-" + freshSlug(t)
 	snapSvc := snapshot.New(st, 0)
@@ -95,9 +89,6 @@ func TestVisualEditorLoadsSiteAppCSSIntoCanvas(t *testing.T) {
 // site subdomain as text/css and is not blocked by the reserved-prefix guard.
 func TestProxyServesSiteAppCSS(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	slug := "appcss-" + freshSlug(t)
 	snapSvc := snapshot.New(st, 0)

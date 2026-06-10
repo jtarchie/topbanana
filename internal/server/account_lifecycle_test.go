@@ -78,9 +78,6 @@ func seedSite(t *testing.T, ctx context.Context, rig *privateTestRig, snapSvc *s
 // session-cache eviction land together.
 func TestAccountSignOutEverywhere_RevokesEveryDevice(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	snapSvc := snapshot.New(st, 0)
 	rig := newPrivateRig(t, st, snapSvc)
 	srv := httptest.NewServer(rig.handler)
@@ -121,9 +118,6 @@ func TestAccountSignOutEverywhere_RevokesEveryDevice(t *testing.T) {
 // record is gone, and a site owned by someone else is untouched.
 func TestAccountDelete_CascadesSitesSessionsUser(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)
 	rig := newPrivateRig(t, st, snapSvc)
@@ -177,9 +171,6 @@ func TestAccountDelete_CascadesSitesSessionsUser(t *testing.T) {
 // and leaves the account and its sites fully intact.
 func TestAccountDelete_WrongConfirmRejected(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)
 	rig := newPrivateRig(t, st, snapSvc)
@@ -210,9 +201,6 @@ func TestAccountDelete_WrongConfirmRejected(t *testing.T) {
 // /account with an error and the record stays put.
 func TestAccountDelete_SuperAdminRefused(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 	ctx := context.Background()
 	snapSvc := snapshot.New(st, 0)
 	rig := newPrivateRig(t, st, snapSvc)

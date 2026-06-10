@@ -48,9 +48,6 @@ func chromeExecPath() string {
 // at startup).
 func TestHappyPath_BrowserSmoke(t *testing.T) {
 	st := minioStore(t)
-	if st == nil {
-		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run server integration tests")
-	}
 
 	snapSvc := snapshot.New(st, 0)
 	runner := &stubRunner{title: "Smoke", desc: "smoke test"}
