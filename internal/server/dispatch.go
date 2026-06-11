@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"strings"
 
@@ -8,6 +10,12 @@ import (
 
 	"github.com/jtarchie/topbanana/internal/auth"
 )
+
+// maxOverrideBodyBytes caps how much of an urlencoded body the `_method` probe
+// reads before restoring it. Mirrors net/http's own ParseForm limit (10 MiB)
+// so behavior matches what r.PostFormValue would previously have allowed; the
+// /api/* path enforces its own (smaller) maxAPIBodyBytes cap downstream.
+const maxOverrideBodyBytes = 10 << 20
 
 // methodOverrideMiddleware lets an HTML form — which can only emit GET or POST —
 // drive a PATCH/PUT/DELETE route by carrying the intended verb in a `_method`
@@ -22,13 +30,17 @@ func methodOverrideMiddleware() echo.MiddlewareFunc {
 			r := c.Request()
 			if r.Method == http.MethodPost {
 				override := r.Header.Get("X-HTTP-Method-Override")
-				// Parse and cache the urlencoded body while the method is still
-				// POST: Go's ParseForm only reads the body for POST/PUT/PATCH, so
-				// once we rewrite to DELETE the downstream handler could no longer
-				// read its form fields. PostFormValue also gives us the _method
-				// field for plain HTML forms (which can't set the header).
+				// Parse the urlencoded body while the method is still POST: Go's
+				// ParseForm only reads the body for POST/PUT/PATCH, so once we
+				// rewrite to DELETE the downstream handler could no longer read
+				// its form fields. parseFormPreservingBody populates r.PostForm
+				// (so DELETE/PUT/PATCH handlers see their fields) AND restores
+				// r.Body, so apiHandler -> buildSandboxRequest — which reads the
+				// raw body itself — still sees a full request.form for native
+				// <form method=post> submissions. PostFormValue alone would drain
+				// r.Body to EOF and silently empty request.form.
 				if strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") {
-					formMethod := r.PostFormValue("_method")
+					formMethod := parseFormPreservingBody(r)
 					if override == "" {
 						override = formMethod
 					}
@@ -41,6 +53,28 @@ func methodOverrideMiddleware() echo.MiddlewareFunc {
 			return next(c)
 		}
 	}
+}
+
+// parseFormPreservingBody reads and parses the urlencoded body to populate
+// r.PostForm / r.Form (so handlers keep working after the verb is rewritten to
+// DELETE/PUT/PATCH, where net/http's ParseForm no longer touches the body),
+// then restores r.Body so handlers that read the raw body directly (apiHandler
+// -> buildSandboxRequest) still see the full payload. Returns the `_method`
+// override field, or "" when there's no body or a read error.
+func parseFormPreservingBody(r *http.Request) string {
+	if r.Body == nil {
+		return ""
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxOverrideBodyBytes))
+	if err != nil {
+		return ""
+	}
+	// Restore the body, ParseForm while still POST (drains the restored copy),
+	// then restore once more for the raw-body readers downstream.
+	r.Body = io.NopCloser(bytes.NewReader(raw))
+	_ = r.ParseForm()
+	r.Body = io.NopCloser(bytes.NewReader(raw))
+	return r.PostForm.Get("_method")
 }
 
 // subdomainMiddleware dispatches by Host:
