@@ -41,6 +41,7 @@ Each builder returns a response object the host serializes back. Pick the one th
 
 ```js
 response.json({ ok: true });             // 200, application/json
+response.json({ errors: errs }, 400);    // 400, application/json
 response.html("<h1>Hello</h1>");         // 200, text/html
 response.text("ok");                     // 200, text/plain
 response.redirect("/thanks.html");       // 303, sets Location

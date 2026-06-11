@@ -311,7 +311,14 @@ func installResponseBuilder(vm *goja.Runtime) error {
 
 	_ = resp.Set("json", func(call goja.FunctionCall) goja.Value {
 		v := call.Argument(0).Export()
-		return mkResponse(200, "application/json", v, nil)
+		// Optional status second arg — response.json({errors}, 400) is the
+		// shape the docs and the contact-form skeleton ship, so dropping it
+		// silently turned every validation failure into a 200.
+		status := 200
+		if !goja.IsUndefined(call.Argument(1)) {
+			status = int(call.Argument(1).ToInteger())
+		}
+		return mkResponse(status, "application/json", v, nil)
 	})
 	_ = resp.Set("html", func(call goja.FunctionCall) goja.Value {
 		return mkResponse(200, "text/html; charset=utf-8", call.Argument(0).String(), nil)

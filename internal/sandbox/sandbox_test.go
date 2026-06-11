@@ -46,6 +46,24 @@ func TestSandbox_JSONResponse(t *testing.T) {
 	}
 }
 
+// Regression: response.json({...}, 400) is the documented error shape (used
+// by the contact-form skeleton and the functions prompt), but the builder
+// dropped the second arg and hardcoded 200 — so every validation failure went
+// out as a success status.
+func TestSandbox_JSONResponseWithStatus(t *testing.T) {
+	src := `module.exports = function (req) { return response.json({ errors: [{field: "email"}] }, 400); };`
+	resp, _ := mustInvoke(t, src, Request{Method: "POST"})
+	if resp.Status != 400 {
+		t.Fatalf("status: %d want 400 — response.json must honor its optional status arg", resp.Status)
+	}
+	if resp.ContentType != "application/json" {
+		t.Fatalf("ct: %q", resp.ContentType)
+	}
+	if !strings.Contains(string(resp.Body), `"errors"`) {
+		t.Fatalf("body: %s", resp.Body)
+	}
+}
+
 func TestSandbox_RequestFieldsExposed(t *testing.T) {
 	src := `module.exports = function (req) {
 		return response.json({ method: req.method, q: req.query.x, h: req.headers["x-test"], body: req.body });
