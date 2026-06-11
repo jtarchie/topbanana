@@ -8,6 +8,32 @@
       "must_contain": ["<h1"],
       "message": "résumé pages need a clear <h1> with the person's name"
     }
+  ],
+  "guide": [
+    {
+      "id": "experience",
+      "label": "Your experience",
+      "why": "Experience is what most readers scan first.",
+      "how": "Add an 'Experience' section listing roles, places, and dates.",
+      "detector": "section_present",
+      "params": { "keywords": ["experience", "work history", "employment"] }
+    },
+    {
+      "id": "skills",
+      "label": "Your skills",
+      "why": "A skills list helps recruiters match you quickly.",
+      "how": "Add a 'Skills' section.",
+      "detector": "section_present",
+      "params": { "keywords": ["skills", "expertise", "tools", "technologies"] },
+      "required": false
+    },
+    {
+      "id": "contact",
+      "label": "A contact email",
+      "why": "Make it one click for someone to reach you.",
+      "how": "Add your email as a tap-to-email (mailto:) link.",
+      "detector": "email_link"
+    }
   ]
 }
 ---

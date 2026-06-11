@@ -16,7 +16,7 @@ import (
 func checkInlineJS(filename string, doc *html.Node) []Error {
 	var errs []Error
 	idx := 0
-	walkDOM(doc, func(n *html.Node) {
+	WalkDOM(doc, func(n *html.Node) {
 		if n.Type != html.ElementNode || n.Data != "script" || !isLintableScript(n) {
 			return
 		}

@@ -24,6 +24,40 @@
     <div class="alert alert-success" role="status"><span>{{ .Flash }}</span></div>
   {{ end }}
 
+  {{ if gt .GuideTotal 0 }}
+    <section class="card bg-base-100 border border-base-300" aria-labelledby="guide-heading">
+      <div class="card-body">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <h2 id="guide-heading" class="card-title text-lg">Is my site complete?</h2>
+          <span class="badge badge-lg {{ if .GuideComplete }}badge-success{{ else }}badge-ghost{{ end }}"
+                aria-label="{{ .GuidePresent }} of {{ .GuideTotal }} essentials present">
+            {{ .GuidePresent }} of {{ .GuideTotal }} essentials
+          </span>
+        </div>
+        <p class="text-sm text-base-content/70">
+          A quick checklist for a credible {{ if .TemplateLabel }}{{ .TemplateLabel }}{{ else }}site{{ end }}. These checks read your pages directly — no AI, nothing hidden.
+        </p>
+        <ul class="divide-y divide-base-300 border border-base-300 rounded-box mt-2 overflow-hidden">
+          {{ range .GuideResults }}
+          <li class="flex items-start gap-3 px-4 py-3">
+            <span class="mt-0.5 shrink-0 text-base {{ if .Present }}text-success{{ else }}text-base-content/40{{ end }}" aria-hidden="true">{{ if .Present }}✓{{ else }}✗{{ end }}</span>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-medium">
+                {{ .Item.Label }}<span class="sr-only">{{ if .Present }} — present{{ else }} — missing{{ end }}</span>
+              </div>
+              <p class="text-xs text-base-content/70 mt-0.5">{{ .Item.Why }}</p>
+              {{ if not .Present }}
+              <p class="text-xs text-base-content/80 mt-1">{{ .Item.How }}</p>
+              <a href="{{ .WorkspaceURL }}" class="link link-primary text-xs font-medium mt-1 inline-block">Add this in the editor →</a>
+              {{ end }}
+            </div>
+          </li>
+          {{ end }}
+        </ul>
+      </div>
+    </section>
+  {{ end }}
+
   {{ if .SetupNotes }}
     <section class="card bg-base-100 border border-base-300" aria-labelledby="setup-heading">
       <div class="card-body">

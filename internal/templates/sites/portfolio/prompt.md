@@ -8,6 +8,31 @@
       "must_contain": ["<h1"],
       "message": "portfolios need an <h1> with the creator's name or studio"
     }
+  ],
+  "guide": [
+    {
+      "id": "work",
+      "label": "Your work samples",
+      "why": "Work samples are the whole point of a portfolio — people want to see what you make.",
+      "how": "Add a 'Work' or 'Projects' section with a few real pieces.",
+      "detector": "section_present",
+      "params": { "keywords": ["work", "projects", "portfolio", "selected", "case stud"] }
+    },
+    {
+      "id": "about",
+      "label": "A short about / bio",
+      "why": "A couple of sentences tell people who they'd be hiring.",
+      "how": "Add an 'About' section with a short bio.",
+      "detector": "section_present",
+      "params": { "keywords": ["about", "bio", "who i am", "who we are"] }
+    },
+    {
+      "id": "contact",
+      "label": "A contact email",
+      "why": "People can't hire you if they can't reach you.",
+      "how": "Add your email as a tap-to-email (mailto:) link.",
+      "detector": "email_link"
+    }
   ]
 }
 ---

@@ -9,5 +9,8 @@ A marketing page — sticky navbar, hero with primary/secondary CTAs, social pro
 ## Checks
 - `index.html` must contain `<h1` — every landing page needs a clear hero headline.
 
+## Completeness guide
+Owner-facing essentials on the manage page (detector in parens): A features or benefits section (`section_present`) · A sign-up or contact form (`form`, optional) · Some social proof (`section_present`, optional).
+
 ## Gotchas
 The prompt addendum carries strong aesthetic direction (theme selection by product tone, hero must be `min-h-screen` or `py-24+`, etc.). Without it the agent produces a brochure, not a marketing page. If you're modifying the prompt, keep the "hero must be the visual peak" framing.

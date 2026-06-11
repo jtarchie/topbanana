@@ -21,13 +21,17 @@ import (
 // for this slug — opt-in so existing brochure templates are byte-for-byte
 // unchanged.
 type SiteTemplate struct {
-	ID               string
-	Label            string
-	Description      string
-	PromptAddendum   string
-	Skeleton         map[string]string
-	Examples         map[string]string
-	Checks           []Check
+	ID             string
+	Label          string
+	Description    string
+	PromptAddendum string
+	Skeleton       map[string]string
+	Examples       map[string]string
+	Checks         []Check
+	// Guide is the owner-facing completeness checklist for this site type —
+	// the essential content pieces internal/guide detects and the manage page
+	// renders. Optional; templates without a guide simply show no card.
+	Guide            []GuideItem
 	EnablesFunctions bool
 	// SetupNotes is end-user-facing guidance shown on the manage page after a
 	// site is built — "you picked this template, here's what you need to
@@ -45,6 +49,34 @@ type Check struct {
 	Message     string   `json:"message"`
 }
 
+// GuideItem is one essential content piece a credible site of this type should
+// have — the owner-facing, deterministic counterpart to Check. Where Check is a
+// hard build invariant fed to the agent, a GuideItem is advisory: the
+// internal/guide package detects whether it is present in the live site and the
+// manage page renders a ✓/✗ checklist with a plain-English reason and how-to.
+// Authored in each template's prompt.md JSON frontmatter under "guide"; the
+// struct lives here (like Check) so internal/guide can consume it without a
+// templates→guide import cycle.
+type GuideItem struct {
+	ID       string      `json:"id"`                 // stable key, e.g. "hours"
+	Label    string      `json:"label"`              // "Opening hours"
+	Why      string      `json:"why"`                // why it matters, one plain line
+	How      string      `json:"how"`                // how to add it (informational)
+	Page     string      `json:"page,omitempty"`     // workspace deep-link + specific-file scope target; default index.html
+	Detector string      `json:"detector"`           // one of guide's known detector keys
+	Params   GuideParams `json:"params,omitempty"`   // detector parameters
+	Scope    string      `json:"scope,omitempty"`    // "" (any-page) | "every-page" | "specific-file"
+	Required *bool       `json:"required,omitempty"` // defaults true; false marks a nice-to-have
+}
+
+// GuideParams carries the per-detector configuration. Only the fields a given
+// detector reads are populated; the rest stay zero.
+type GuideParams struct {
+	Keywords []string `json:"keywords,omitempty"` // heading_matches / section_present
+	Min      int      `json:"min,omitempty"`      // min_images / min_links
+	Target   string   `json:"target,omitempty"`   // internal_link_to
+}
+
 const (
 	defaultID = "blank"
 	root      = "sites"
@@ -54,11 +86,12 @@ const (
 var templatesFS embed.FS
 
 type templateMeta struct {
-	Label            string  `json:"label"`
-	Description      string  `json:"description"`
-	Checks           []Check `json:"checks,omitempty"`
-	EnablesFunctions bool    `json:"enables_functions,omitempty"`
-	SetupNotes       string  `json:"setup_notes,omitempty"`
+	Label            string      `json:"label"`
+	Description      string      `json:"description"`
+	Checks           []Check     `json:"checks,omitempty"`
+	Guide            []GuideItem `json:"guide,omitempty"`
+	EnablesFunctions bool        `json:"enables_functions,omitempty"`
+	SetupNotes       string      `json:"setup_notes,omitempty"`
 }
 
 var (
@@ -164,6 +197,7 @@ func loadOne(id string) (*SiteTemplate, error) {
 		Skeleton:         skeleton,
 		Examples:         examples,
 		Checks:           meta.Checks,
+		Guide:            meta.Guide,
 		EnablesFunctions: meta.EnablesFunctions,
 		SetupNotes:       strings.TrimSpace(meta.SetupNotes),
 	}, nil

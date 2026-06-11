@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/jtarchie/topbanana/internal/build"
+	"github.com/jtarchie/topbanana/internal/guide"
 	"github.com/jtarchie/topbanana/internal/templates"
 )
 
@@ -50,6 +51,13 @@ type manageData struct {
 	// at — the configured CustomDomainCNAME, or the base domain when unset.
 	// Rendered verbatim into the copy-paste DNS instructions.
 	DNSCNAMETarget string
+	// Guide* back the "Is my site complete?" card — a deterministic, per-type
+	// content checklist (internal/guide). GuideTotal == 0 hides the card (a
+	// template that declares no guide).
+	GuideResults  []guide.Result
+	GuidePresent  int
+	GuideTotal    int
+	GuideComplete bool
 }
 
 // urlPattern matches bare http/https URLs anywhere in setup-notes text. Kept
@@ -117,6 +125,11 @@ func (s *sitesController) manageHandler(c *echo.Context) error {
 		setupNotes = renderSetupNotes(base.SetupNotes)
 	}
 
+	// Deterministic per-type completeness checklist. Pass the base (type)
+	// template, not the functions-override EffectiveTemplate — guide items
+	// describe the site type, not its runtime capabilities.
+	report := guide.Evaluate(ctx, s.store, slug, base)
+
 	cols, rows, err := s.collectSubmissions(ctx, slug)
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "load submissions", err)
@@ -163,5 +176,9 @@ func (s *sitesController) manageHandler(c *echo.Context) error {
 		TemplateLabel:    tmplLabel,
 		SetupNotes:       setupNotes,
 		DNSCNAMETarget:   cnameTarget,
+		GuideResults:     report.Results,
+		GuidePresent:     report.Present,
+		GuideTotal:       report.Total,
+		GuideComplete:    report.Complete(),
 	})
 }

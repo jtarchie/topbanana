@@ -11,6 +11,9 @@ A single-page site with a working form that POSTs to `/api/submit` and redirects
 ## Checks
 - `index.html` must contain `<form` and `/api/submit` — the form's destination is load-bearing.
 
+## Completeness guide
+Owner-facing essentials on the manage page (detector in parens): A form on your home page (`form`, scope `specific-file` index.html) · A line explaining what they're signing up for (`section_present`, optional).
+
 ## Config
 - `enables_functions: true` — this template opts into the `/api/*` router and the function-editing tools.
 

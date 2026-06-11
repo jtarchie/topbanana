@@ -69,17 +69,26 @@ When building or modifying agents for this project, keep in mind the `systemProm
 ## Adding a new site template
 Every directory under `internal/templates/sites/` must contain:
 
-1. **`prompt.md`** — JSON frontmatter with `label`, `description`, optional `checks`, optional `enables_functions`, optional `setup_notes` (end-user setup steps rendered on the manage page); markdown body after `---` is appended to the LLM system prompt.
+1. **`prompt.md`** — JSON frontmatter with `label`, `description`, optional `checks`, optional `guide` (see below), optional `enables_functions`, optional `setup_notes` (end-user setup steps rendered on the manage page); markdown body after `---` is appended to the LLM system prompt.
 2. **`README.md`** — contributor docs with these sections (omit Config / Gotchas if there's nothing to say):
    ```
    # {label}
    ## Purpose
    ## What ships
    ## Checks
+   ## Completeness guide
    ## Config
    ## Gotchas
    ```
 3. **`skeleton/`** (optional) — files seeded onto the filesystem before the agent runs.
+
+### The `guide` frontmatter (owner-facing completeness checklist)
+`guide` is the deterministic, **no-AI** "Is my site complete?" checklist rendered on the manage page (`internal/guide` + the card in `manage.html`). It is the advisory counterpart to `checks`: where `checks` are hard build invariants fed to the agent, `guide` items tell the *owner* what a credible site of this type still needs. Each item is `{id, label, why, how, detector, params?, page?, scope?, required?}`:
+
+- `detector` is one of a fixed Go registry (`internal/guide/detectors.go`, asserted by `TestEveryTemplate_GuideIsWellFormed`): `tel_link`, `email_link`, `form`, `heading_matches` (`params.keywords`), `section_present` (`params.keywords` — heading match **plus** real body text, so an empty placeholder section fails), `address`, `map_link`, `min_images` (`params.min`), `min_links` (`params.min`).
+- `scope` selects how the per-page results combine: `""`/`any-page` (default — present if any page matches), `every-page` (all pages must match), `specific-file` (only `page`, default `index.html`).
+- `required: false` marks a nice-to-have — keep borderline detectors optional so a stray miss doesn't drag the badge to "incomplete".
+- Detectors key on **semantic** elements/hosts (a `tel:` link, a `<form>`, a maps host), never CSS classes, so a design refactor never flips a result.
 
 ## CSS pipeline (self-hosted Tailwind + daisyUI — no CDN)
 The design substrate is **compiled, not CDN-loaded**. daisyUI v5 is vendored in `internal/assets/daisyui/` and the Tailwind v4 **standalone CLI** (Node-free) compiles it:

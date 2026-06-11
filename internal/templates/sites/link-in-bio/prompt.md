@@ -8,6 +8,24 @@
       "must_contain": ["<h1", "<a "],
       "message": "link-in-bio pages need an <h1> name and at least one <a> link"
     }
+  ],
+  "guide": [
+    {
+      "id": "links",
+      "label": "A few real links",
+      "why": "A link page needs a handful of real destinations to be useful.",
+      "how": "Add at least three links — social profiles, your site, a booking page.",
+      "detector": "min_links",
+      "params": { "min": 3 }
+    },
+    {
+      "id": "contact",
+      "label": "A contact email",
+      "why": "Give people a direct way to reach you beyond social links.",
+      "how": "Add your email as a tap-to-email (mailto:) link.",
+      "detector": "email_link",
+      "required": false
+    }
   ]
 }
 ---

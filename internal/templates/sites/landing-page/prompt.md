@@ -8,6 +8,33 @@
       "must_contain": ["<h1"],
       "message": "landing pages need a clear <h1> headline in index.html"
     }
+  ],
+  "guide": [
+    {
+      "id": "features",
+      "label": "A features or benefits section",
+      "why": "Features tell visitors what they actually get.",
+      "how": "Add a 'Features' or 'Benefits' section.",
+      "detector": "section_present",
+      "params": { "keywords": ["features", "benefits", "why", "how it works", "what you get"] }
+    },
+    {
+      "id": "signup",
+      "label": "A sign-up or contact form",
+      "why": "A form turns interested visitors into leads.",
+      "how": "Add an email-capture or contact form.",
+      "detector": "form",
+      "required": false
+    },
+    {
+      "id": "social_proof",
+      "label": "Some social proof",
+      "why": "Testimonials or trusted-by logos build trust with new visitors.",
+      "how": "Add a testimonials or 'trusted by' section.",
+      "detector": "section_present",
+      "params": { "keywords": ["testimonial", "trusted", "customers", "reviews", "loved by"] },
+      "required": false
+    }
   ]
 }
 ---

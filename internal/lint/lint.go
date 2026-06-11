@@ -146,13 +146,15 @@ const localStylesheetHref = "/app.css"
 // localStylesheetTag is the canonical form AutoFixDesignSubstrate injects.
 const localStylesheetTag = `<link rel="stylesheet" href="/app.css">`
 
-// walkDOM does a depth-first pre-order traversal of the parse tree, invoking
+// WalkDOM does a depth-first pre-order traversal of the parse tree, invoking
 // visit on every node. Every DOM-based check shares it instead of redeclaring
-// the recursive closure inline.
-func walkDOM(n *html.Node, visit func(*html.Node)) {
+// the recursive closure inline. Exported so the sibling internal/guide package
+// (the owner-facing completeness checks) can reuse the one traversal rather
+// than duplicating it.
+func WalkDOM(n *html.Node, visit func(*html.Node)) {
 	visit(n)
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		walkDOM(c, visit)
+		WalkDOM(c, visit)
 	}
 }
 
@@ -194,7 +196,7 @@ func (p *substratePresence) inspect(n *html.Node) {
 // unstyled.
 func checkDesignSubstrate(file string, doc *html.Node) []Error {
 	var p substratePresence
-	walkDOM(doc, p.inspect)
+	WalkDOM(doc, p.inspect)
 
 	if p.local {
 		return nil
@@ -222,7 +224,7 @@ func AutoFixDesignSubstrate(content string) (string, bool) {
 		return content, false
 	}
 	var p substratePresence
-	walkDOM(doc, p.inspect)
+	WalkDOM(doc, p.inspect)
 	if p.local {
 		return content, false
 	}
@@ -276,7 +278,7 @@ func (p *viewportPresence) inspect(n *html.Node) {
 // not mistaken for present.
 func checkMobileViewport(file string, doc *html.Node) []Error {
 	var p viewportPresence
-	walkDOM(doc, p.inspect)
+	WalkDOM(doc, p.inspect)
 
 	if p.responsive {
 		return nil
@@ -302,7 +304,7 @@ func AutoFixMobileViewport(content string) (string, bool) {
 		return content, false
 	}
 	var p viewportPresence
-	walkDOM(doc, p.inspect)
+	WalkDOM(doc, p.inspect)
 	if p.meta {
 		return content, false
 	}
@@ -331,7 +333,7 @@ var AutoFixers = map[Kind]func(string) (string, bool){
 // <link href="...daisyui..."> on the same line.
 func suspiciousAttrValues(file string, doc *html.Node) []Error {
 	var errs []Error
-	walkDOM(doc, func(n *html.Node) {
+	WalkDOM(doc, func(n *html.Node) {
 		if n.Type != html.ElementNode {
 			return
 		}
@@ -447,7 +449,7 @@ func checkHTMLLinks(filename string, doc *html.Node, lc linkCheckContext) []Erro
 	dir := path.Dir(filename)
 	var errs []Error
 
-	walkDOM(doc, func(n *html.Node) {
+	WalkDOM(doc, func(n *html.Node) {
 		if n.Type == html.ElementNode {
 			errs = append(errs, checkNodeLinks(filename, dir, n, lc)...)
 		}
@@ -472,7 +474,7 @@ func checkNodeLinks(filename, dir string, n *html.Node, lc linkCheckContext) []E
 // checks use.
 func checkLink(filename, dir, rawVal string, lc linkCheckContext) []Error {
 	link := strings.TrimSpace(rawVal)
-	if link == "" || link == "#" || isExternalLink(link) {
+	if link == "" || link == "#" || IsExternalLink(link) {
 		return nil
 	}
 	if i := strings.IndexByte(link, '#'); i != -1 {
@@ -512,7 +514,7 @@ func checkLink(filename, dir, rawVal string, lc linkCheckContext) []Error {
 	}}
 }
 
-func isExternalLink(link string) bool {
+func IsExternalLink(link string) bool {
 	lower := strings.ToLower(link)
 	return strings.HasPrefix(lower, "http://") ||
 		strings.HasPrefix(lower, "https://") ||

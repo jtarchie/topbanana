@@ -9,5 +9,8 @@ A one-page personal résumé and brand site — hero, about, experience, skills,
 ## Checks
 - `index.html` must contain `<h1` — every résumé needs a clear name in the headline.
 
+## Completeness guide
+Owner-facing essentials on the manage page (detector in parens): Your experience (`section_present`) · Your skills (`section_present`, optional) · A contact email (`email_link`).
+
 ## Gotchas
 The prompt addendum is long and aesthetic-heavy on purpose — without the "must look like a personal brand site, not an academic CV" framing the agent regresses to flat bullet lists. If you trim the prompt, keep the type-hierarchy and DaisyUI-component guidance.
