@@ -41,6 +41,9 @@ func FuzzHTMLLint(f *testing.F) {
 		`<a href="tel:abc">call</a>`,
 		`<label for="nope">x</label>`,
 		`<script>document.getElementById('missing')</script>`,
+		`<script src="http://evil.example/x.js"></script>`,
+		`<link rel="stylesheet" href="https://fonts.example.com/css">`,
+		`<svg xmlns="http://www.w3.org/2000/svg"><use xlink:href="#i"/></svg>`,
 		"",
 	}
 	for _, s := range seeds {
@@ -57,6 +60,8 @@ func FuzzHTMLLint(f *testing.F) {
 		_ = checkForms(pi)
 		_ = checkFetchTargets(pi, facts, linkCheckContext{fileSet: fileSet})
 		_ = checkDeadInteractions(pi, facts)
+		_ = checkExternalResources(pi)
+		_ = checkUnreferencedPages([]pageInfo{pi}, map[string]jsFacts{"index.html": facts}, []string{raw}, nil, linkCheckContext{fileSet: fileSet})
 		_ = checkHTMLLinks("index.html", doc, linkCheckContext{fileSet: fileSet, enablesFns: false})
 		_ = checkHTMLLinks("index.html", doc, linkCheckContext{fileSet: fileSet, enablesFns: true})
 		_ = checkInlineJS("index.html", pi.scripts)

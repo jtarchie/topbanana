@@ -154,6 +154,26 @@ var friendlyRules = []friendlyRule{
 		hint:     "Try again — this usually clears up on a second attempt.",
 	},
 	{
+		match:    "external script",
+		headline: "A page tried to load code from another website.",
+		hint:     "Sites here are self-contained — try again and the code will be built in.",
+	},
+	{
+		match:    "external stylesheet",
+		headline: "A page tried to load styling from another website.",
+		hint:     "Sites here are self-contained — try again and the styling will be built in.",
+	},
+	{
+		match:    "insecure http:// URL",
+		headline: "A page pointed at content over an insecure connection.",
+		hint:     "Try again — secure links usually sort themselves out on a second pass.",
+	},
+	{
+		match:    "unreachable page",
+		headline: "A page was created but nothing linked to it.",
+		hint:     "Try again and mention where the page should appear in the menu.",
+	},
+	{
 		match:    "lint errors after",
 		headline: "We built your site, but a few things didn't pass our checks.",
 		hint:     "Try again — small changes usually clear it up.",

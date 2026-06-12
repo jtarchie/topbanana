@@ -96,6 +96,20 @@ const (
 	// literal with no matching id on the page. Gated off entirely for pages
 	// whose scripts build DOM at runtime.
 	KindBrokenDOMQuery Kind = "broken_dom_query"
+	// KindExternalScript identifies a <script src> loading third-party
+	// JavaScript from a host outside the Stripe allowlist — sites must stay
+	// self-contained.
+	KindExternalScript Kind = "external_script"
+	// KindExternalStylesheet identifies a stylesheet <link> to another
+	// origin; the only stylesheet is the self-hosted /app.css.
+	KindExternalStylesheet Kind = "external_stylesheet"
+	// KindMixedContent identifies a plain-http URL in src/href/action —
+	// blocked or warned on by browsers since the site is served over https.
+	KindMixedContent Kind = "mixed_content"
+	// KindUnreferencedPage identifies a non-index page nothing references:
+	// no link, no inline-script URL, no functions redirect. Visitors can
+	// never find it.
+	KindUnreferencedPage Kind = "unreferenced_page"
 )
 
 type Error struct {
@@ -124,8 +138,12 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 
 	lc := linkCheckContext{fileSet: fileSet, enablesFns: tmpl != nil && tmpl.EnablesFunctions}
 
+	skeletonPages := templateSkeletonPages(tmpl)
+
 	var errs []Error
 	var pages []pageInfo
+	factsByPage := map[string]jsFacts{}
+	var fnLiterals []string
 	for _, file := range files {
 		switch {
 		case strings.HasSuffix(file, ".html"):
@@ -142,6 +160,7 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 			pi := collectPageInfo(file, doc)
 			pages = append(pages, pi)
 			facts := collectJSFacts(file, pi.scripts)
+			factsByPage[file] = facts
 			errs = append(errs, checkHTMLLinks(file, doc, lc)...)
 			errs = append(errs, checkInlineJS(file, pi.scripts)...)
 			errs = append(errs, suspiciousAttrValues(file, doc)...)
@@ -151,6 +170,7 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 			errs = append(errs, checkForms(pi)...)
 			errs = append(errs, checkFetchTargets(pi, facts, lc)...)
 			errs = append(errs, checkDeadInteractions(pi, facts)...)
+			errs = append(errs, checkExternalResources(pi)...)
 		case strings.HasSuffix(file, ".js"):
 			// JS files are allowed under functions/ only — JSFile rejects
 			// .js files anywhere else. The agent's path validation also
@@ -162,14 +182,16 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 				continue
 			}
 			errs = append(errs, JSFile(file, obj.Content)...)
+			fnLiterals = append(fnLiterals, jsFileLiterals(file, obj.Content)...)
 		}
 	}
 
 	// Cross-page checks (a fragment can target an id on another page; titles
-	// must be unique across the site) run once every page is parsed rather
-	// than per file above.
+	// must be unique across the site; a page may be referenced from anywhere)
+	// run once every page is parsed rather than per file above.
 	errs = append(errs, checkAnchors(pages, lc)...)
 	errs = append(errs, checkDuplicateTitles(pages)...)
+	errs = append(errs, checkUnreferencedPages(pages, factsByPage, fnLiterals, skeletonPages, lc)...)
 
 	errs = append(errs, checkTemplateInvariants(ctx, s, slug, tmpl)...)
 	errs = append(errs, checkEntryPoint(ctx, s, slug)...)
@@ -184,6 +206,21 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 	}
 
 	return errs
+}
+
+// templateSkeletonPages returns the file names the chosen template ships.
+// They're exempt from the unreferenced-page check — deliberately unlinked
+// skeleton pages (an owner-only order log, say) are the template author's
+// design, not an agent mistake.
+func templateSkeletonPages(tmpl *templates.SiteTemplate) map[string]bool {
+	if tmpl == nil {
+		return nil
+	}
+	out := make(map[string]bool, len(tmpl.Skeleton))
+	for name := range tmpl.Skeleton {
+		out[name] = true
+	}
+	return out
 }
 
 // checkEntryPoint enforces the one invariant every site shares regardless of
