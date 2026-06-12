@@ -73,6 +73,13 @@ const testAdminUser = "admin@test"
 // by InjectTestSession.
 func buildServer(t *testing.T, st *store.Store, snapSvc *snapshot.Service) http.Handler {
 	t.Helper()
+	return buildServerWithState(t, st, snapSvc, state.NewMemory())
+}
+
+// buildServerWithState is buildServer with an injectable KV state store, for
+// tests that need to seed or inspect form-submission data (see data_test.go).
+func buildServerWithState(t *testing.T, st *store.Store, snapSvc *snapshot.Service, kv state.Store) http.Handler {
+	t.Helper()
 	authSvc, err := auth.New(auth.Config{
 		Store:           st,
 		Domain:          "localhost",
@@ -96,7 +103,7 @@ func buildServer(t *testing.T, st *store.Store, snapSvc *snapshot.Service) http.
 		Store:    st,
 		Build:    build.New(st, nil, buildTracker, snapSvc),
 		Events:   depsTracker,
-		State:    state.NewMemory(),
+		State:    kv,
 		Snapshot: snapSvc,
 		Auth:     authSvc,
 		Domain:   "localhost",

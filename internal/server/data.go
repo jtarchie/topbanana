@@ -4,13 +4,17 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/jtarchie/topbanana/internal/state"
 )
 
 // dataRow is one submission row in the inline table on /manage/:slug and in
@@ -105,6 +109,87 @@ func (s *Server) collectSubmissions(ctx context.Context, slug string) ([]string,
 		rows = append(rows, dataRow{Key: e.key, Values: values})
 	}
 	return cols, rows, nil
+}
+
+var (
+	errSubmissionNotFound = errors.New("submission not found")
+	errNotSubmissionKey   = errors.New("key is not a form submission")
+)
+
+// deleteSubmissionKey removes one submission from the slug's KV blob. What
+// counts as a submission mirrors the row filter in collectSubmissions — any
+// object-valued key — so the delete surface matches exactly what the manage
+// table displays, and scalar state (counters like submission_seq) stays out
+// of reach. Save is ETag-CAS and visitor-facing functions write submissions
+// concurrently, so a conflict reloads and retries like invokeWithCAS.
+func (s *Server) deleteSubmissionKey(ctx context.Context, slug, key string) error {
+	if s.state == nil {
+		return errSubmissionNotFound
+	}
+	for attempt := 0; attempt <= maxCASRetries; attempt++ {
+		snap, err := s.state.Load(ctx, slug)
+		if err != nil {
+			return fmt.Errorf("state load: %w", err)
+		}
+		v, ok := snap.Data[key]
+		if !ok {
+			return errSubmissionNotFound
+		}
+		_, ok = v.(map[string]any)
+		if !ok {
+			return errNotSubmissionKey
+		}
+		delete(snap.Data, key)
+		err = s.state.Save(ctx, slug, snap)
+		if err == nil {
+			return nil
+		}
+		if errors.Is(err, state.ErrConflict) {
+			slog.Info("submission.delete_cas_retry", "slug", slug, "key", key, "attempt", attempt+1)
+			continue
+		}
+		return fmt.Errorf("state save: %w", err)
+	}
+	return state.ErrConflict
+}
+
+// deleteSubmissionHandler removes a single row from the submissions table on
+// /manage/:slug. Belt-and-suspenders confirmation mirrors deleteFileHandler:
+// the form must echo the key back in `confirm` so a stray request that
+// bypasses the JS modal still can't delete the wrong entry.
+func (s *sitesController) deleteSubmissionHandler(c *echo.Context) error {
+	slug, err := slugParam(c)
+	if err != nil {
+		return err
+	}
+	key := c.FormValue("key")
+	if key == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "missing submission key")
+	}
+	if c.FormValue("confirm") != key {
+		return echo.NewHTTPError(http.StatusBadRequest, "confirmation does not match key")
+	}
+
+	err = s.deleteSubmissionKey(c.Request().Context(), slug, key)
+	switch {
+	case errors.Is(err, errSubmissionNotFound):
+		return echo.NewHTTPError(http.StatusNotFound, "submission "+key+" not found")
+	case errors.Is(err, errNotSubmissionKey):
+		return echo.NewHTTPError(http.StatusBadRequest, key+" is not a form submission")
+	case errors.Is(err, state.ErrConflict):
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "state contention — retry shortly")
+	case err != nil:
+		return httpErr(http.StatusInternalServerError, "delete submission", err)
+	}
+
+	caller := userFromContext(c)
+	email := ""
+	if caller != nil {
+		email = caller.Email
+	}
+	slog.Info("submission.delete", "slug", slug, "key", key, "user", email)
+
+	return c.Redirect(http.StatusSeeOther, "/manage/"+slug+"?flash="+urlEscape("Deleted "+key)+"#submissions-heading") //nolint:wrapcheck
 }
 
 // formatCell turns a KV value into a display string. Numeric `ts` is parsed as

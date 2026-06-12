@@ -51,6 +51,7 @@ func (s *sitesController) register(g *echo.Group, owns echo.MiddlewareFunc) {
 	g.PUT("/history/:slug", s.historyRestoreHandler, owns)
 	g.DELETE("/history/:slug", s.historyDeleteHandler, owns)
 	g.GET("/data/:slug", s.dataHandler, owns)
+	g.DELETE("/data/:slug", s.deleteSubmissionHandler, owns)
 	g.GET("/files/:slug", s.filesHandler, owns)
 	g.POST("/clarify/:slug", s.clarifyHandler, owns, promptBodyCap)
 }

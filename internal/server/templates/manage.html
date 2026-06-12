@@ -92,6 +92,7 @@
             <tr>
               <th>id</th>
               {{ range .Columns }}<th>{{ . }}</th>{{ end }}
+              <th class="w-12"><span class="sr-only">actions</span></th>
             </tr>
           </thead>
           <tbody>
@@ -99,6 +100,17 @@
             <tr>
               <td class="font-mono text-xs">{{ .Key }}</td>
               {{ range .Values }}<td>{{ . }}</td>{{ end }}
+              <td class="text-right">
+                <form method="POST" action="/data/{{ $.Slug }}" class="inline js-confirm"
+                      data-confirm-title="Delete this submission?"
+                      data-confirm="This permanently removes {{ .Key }}. There's no undo."
+                      data-confirm-ok="Delete">
+                  <input type="hidden" name="_method" value="DELETE">
+                  <input type="hidden" name="key" value="{{ .Key }}">
+                  <input type="hidden" name="confirm" value="{{ .Key }}">
+                  <button type="submit" class="btn btn-ghost btn-xs text-error" aria-label="Delete {{ .Key }}">delete</button>
+                </form>
+              </td>
             </tr>
             {{ end }}
           </tbody>
