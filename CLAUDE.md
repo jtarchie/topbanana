@@ -47,7 +47,7 @@ The application is configured via CLI flags and environment variables (via `kong
 - `LLM_BASE_URL`: URL of the LLM provider.
 
 ## Agent Instructions & Constraints
-When building or modifying agents for this project, keep in mind the `systemPrompt` (found in `static/agent_prompt.md`):
+When building or modifying agents for this project, keep in mind the `systemPrompt` (found in `internal/agent/agent_prompt.md`):
 
 1.  **Strict File Types**: Create **only** `.html` files. CSS and JavaScript must be inlined.
 2.  **Entry Point**: Every site must have an `index.html`.
@@ -62,9 +62,9 @@ When building or modifying agents for this project, keep in mind the `systemProm
 - `internal/server/mcp_*.go`: the MCP edit surface + its OAuth authorization server. **Deliberately in-package** (not extracted): the tools share `Server`'s store/build/auth/registry plus a few private helpers (`invokeWithCAS`, `collectSubmissions`, `loadFunctionSource`, `storeUploadedAsset`). Keep new tools within that surface; if one needs more of `Server`, reconsider extraction first.
 - `internal/agent/`: the build agent — `agent.go` (runner + tools), `instruction.go` (cache-stable prompt assembly), `state.go` (per-run state, anti-loop guard). Pure edit transforms live in `internal/textedit`, shared byte-for-byte with the MCP tools.
 - `internal/build/`: build orchestration (`build.go`), the agent seam (`runner.go` — `Runner`/`RunRequest`), and the per-site sidecar (`meta.go` — `SiteMeta`/`ReadMeta`/`WriteMeta`).
+- `internal/lint/`: the deterministic site-integrity gate (no LLM) every build/edit/relint runs. Check families: HTML parse + swallowed-attribute recovery; links and `#anchor` fragments (proxy-parity resolution via `resolveLinkTarget`/`resolveSiteTarget` in `links.go` — the single resolver shared by every path-shaped check); head hygiene (charset auto-fixed, lang, unique titles, meta description); form data-loss (unnamed controls, post-without-action, multipart/file inputs the API can't parse, inline-JS `fetch()` literals); dead interactions (label/for, duplicate ids, mailto:/tel: shape, undefined `on*` handlers, DOM lookups — the JS-aware checks stand down on dynamic-DOM or unparseable pages); self-containment (external scripts/styles with a Stripe allowlist, `http://` mixed content, unreferenced pages — template-skeleton pages exempt). Errors flow verbatim to the agent via `build.LintFixPrompt`, and `internal/build/friendly.go` maps stable message substrings to user-facing copy — **reword a lint message, update friendlyRules in the same change**. **Template skeletons and examples must stay lint-clean**: `skeleton_conformance_test.go` seeds every shipped skeleton and asserts zero errors, so a new check that flags one is either finding a real template bug or is too noisy to ship.
 - `internal/model/`: LLM provider resolution logic.
 - `internal/templates/sites/{id}/`: Site templates the user picks from. Each ships a `prompt.md` (JSON frontmatter + system addendum for the agent), an optional `skeleton/` (seed files), and a `README.md` (contributor docs).
-- `static/`: Static assets like the landing page and agent system prompts.
 
 ## Adding a new site template
 Every directory under `internal/templates/sites/` must contain:
