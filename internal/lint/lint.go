@@ -73,7 +73,7 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 	lc := linkCheckContext{fileSet: fileSet, enablesFns: tmpl != nil && tmpl.EnablesFunctions}
 
 	var errs []Error
-	var pages []parsedPage
+	var pages []pageInfo
 	for _, file := range files {
 		switch {
 		case strings.HasSuffix(file, ".html"):
@@ -87,9 +87,10 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 				errs = append(errs, Error{File: file, Message: fmt.Sprintf("HTML parse error: %s", parseErr)})
 				continue
 			}
-			pages = append(pages, parsedPage{name: file, doc: doc})
+			pi := collectPageInfo(file, doc)
+			pages = append(pages, pi)
 			errs = append(errs, checkHTMLLinks(file, doc, lc)...)
-			errs = append(errs, checkInlineJS(file, doc)...)
+			errs = append(errs, checkInlineJS(file, pi.scripts)...)
 			errs = append(errs, suspiciousAttrValues(file, doc)...)
 			errs = append(errs, checkDesignSubstrate(file, doc)...)
 			errs = append(errs, checkMobileViewport(file, doc)...)
@@ -485,41 +486,11 @@ func checkNodeLinks(filename, dir string, n *html.Node, lc linkCheckContext) []E
 
 // checkLink returns the broken-link error for one href/src value as a slice
 // (empty when the link is fine), matching the []Error contract the other
-// checks use.
+// checks use. All normalization and exemption logic lives in
+// resolveSiteTarget (links.go).
 func checkLink(filename, dir, rawVal string, lc linkCheckContext) []Error {
-	link := strings.TrimSpace(rawVal)
-	if link == "" || link == "#" || IsExternalLink(link) {
-		return nil
-	}
-	if i := strings.IndexByte(link, '#'); i != -1 {
-		link = link[:i]
-	}
-	if i := strings.IndexByte(link, '?'); i != -1 {
-		link = link[:i]
-	}
-	if link == "" {
-		return nil
-	}
-	// Dynamic API routes are served by apiHandler (internal/server/api.go), not
-	// by static files: /api/{name} is backed by functions/{name}.js. Treat such
-	// a link as valid when that backing file exists in the site, or when
-	// functions are enabled (the {name} handler may not be authored yet at lint
-	// time). The file-presence check keeps template-less sites — which report
-	// enablesFns=false — from false-positiving real function-backed forms.
-	if strings.HasPrefix(link, "/api/") {
-		name := strings.TrimPrefix(link, "/api/")
-		if lc.enablesFns || lc.fileSet["functions/"+name+".js"] {
-			return nil
-		}
-	}
-	// /app.css is the self-hosted design substrate — compiled per site by the
-	// post-build CSS step (so it isn't in the bucket when the page is linted)
-	// and served by the platform. Always valid, never a broken link.
-	if link == localStylesheetHref {
-		return nil
-	}
-	resolved, ok := resolveLinkTarget(dir, link, lc.fileSet)
-	if ok {
+	resolved, ok, skip := resolveSiteTarget(dir, rawVal, lc)
+	if skip || ok {
 		return nil
 	}
 	return []Error{{

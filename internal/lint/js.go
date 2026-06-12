@@ -89,6 +89,16 @@ type jsWalker struct {
 	filename       string
 	errs           *[]Error
 	exportsHandler bool
+
+	// Optional collector hooks — nil by default so JSFile's behavior is
+	// untouched. collectJSFacts (inline scripts) and jsFileLiterals
+	// (functions/*.js) set them to harvest facts from the same traversal the
+	// forbidden-identifier check uses. collectOnly suppresses that check,
+	// because browser-side JS legitimately calls fetch/setTimeout/etc.
+	collectOnly bool
+	onString    func(string)              // string literals + expressionless templates
+	onCall      func(*ast.CallExpression) // every call expression, before its children
+	onTopName   func(string)              // top-level declared / window.X-assigned names
 }
 
 func (w *jsWalker) addErr(msg string) {
@@ -96,6 +106,9 @@ func (w *jsWalker) addErr(msg string) {
 }
 
 func (w *jsWalker) checkIdentifier(name unistring.String) {
+	if w.collectOnly {
+		return
+	}
 	if msg, bad := forbiddenIdentifiers[string(name)]; bad {
 		w.addErr(msg)
 	}
@@ -103,7 +116,45 @@ func (w *jsWalker) checkIdentifier(name unistring.String) {
 
 func (w *jsWalker) walkProgram(p *ast.Program) {
 	for _, s := range p.Body {
+		w.noteTopLevelNames(s)
 		w.walkStmt(s)
+	}
+}
+
+// noteTopLevelNames reports script-level declared names to the onTopName
+// hook. Top-level function/var/let/const names in a classic inline script
+// live on the page's global lexical environment, so inline event handlers
+// (onclick="name()") can call them. (Module-script top-level names are not
+// true globals; counting them anyway only suppresses errors — the right bias
+// for an "undefined handler" check.)
+func (w *jsWalker) noteTopLevelNames(s ast.Statement) {
+	if w.onTopName == nil {
+		return
+	}
+	switch n := s.(type) {
+	case *ast.FunctionDeclaration:
+		if n.Function != nil && n.Function.Name != nil {
+			w.onTopName(string(n.Function.Name.Name))
+		}
+	case *ast.VariableStatement:
+		for _, b := range n.List {
+			w.noteBindingName(b)
+		}
+	case *ast.LexicalDeclaration:
+		for _, b := range n.List {
+			w.noteBindingName(b)
+		}
+	}
+}
+
+// noteBindingName reports a binding's name when it is a plain identifier;
+// destructuring targets are skipped.
+func (w *jsWalker) noteBindingName(b *ast.Binding) {
+	if b == nil {
+		return
+	}
+	if id, ok := b.Target.(*ast.Identifier); ok {
+		w.onTopName(string(id.Name))
 	}
 }
 
@@ -228,8 +279,13 @@ func (w *jsWalker) walkExpr(e ast.Expression) {
 	switch n := e.(type) {
 	case *ast.Identifier:
 		w.checkIdentifier(n.Name)
+	case *ast.StringLiteral:
+		if w.onString != nil {
+			w.onString(string(n.Value))
+		}
 	case *ast.AssignExpression:
 		w.checkAssignsHandler(n)
+		w.noteWindowAssign(n)
 		w.walkExpr(n.Left)
 		w.walkExpr(n.Right)
 	case *ast.BinaryExpression:
@@ -242,6 +298,9 @@ func (w *jsWalker) walkExpr(e ast.Expression) {
 		w.walkExpr(n.Consequent)
 		w.walkExpr(n.Alternate)
 	case *ast.CallExpression:
+		if w.onCall != nil {
+			w.onCall(n)
+		}
 		w.walkExpr(n.Callee)
 		for _, a := range n.ArgumentList {
 			w.walkExpr(a)
@@ -285,6 +344,7 @@ func (w *jsWalker) walkExpr(e ast.Expression) {
 			w.walkExpr(body.Expression)
 		}
 	case *ast.TemplateLiteral:
+		w.noteTemplateString(n)
 		for _, x := range n.Expressions {
 			w.walkExpr(x)
 		}
@@ -298,6 +358,58 @@ func (w *jsWalker) walkExpr(e ast.Expression) {
 	case *ast.AwaitExpression:
 		w.walkExpr(n.Argument)
 	}
+}
+
+// noteTemplateString reports an expressionless template literal to the
+// onString hook — `/api/orders` and "..." are the same constant to a reader,
+// so the collectors treat them the same.
+func (w *jsWalker) noteTemplateString(n *ast.TemplateLiteral) {
+	if w.onString == nil || len(n.Expressions) > 0 || len(n.Elements) == 0 {
+		return
+	}
+	var b strings.Builder
+	for _, el := range n.Elements {
+		b.WriteString(string(el.Parsed))
+	}
+	w.onString(b.String())
+}
+
+// noteWindowAssign reports `window.name = ...` assignments to the onTopName
+// hook — inline event handlers can call names attached to window from any
+// scope, not just top-level declarations.
+func (w *jsWalker) noteWindowAssign(a *ast.AssignExpression) {
+	if w.onTopName == nil || a == nil || a.Operator.String() != "=" {
+		return
+	}
+	left, ok := a.Left.(*ast.DotExpression)
+	if !ok {
+		return
+	}
+	if root, isIdent := left.Left.(*ast.Identifier); isIdent && string(root.Name) == "window" {
+		w.onTopName(string(left.Identifier.Name))
+	}
+}
+
+// jsFileLiterals extracts every string literal from a function source for the
+// unreferenced-page scan — functions reach pages via literals like
+// response.redirect("/thanks.html"). Parse failures return nil: JSFile has
+// already reported the error, and a missing reference here only risks an
+// extra lint message, never a broken build.
+func jsFileLiterals(filename, source string) []string {
+	prog, err := parser.ParseFile(nil, filename, source, 0)
+	if err != nil {
+		return nil
+	}
+	var lits []string
+	var discard []Error
+	w := &jsWalker{
+		filename:    filename,
+		errs:        &discard,
+		collectOnly: true,
+		onString:    func(s string) { lits = append(lits, s) },
+	}
+	w.walkProgram(prog)
+	return lits
 }
 
 // checkAssignsHandler flips exportsHandler to true if this assignment matches

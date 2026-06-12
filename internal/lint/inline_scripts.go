@@ -4,35 +4,25 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/dop251/goja/parser"
 	"golang.org/x/net/html"
 )
 
-// checkInlineJS walks a parsed HTML tree and runs the JS parser over every
-// inline <script> element. Catches syntax errors like invalid assignment LHS
-// before they ship to the browser. External (`src=…`) and non-JS typed
-// scripts are skipped — the agent's prompt forbids external scripts anyway,
-// and JSON / importmap content isn't JS.
-func checkInlineJS(filename string, doc *html.Node) []Error {
+// checkInlineJS reports parse errors for a page's inline <script> elements.
+// Catches syntax errors like invalid assignment LHS before they ship to the
+// browser. The scripts arrive pre-parsed via collectPageInfo (which applies
+// the isLintableScript filter — external `src=…` and non-JS typed scripts
+// are skipped; the agent's prompt forbids external scripts anyway, and
+// JSON / importmap content isn't JS).
+func checkInlineJS(filename string, scripts []scriptInfo) []Error {
 	var errs []Error
-	idx := 0
-	WalkDOM(doc, func(n *html.Node) {
-		if n.Type != html.ElementNode || n.Data != "script" || !isLintableScript(n) {
-			return
-		}
-		idx++
-		src := scriptText(n)
-		if strings.TrimSpace(src) == "" {
-			return
-		}
-		_, err := parser.ParseFile(nil, filename, src, 0)
-		if err != nil {
+	for _, s := range scripts {
+		if s.parseErr != nil {
 			errs = append(errs, Error{
 				File:    filename,
-				Message: fmt.Sprintf("inline <script> #%d parse error: %s", idx, err),
+				Message: fmt.Sprintf("inline <script> #%d parse error: %s", s.ordinal, s.parseErr),
 			})
 		}
-	})
+	}
 	return errs
 }
 

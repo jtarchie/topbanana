@@ -42,12 +42,14 @@ func FuzzHTMLLint(f *testing.F) {
 		if err != nil || doc == nil {
 			return
 		}
+		pi := collectPageInfo("index.html", doc)
+		_ = collectJSFacts("index.html", pi.scripts)
 		_ = checkHTMLLinks("index.html", doc, linkCheckContext{fileSet: fileSet, enablesFns: false})
 		_ = checkHTMLLinks("index.html", doc, linkCheckContext{fileSet: fileSet, enablesFns: true})
-		_ = checkInlineJS("index.html", doc)
+		_ = checkInlineJS("index.html", pi.scripts)
 		_ = suspiciousAttrValues("index.html", doc)
 		_ = checkDesignSubstrate("index.html", doc)
 		_ = checkMobileViewport("index.html", doc)
-		_ = checkAnchors([]parsedPage{{name: "index.html", doc: doc}}, linkCheckContext{fileSet: fileSet})
+		_ = checkAnchors([]pageInfo{pi}, linkCheckContext{fileSet: fileSet})
 	})
 }

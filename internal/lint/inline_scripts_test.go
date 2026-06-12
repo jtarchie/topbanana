@@ -16,12 +16,20 @@ func parseHTMLForTest(t *testing.T, src string) *html.Node {
 	return doc
 }
 
+// scriptsOf parses a page and returns its collected inline scripts — the
+// shape checkInlineJS consumes since collectPageInfo took over script
+// extraction.
+func scriptsOf(t *testing.T, src string) []scriptInfo {
+	t.Helper()
+	return collectPageInfo("index.html", parseHTMLForTest(t, src)).scripts
+}
+
 func TestInlineJS_HappyPath(t *testing.T) {
 	src := `<!doctype html><html><body><script>
 		const x = 1;
 		document.querySelector('p').textContent = String(x);
 	</script></body></html>`
-	errs := checkInlineJS("index.html", parseHTMLForTest(t, src))
+	errs := checkInlineJS("index.html", scriptsOf(t, src))
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors, got: %v", errs)
 	}
@@ -35,7 +43,7 @@ func TestInlineJS_CatchesInvalidAssignLHS(t *testing.T) {
 		var container = document.body;
 		container *container.innerHTML = '<p>oops</p>';
 	</script></body></html>`
-	errs := checkInlineJS("index.html", parseHTMLForTest(t, src))
+	errs := checkInlineJS("index.html", scriptsOf(t, src))
 	if len(errs) == 0 {
 		t.Fatal("expected a parse error for invalid assignment LHS")
 	}
@@ -48,7 +56,7 @@ func TestInlineJS_UnterminatedString(t *testing.T) {
 	src := `<!doctype html><html><body><script>
 		var x = "unterminated;
 	</script></body></html>`
-	errs := checkInlineJS("index.html", parseHTMLForTest(t, src))
+	errs := checkInlineJS("index.html", scriptsOf(t, src))
 	if len(errs) == 0 {
 		t.Fatal("expected a parse error for unterminated string")
 	}
@@ -58,7 +66,7 @@ func TestInlineJS_SkipsExternalSrc(t *testing.T) {
 	// External scripts are caught by other rules; the inline check must not
 	// invent a syntax error from an empty body.
 	src := `<!doctype html><html><body><script src="https://example.com/bad.js"></script></body></html>`
-	errs := checkInlineJS("index.html", parseHTMLForTest(t, src))
+	errs := checkInlineJS("index.html", scriptsOf(t, src))
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for src= scripts, got: %v", errs)
 	}
@@ -70,7 +78,7 @@ func TestInlineJS_SkipsApplicationJSON(t *testing.T) {
 	src := `<!doctype html><html><body>
 		<script type="application/ld+json">{ "@context": "https://schema.org" }</script>
 	</body></html>`
-	errs := checkInlineJS("index.html", parseHTMLForTest(t, src))
+	errs := checkInlineJS("index.html", scriptsOf(t, src))
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for application/ld+json, got: %v", errs)
 	}
@@ -80,7 +88,7 @@ func TestInlineJS_ChecksTypeTextJavaScript(t *testing.T) {
 	src := `<!doctype html><html><body>
 		<script type="text/javascript">var = 1;</script>
 	</body></html>`
-	errs := checkInlineJS("index.html", parseHTMLForTest(t, src))
+	errs := checkInlineJS("index.html", scriptsOf(t, src))
 	if len(errs) == 0 {
 		t.Fatal("expected a parse error for type=text/javascript with bad syntax")
 	}
@@ -88,7 +96,7 @@ func TestInlineJS_ChecksTypeTextJavaScript(t *testing.T) {
 
 func TestInlineJS_EmptyScriptIsFine(t *testing.T) {
 	src := `<!doctype html><html><body><script></script><script>   </script></body></html>`
-	errs := checkInlineJS("index.html", parseHTMLForTest(t, src))
+	errs := checkInlineJS("index.html", scriptsOf(t, src))
 	if len(errs) != 0 {
 		t.Fatalf("expected no errors for empty scripts, got: %v", errs)
 	}
@@ -100,7 +108,7 @@ func TestInlineJS_MultipleScriptsIndependent(t *testing.T) {
 		<script>console.log("hi");</script>
 		<script>foo bar baz +=</script>
 	</body></html>`
-	errs := checkInlineJS("index.html", parseHTMLForTest(t, src))
+	errs := checkInlineJS("index.html", scriptsOf(t, src))
 	if len(errs) == 0 {
 		t.Fatal("expected the second script to be reported")
 	}

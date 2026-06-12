@@ -3,11 +3,8 @@ package lint
 import (
 	"fmt"
 	"net/url"
-	"path"
 	"sort"
 	"strings"
-
-	"golang.org/x/net/html"
 )
 
 // This file owns anchor-fragment validation: every `#fragment` in an href
@@ -16,53 +13,23 @@ import (
 // this check a nav full of `#section` links to ids that were never written
 // lints clean and silently does nothing in the browser.
 
-// parsedPage pairs an HTML file's name with its parsed DOM. App collects one
-// per page so cross-page checks like anchors can see the whole site at once.
-type parsedPage struct {
-	name string
-	doc  *html.Node
-}
-
-// anchorTargets collects the fragment targets one page exposes: the id
-// attribute of every element (which also covers inline-SVG <symbol> ids
-// referenced by `<use href="#...">`) plus the legacy name attribute on <a>.
-func anchorTargets(doc *html.Node) map[string]bool {
-	targets := map[string]bool{}
-	WalkDOM(doc, func(n *html.Node) {
-		if n.Type != html.ElementNode {
-			return
-		}
-		for _, attr := range n.Attr {
-			switch {
-			case attr.Key == "id" && attr.Val != "":
-				targets[attr.Val] = true
-			case attr.Key == "name" && n.Data == "a" && attr.Val != "":
-				targets[attr.Val] = true
-			}
-		}
-	})
-	return targets
-}
-
 // checkAnchors validates every href fragment on every page: `#x` must match
 // an id on the same page, `page.html#x` an id on the page the link resolves
-// to (same resolution as the broken-link check, fallbacks included). Each
-// distinct broken href is reported once per page — the same value repeated
-// in a navbar and a footer is one mistake, not several.
-func checkAnchors(pages []parsedPage, lc linkCheckContext) []Error {
+// to (same resolution as the broken-link check, fallbacks included). The
+// fragment targets a page exposes — every element's id plus the legacy name
+// attribute on <a> — arrive pre-collected as pageInfo.targets. Each distinct
+// broken href is reported once per page — the same value repeated in a
+// navbar and a footer is one mistake, not several.
+func checkAnchors(pages []pageInfo, lc linkCheckContext) []Error {
 	targetsByPage := make(map[string]map[string]bool, len(pages))
 	for _, p := range pages {
-		targetsByPage[p.name] = anchorTargets(p.doc)
+		targetsByPage[p.name] = p.targets
 	}
 
 	var errs []Error
 	for _, p := range pages {
-		dir := path.Dir(p.name)
 		seen := map[string]bool{}
-		WalkDOM(p.doc, func(n *html.Node) {
-			if n.Type != html.ElementNode {
-				return
-			}
+		for _, n := range p.elements {
 			for _, attr := range n.Attr {
 				if attr.Key != "href" {
 					continue
@@ -72,12 +39,12 @@ func checkAnchors(pages []parsedPage, lc linkCheckContext) []Error {
 					continue
 				}
 				seen[href] = true
-				e := checkAnchorHref(p.name, dir, href, targetsByPage, lc)
+				e := checkAnchorHref(p.name, p.dir, href, targetsByPage, lc)
 				if e != nil {
 					errs = append(errs, *e)
 				}
 			}
-		})
+		}
 	}
 	return errs
 }

@@ -12,6 +12,55 @@ import (
 // page-link check (checkLink) and the anchor check (checkAnchorHref), so the
 // two can never disagree about which file a link points at.
 
+// resolveSiteTarget normalizes one href/src/action (or fetch URL) value the
+// way checkLink always has — trim, drop #fragment and ?query, exempt
+// external schemes, /api/ routes (when functions are enabled or a backing
+// functions/{name}.js exists), and the post-build /app.css — then resolves
+// what's left against the file set. skip=true means the value is not
+// validatable as a site file (empty, external, exempt); otherwise ok reports
+// whether the proxy would serve it and resolved names the file (or the
+// cleaned miss, for error messages). Shared by the page-link, fetch, and
+// page-reference checks so they can never disagree.
+//
+// Note: <base href> is not honored — neither here nor in the serving proxy.
+func resolveSiteTarget(dir, rawVal string, lc linkCheckContext) (resolved string, ok, skip bool) {
+	link := strings.TrimSpace(rawVal)
+	if link == "" || link == "#" || IsExternalLink(link) {
+		return "", false, true
+	}
+	if i := strings.IndexByte(link, '#'); i != -1 {
+		link = link[:i]
+	}
+	if i := strings.IndexByte(link, '?'); i != -1 {
+		link = link[:i]
+	}
+	if link == "" {
+		return "", false, true
+	}
+	// Dynamic API routes are served by apiHandler (internal/server/api.go),
+	// not by static files: /api/{name} is backed by functions/{name}.js.
+	// Treat such a link as valid when that backing file exists in the site,
+	// or when functions are enabled (the {name} handler may not be authored
+	// yet at lint time). The file-presence check keeps template-less sites —
+	// which report enablesFns=false — from false-positiving real
+	// function-backed forms. A dead /api/ route falls through and misses
+	// resolution like any other path.
+	if strings.HasPrefix(link, "/api/") {
+		name := strings.TrimPrefix(link, "/api/")
+		if lc.enablesFns || lc.fileSet["functions/"+name+".js"] {
+			return "", false, true
+		}
+	}
+	// /app.css is the self-hosted design substrate — compiled per site by the
+	// post-build CSS step (so it isn't in the bucket when the page is linted)
+	// and served by the platform. Always valid, never a broken link.
+	if link == localStylesheetHref {
+		return "", false, true
+	}
+	resolved, found := resolveLinkTarget(dir, link, lc.fileSet)
+	return resolved, found, false
+}
+
 // resolveLinkTarget resolves one link the way the serving proxy
 // (internal/server/proxy.go) resolves request paths, so lint and production
 // can never disagree about whether a link works:

@@ -19,6 +19,13 @@ func mustParse(t *testing.T, src string) *html.Node {
 	return doc
 }
 
+// pageOf parses src and collects its pageInfo — the shape every cross-page
+// check consumes.
+func pageOf(t *testing.T, name, src string) pageInfo {
+	t.Helper()
+	return collectPageInfo(name, mustParse(t, src))
+}
+
 func TestAnchorTargets(t *testing.T) {
 	t.Parallel()
 
@@ -30,7 +37,7 @@ func TestAnchorTargets(t *testing.T) {
 <svg><symbol id="icon-star"></symbol><use href="#icon-star"></use></svg>
 </body></html>`)
 
-	got := anchorTargets(doc)
+	got := collectPageInfo("index.html", doc).targets
 	for _, want := range []string{"hero", "legacy", "icon-star"} {
 		if !got[want] {
 			t.Errorf("anchorTargets missing %q: %v", want, got)
@@ -43,6 +50,9 @@ func TestAnchorTargets(t *testing.T) {
 		t.Error("empty id must not be an anchor target")
 	}
 }
+
+//nolint:gochecknoglobals // shared single-page fileSet for the table tests below.
+var onePageSet = map[string]bool{"index.html": true}
 
 func TestCheckAnchors_SamePage(t *testing.T) {
 	t.Parallel()
@@ -65,8 +75,8 @@ func TestCheckAnchors_SamePage(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			pages := []parsedPage{{name: "index.html", doc: mustParse(t, `<!DOCTYPE html><html><body>`+tc.body+`</body></html>`)}}
-			errs := checkAnchors(pages, linkCheckContext{fileSet: map[string]bool{"index.html": true}})
+			pages := []pageInfo{pageOf(t, "index.html", `<!DOCTYPE html><html><body>`+tc.body+`</body></html>`)}
+			errs := checkAnchors(pages, linkCheckContext{fileSet: onePageSet})
 			if tc.wantErr && len(errs) == 0 {
 				t.Fatalf("checkAnchors(%q) = nil, want error", tc.body)
 			}
@@ -85,11 +95,11 @@ func TestCheckAnchors_SamePage(t *testing.T) {
 func TestCheckAnchors_SamePage_MessageIsActionable(t *testing.T) {
 	t.Parallel()
 
-	pages := []parsedPage{{name: "index.html", doc: mustParse(t, `<!DOCTYPE html><html><body>
+	pages := []pageInfo{pageOf(t, "index.html", `<!DOCTYPE html><html><body>
 <section id="hero"></section><section id="contact"></section>
 <a href="#pricing">x</a>
-</body></html>`)}}
-	errs := checkAnchors(pages, linkCheckContext{fileSet: map[string]bool{"index.html": true}})
+</body></html>`)}
+	errs := checkAnchors(pages, linkCheckContext{fileSet: onePageSet})
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error, got %+v", errs)
 	}
@@ -105,11 +115,11 @@ func TestCheckAnchors_DedupesRepeatedHref(t *testing.T) {
 	t.Parallel()
 
 	// The same broken href in the navbar and the footer is one mistake.
-	pages := []parsedPage{{name: "index.html", doc: mustParse(t, `<!DOCTYPE html><html><body>
+	pages := []pageInfo{pageOf(t, "index.html", `<!DOCTYPE html><html><body>
 <nav><a href="#missing">x</a></nav>
 <footer><a href="#missing">x</a></footer>
-</body></html>`)}}
-	errs := checkAnchors(pages, linkCheckContext{fileSet: map[string]bool{"index.html": true}})
+</body></html>`)}
+	errs := checkAnchors(pages, linkCheckContext{fileSet: onePageSet})
 	if len(errs) != 1 {
 		t.Fatalf("expected exactly 1 deduped error, got %d: %+v", len(errs), errs)
 	}
@@ -151,9 +161,9 @@ func TestCheckAnchors_CrossPage(t *testing.T) {
 			docs := map[string]*html.Node{"index.html": index, "about.html": about, "docs/guide.html": guide}
 			src := `<!DOCTYPE html><html><body><a href="` + tc.href + `">x</a></body></html>`
 			docs[tc.from] = mustParse(t, src)
-			pages := make([]parsedPage, 0, len(docs))
+			pages := make([]pageInfo, 0, len(docs))
 			for name, doc := range docs {
-				pages = append(pages, parsedPage{name: name, doc: doc})
+				pages = append(pages, collectPageInfo(name, doc))
 			}
 			errs := checkAnchors(pages, linkCheckContext{fileSet: fileSet})
 			if tc.wantErr && len(errs) == 0 {
@@ -169,9 +179,9 @@ func TestCheckAnchors_CrossPage(t *testing.T) {
 func TestCheckAnchors_CrossPageMessageNamesTargetPage(t *testing.T) {
 	t.Parallel()
 
-	pages := []parsedPage{
-		{name: "index.html", doc: mustParse(t, `<!DOCTYPE html><html><body><a href="about.html#ghost">x</a></body></html>`)},
-		{name: "about.html", doc: mustParse(t, `<!DOCTYPE html><html><body><section id="team"></section></body></html>`)},
+	pages := []pageInfo{
+		pageOf(t, "index.html", `<!DOCTYPE html><html><body><a href="about.html#ghost">x</a></body></html>`),
+		pageOf(t, "about.html", `<!DOCTYPE html><html><body><section id="team"></section></body></html>`),
 	}
 	errs := checkAnchors(pages, linkCheckContext{fileSet: map[string]bool{"index.html": true, "about.html": true}})
 	if len(errs) != 1 {
@@ -196,8 +206,8 @@ func TestCheckAnchors_IDListIsCapped(t *testing.T) {
 		body.WriteString(`<section id="s` + string(rune('a'+i)) + `"></section>`)
 	}
 	body.WriteString(`<a href="#missing">x</a>`)
-	pages := []parsedPage{{name: "index.html", doc: mustParse(t, `<!DOCTYPE html><html><body>`+body.String()+`</body></html>`)}}
-	errs := checkAnchors(pages, linkCheckContext{fileSet: map[string]bool{"index.html": true}})
+	pages := []pageInfo{pageOf(t, "index.html", `<!DOCTYPE html><html><body>`+body.String()+`</body></html>`)}
+	errs := checkAnchors(pages, linkCheckContext{fileSet: onePageSet})
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error, got %+v", errs)
 	}
