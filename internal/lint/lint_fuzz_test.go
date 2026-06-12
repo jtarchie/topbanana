@@ -36,6 +36,11 @@ func FuzzHTMLLint(f *testing.F) {
 		`<form method="post"><input></form>`,
 		`<input type="file">`,
 		`<script>fetch('/api/x')</script>`,
+		`<div onclick="ghost()"></div>`,
+		`<a href="mailto:">contact</a>`,
+		`<a href="tel:abc">call</a>`,
+		`<label for="nope">x</label>`,
+		`<script>document.getElementById('missing')</script>`,
 		"",
 	}
 	for _, s := range seeds {
@@ -51,6 +56,7 @@ func FuzzHTMLLint(f *testing.F) {
 		facts := collectJSFacts("index.html", pi.scripts)
 		_ = checkForms(pi)
 		_ = checkFetchTargets(pi, facts, linkCheckContext{fileSet: fileSet})
+		_ = checkDeadInteractions(pi, facts)
 		_ = checkHTMLLinks("index.html", doc, linkCheckContext{fileSet: fileSet, enablesFns: false})
 		_ = checkHTMLLinks("index.html", doc, linkCheckContext{fileSet: fileSet, enablesFns: true})
 		_ = checkInlineJS("index.html", pi.scripts)

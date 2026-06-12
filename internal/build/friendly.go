@@ -124,6 +124,36 @@ var friendlyRules = []friendlyRule{
 		hint:     "Try again — this usually clears up on a second attempt.",
 	},
 	{
+		match:    "broken label",
+		headline: "A form label wasn't connected to its field.",
+		hint:     "Try again — this usually clears up on a second attempt.",
+	},
+	{
+		match:    "duplicate id",
+		headline: "Two parts of a page accidentally shared the same internal name.",
+		hint:     "Try again — this usually clears up on a second attempt.",
+	},
+	{
+		match:    "broken mailto link",
+		headline: "An email link didn't contain a real email address.",
+		hint:     "Double-check the contact email address and try again.",
+	},
+	{
+		match:    "broken tel link",
+		headline: "A phone link didn't contain a real phone number.",
+		hint:     "Double-check the phone number and try again.",
+	},
+	{
+		match:    "undefined handler",
+		headline: "A button was wired to an action that doesn't exist.",
+		hint:     "Try again — this usually clears up on a second attempt.",
+	},
+	{
+		match:    "broken DOM lookup",
+		headline: "A script pointed at a part of the page that doesn't exist.",
+		hint:     "Try again — this usually clears up on a second attempt.",
+	},
+	{
 		match:    "lint errors after",
 		headline: "We built your site, but a few things didn't pass our checks.",
 		hint:     "Try again — small changes usually clear it up.",

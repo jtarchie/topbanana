@@ -79,6 +79,23 @@ const (
 	// KindBrokenFetch identifies an inline-script fetch() whose literal URL
 	// resolves to nothing — a missing /api/ function or a missing file.
 	KindBrokenFetch Kind = "broken_fetch"
+	// KindOrphanLabel identifies a <label for="x"> with no id="x" on the
+	// page — clicking it focuses nothing and the accessible association is
+	// lost.
+	KindOrphanLabel Kind = "orphan_label"
+	// KindDuplicateID identifies an id used by more than one element on a
+	// page, which breaks anchors, label/for pairs, and getElementById alike.
+	KindDuplicateID Kind = "duplicate_id"
+	// KindBrokenContactHref identifies a mailto:/tel: href whose value isn't
+	// a deliverable address or dialable number — a dead contact button.
+	KindBrokenContactHref Kind = "broken_contact_href"
+	// KindUndefinedHandler identifies an inline event handler calling a
+	// function no inline script on the page defines.
+	KindUndefinedHandler Kind = "undefined_handler"
+	// KindBrokenDOMQuery identifies a getElementById/querySelector('#id')
+	// literal with no matching id on the page. Gated off entirely for pages
+	// whose scripts build DOM at runtime.
+	KindBrokenDOMQuery Kind = "broken_dom_query"
 )
 
 type Error struct {
@@ -133,6 +150,7 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 			errs = append(errs, checkHeadHygiene(pi)...)
 			errs = append(errs, checkForms(pi)...)
 			errs = append(errs, checkFetchTargets(pi, facts, lc)...)
+			errs = append(errs, checkDeadInteractions(pi, facts)...)
 		case strings.HasSuffix(file, ".js"):
 			// JS files are allowed under functions/ only — JSFile rejects
 			// .js files anywhere else. The agent's path validation also
