@@ -123,3 +123,13 @@ body { font-family: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Aria
 }
 .mascot-celebrate { animation: mascot-celebrate 600ms cubic-bezier(0.22, 1, 0.36, 1); }
 @media (prefers-reduced-motion: reduce) { .mascot-celebrate { animation: none; } }
+
+/* "Your site is live!" guidance reveal. Added by workspace.html the instant a
+   build completes; a brief fade-and-rise so the panel arrives rather than
+   blinks in. Reduced-motion collapses it to an instant show. */
+@keyframes build-reveal {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.build-reveal { animation: build-reveal 320ms cubic-bezier(0.22, 1, 0.36, 1); }
+@media (prefers-reduced-motion: reduce) { .build-reveal { animation: none; } }

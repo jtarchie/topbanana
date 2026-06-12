@@ -111,9 +111,9 @@
       {{/* Revealed by the SSE handler on a fresh build completion — plain-English
            "what's next" guidance with a prominent way to share the live address.
            Always rendered (it only needs .SiteURL) but hidden until completion. */}}
-      <div id="build-success" class="hidden alert alert-success flex-col items-start gap-2"
+      <div id="build-success" class="hidden alert alert-success flex flex-col items-stretch gap-3"
            role="status" aria-live="polite" tabindex="-1">
-        <div class="flex items-center gap-2 font-semibold">
+        <div class="flex items-center gap-2 font-semibold text-base">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="12" cy="12" r="10"></circle>
@@ -122,15 +122,15 @@
           <span>Your site is live!</span>
         </div>
         <p class="text-sm">Anyone with this address can visit it:</p>
-        <div class="flex items-center gap-2 flex-wrap">
-          <code class="font-mono text-sm bg-base-100 px-2 py-1 rounded break-all">{{ .SiteURL }}</code>
+        <div class="flex flex-wrap items-center gap-2">
+          <code class="font-mono text-sm bg-base-100 text-base-content px-3 py-2 rounded break-all flex-1 min-w-48">{{ .SiteURL }}</code>
           <button type="button" class="btn btn-sm btn-primary js-copy" data-copy="{{ .SiteURL }}"
                   data-copied-label="Copied!" aria-label="Copy your site address">Copy link</button>
           <a class="btn btn-sm btn-ghost" href="{{ .SiteURL }}" target="_blank" rel="noopener">View site</a>
         </div>
-        <ul class="text-sm text-base-content/70 list-disc ml-5 space-y-0.5">
+        <ul class="text-sm list-disc ml-5 space-y-1">
           <li>Share the link by text or email so others can see it.</li>
-          <li>Want changes? Type what you'd like below and press Apply change.</li>
+          <li>Want changes? Type what you'd like below, then press Apply change.</li>
         </ul>
       </div>
       {{ end }}
@@ -703,7 +703,7 @@
           // Reveal the "what's next" guidance immediately, decoupled from the
           // 600ms preview reload below, so it never races that timeout.
           var sp = document.getElementById('build-success');
-          if (sp) { sp.classList.remove('hidden'); sp.focus(); }
+          if (sp) { sp.classList.remove('hidden'); sp.classList.add('build-reveal'); sp.focus(); }
         }
         statusEl.textContent = statusMsg(ev);
         if (ev.status === 'failed') {
