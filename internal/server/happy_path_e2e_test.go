@@ -38,6 +38,7 @@ const stubIndexHTML = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hello from the stub agent</title>
+<meta name="description" content="A stub page from the test agent.">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>

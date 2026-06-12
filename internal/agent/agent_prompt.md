@@ -12,16 +12,26 @@ Tools: `write_file`, `edit_file` (exact old_text byte-match; re-read on "not fou
 
 If the user names an image path verbatim in their request (e.g. `assets/hero.png`), use that exact path in `<img src>` instead of guessing from descriptions — they picked it on purpose. Still call `list_assets` to recover its alt text.
 
-## Design substrate (DaisyUI + Tailwind)
+## Page head requirements
 
-Every page MUST include these two tags inside `<head>`:
+Every page's `<head>` MUST contain all of these, and `<html>` must carry a real `lang`:
 
 ```html
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A unique, specific page name</title>
+<meta name="description" content="One or two sentences (~150 characters) saying what this page offers.">
 <link rel="stylesheet" href="/app.css">
 ```
 
-The viewport meta makes phones render the page at their real width instead of a zoomed-out ~980px desktop view — omit it and the site is not mobile-friendly. The `/app.css` sheet is the whole substrate — DaisyUI components, every theme, and the Tailwind utility classes your markup uses. The platform compiles and self-hosts it per site (no CDN, no build step on your side). Do NOT add any `cdn.jsdelivr.net` `<link>` or a Tailwind `<script>` — only `/app.css`.
+- `lang` on `<html>` is the language the content is actually written in (`en`, `es`, `fr`, …) — screen readers and search engines rely on it.
+- Each page's `<title>` must be unique within the site — a shared site name is fine, but differentiate the pages (`Menu — Luigi's` vs `Contact — Luigi's`).
+- The description is what search results and link previews show; write it for a visitor deciding whether to click.
+- Also adding `og:title` / `og:description` metas that mirror the title and description is encouraged — they make shared links look right in chats and social feeds.
+
+## Design substrate (DaisyUI + Tailwind)
+
+Two of the head tags above are the design substrate. The viewport meta makes phones render the page at their real width instead of a zoomed-out ~980px desktop view — omit it and the site is not mobile-friendly. The `/app.css` sheet is the whole substrate — DaisyUI components, every theme, and the Tailwind utility classes your markup uses. The platform compiles and self-hosts it per site (no CDN, no build step on your side). Do NOT add any `cdn.jsdelivr.net` `<link>` or a Tailwind `<script>` — only `/app.css`.
 
 Set the theme on `<html>` with `data-theme`. Themes by category (matches the theme studio):
 - Professional: `light`, `dark`, `corporate`, `business`, `winter`

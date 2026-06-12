@@ -16,10 +16,11 @@ import (
 
 // headFacts is what one pass over a page's elements reveals about its head.
 type headFacts struct {
-	charset  bool
-	lang     bool
-	hasTitle bool
-	title    string // first <title>'s trimmed text
+	charset     bool
+	lang        bool
+	hasTitle    bool
+	title       string // first <title>'s trimmed text
+	description bool
 }
 
 func collectHeadFacts(pi pageInfo) headFacts {
@@ -35,6 +36,9 @@ func collectHeadFacts(pi pageInfo) headFacts {
 		case "meta":
 			if metaDeclaresCharset(n) {
 				f.charset = true
+			}
+			if metaIsDescription(n) {
+				f.description = true
 			}
 		case "title":
 			if !f.hasTitle {
@@ -66,6 +70,21 @@ func metaDeclaresCharset(n *html.Node) bool {
 	}
 	return strings.EqualFold(httpEquiv, "content-type") &&
 		strings.Contains(strings.ToLower(content), "charset=")
+}
+
+// metaIsDescription reports whether a <meta> element is a name="description"
+// declaration with non-empty content.
+func metaIsDescription(n *html.Node) bool {
+	var name, content string
+	for _, a := range n.Attr {
+		switch a.Key {
+		case "name":
+			name = strings.TrimSpace(a.Val)
+		case "content":
+			content = a.Val
+		}
+	}
+	return strings.EqualFold(name, "description") && strings.TrimSpace(content) != ""
 }
 
 // textContent concatenates every text node under n.
@@ -103,6 +122,13 @@ func checkHeadHygiene(pi pageInfo) []Error {
 			File:    pi.name,
 			Kind:    KindMissingTitle,
 			Message: `missing <title> — the page has no non-empty <title> in <head>, so browser tabs, bookmarks, and search results show a bare URL instead of a name. Add a short, specific title describing this page.`,
+		})
+	}
+	if !f.description {
+		errs = append(errs, Error{
+			File:    pi.name,
+			Kind:    KindMissingDescription,
+			Message: `missing meta description — the page has no <meta name="description"> in <head>, so search results and link previews fall back to arbitrary page text. Add <meta name="description" content="..."> with one or two sentences (~150 characters) saying what this specific page offers.`,
 		})
 	}
 	return errs

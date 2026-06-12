@@ -60,6 +60,11 @@ const (
 	// another page's, making tabs, history, and search results
 	// indistinguishable. The agent decides how to differentiate them.
 	KindDuplicateTitle Kind = "duplicate_title"
+	// KindMissingDescription identifies a page with no non-empty
+	// <meta name="description">, so search results and link previews fall
+	// back to arbitrary page text. Not auto-fixed: the summary needs real
+	// content only the agent can write.
+	KindMissingDescription Kind = "missing_description"
 )
 
 type Error struct {

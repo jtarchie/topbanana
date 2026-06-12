@@ -228,7 +228,7 @@ func TestApp_LinkAndAnchorChecks(t *testing.T) {
 	slug := storetest.FreshSlug(t, "lintanchor")
 
 	head := func(title string) string {
-		return `<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/app.css"><title>` + title + `</title></head>`
+		return `<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/app.css"><title>` + title + `</title><meta name="description" content="About ` + title + `."></head>`
 	}
 	index := `<!DOCTYPE html><html lang="en">` + head("Home") + `<body>
 <a href="abuot.html">typo link</a>

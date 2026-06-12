@@ -8,7 +8,7 @@ import (
 func TestCheckHeadHygiene(t *testing.T) {
 	t.Parallel()
 
-	const fullHead = `<meta charset="utf-8"><title>Home</title>`
+	const fullHead = `<meta charset="utf-8"><title>Home</title><meta name="description" content="What this page offers.">`
 
 	cases := []struct {
 		name      string
@@ -22,13 +22,23 @@ func TestCheckHeadHygiene(t *testing.T) {
 		},
 		{
 			name:      "legacy http-equiv charset passes",
-			page:      `<!DOCTYPE html><html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>Home</title></head><body></body></html>`,
+			page:      `<!DOCTYPE html><html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>Home</title><meta name="description" content="d"></head><body></body></html>`,
 			wantKinds: nil,
 		},
 		{
 			name:      "missing charset",
-			page:      `<!DOCTYPE html><html lang="en"><head><title>Home</title></head><body></body></html>`,
+			page:      `<!DOCTYPE html><html lang="en"><head><title>Home</title><meta name="description" content="d"></head><body></body></html>`,
 			wantKinds: []Kind{KindMissingCharset},
+		},
+		{
+			name:      "missing description",
+			page:      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Home</title></head><body></body></html>`,
+			wantKinds: []Kind{KindMissingDescription},
+		},
+		{
+			name:      "empty description content is missing",
+			page:      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Home</title><meta name="description" content="  "></head><body></body></html>`,
+			wantKinds: []Kind{KindMissingDescription},
 		},
 		{
 			name:      "missing lang",
@@ -42,18 +52,18 @@ func TestCheckHeadHygiene(t *testing.T) {
 		},
 		{
 			name:      "missing title",
-			page:      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"></head><body></body></html>`,
+			page:      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="description" content="d"></head><body></body></html>`,
 			wantKinds: []Kind{KindMissingTitle},
 		},
 		{
 			name:      "empty title is missing",
-			page:      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>   </title></head><body></body></html>`,
+			page:      `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="description" content="d"><title>   </title></head><body></body></html>`,
 			wantKinds: []Kind{KindMissingTitle},
 		},
 		{
-			name:      "bare page reports all three",
+			name:      "bare page reports all four",
 			page:      `<html><head></head><body></body></html>`,
-			wantKinds: []Kind{KindMissingCharset, KindMissingLang, KindMissingTitle},
+			wantKinds: []Kind{KindMissingCharset, KindMissingLang, KindMissingTitle, KindMissingDescription},
 		},
 	}
 

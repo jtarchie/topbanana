@@ -171,6 +171,7 @@ const validIndexHTML = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Test</title>
+<meta name="description" content="A test page.">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
@@ -441,6 +442,7 @@ const substrateMissingHTML = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Keepers</title>
+<meta name="description" content="A page that keeps its content.">
 </head>
 <body>
 <main class="p-6"><h1>Keep this heading</h1><p>And this paragraph.</p></main>

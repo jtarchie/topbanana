@@ -99,6 +99,11 @@ var friendlyRules = []friendlyRule{
 		hint:     "Try again — page names usually sort themselves out on a second pass.",
 	},
 	{
+		match:    "missing meta description",
+		headline: "A page was missing its search-result summary.",
+		hint:     "Try again — this usually clears up on a second attempt.",
+	},
+	{
 		match:    "lint errors after",
 		headline: "We built your site, but a few things didn't pass our checks.",
 		hint:     "Try again — small changes usually clear it up.",

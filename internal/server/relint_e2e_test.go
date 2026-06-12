@@ -19,6 +19,7 @@ const substrateMissingPage = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Survivor</title>
+<meta name="description" content="A page that must survive relint.">
 </head>
 <body>
 <main class="p-6"><h1>Do not wipe me</h1><p>Original paragraph.</p></main>
