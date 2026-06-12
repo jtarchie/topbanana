@@ -227,13 +227,15 @@ func TestApp_LinkAndAnchorChecks(t *testing.T) {
 	s := storetest.New(t, 0)
 	slug := storetest.FreshSlug(t, "lintanchor")
 
-	head := `<head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/app.css"><title>x</title></head>`
-	index := `<!DOCTYPE html><html>` + head + `<body>
+	head := func(title string) string {
+		return `<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/app.css"><title>` + title + `</title></head>`
+	}
+	index := `<!DOCTYPE html><html lang="en">` + head("Home") + `<body>
 <a href="abuot.html">typo link</a>
 <a href="about.html#ghost">broken anchor</a>
 <a href="about.html#team">fine</a>
 </body></html>`
-	about := `<!DOCTYPE html><html>` + head + `<body><section id="team"></section></body></html>`
+	about := `<!DOCTYPE html><html lang="en">` + head("About") + `<body><section id="team"></section></body></html>`
 
 	for name, content := range map[string]string{"index.html": index, "about.html": about} {
 		err := s.Write(ctx, slug, name, content, "text/html", nil)

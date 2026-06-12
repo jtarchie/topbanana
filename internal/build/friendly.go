@@ -74,6 +74,31 @@ var friendlyRules = []friendlyRule{
 		hint:     "Try again, or pick a different template to start from.",
 	},
 	{
+		match:    "broken anchor",
+		headline: "A button or link pointed at a section that doesn't exist.",
+		hint:     "Try again — this usually clears up on a second attempt.",
+	},
+	{
+		match:    "missing character encoding",
+		headline: "A page was missing a basic browser setting.",
+		hint:     "Try again — this usually clears up on a second attempt.",
+	},
+	{
+		match:    "missing language",
+		headline: "A page didn't say what language it's written in.",
+		hint:     "Try again — this usually clears up on a second attempt.",
+	},
+	{
+		match:    "missing <title>",
+		headline: "A page was missing its name.",
+		hint:     "Try again and mention what each page should be called.",
+	},
+	{
+		match:    "duplicate <title>",
+		headline: "Several pages ended up with the same name.",
+		hint:     "Try again — page names usually sort themselves out on a second pass.",
+	},
+	{
 		match:    "lint errors after",
 		headline: "We built your site, but a few things didn't pass our checks.",
 		hint:     "Try again — small changes usually clear it up.",

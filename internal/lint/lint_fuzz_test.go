@@ -31,6 +31,8 @@ func FuzzHTMLLint(f *testing.F) {
 		`<div id="x"><a href="#x">ok</a></div>`,
 		`<a href="#%zz">bad escape</a>`,
 		`<a href="?q=1#frag">query then fragment</a>`,
+		`<head><title></title></head>`,
+		`<html lang=""><head><meta charset></head></html>`,
 		"",
 	}
 	for _, s := range seeds {
@@ -50,6 +52,9 @@ func FuzzHTMLLint(f *testing.F) {
 		_ = suspiciousAttrValues("index.html", doc)
 		_ = checkDesignSubstrate("index.html", doc)
 		_ = checkMobileViewport("index.html", doc)
+		_ = checkHeadHygiene(pi)
 		_ = checkAnchors([]pageInfo{pi}, linkCheckContext{fileSet: fileSet})
+		_ = checkDuplicateTitles([]pageInfo{pi})
+		_, _ = AutoFixCharset(raw)
 	})
 }

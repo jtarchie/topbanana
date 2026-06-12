@@ -44,6 +44,22 @@ const (
 	// auto-fixed: only the agent can decide whether the right repair is giving
 	// the intended element that id or correcting the href.
 	KindBrokenAnchor Kind = "broken_anchor"
+	// KindMissingCharset identifies a page with no character-encoding
+	// declaration, so browsers guess and non-ASCII text can render as
+	// mojibake. Purely mechanical — AutoFixCharset injects the canonical
+	// <meta charset="utf-8"> at the top of <head>.
+	KindMissingCharset Kind = "missing_charset"
+	// KindMissingLang identifies an <html> element without a lang attribute.
+	// Not auto-fixed: only the agent knows what language the site is actually
+	// written in, and a wrong default is worse than none.
+	KindMissingLang Kind = "missing_lang"
+	// KindMissingTitle identifies a page with no non-empty <title>. Not
+	// auto-fixed: the title needs real content.
+	KindMissingTitle Kind = "missing_title"
+	// KindDuplicateTitle identifies a page whose <title> text is identical to
+	// another page's, making tabs, history, and search results
+	// indistinguishable. The agent decides how to differentiate them.
+	KindDuplicateTitle Kind = "duplicate_title"
 )
 
 type Error struct {
@@ -94,6 +110,7 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 			errs = append(errs, suspiciousAttrValues(file, doc)...)
 			errs = append(errs, checkDesignSubstrate(file, doc)...)
 			errs = append(errs, checkMobileViewport(file, doc)...)
+			errs = append(errs, checkHeadHygiene(pi)...)
 		case strings.HasSuffix(file, ".js"):
 			// JS files are allowed under functions/ only — JSFile rejects
 			// .js files anywhere else. The agent's path validation also
@@ -108,9 +125,11 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 		}
 	}
 
-	// Anchor validation is cross-page (a fragment can target an id on another
-	// page), so it runs once every page is parsed rather than per file above.
+	// Cross-page checks (a fragment can target an id on another page; titles
+	// must be unique across the site) run once every page is parsed rather
+	// than per file above.
 	errs = append(errs, checkAnchors(pages, lc)...)
+	errs = append(errs, checkDuplicateTitles(pages)...)
 
 	errs = append(errs, checkTemplateInvariants(ctx, s, slug, tmpl)...)
 	errs = append(errs, checkEntryPoint(ctx, s, slug)...)
@@ -183,6 +202,40 @@ func injectBeforeHeadClose(content, tag string) (string, bool) {
 		return content, false
 	}
 	return content[:closeIdx] + tag + "\n" + content[closeIdx:], true
+}
+
+// injectAfterHeadOpen splices tag (plus a newline) in immediately after the
+// first case-insensitive <head ...> opening tag. The charset auto-fixer needs
+// this spot: the HTML spec requires the encoding declaration within the first
+// 1024 bytes, and injecting before </head> could land it after a long inline
+// <style> that already blew that budget. The boundary check on the byte after
+// "<head" keeps <header> from matching. Returns (content, false) when no
+// <head> open tag exists.
+func injectAfterHeadOpen(content, tag string) (string, bool) {
+	lower := strings.ToLower(content)
+	from := 0
+	for {
+		i := strings.Index(lower[from:], "<head")
+		if i == -1 {
+			return content, false
+		}
+		i += from
+		after := i + len("<head")
+		if after >= len(lower) {
+			return content, false
+		}
+		switch lower[after] {
+		case '>', ' ', '\t', '\n', '\r', '/':
+			end := strings.IndexByte(content[i:], '>')
+			if end == -1 {
+				return content, false
+			}
+			insert := i + end + 1
+			return content[:insert] + "\n" + tag + content[insert:], true
+		default:
+			from = after
+		}
+	}
 }
 
 // substratePresence records whether the self-hosted stylesheet link was found
@@ -329,12 +382,15 @@ func AutoFixMobileViewport(content string) (string, bool) {
 // AutoFixers maps each deterministically fixable lint Kind to the in-code
 // transform that repairs it. The build retry loop (build.autoFixLint) applies
 // every applicable fixer before falling back to an agent turn, and the MCP
-// lint_site result marks a problem autofixable iff its Kind is a key here. Each
-// fixer is idempotent and injects before </head>, so several may be chained
-// over one page in any order.
+// lint_site result marks a problem autofixable iff its Kind is a key here.
+// Each fixer is idempotent and injects into <head> (the substrate and
+// viewport before </head>, the charset right after <head> where the spec's
+// 1024-byte budget is safe), so several may be chained over one page in any
+// order.
 var AutoFixers = map[Kind]func(string) (string, bool){
 	KindDesignSubstrate: AutoFixDesignSubstrate,
 	KindMobileViewport:  AutoFixMobileViewport,
+	KindMissingCharset:  AutoFixCharset,
 }
 
 // suspiciousAttrValues flags an attribute value that contains an embedded
