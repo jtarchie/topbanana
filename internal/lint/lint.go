@@ -1,6 +1,7 @@
 // Package lint validates generated HTML — parse errors, broken relative
-// links, and per-template invariants. Failures piggyback on the build retry
-// loop so the agent gets concrete fix instructions.
+// links, broken anchor fragments, and per-template invariants. Failures
+// piggyback on the build retry loop so the agent gets concrete fix
+// instructions.
 package lint
 
 import (
@@ -38,6 +39,11 @@ const (
 	// zoom out, so the design is not mobile-friendly. Mechanical when the tag
 	// is simply absent — AutoFixMobileViewport injects the canonical form.
 	KindMobileViewport Kind = "mobile_viewport"
+	// KindBrokenAnchor identifies an href fragment (`#id`) that doesn't match
+	// any element id (or `<a name>`) on the page the link resolves to. Never
+	// auto-fixed: only the agent can decide whether the right repair is giving
+	// the intended element that id or correcting the href.
+	KindBrokenAnchor Kind = "broken_anchor"
 )
 
 type Error struct {
@@ -64,7 +70,10 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 		fileSet[f] = true
 	}
 
+	lc := linkCheckContext{fileSet: fileSet, enablesFns: tmpl != nil && tmpl.EnablesFunctions}
+
 	var errs []Error
+	var pages []parsedPage
 	for _, file := range files {
 		switch {
 		case strings.HasSuffix(file, ".html"):
@@ -78,7 +87,8 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 				errs = append(errs, Error{File: file, Message: fmt.Sprintf("HTML parse error: %s", parseErr)})
 				continue
 			}
-			errs = append(errs, checkHTMLLinks(file, doc, linkCheckContext{fileSet: fileSet, enablesFns: tmpl != nil && tmpl.EnablesFunctions})...)
+			pages = append(pages, parsedPage{name: file, doc: doc})
+			errs = append(errs, checkHTMLLinks(file, doc, lc)...)
 			errs = append(errs, checkInlineJS(file, doc)...)
 			errs = append(errs, suspiciousAttrValues(file, doc)...)
 			errs = append(errs, checkDesignSubstrate(file, doc)...)
@@ -96,6 +106,10 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 			errs = append(errs, JSFile(file, obj.Content)...)
 		}
 	}
+
+	// Anchor validation is cross-page (a fragment can target an id on another
+	// page), so it runs once every page is parsed rather than per file above.
+	errs = append(errs, checkAnchors(pages, lc)...)
 
 	errs = append(errs, checkTemplateInvariants(ctx, s, slug, tmpl)...)
 	errs = append(errs, checkEntryPoint(ctx, s, slug)...)
@@ -504,13 +518,13 @@ func checkLink(filename, dir, rawVal string, lc linkCheckContext) []Error {
 	if link == localStylesheetHref {
 		return nil
 	}
-	resolved := path.Join(dir, link)
-	if lc.fileSet[resolved] || lc.fileSet[resolved+".html"] || lc.fileSet[path.Join(resolved, "index.html")] {
+	resolved, ok := resolveLinkTarget(dir, link, lc.fileSet)
+	if ok {
 		return nil
 	}
 	return []Error{{
 		File:    filename,
-		Message: fmt.Sprintf("broken link %q (resolved to %q)", rawVal, resolved),
+		Message: brokenLinkMessage(rawVal, resolved, lc.fileSet),
 	}}
 }
 

@@ -26,6 +26,11 @@ func FuzzHTMLLint(f *testing.F) {
 		`<a href="../escape.html">x</a>`,
 		`<a href="日本.html">x</a>`,
 		`<html><body><div onclick="x"></div></body></html>`,
+		`<a href="#missing">x</a>`,
+		`<a href="index.html#frag">x</a>`,
+		`<div id="x"><a href="#x">ok</a></div>`,
+		`<a href="#%zz">bad escape</a>`,
+		`<a href="?q=1#frag">query then fragment</a>`,
 		"",
 	}
 	for _, s := range seeds {
@@ -42,5 +47,7 @@ func FuzzHTMLLint(f *testing.F) {
 		_ = checkInlineJS("index.html", doc)
 		_ = suspiciousAttrValues("index.html", doc)
 		_ = checkDesignSubstrate("index.html", doc)
+		_ = checkMobileViewport("index.html", doc)
+		_ = checkAnchors([]parsedPage{{name: "index.html", doc: doc}}, linkCheckContext{fileSet: fileSet})
 	})
 }
