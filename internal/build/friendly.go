@@ -104,6 +104,26 @@ var friendlyRules = []friendlyRule{
 		hint:     "Try again — this usually clears up on a second attempt.",
 	},
 	{
+		match:    "form control will not submit",
+		headline: "A form field wasn't wired up to send its answer.",
+		hint:     "Try again — this usually clears up on a second attempt.",
+	},
+	{
+		match:    "form posts nowhere",
+		headline: "A form had nowhere to send what visitors type.",
+		hint:     "Try again and describe what should happen when someone submits the form.",
+	},
+	{
+		match:    "file upload cannot work",
+		headline: "Sites here can't receive file uploads.",
+		hint:     "Ask visitors for a link or a text answer instead of a file.",
+	},
+	{
+		match:    "broken fetch",
+		headline: "The page tried to load something that doesn't exist yet.",
+		hint:     "Try again — this usually clears up on a second attempt.",
+	},
+	{
 		match:    "lint errors after",
 		headline: "We built your site, but a few things didn't pass our checks.",
 		hint:     "Try again — small changes usually clear it up.",

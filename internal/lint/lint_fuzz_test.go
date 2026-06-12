@@ -33,6 +33,9 @@ func FuzzHTMLLint(f *testing.F) {
 		`<a href="?q=1#frag">query then fragment</a>`,
 		`<head><title></title></head>`,
 		`<html lang=""><head><meta charset></head></html>`,
+		`<form method="post"><input></form>`,
+		`<input type="file">`,
+		`<script>fetch('/api/x')</script>`,
 		"",
 	}
 	for _, s := range seeds {
@@ -45,7 +48,9 @@ func FuzzHTMLLint(f *testing.F) {
 			return
 		}
 		pi := collectPageInfo("index.html", doc)
-		_ = collectJSFacts("index.html", pi.scripts)
+		facts := collectJSFacts("index.html", pi.scripts)
+		_ = checkForms(pi)
+		_ = checkFetchTargets(pi, facts, linkCheckContext{fileSet: fileSet})
 		_ = checkHTMLLinks("index.html", doc, linkCheckContext{fileSet: fileSet, enablesFns: false})
 		_ = checkHTMLLinks("index.html", doc, linkCheckContext{fileSet: fileSet, enablesFns: true})
 		_ = checkInlineJS("index.html", pi.scripts)

@@ -65,6 +65,20 @@ const (
 	// back to arbitrary page text. Not auto-fixed: the summary needs real
 	// content only the agent can write.
 	KindMissingDescription Kind = "missing_description"
+	// KindFormControlUnnamed identifies an input/select/textarea inside a
+	// submitting form with no name attribute — the browser silently drops
+	// its value from the submission.
+	KindFormControlUnnamed Kind = "form_control_unnamed"
+	// KindFormPostNoAction identifies a <form method="post"> with no action:
+	// the post goes back to the static page itself and the data is discarded.
+	KindFormPostNoAction Kind = "form_post_no_action"
+	// KindMultipartForm identifies a file input or multipart enctype — the
+	// platform's /api/ functions parse only URL-encoded and JSON bodies, so
+	// multipart submissions arrive unreadable.
+	KindMultipartForm Kind = "multipart_unsupported"
+	// KindBrokenFetch identifies an inline-script fetch() whose literal URL
+	// resolves to nothing — a missing /api/ function or a missing file.
+	KindBrokenFetch Kind = "broken_fetch"
 )
 
 type Error struct {
@@ -110,12 +124,15 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 			}
 			pi := collectPageInfo(file, doc)
 			pages = append(pages, pi)
+			facts := collectJSFacts(file, pi.scripts)
 			errs = append(errs, checkHTMLLinks(file, doc, lc)...)
 			errs = append(errs, checkInlineJS(file, pi.scripts)...)
 			errs = append(errs, suspiciousAttrValues(file, doc)...)
 			errs = append(errs, checkDesignSubstrate(file, doc)...)
 			errs = append(errs, checkMobileViewport(file, doc)...)
 			errs = append(errs, checkHeadHygiene(pi)...)
+			errs = append(errs, checkForms(pi)...)
+			errs = append(errs, checkFetchTargets(pi, facts, lc)...)
 		case strings.HasSuffix(file, ".js"):
 			// JS files are allowed under functions/ only — JSFile rejects
 			// .js files anywhere else. The agent's path validation also
