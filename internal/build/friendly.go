@@ -114,8 +114,8 @@ var friendlyRules = []friendlyRule{
 		hint:     "Try again and describe what should happen when someone submits the form.",
 	},
 	{
-		match:    "file upload cannot work",
-		headline: "Sites here can't receive file uploads.",
+		match:    "file upload won't reach",
+		headline: "A form tried to collect a file, which form handlers here can't receive.",
 		hint:     "Ask visitors for a link or a text answer instead of a file.",
 	},
 	{

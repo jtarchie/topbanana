@@ -135,7 +135,7 @@ func multipartError(filename, what string) Error {
 		File: filename,
 		Kind: KindMultipartForm,
 		Message: fmt.Sprintf(
-			`file upload cannot work on this platform — %s sends multipart/form-data, but /api/ functions only parse URL-encoded forms and JSON, so the submission arrives unreadable and the form's data is lost. Remove the file input and enctype (collect a URL or text instead), or process the file entirely in browser JavaScript without submitting it.`,
+			`file upload won't reach the handler — %s sends multipart/form-data, but /api/ form handlers only parse URL-encoded and JSON submissions, so the uploaded file (and the rest of the form) arrives unreadable and the data is lost. Remove the file input and enctype (collect a URL or text instead), or handle the file entirely in browser JavaScript without submitting it.`,
 			what),
 	}
 }

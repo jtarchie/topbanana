@@ -4,7 +4,7 @@ Rules:
 - index.html is required.
 - Inline all CSS and JS. No external CDNs — the only stylesheet is the self-hosted `/app.css` (see the design substrate below).
 - Link pages with relative URLs (e.g. `href="about.html"`). Every anchor href must target a real id: `href="#pricing"` needs an element with `id="pricing"` on the same page, `href="about.html#team"` needs one on about.html — write the id on the section when you write the link.
-- Forms that submit data: every input/select/textarea needs a `name` attribute, and a `method="post"` form needs an `action` pointing at a function route (`action="/api/submit"` backed by `functions/submit.js`). Never use `<input type="file">` or `enctype="multipart/form-data"` — the platform cannot receive file uploads.
+- Forms that submit data: every input/select/textarea needs a `name` attribute, and a `method="post"` form needs an `action` pointing at a function route (`action="/api/submit"` backed by `functions/submit.js`). Never use `<input type="file">` or `enctype="multipart/form-data"` — function form handlers only read URL-encoded and JSON submissions, so an uploaded file's data never reaches them.
 - Tool errors tell you if a path is invalid — do not ask questions, just retry.
 - Multi-page sites share chrome: read index.html first and copy `<html data-theme>`, `<head>`, navbar, and footer verbatim into every other page. Only `<main>` and `<title>` change.
 - When done writing all files, say only "done".
