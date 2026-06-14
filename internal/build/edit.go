@@ -11,19 +11,16 @@ import (
 	"github.com/jtarchie/topbanana/internal/agent"
 )
 
-// The edit-prompt format strings the agent sees on every visual-edit
-// submission. Kept as sibling .md files so they read as plain text and stay
-// easy to tweak; each one is a fmt.Sprintf format string with the placeholders
-// noted on its EditPrompt switch arm.
+// The edit-prompt format strings the agent sees on every edit submission.
+// Kept as sibling .md files so they read as plain text and stay easy to
+// tweak; each is a fmt.Sprintf format string with the placeholders noted on
+// its EditPrompt switch arm.
 
 //go:embed edit_site_prompt.md
 var editSitePromptFmt string // placeholders: %s = user prompt
 
 //go:embed edit_page_prompt.md
 var editPagePromptFmt string // placeholders: %s = page name, %s = user prompt
-
-//go:embed edit_selection_prompt.md
-var editSelectionPromptFmt string // placeholders: %s = page name, %s = selected HTML, %s = user prompt
 
 // editPrefetchTotalCap caps the total bytes of HTML page content we'll inline
 // into seeded read_file responses. Beyond this, we let the agent issue its
@@ -149,15 +146,11 @@ func pagesNamedInPrompt(pages []string, prompt string) []string {
 }
 
 // EditPrompt constructs the user-facing prompt for an edit invocation. page
-// and selection narrow the scope: empty page → site-wide; non-empty page,
-// empty selection → that file; both non-empty → that selection in that file.
-func EditPrompt(prompt, page, selection string) string {
-	switch {
-	case page == "":
+// narrows the scope: empty page → site-wide; non-empty → that file.
+func EditPrompt(prompt, page string) string {
+	if page == "" {
 		return fmt.Sprintf(editSitePromptFmt, prompt)
-	case selection == "":
-		return fmt.Sprintf(editPagePromptFmt, page, prompt)
-	default:
-		return fmt.Sprintf(editSelectionPromptFmt, page, selection, prompt)
 	}
+
+	return fmt.Sprintf(editPagePromptFmt, page, prompt)
 }

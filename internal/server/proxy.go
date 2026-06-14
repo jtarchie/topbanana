@@ -128,17 +128,15 @@ func resolveContentType(stored, name string) string {
 	return store.DefaultContentType
 }
 
-// injectEditToolbar inserts the theme-preview listener, the selection
-// bridge, and (for owners) the edit toolbar before </body>. Skipped
-// entirely on custom-domain responses so the CDN never caches admin bytes.
-// On the platform domain both listeners always ship — the workspace iframe
-// needs them to drive live theme preview and to mark drag-selected copy as
-// agent context. They load without the admin session cookie because the
-// cookie isn't scoped to subdomains. Each listener is a no-op without a
-// postMessage opener (the selection bridge bails when window.parent ===
-// window), so direct visitors see no behavior change. The visible toolbar
-// (edit links) stays gated on canEdit, since that does leak ownership.
-// Returns the content unchanged when there's no </body> to splice into.
+// injectEditToolbar inserts the theme-preview listener and (for owners) the
+// edit toolbar before </body>. Skipped entirely on custom-domain responses
+// so the CDN never caches admin bytes. On the platform domain the listener
+// always ships — the workspace iframe needs it to drive live theme preview.
+// It loads without the admin session cookie because the cookie isn't scoped
+// to subdomains, and is a no-op without a postMessage opener, so direct
+// visitors see no behavior change. The visible toolbar (edit links) stays
+// gated on canEdit, since that does leak ownership. Returns the content
+// unchanged when there's no </body> to splice into.
 func (s *Server) injectEditToolbar(c *echo.Context, htmlContent, slug, page string) string {
 	if c.Get("custom_domain") == true {
 		return htmlContent
@@ -151,12 +149,6 @@ func (s *Server) injectEditToolbar(c *echo.Context, htmlContent, slug, page stri
 	err := s.tpl.ExecuteTemplate(&buf, "theme_preview_listener", nil)
 	if err != nil {
 		slog.Warn("theme_preview_listener.render_failed", "slug", slug, "err", err)
-		return htmlContent
-	}
-
-	err = s.tpl.ExecuteTemplate(&buf, "selection_listener", nil)
-	if err != nil {
-		slog.Warn("selection_listener.render_failed", "slug", slug, "err", err)
 		return htmlContent
 	}
 

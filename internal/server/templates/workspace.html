@@ -174,12 +174,6 @@
       <form method="POST" action="/edit/{{ .Slug }}" enctype="multipart/form-data" class="card bg-base-100 border border-base-300" id="edit-form">
         <div class="card-body gap-3 p-4">
           <input type="hidden" name="page" value="{{ .Page }}">
-          <input type="hidden" name="selection" id="selection" value="">
-          <div id="selection-chip" class="hidden bg-base-200 rounded px-2 py-1 text-xs flex items-start gap-2">
-            <span class="text-base-content/60 font-medium">On:</span>
-            <span id="selection-text" class="italic flex-1 line-clamp-2 break-words"></span>
-            <button type="button" id="selection-clear" class="text-base-content/60 hover:text-base-content" aria-label="Clear selection">×</button>
-          </div>
           <label for="prompt" class="label pb-1 px-0">
             <span class="text-sm font-medium">{{ if .Page }}Describe a change to <span class="font-mono">{{ .Page }}</span>{{ else }}Describe a change to the whole site{{ end }}</span>
           </label>
@@ -295,31 +289,6 @@
     if (!pt || pt.disabled) return;
     if (document.activeElement && document.activeElement !== document.body) return;
     try { pt.focus({ preventScroll: true }); } catch (_) { pt.focus(); }
-  })();
-
-  // Bridge selection text from the live preview into the edit form.
-  window.addEventListener('message', function (e) {
-    if (!e.data || e.data.type !== 'topbanana:selection') return;
-    var sel = document.getElementById('selection');
-    var chip = document.getElementById('selection-chip');
-    var txt = document.getElementById('selection-text');
-    if (!sel || !chip || !txt) return;
-    sel.value = e.data.html || '';
-    var t = e.data.text || '';
-    if (t.trim()) {
-      txt.textContent = '"' + t.slice(0, 200) + (t.length > 200 ? '…' : '') + '"';
-      chip.classList.remove('hidden');
-    } else {
-      chip.classList.add('hidden');
-    }
-  });
-  (function () {
-    var clr = document.getElementById('selection-clear');
-    if (!clr) return;
-    clr.addEventListener('click', function () {
-      document.getElementById('selection').value = '';
-      document.getElementById('selection-chip').classList.add('hidden');
-    });
   })();
 
   // Toast helper. 8-second lifetime so screen readers have time to announce;

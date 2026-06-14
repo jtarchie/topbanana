@@ -115,20 +115,14 @@ func TestEditPrompt_BranchesByPageAndSelection(t *testing.T) {
 	t.Parallel()
 
 	t.Run("site-wide", func(t *testing.T) {
-		got := EditPrompt("add a footer", "", "")
+		got := EditPrompt("add a footer", "")
 		if !strings.Contains(got, "multi-page site") {
 			t.Errorf("got %q", got)
 		}
 	})
 	t.Run("per-page", func(t *testing.T) {
-		got := EditPrompt("tweak hero", "index.html", "")
+		got := EditPrompt("tweak hero", "index.html")
 		if !strings.Contains(got, "'index.html'") {
-			t.Errorf("got %q", got)
-		}
-	})
-	t.Run("per-selection", func(t *testing.T) {
-		got := EditPrompt("make this bigger", "index.html", "<h1>hi</h1>")
-		if !strings.Contains(got, "<h1>hi</h1>") || !strings.Contains(got, "index.html") {
 			t.Errorf("got %q", got)
 		}
 	})
@@ -887,10 +881,9 @@ func TestShouldPolishEdit(t *testing.T) {
 func TestEmbeddedPromptsNonEmpty(t *testing.T) {
 	t.Parallel()
 	for name, body := range map[string]string{
-		"polishPrompt":           polishPrompt,
-		"editSitePromptFmt":      editSitePromptFmt,
-		"editPagePromptFmt":      editPagePromptFmt,
-		"editSelectionPromptFmt": editSelectionPromptFmt,
+		"polishPrompt":      polishPrompt,
+		"editSitePromptFmt": editSitePromptFmt,
+		"editPagePromptFmt": editPagePromptFmt,
 	} {
 		if body == "" {
 			t.Errorf("%s embedded prompt is empty — was the .md file emptied?", name)

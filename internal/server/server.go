@@ -145,7 +145,6 @@ func New(d Deps) (*echo.Echo, *Server) {
 		{"system", systemTemplate},
 		{"toolbar", editToolbarTemplate},
 		{"theme_preview_listener", themePreviewListenerTemplate},
-		{"selection_listener", selectionListenerTemplate},
 		{"visual_edit", visualEditTemplate},
 		{"function_edit", functionEditTemplate},
 		{"files", filesTemplate},
@@ -764,7 +763,6 @@ func (s *sitesController) editSubmitHandler(c *echo.Context) error {
 	slug := c.Param("slug")
 	prompt := strings.TrimSpace(c.FormValue("prompt"))
 	page := c.FormValue("page")
-	selection := strings.TrimSpace(c.FormValue("selection"))
 
 	if prompt == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "prompt is required")
@@ -794,18 +792,17 @@ func (s *sitesController) editSubmitHandler(c *echo.Context) error {
 	tiers := s.effectiveTiersFor(userFromContext(c))
 	// EffectiveTemplate wraps templates.Get, which is non-nil at runtime
 	// (init guarantees defaultID is present).
-	slog.Info("edit.start", "slug", slug, "page", page, "selection_len", len(selection), "template", tmpl.ID, "seeds", len(seeds), "attachments", len(attachments), "tiers", tiers) //nolint:nilaway // see comment.
+	slog.Info("edit.start", "slug", slug, "page", page, "template", tmpl.ID, "seeds", len(seeds), "attachments", len(attachments), "tiers", tiers) //nolint:nilaway // see comment.
 	return s.startBuild(c, build.Params{
-		Slug:         slug,
-		Prompt:       build.EditPrompt(prompt, page, selection),
-		LogKey:       "edit",
-		Template:     tmpl,
-		Seeds:        seeds,
-		Attachments:  attachments,
-		UserPrompt:   prompt,
-		Page:         page,
-		SelectionLen: len(selection),
-		Tiers:        tiers,
+		Slug:        slug,
+		Prompt:      build.EditPrompt(prompt, page),
+		LogKey:      "edit",
+		Template:    tmpl,
+		Seeds:       seeds,
+		Attachments: attachments,
+		UserPrompt:  prompt,
+		Page:        page,
+		Tiers:       tiers,
 	})
 }
 

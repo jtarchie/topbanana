@@ -70,21 +70,25 @@ var mutators = map[string]bool{
 // different from the last one?" — was it the model, the reasoning level,
 // or something else entirely?
 type Transcript struct {
-	Slug            string       `json:"slug"`
-	LogKey          string       `json:"log_key"`
-	StartedAt       time.Time    `json:"started_at"`
-	FinishedAt      time.Time    `json:"finished_at,omitempty"`
-	Model           string       `json:"model,omitempty"`
-	ReasoningEffort string       `json:"reasoning_effort,omitempty"`
-	Template        string       `json:"template,omitempty"`
-	UserPrompt      string       `json:"user_prompt,omitempty"`
-	Page            string       `json:"page,omitempty"`
-	SelectionLen    int          `json:"selection_len,omitempty"`
-	FinalStatus     string       `json:"final_status,omitempty"`
-	Error           string       `json:"error,omitempty"`
-	Usage           Usage        `json:"usage,omitempty"`
-	ToolCalls       []ToolCall   `json:"tool_calls"`
-	FileChanges     []FileChange `json:"file_changes"`
+	Slug            string    `json:"slug"`
+	LogKey          string    `json:"log_key"`
+	StartedAt       time.Time `json:"started_at"`
+	FinishedAt      time.Time `json:"finished_at,omitempty"`
+	Model           string    `json:"model,omitempty"`
+	ReasoningEffort string    `json:"reasoning_effort,omitempty"`
+	Template        string    `json:"template,omitempty"`
+	UserPrompt      string    `json:"user_prompt,omitempty"`
+	Page            string    `json:"page,omitempty"`
+	// SelectionLen is retained on the struct (with omitempty) for backward
+	// compatibility with transcripts written before the selection-edit feature
+	// was retired. Nothing in the codebase sets it anymore; readers can still
+	// surface it on old transcripts.
+	SelectionLen int          `json:"selection_len,omitempty"`
+	FinalStatus  string       `json:"final_status,omitempty"`
+	Error        string       `json:"error,omitempty"`
+	Usage        Usage        `json:"usage,omitempty"`
+	ToolCalls    []ToolCall   `json:"tool_calls"`
+	FileChanges  []FileChange `json:"file_changes"`
 }
 
 // Usage is the per-run token tally summed across every agent turn that fed
@@ -148,19 +152,17 @@ type pendingBefore struct {
 	toolStart int
 }
 
-// New starts a recorder for one agent run. SelectionLen is the byte length of
-// the user's visual-editor selection HTML (0 for non-visual edits).
-func New(slug, logKey, userPrompt, page string, selectionLen int) *Recorder {
+// New starts a recorder for one agent run.
+func New(slug, logKey, userPrompt, page string) *Recorder {
 	return &Recorder{
 		transcript: Transcript{
-			Slug:         slug,
-			LogKey:       logKey,
-			StartedAt:    time.Now().UTC(),
-			UserPrompt:   userPrompt,
-			Page:         page,
-			SelectionLen: selectionLen,
-			ToolCalls:    []ToolCall{},
-			FileChanges:  []FileChange{},
+			Slug:        slug,
+			LogKey:      logKey,
+			StartedAt:   time.Now().UTC(),
+			UserPrompt:  userPrompt,
+			Page:        page,
+			ToolCalls:   []ToolCall{},
+			FileChanges: []FileChange{},
 		},
 		pendingIdx: map[string]int{},
 	}
@@ -221,7 +223,7 @@ func RecordEdit(ctx context.Context, st *store.Store, slug, logKey, tool, path, 
 	if st == nil {
 		return
 	}
-	r := New(slug, logKey, "", path, 0)
+	r := New(slug, logKey, "", path)
 	r.transcript.ToolCalls = append(r.transcript.ToolCalls, ToolCall{
 		Timestamp: time.Now().UTC(),
 		Tool:      tool,

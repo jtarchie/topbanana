@@ -32,11 +32,6 @@
   html, body { margin: 0; padding: 0; height: 100%; font-family: "Inter", system-ui, -apple-system, sans-serif; }
   #editor-wrap { height: calc(100vh - 56px); position: relative; }
   #gjs { height: 100%; }
-  #ai-panel { position: absolute; top: 0; right: 0; width: 380px; max-width: 100vw; height: 100%; background: var(--color-base-100); border-left: 1px solid var(--color-base-300); padding: 1rem; box-sizing: border-box; display: none; flex-direction: column; gap: .5rem; z-index: 10; overflow-y: auto; }
-  #ai-panel.open { display: flex; }
-  #ai-log { flex: 1; min-height: 120px; overflow-y: auto; }
-  #ai-log li { padding: .25rem 0; }
-  #ai-log li.error { color: var(--color-error); }
   #warnings { position: absolute; bottom: 0; left: 0; right: 0; max-height: 200px; overflow-y: auto; z-index: 5; display: none; }
   #warnings.show { display: block; }
 </style>
@@ -51,7 +46,6 @@
   <div class="flex-none flex items-center gap-2">
     <span id="status" class="text-xs text-base-content/60 mr-2"></span>
     <button id="images-btn" type="button" class="btn btn-ghost btn-sm">Images</button>
-    <button id="refine-btn" type="button" class="btn btn-ghost btn-sm">Refine with AI</button>
     <button id="save-btn" type="button" class="btn btn-primary btn-sm">Save</button>
     <a class="btn btn-ghost btn-sm" href="/edit/{{.Slug}}?page={{.Page}}">Back</a>
     {{ template "theme_toggle" . }}
@@ -59,17 +53,6 @@
 </header>
 <div id="editor-wrap">
   <div id="gjs"></div>
-  <aside id="ai-panel">
-    <h2 class="font-bold text-base">Refine with AI</h2>
-    <p id="ai-selection" class="text-xs bg-base-200 rounded p-2 italic text-base-content/60 break-all max-h-20 overflow-hidden">Select a component first; its HTML will be the target.</p>
-    <textarea id="ai-prompt" class="textarea text-sm w-full" placeholder="e.g. make this heading bigger and centered" rows="3"></textarea>
-    <div class="flex gap-2 items-center">
-      <button id="ai-apply" type="button" class="btn btn-primary btn-sm">Apply</button>
-      <button id="ai-cancel" type="button" class="btn btn-ghost btn-sm">Cancel</button>
-      <span id="ai-status" class="text-xs text-base-content/60 ml-auto"></span>
-    </div>
-    <ul id="ai-log" class="text-xs font-mono"></ul>
-  </aside>
   <div id="warnings" class="alert alert-warning rounded-none m-0">
     <div class="flex-1">
       <strong>Some warnings to look at:</strong>
@@ -147,120 +130,6 @@
         renderWarnings(res.body.warnings || []);
       }).catch(function(err){ btn.disabled = false; setStatus('Save failed: ' + err, 'err'); });
   });
-
-  var panel = document.getElementById('ai-panel');
-  var selEl = document.getElementById('ai-selection');
-  var currentSelection = {html:'', text:''};
-  document.getElementById('refine-btn').addEventListener('click', function(){ panel.classList.add('open'); refreshSelection(); });
-  document.getElementById('ai-cancel').addEventListener('click', function(){ panel.classList.remove('open'); });
-  editor.on('component:selected', refreshSelection);
-  editor.on('load', function(){
-    var cdoc = editor.Canvas.getDocument();
-    if (!cdoc) return;
-    cdoc.addEventListener('selectionchange', function(){
-      var s = cdoc.getSelection();
-      if (!s || !s.rangeCount || !s.toString().trim()) { currentSelection = {html:'', text:''}; return; }
-      var d = cdoc.createElement('div');
-      d.appendChild(s.getRangeAt(0).cloneContents());
-      currentSelection = {html:d.innerHTML, text:s.toString()};
-      if (panel.classList.contains('open')) refreshSelection();
-    });
-  });
-  function refreshSelection(){
-    if (currentSelection.text) {
-      var t = currentSelection.text;
-      selEl.textContent = '"' + (t.length > 200 ? t.slice(0,200) + '…' : t) + '"';
-      return;
-    }
-    var sel = editor.getSelected();
-    if (!sel) { selEl.textContent = 'Select a component or drag-highlight text; that will be the target.'; return; }
-    var h = sel.toHTML();
-    selEl.textContent = h.length > 200 ? h.slice(0,200) + '…' : h;
-  }
-
-  var aiStatus = document.getElementById('ai-status');
-  var aiLog = document.getElementById('ai-log');
-  var aiApply = document.getElementById('ai-apply');
-  var pendingTools = new Map();
-
-  function fmtTime(iso){ try { return new Date(iso).toLocaleTimeString(); } catch(_){ return ''; } }
-  function toolKey(ev){ return ev.tool + ':' + (ev.path || ''); }
-  function describeStatus(ev){
-    switch (ev.status) {
-      case 'building':  return 'Working…';
-      case 'linting':   return 'Checking everything…';
-      case 'retry':     return 'Fixing a few things: ' + (ev.message || '');
-      case 'completed': return 'Done — reloading';
-      case 'failed':    return 'Failed: ' + (ev.message || '');
-      default:          return ev.status;
-    }
-  }
-  function describeTool(ev){
-    var name = (ev.path || '').split('/').pop();
-    if (ev.phase === 'error') return '⚠ ' + (ev.tool || 'tool') + ': ' + (ev.message || '');
-    if (ev.phase === 'done') {
-      if (ev.tool === 'write_file') return '✓ Wrote ' + (name || ev.path);
-      if (ev.tool === 'edit_file' || ev.tool === 'replace_lines') return '✓ Updated ' + (name || ev.path);
-      return '✓ Done';
-    }
-    if (ev.tool === 'write_file') return '… Writing ' + (name || ev.path);
-    if (ev.tool === 'edit_file' || ev.tool === 'replace_lines') return '… Updating ' + (name || ev.path);
-    return '… ' + (ev.tool || 'working');
-  }
-
-  function appendEvent(ev){
-    var li = document.createElement('li');
-    li.className = (ev.type === 'tool' && ev.phase === 'error') ? 'error' : '';
-    var text = ev.type === 'status' ? describeStatus(ev) : describeTool(ev);
-    li.textContent = '[' + fmtTime(ev.time) + '] ' + text;
-    if (ev.type === 'tool' && ev.phase === 'start') {
-      pendingTools.set(toolKey(ev), li);
-      aiLog.appendChild(li);
-    } else if (ev.type === 'tool' && (ev.phase === 'done' || ev.phase === 'error')) {
-      var pending = pendingTools.get(toolKey(ev));
-      if (pending) { pending.textContent = li.textContent; pending.className = li.className; pendingTools.delete(toolKey(ev)); }
-      else aiLog.appendChild(li);
-    } else {
-      aiLog.appendChild(li);
-    }
-    aiLog.scrollTop = aiLog.scrollHeight;
-  }
-
-  aiApply.addEventListener('click', function(){
-    var prompt = document.getElementById('ai-prompt').value.trim();
-    if (!prompt) return;
-    var sel = editor.getSelected();
-    var selectionHTML = currentSelection.html || (sel ? sel.toHTML() : '');
-    aiApply.disabled = true;
-    aiStatus.textContent = 'Submitting…';
-    aiLog.innerHTML = '';
-    pendingTools = new Map();
-    var fd = new FormData();
-    fd.append('page', page);
-    fd.append('selection', selectionHTML);
-    fd.append('prompt', prompt);
-    fetch('/edit/' + slug, { method: 'POST', body: fd }).then(function(r){
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      aiStatus.textContent = 'Connecting…';
-      subscribeToEvents();
-    }).catch(function(err){ aiApply.disabled = false; aiStatus.textContent = 'Failed: ' + err; });
-  });
-
-  function subscribeToEvents(){
-    var es = new EventSource('/events/' + slug);
-    es.onmessage = function(msg){
-      var ev;
-      try { ev = JSON.parse(msg.data); } catch(_){ return; }
-      appendEvent(ev);
-      aiStatus.textContent = ev.type === 'status' ? describeStatus(ev) : (aiStatus.textContent || '');
-      if (ev.type === 'status' && (ev.status === 'completed' || ev.status === 'failed' || ev.status === 'unknown')) {
-        es.close();
-        if (ev.status === 'completed') setTimeout(function(){ location.reload(); }, 600);
-        else aiApply.disabled = false;
-      }
-    };
-    es.onerror = function(){ aiStatus.textContent = 'Connection lost — retrying…'; };
-  }
 
   function renderWarnings(warnings){
     var box = document.getElementById('warnings');

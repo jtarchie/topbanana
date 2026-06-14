@@ -5,7 +5,7 @@ import "testing"
 func TestRecorderAddUsageAccumulates(t *testing.T) {
 	t.Parallel()
 
-	r := New("slug", "build", "prompt", "", 0)
+	r := New("slug", "build", "prompt", "")
 	// Two runs (author + one lint-fix retry) fold into a single transcript
 	// total — the figure should be the whole cost of producing the site.
 	r.AddUsage(Usage{Prompt: 100, Cached: 40, Candidates: 20, Thoughts: 5, ToolUse: 8, Total: 133, Responses: 2})

@@ -295,10 +295,9 @@ func (svc *Service) resolveLLMLocked(ctx context.Context, id string) (adkmodel.L
 // Attachments are user-uploaded reference files (markdown or HTML) surfaced
 // to the agent as pre-seeded read_attachment calls; one-shot per invocation.
 //
-// UserPrompt, Page, SelectionLen are forensic context for the edit
-// transcript: UserPrompt is the raw user input (Prompt may have been wrapped
-// with EditPrompt); Page is the file the visual editor was on; SelectionLen
-// is the byte length of the selected HTML fragment. All three are optional.
+// UserPrompt and Page are forensic context for the edit transcript:
+// UserPrompt is the raw user input (Prompt may have been wrapped with
+// EditPrompt); Page is the file the edit was targeting. Both optional.
 type Params struct {
 	Slug         string
 	Prompt       string
@@ -309,7 +308,6 @@ type Params struct {
 	Attachments  []agent.Attachment
 	UserPrompt   string
 	Page         string
-	SelectionLen int
 	// OwnerID is the canonical email of the user kicking off the build.
 	// Recorded on the initial SiteMeta so every later authorization check
 	// has somewhere to look. Empty leaves the sidecar unowned (server
@@ -339,7 +337,7 @@ func (svc *Service) newRecorder(p Params, authorID string) *editrec.Recorder {
 	if userPrompt == "" {
 		userPrompt = p.Prompt
 	}
-	rec := editrec.New(p.Slug, p.LogKey, userPrompt, p.Page, p.SelectionLen)
+	rec := editrec.New(p.Slug, p.LogKey, userPrompt, p.Page)
 	rec.SetModel(authorID, string(svc.reasoningEffort))
 	if p.Template != nil {
 		rec.SetTemplate(p.Template.ID)

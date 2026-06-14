@@ -5,7 +5,7 @@ import "testing"
 func TestRecorderSetTemplate(t *testing.T) {
 	t.Parallel()
 
-	r := New("slug", "build", "prompt", "", 0)
+	r := New("slug", "build", "prompt", "")
 	r.SetTemplate("landing-page")
 
 	if got := r.transcript.Template; got != "landing-page" {

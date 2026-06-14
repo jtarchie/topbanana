@@ -46,7 +46,7 @@ func TestRecorderCapturesWriteFile(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	rec := editrec.New(slug, "edit", "fix the times to 9-5", "index.html", 25)
+	rec := editrec.New(slug, "edit", "fix the times to 9-5", "index.html")
 	emit := rec.Wrap(ctx, s, slug, nil)
 
 	emit(events.Event{Type: events.TypeTool, Tool: "write_file", Phase: events.PhaseStart, Path: "index.html"})
@@ -59,7 +59,7 @@ func TestRecorderCapturesWriteFile(t *testing.T) {
 	rec.Finish(ctx, s, events.StatusCompleted, nil)
 
 	tr := mustReadOnlyTranscript(t, ctx, s, slug)
-	assertTranscriptMeta(t, tr, "edit", "index.html", 25, events.StatusCompleted)
+	assertTranscriptMeta(t, tr, "edit", "index.html", events.StatusCompleted)
 	assertFileChange(t, tr, "old times", "new times")
 }
 
@@ -79,16 +79,13 @@ func mustReadOnlyTranscript(t *testing.T, ctx context.Context, s *store.Store, s
 	return tr
 }
 
-func assertTranscriptMeta(t *testing.T, tr editrec.Transcript, logKey, page string, selLen int, status string) {
+func assertTranscriptMeta(t *testing.T, tr editrec.Transcript, logKey, page, status string) {
 	t.Helper()
 	if tr.LogKey != logKey {
 		t.Errorf("LogKey = %q, want %q", tr.LogKey, logKey)
 	}
 	if tr.Page != page {
 		t.Errorf("Page = %q, want %q", tr.Page, page)
-	}
-	if tr.SelectionLen != selLen {
-		t.Errorf("SelectionLen = %d, want %d", tr.SelectionLen, selLen)
 	}
 	if tr.FinalStatus != status {
 		t.Errorf("FinalStatus = %q, want %q", tr.FinalStatus, status)
@@ -123,7 +120,7 @@ func TestRecorderSkipsNonMutators(t *testing.T) {
 	slug := freshSlug(t)
 	cleanup(t, ctx, s, slug)
 
-	rec := editrec.New(slug, "edit", "list the files", "", 0)
+	rec := editrec.New(slug, "edit", "list the files", "")
 	emit := rec.Wrap(ctx, s, slug, nil)
 
 	emit(events.Event{Type: events.TypeTool, Tool: "list_files", Phase: events.PhaseStart})
@@ -153,7 +150,7 @@ func TestRecorderRecordsAgentNoWrite(t *testing.T) {
 	slug := freshSlug(t)
 	cleanup(t, ctx, s, slug)
 
-	rec := editrec.New(slug, "edit", "fix the times", "index.html", 0)
+	rec := editrec.New(slug, "edit", "fix the times", "index.html")
 	emit := rec.Wrap(ctx, s, slug, nil)
 	// Agent reads but does NOT write.
 	emit(events.Event{Type: events.TypeTool, Tool: "read_file", Phase: events.PhaseStart, Path: "index.html"})
@@ -176,7 +173,7 @@ func TestRecorderHandlesMutatorError(t *testing.T) {
 	slug := freshSlug(t)
 	cleanup(t, ctx, s, slug)
 
-	rec := editrec.New(slug, "edit", "bad path", "", 0)
+	rec := editrec.New(slug, "edit", "bad path", "")
 	emit := rec.Wrap(ctx, s, slug, nil)
 	emit(events.Event{Type: events.TypeTool, Tool: "write_file", Phase: events.PhaseStart, Path: "bogus.html"})
 	emit(events.Event{Type: events.TypeTool, Tool: "write_file", Phase: events.PhaseError, Path: "bogus.html", Message: "validation failed"})
@@ -266,7 +263,7 @@ func TestFinishWritesZstd(t *testing.T) {
 	slug := freshSlug(t)
 	cleanup(t, ctx, s, slug)
 
-	rec := editrec.New(slug, "edit", strings.Repeat("user prompt that compresses well. ", 100), "", 0)
+	rec := editrec.New(slug, "edit", strings.Repeat("user prompt that compresses well. ", 100), "")
 	rec.Finish(ctx, s, events.StatusCompleted, nil)
 
 	rows, err := editrec.List(ctx, s, slug)
@@ -325,7 +322,7 @@ func TestRecorderTrim(t *testing.T) {
 	cleanup(t, ctx, s, slug)
 
 	for range 5 {
-		rec := editrec.New(slug, "edit", "", "", 0)
+		rec := editrec.New(slug, "edit", "", "")
 		// Stagger started_at so the key timestamps differ.
 		time.Sleep(1100 * time.Millisecond)
 		rec.Finish(ctx, s, events.StatusCompleted, nil)

@@ -299,7 +299,7 @@ func TestLLM_Build_ThenEdit(t *testing.T) {
 	userMsg := "Change the name in the heading to Devin J. Park."
 	svc.Start(Params{
 		Slug:         slug,
-		Prompt:       EditPrompt(userMsg, "", ""),
+		Prompt:       EditPrompt(userMsg, ""),
 		UserPrompt:   userMsg,
 		LogKey:       "test.llm.edit.edit",
 		Template:     tmpl,
