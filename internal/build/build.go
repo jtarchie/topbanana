@@ -357,7 +357,12 @@ func (svc *Service) Start(p Params) {
 	svc.events.Start(p.Slug)
 
 	go func() {
-		ctx := context.Background()
+		// Tag the goroutine's root ctx with the per-run LogKey so the
+		// OpenRouter http.Transport (see internal/model/openrouter_cache.go)
+		// stamps x-session-id on every LLM call in this build/edit. Sticky
+		// routing keeps consecutive turns on the same provider endpoint and
+		// the prompt cache warm. Empty LogKey leaves ctx unchanged.
+		ctx := model.WithSessionID(context.Background(), p.LogKey)
 		// Resolve one Runner per relevant tier up-front. Each phase of the
 		// build lifecycle uses the matching tier:
 		//   - Author for the initial agent turn (creative generation).

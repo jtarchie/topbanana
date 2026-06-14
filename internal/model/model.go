@@ -58,6 +58,13 @@ func ParseReasoningEffort(s string) (genai.ThinkingLevel, error) {
 // Resolve constructs an ADK LLM for the given provider + model + API key.
 // If baseURL is non-empty it overrides the provider default (useful for local
 // OpenAI-compatible servers like LM Studio / llama.cpp / vLLM).
+//
+// OpenRouter is wrapped by newCachingOpenRouter so every request carries an
+// x-session-id header read from ctx via WithSessionID (sticky routing —
+// universal across providers) and Anthropic-routed models get a top-level
+// cache_control: {type: ephemeral} marker (rolling-tail prompt caching).
+// Both lift directly from OpenRouter's documented prompt-caching API; see
+// internal/model/openrouter_cache.go for the wiring.
 func Resolve(provider, name, apiKey, baseURL string) (adkmodel.LLM, error) {
 	switch provider {
 	case "anthropic":
@@ -73,10 +80,17 @@ func Resolve(provider, name, apiKey, baseURL string) (adkmodel.LLM, error) {
 			}
 			baseURL = def
 		}
-		return genaiopenai.New(genaiopenai.Config{
+
+		cfg := genaiopenai.Config{
 			APIKey:    apiKey,
 			BaseURL:   baseURL,
 			ModelName: name,
-		}), nil
+		}
+
+		if provider == "openrouter" {
+			return newCachingOpenRouter(cfg), nil
+		}
+
+		return genaiopenai.New(cfg), nil
 	}
 }

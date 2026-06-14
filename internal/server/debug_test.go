@@ -18,7 +18,8 @@ func renderDebugEdit(t *testing.T, data debugDetailData) string {
 	template.Must(tpl.Parse(layoutTemplate))
 	template.Must(tpl.New("debug_edit").Parse(debugEditTemplate))
 	var buf bytes.Buffer
-	if err := tpl.ExecuteTemplate(&buf, "debug_edit", data); err != nil {
+	err := tpl.ExecuteTemplate(&buf, "debug_edit", data)
+	if err != nil {
 		t.Fatalf("execute debug_edit template: %v", err)
 	}
 	return buf.String()
