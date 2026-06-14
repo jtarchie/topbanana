@@ -58,55 +58,38 @@
       {{ else }}
         <ul class="space-y-1 text-sm">
           {{ range .ToolCalls }}
-          <li class="flex items-center gap-2 py-1 px-2 rounded bg-base-100 border border-base-300">
-            <span class="badge badge-sm {{ if eq .Phase "error" }}badge-error{{ else if eq .Phase "done" }}badge-success{{ else }}badge-ghost{{ end }}">{{ .Phase }}</span>
-            <span class="text-xs text-base-content/60 font-mono">{{ .WhenISO }}</span>
-            <span class="font-mono">#{{ .IndexLabel }}</span>
-            <code class="font-mono">{{ .Tool }}</code>
-            {{ if .Path }}<code class="font-mono text-base-content/70">{{ .Path }}</code>{{ end }}
-            {{ if .Message }}<span class="text-base-content/70">— {{ .Message }}</span>{{ end }}
+          <li class="rounded bg-base-100 border border-base-300">
+            <div class="flex items-center gap-2 py-1 px-2">
+              <span class="badge badge-sm {{ if eq .Phase "error" }}badge-error{{ else if eq .Phase "done" }}badge-success{{ else }}badge-ghost{{ end }}">{{ .Phase }}</span>
+              <span class="text-xs text-base-content/60 font-mono">{{ .WhenISO }}</span>
+              <span class="font-mono">#{{ .IndexLabel }}</span>
+              <code class="font-mono">{{ .Tool }}</code>
+              {{ if .Path }}<code class="font-mono text-base-content/70">{{ .Path }}</code>{{ end }}
+              {{ if .Message }}<span class="text-base-content/70">— {{ .Message }}</span>{{ end }}
+            </div>
+            {{ range .Files }}
+              {{ template "filediff" . }}
+            {{ end }}
           </li>
           {{ end }}
         </ul>
-      {{ end }}
-    </section>
-
-    <section>
-      <h2 class="text-lg font-semibold mb-3">File changes ({{ len .FileChanges }})</h2>
-      {{ if not .FileChanges }}
-        <p class="text-base-content/70">No file mutations were recorded. If the agent reported success but nothing changed, this is the smoking gun.</p>
-      {{ else }}
-        {{ range .FileChanges }}
-          <details class="collapse collapse-arrow bg-base-100 border border-base-300 mt-2">
-            <summary class="collapse-title text-sm font-mono flex items-center gap-2 flex-wrap">
-              <strong class="min-w-0 truncate" title="{{ .Path }}">{{ .Path }}</strong>
-              <span class="text-base-content/60 shrink-0">via <code>{{ .Tool }}</code></span>
-              {{ if .Created }}<span class="badge badge-success badge-sm shrink-0">created</span>
-              {{ else if .Deleted }}<span class="badge badge-error badge-sm shrink-0">deleted</span>
-              {{ else if .Changed }}<span class="badge badge-warning badge-sm shrink-0">changed</span>
-              {{ else }}<span class="badge badge-sm shrink-0">unchanged</span>{{ end }}
-              <span class="text-base-content/60 shrink-0">{{ .BeforeSize }} → {{ .AfterSize }} bytes</span>
-            </summary>
-            <div class="collapse-content">
-              <div class="flex items-center gap-3 mb-3">
-                <button class="btn btn-ghost btn-xs cache-check-btn" type="button" onclick="checkCache('{{ $.Slug }}', '{{ .Path }}', this)">Check cache for this path</button>
-                <div class="cache-check-result text-xs flex-1 min-w-0"></div>
-              </div>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <h4 class="text-xs text-base-content/60 font-semibold mb-1">Before (sha {{ .BeforeSHA }}{{ if .BeforeTruncated }}, truncated{{ end }})</h4>
-                  <pre class="bg-base-200 rounded p-2 text-xs max-h-80 overflow-auto whitespace-pre-wrap">{{ .BeforeContent }}</pre>
-                </div>
-                <div>
-                  <h4 class="text-xs text-base-content/60 font-semibold mb-1">After (sha {{ .AfterSHA }}{{ if .AfterTruncated }}, truncated{{ end }})</h4>
-                  <pre class="bg-base-200 rounded p-2 text-xs max-h-80 overflow-auto whitespace-pre-wrap">{{ .AfterContent }}</pre>
-                </div>
-              </div>
-            </div>
-          </details>
+        {{ if not .FileChangeCount }}
+        <p class="text-base-content/70 mt-3">No file mutations were recorded. If the agent reported success but nothing changed, this is the smoking gun.</p>
         {{ end }}
       {{ end }}
     </section>
+
+    {{ if .OrphanFileChanges }}
+    <section>
+      <h2 class="text-lg font-semibold mb-3">Unassociated file changes ({{ len .OrphanFileChanges }})</h2>
+      <p class="text-base-content/70 mb-2 text-sm">These mutations couldn't be tied to a specific tool call.</p>
+      <div class="rounded bg-base-100 border border-base-300">
+        {{ range .OrphanFileChanges }}
+          {{ template "filediff" . }}
+        {{ end }}
+      </div>
+    </section>
+    {{ end }}
   {{ end }}
 </main>
 <script>
@@ -129,3 +112,42 @@ function escapeHTML(s) {
 {{ template "footer" . }}
 </body>
 </html>
+{{ define "filediff" }}
+<details open class="border-t border-base-300">
+  <summary class="cursor-pointer px-2 py-1.5 text-xs font-mono flex items-center gap-2 flex-wrap hover:bg-base-200">
+    <strong class="min-w-0 truncate" title="{{ .Path }}">{{ .Path }}</strong>
+    {{ if .Created }}<span class="badge badge-success badge-sm shrink-0">created</span>
+    {{ else if .Deleted }}<span class="badge badge-error badge-sm shrink-0">deleted</span>
+    {{ else if .WhitespaceOnly }}<span class="badge badge-ghost badge-sm shrink-0">whitespace</span>
+    {{ else if .Changed }}<span class="badge badge-warning badge-sm shrink-0">changed</span>
+    {{ else }}<span class="badge badge-sm shrink-0">unchanged</span>{{ end }}
+    <span class="text-base-content/60 shrink-0">{{ .BeforeSize }} → {{ .AfterSize }} bytes</span>
+    {{ if or .BeforeTruncated .AfterTruncated }}<span class="text-base-content/50 shrink-0" title="content was truncated before diffing">(truncated)</span>{{ end }}
+  </summary>
+  <div class="px-2 pb-2">
+    <div class="flex items-center gap-3 my-2">
+      <button class="btn btn-ghost btn-xs cache-check-btn" type="button" onclick="checkCache('{{ .Slug }}', '{{ .Path }}', this)">Check cache for this path</button>
+      <div class="cache-check-result text-xs flex-1 min-w-0"></div>
+    </div>
+    {{ if .WhitespaceOnly }}
+      <p class="text-xs text-base-content/60 italic">Only whitespace changed — hidden because the diff ignores whitespace.</p>
+    {{ else if .Diff }}
+      <div class="rounded border border-base-300 overflow-auto max-h-128 font-mono text-xs leading-relaxed">
+        {{ range .Diff }}
+        {{ if eq .Kind "hunk" }}
+        <div class="flex bg-base-200 text-base-content/50 select-none"><span class="w-12 shrink-0 px-1"></span><span class="w-12 shrink-0 px-1"></span><span class="px-2 flex-1 min-w-0 whitespace-pre-wrap break-all">{{ .Text }}</span></div>
+        {{ else if eq .Kind "add" }}
+        <div class="flex bg-success/15"><span class="w-12 shrink-0 px-1 text-right tabular-nums text-base-content/40 select-none"></span><span class="w-12 shrink-0 px-1 text-right tabular-nums text-base-content/40 select-none">{{ .New }}</span><span class="px-2 flex-1 min-w-0 whitespace-pre-wrap break-all"><span class="select-none font-bold text-success">+ </span>{{ .Text }}</span></div>
+        {{ else if eq .Kind "del" }}
+        <div class="flex bg-error/15"><span class="w-12 shrink-0 px-1 text-right tabular-nums text-base-content/40 select-none">{{ .Old }}</span><span class="w-12 shrink-0 px-1 text-right tabular-nums text-base-content/40 select-none"></span><span class="px-2 flex-1 min-w-0 whitespace-pre-wrap break-all"><span class="select-none font-bold text-error">- </span>{{ .Text }}</span></div>
+        {{ else }}
+        <div class="flex"><span class="w-12 shrink-0 px-1 text-right tabular-nums text-base-content/40 select-none">{{ .Old }}</span><span class="w-12 shrink-0 px-1 text-right tabular-nums text-base-content/40 select-none">{{ .New }}</span><span class="px-2 flex-1 min-w-0 whitespace-pre-wrap break-all"><span class="select-none opacity-0 font-bold">+ </span>{{ .Text }}</span></div>
+        {{ end }}
+        {{ end }}
+      </div>
+    {{ else }}
+      <p class="text-xs text-base-content/60 italic">No textual changes.</p>
+    {{ end }}
+  </div>
+</details>
+{{ end }}

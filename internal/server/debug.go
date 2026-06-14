@@ -14,9 +14,14 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+	"github.com/pmezard/go-difflib/difflib"
 
 	"github.com/jtarchie/topbanana/internal/editrec"
 )
+
+// diffContextLines is how many unchanged lines surround each change hunk,
+// matching the default GitHub/`diff -u` context window.
+const diffContextLines = 3
 
 // debugController serves the per-site "what did the agent actually do" surface:
 // the build/edit transcript list, a single transcript's detail, and the
@@ -55,22 +60,42 @@ type debugToolRow struct {
 	Path       string
 	Message    string
 	WhenISO    string
+	// Files holds the file mutations attributed to this tool call (via
+	// FileChange.ToolCallIndex), so the diff renders inline in the timeline
+	// instead of in a detached section. Usually 0 or 1 entry.
+	Files []debugFileRow
+}
+
+// diffLine is one rendered row of a unified diff. Kind is "hunk" (the
+// `@@ … @@` header), "add", "del", or "context". Old/New are 1-based line
+// numbers (0 when the side has no line, e.g. New on a deletion).
+type diffLine struct {
+	Kind string
+	Old  int
+	New  int
+	Text string
 }
 
 type debugFileRow struct {
+	// Slug is carried on the row so the inline "filediff" partial is
+	// self-contained (it can't reach the page root for the cache-check button).
+	Slug            string
 	Path            string
 	Tool            string
 	BeforeSize      int
 	AfterSize       int
 	BeforeSHA       string
 	AfterSHA        string
-	BeforeContent   string
-	AfterContent    string
 	BeforeTruncated bool
 	AfterTruncated  bool
 	Changed         bool
 	Created         bool
 	Deleted         bool
+	// WhitespaceOnly is set when the file's bytes changed but the diff is
+	// empty once whitespace is normalized away — surfaced as a note instead
+	// of an empty diff so the row doesn't read as "no change".
+	WhitespaceOnly bool
+	Diff           []diffLine
 }
 
 type debugDetailData struct {
@@ -92,8 +117,14 @@ type debugDetailData struct {
 	HasUsage        bool
 	CacheHitPct     string
 	ToolCalls       []debugToolRow
-	FileChanges     []debugFileRow
-	Empty           bool
+	// FileChangeCount is the total mutations recorded, used to show the
+	// "nothing changed" diagnostic when tool calls ran but wrote nothing.
+	FileChangeCount int
+	// OrphanFileChanges holds mutations whose ToolCallIndex didn't resolve to
+	// a tool call (defensive — practically never happens). Rendered in a
+	// fallback section so a malformed transcript never silently drops a diff.
+	OrphanFileChanges []debugFileRow
+	Empty             bool
 }
 
 func (s *debugController) debugHandler(c *echo.Context) error {
@@ -197,36 +228,30 @@ func (s *debugController) debugDetailHandler(c *echo.Context) error {
 		}
 	}
 
-	data.ToolCalls = make([]debugToolRow, 0, len(t.ToolCalls))
+	data.ToolCalls = make([]debugToolRow, len(t.ToolCalls))
 	for i, tc := range t.ToolCalls {
-		data.ToolCalls = append(data.ToolCalls, debugToolRow{
+		data.ToolCalls[i] = debugToolRow{
 			IndexLabel: strconv.Itoa(i),
 			Tool:       tc.Tool,
 			Phase:      tc.Phase,
 			Path:       tc.Path,
 			Message:    tc.Message,
 			WhenISO:    tc.Timestamp.Format(time.RFC3339),
-		})
+		}
 	}
 
-	data.FileChanges = make([]debugFileRow, 0, len(t.FileChanges))
+	// Attach each mutation to the tool call that produced it so the diff
+	// renders inline in the timeline. ToolCallIndex points at the tool's
+	// "done" event; anything out of range falls back to its own section.
+	data.FileChangeCount = len(t.FileChanges)
 	for _, fc := range t.FileChanges {
-		row := debugFileRow{
-			Path:            fc.Path,
-			Tool:            fc.Tool,
-			BeforeSize:      fc.BeforeSize,
-			AfterSize:       fc.AfterSize,
-			BeforeSHA:       shortSHA(fc.BeforeSHA256),
-			AfterSHA:        shortSHA(fc.AfterSHA256),
-			BeforeContent:   fc.BeforeContent,
-			AfterContent:    fc.AfterContent,
-			BeforeTruncated: fc.BeforeTruncated,
-			AfterTruncated:  fc.AfterTruncated,
-			Created:         fc.BeforeSize == 0 && fc.AfterSize > 0,
-			Deleted:         fc.BeforeSize > 0 && fc.AfterSize == 0,
+		row := buildFileRow(slug, fc)
+		if fc.ToolCallIndex >= 0 && fc.ToolCallIndex < len(data.ToolCalls) {
+			tc := &data.ToolCalls[fc.ToolCallIndex]
+			tc.Files = append(tc.Files, row)
+			continue
 		}
-		row.Changed = fc.BeforeSHA256 != fc.AfterSHA256
-		data.FileChanges = append(data.FileChanges, row)
+		data.OrphanFileChanges = append(data.OrphanFileChanges, row)
 	}
 
 	return s.render(c, "debug_edit", data)
@@ -355,4 +380,114 @@ func shortSHA(s string) string {
 		return s
 	}
 	return s[:12]
+}
+
+// buildFileRow turns a recorded FileChange into the view row, computing the
+// whitespace-insensitive diff for the timeline. WhitespaceOnly catches the
+// case where the bytes changed (different sha) but every change is whitespace,
+// so the diff comes back empty.
+func buildFileRow(slug string, fc editrec.FileChange) debugFileRow {
+	row := debugFileRow{
+		Slug:            slug,
+		Path:            fc.Path,
+		Tool:            fc.Tool,
+		BeforeSize:      fc.BeforeSize,
+		AfterSize:       fc.AfterSize,
+		BeforeSHA:       shortSHA(fc.BeforeSHA256),
+		AfterSHA:        shortSHA(fc.AfterSHA256),
+		BeforeTruncated: fc.BeforeTruncated,
+		AfterTruncated:  fc.AfterTruncated,
+		Created:         fc.BeforeSize == 0 && fc.AfterSize > 0,
+		Deleted:         fc.BeforeSize > 0 && fc.AfterSize == 0,
+	}
+	row.Changed = fc.BeforeSHA256 != fc.AfterSHA256
+	row.Diff = buildDiff(fc.BeforeContent, fc.AfterContent)
+	row.WhitespaceOnly = row.Changed && len(row.Diff) == 0 && !row.Created && !row.Deleted
+	return row
+}
+
+// buildDiff produces a GitHub-style unified diff between before and after.
+// Lines are matched on their whitespace-stripped form so re-indentation,
+// trailing-space churn, and reflowed tags don't register as changes — this
+// mirrors GitHub's "ignore whitespace" toggle (git diff -w). The rendered
+// text stays verbatim. Returns nil when the two sides are equal once
+// whitespace is ignored.
+func buildDiff(before, after string) []diffLine {
+	if before == after {
+		return nil
+	}
+	aLines := splitLines(before)
+	bLines := splitLines(after)
+	// autoJunk off: it skips "popular" lines on long inputs, which produces
+	// noisier diffs on repetitive HTML (many `</div>`); we want the minimal one.
+	m := difflib.NewMatcherWithJunk(normalizeLines(aLines), normalizeLines(bLines), false, nil)
+
+	var out []diffLine
+	for _, group := range m.GetGroupedOpCodes(diffContextLines) {
+		first, last := group[0], group[len(group)-1]
+		out = append(out, diffLine{
+			Kind: "hunk",
+			Text: fmt.Sprintf("@@ -%s +%s @@", formatRange(first.I1, last.I2), formatRange(first.J1, last.J2)),
+		})
+		for _, op := range group {
+			switch op.Tag {
+			case 'e':
+				for i, j := op.I1, op.J1; i < op.I2; i, j = i+1, j+1 {
+					out = append(out, diffLine{Kind: "context", Old: i + 1, New: j + 1, Text: aLines[i]})
+				}
+			case 'd':
+				for i := op.I1; i < op.I2; i++ {
+					out = append(out, diffLine{Kind: "del", Old: i + 1, Text: aLines[i]})
+				}
+			case 'i':
+				for j := op.J1; j < op.J2; j++ {
+					out = append(out, diffLine{Kind: "add", New: j + 1, Text: bLines[j]})
+				}
+			case 'r':
+				for i := op.I1; i < op.I2; i++ {
+					out = append(out, diffLine{Kind: "del", Old: i + 1, Text: aLines[i]})
+				}
+				for j := op.J1; j < op.J2; j++ {
+					out = append(out, diffLine{Kind: "add", New: j + 1, Text: bLines[j]})
+				}
+			}
+		}
+	}
+	return out
+}
+
+// splitLines splits content into lines, dropping a single trailing newline so
+// a normal "ends in \n" file doesn't render a spurious blank final line.
+func splitLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+}
+
+// normalizeLines strips all whitespace from each line to form the match key
+// (matching only — display still uses the original lines). Join with "" so two
+// lines that differ solely in whitespace, including whitespace present on one
+// side and absent on the other, compare equal — the git diff -w rule.
+func normalizeLines(lines []string) []string {
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		out[i] = strings.Join(strings.Fields(l), "")
+	}
+	return out
+}
+
+// formatRange renders the line span for a unified-diff hunk header, mirroring
+// `diff -u`: a 1-line span is just the start; an empty span uses the
+// before-the-range convention (`start,0`).
+func formatRange(start, stop int) string {
+	length := stop - start
+	switch length {
+	case 1:
+		return strconv.Itoa(start + 1)
+	case 0:
+		return strconv.Itoa(start) + ",0"
+	default:
+		return strconv.Itoa(start+1) + "," + strconv.Itoa(length)
+	}
 }

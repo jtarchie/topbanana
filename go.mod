@@ -23,6 +23,7 @@ require (
 	github.com/labstack/echo/v5 v5.1.1
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/pires/go-proxyproto v0.12.0
+	github.com/pmezard/go-difflib v1.0.0
 	github.com/samber/slog-echo/v2 v2.0.0
 	github.com/tdewolff/minify/v2 v2.24.13
 	go.uber.org/goleak v1.3.0
@@ -87,7 +88,6 @@ require (
 	github.com/openai/openai-go/v3 v3.39.0 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/samber/lo v1.53.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
