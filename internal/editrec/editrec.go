@@ -79,6 +79,12 @@ type Transcript struct {
 	Template        string    `json:"template,omitempty"`
 	UserPrompt      string    `json:"user_prompt,omitempty"`
 	Page            string    `json:"page,omitempty"`
+	// SystemPrompt is the assembled instruction (system prompt + functions
+	// addendum + template addendum + skeleton/examples notices + build context)
+	// the LLM saw on this run. Captured at recorder-creation time and stable
+	// across lint-fix retries, since the inputs (template, attachments, build
+	// context) don't change mid-build.
+	SystemPrompt string `json:"system_prompt,omitempty"`
 	// SelectionLen is retained on the struct (with omitempty) for backward
 	// compatibility with transcripts written before the selection-edit feature
 	// was retired. Nothing in the codebase sets it anymore; readers can still
@@ -193,6 +199,19 @@ func (r *Recorder) SetTemplate(template string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.transcript.Template = template
+}
+
+// SetSystemPrompt stamps the recorder with the rendered system prompt — the
+// full instruction string passed to llmagent.Config.Instruction. Stable for
+// the whole build (template/attachments/build-context don't change across
+// lint retries), so callers stamp it once when constructing the recorder.
+func (r *Recorder) SetSystemPrompt(prompt string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.transcript.SystemPrompt = prompt
 }
 
 // AddUsage folds one agent run's token tally into the transcript total. Called

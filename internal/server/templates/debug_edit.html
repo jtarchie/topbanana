@@ -51,6 +51,20 @@
       </div>
     </section>
 
+    {{ if .SystemPrompt }}
+    <section class="card bg-base-100 border border-base-300 mb-6">
+      <details>
+        <summary class="cursor-pointer card-body py-3 flex-row items-center gap-2 hover:bg-base-200">
+          <h2 class="card-title text-base flex-1">System prompt</h2>
+          <span class="text-xs text-base-content/60 font-mono">{{ len .SystemPrompt }} chars</span>
+        </summary>
+        <div class="px-4 pb-4">
+          <pre class="rounded border border-base-300 overflow-auto max-h-128 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words p-3 bg-base-200">{{ .SystemPrompt }}</pre>
+        </div>
+      </details>
+    </section>
+    {{ end }}
+
     <section class="mb-6">
       <h2 class="text-lg font-semibold mb-3">Tool calls ({{ len .ToolCalls }})</h2>
       {{ if not .ToolCalls }}

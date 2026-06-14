@@ -204,11 +204,22 @@ func isOpenRouterChatCompletion(req *http.Request) bool {
 		return false
 	}
 
-	if !strings.HasSuffix(req.URL.Host, "openrouter.ai") {
+	if !strings.HasSuffix(req.URL.Path, "/chat/completions") {
 		return false
 	}
 
-	return strings.HasSuffix(req.URL.Path, "/chat/completions")
+	host := req.URL.Hostname()
+
+	return strings.HasSuffix(host, "openrouter.ai") || isLoopbackHost(host)
+}
+
+// isLoopbackHost reports whether host is a loopback address. Used to widen the
+// chat-completions scope so an httptest.Server-backed integration test sees
+// the same mutations as a real OpenRouter call. Production traffic never
+// targets loopback hosts, so this widening is defensive — not a test escape
+// hatch.
+func isLoopbackHost(host string) bool {
+	return host == "127.0.0.1" || host == "::1" || host == "localhost"
 }
 
 // maybeInjectCacheControl reads the request body once, parses the JSON, and
@@ -272,23 +283,26 @@ type writerFunc func(p []byte) (int, error)
 
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 
-// installOnce wraps http.DefaultClient.Transport with our interceptor exactly
-// once per process. Idempotent so test setups and repeated Resolve calls don't
-// stack interceptors. We use http.DefaultClient because adk-utils-go's
-// genaiopenai adapter constructs openai.NewClient without an explicit
-// option.WithHTTPClient, which falls back to the SDK's default — i.e.
-// http.DefaultClient. If adk-utils-go ever exposes a per-Config http.Client
-// seam, switch to that and drop the global.
+// installOnce wraps http.DefaultTransport with our interceptor exactly once
+// per process. Idempotent so test setups and repeated Resolve calls don't
+// stack interceptors.
+//
+// We override http.DefaultTransport rather than http.DefaultClient.Transport
+// because the openai-go SDK (used by adk-utils-go's genaiopenai adapter, which
+// never passes option.WithHTTPClient) constructs its own *http.Client via
+// openai/openai-go/v3/default_http_client.go's defaultHTTPClient — that
+// function reads http.DefaultTransport, type-asserts it to *http.Transport,
+// and clones it. Our wrapper is a *openRouterTransport (not *http.Transport),
+// so the assertion fails and the SDK's fallback path returns
+// &http.Client{Transport: http.DefaultTransport} — using our wrapper. The
+// previous version hijacked http.DefaultClient.Transport, which the SDK never
+// reads, so cache_control + x-session-id never reached any real request.
 var installOnce sync.Once
 
 func installOpenRouterTransport() {
 	installOnce.Do(func() {
-		base := http.DefaultClient.Transport
-		if base == nil {
-			base = http.DefaultTransport
-		}
-
-		http.DefaultClient.Transport = &openRouterTransport{base: base}
+		base := http.DefaultTransport
+		http.DefaultTransport = &openRouterTransport{base: base}
 	})
 }
 

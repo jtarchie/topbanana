@@ -109,6 +109,7 @@ type debugDetailData struct {
 	ReasoningEffort string
 	Template        string
 	UserPrompt      string
+	SystemPrompt    string
 	Page            string
 	SelectionLen    int
 	FinalStatus     string
@@ -203,6 +204,7 @@ func (s *debugController) debugDetailHandler(c *echo.Context) error {
 		ReasoningEffort: t.ReasoningEffort,
 		Template:        t.Template,
 		UserPrompt:      t.UserPrompt,
+		SystemPrompt:    t.SystemPrompt,
 		Page:            t.Page,
 		SelectionLen:    t.SelectionLen,
 		FinalStatus:     t.FinalStatus,

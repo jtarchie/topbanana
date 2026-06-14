@@ -613,6 +613,13 @@ func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slu
 		Seeds:       seeds,
 		BuildStart:  buildStart,
 		IsEdit:      isEdit,
+		// Stamp the rendered instruction once on the recorder. The runner
+		// invokes this synchronously inside Run, before the LLM call, so the
+		// transcript carries the exact prompt the model saw — visible on the
+		// debug edit page. Lint retries reuse the same template + attachments
+		// + build context, so the instruction is build-stable; capturing on
+		// the author turn is sufficient.
+		OnInstruction: func(s string) { rec.SetSystemPrompt(s) },
 	}, emit, svc.events)
 	recordUsage(rec, usage)
 	if err != nil {

@@ -57,6 +57,15 @@ func formatTemplateChecks(checks []templates.Check) string {
 // per-build meta block — date, slug, mode), then attachments notice (the
 // only per-request variable). Any reordering of these blocks invalidates
 // the cache for every build that follows.
+// InstructionFor renders the full system instruction the agent would see for
+// a given RunRequest. Exposed so callers outside the agent (e.g. the build
+// recorder) can stamp the same string the LLM sees onto the transcript,
+// without having to reach into the unexported assembly. Equivalent to
+// `buildInstruction(req.Template, req.Attachments, req.BuildContext)`.
+func InstructionFor(req RunRequest) string {
+	return buildInstruction(req.Template, req.Attachments, req.BuildContext)
+}
+
 func buildInstruction(tmpl *templates.SiteTemplate, attachments []Attachment, bctx BuildContext) string {
 	parts := []string{systemPrompt}
 	if tmpl != nil {

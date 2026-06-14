@@ -9,7 +9,11 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
+
+	adkmodel "google.golang.org/adk/model"
+	"google.golang.org/genai"
 )
 
 func TestWithSessionID_RoundTrip(t *testing.T) {
@@ -75,7 +79,14 @@ func TestIsOpenRouterChatCompletion(t *testing.T) {
 		{"https://api.openrouter.ai/v1/chat/completions", true},
 		{"https://openrouter.ai/api/v1/models", false},
 		{"https://api.anthropic.com/v1/messages", false},
-		{"http://localhost:1234/v1/chat/completions", false},
+		// Loopback hosts match so the SDK-integration test can route through
+		// an httptest.Server. The wrapper's body-rewrite step still gates on
+		// the request's "model" field via isAnthropicModel, so non-Anthropic
+		// local servers (lmstudio with a non-anthropic model, etc.) never
+		// receive cache_control. session_id is safely ignored by any
+		// OpenAI-compatible server that doesn't recognise it.
+		{"http://localhost:1234/v1/chat/completions", true},
+		{"http://127.0.0.1:8080/v1/chat/completions", true},
 		{"https://api.openai.com/v1/chat/completions", false},
 	}
 	for _, tc := range cases {
@@ -466,4 +477,119 @@ func (c *captureTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 
 	return c.resp, nil
+}
+
+// TestOpenRouterCache_FlowsThroughOpenAIClient is the integration test the
+// existing isolated-RoundTrip tests didn't cover. It resolves an OpenRouter
+// LLM through the production code path (model.Resolve → newCachingOpenRouter
+// → genaiopenai.New → openai-go SDK construction), points the SDK at an
+// httptest upstream, and asserts on what arrives at that upstream — i.e.
+// that the SDK actually routes traffic through our installed wrapper.
+//
+// Before flipping the installation target from http.DefaultClient.Transport
+// to http.DefaultTransport, this test would fail: the SDK's defaultHTTPClient
+// clones http.DefaultTransport (which was unmodified) and never reads
+// http.DefaultClient. The wrapper would still mutate requests correctly when
+// called directly (the old tests proved that) — it just never received any.
+func TestOpenRouterCache_FlowsThroughOpenAIClient(t *testing.T) {
+	// Cannot run in parallel: installs http.DefaultTransport globally via
+	// sync.Once. Doing so is safe alongside parallel tests, but reading the
+	// captured request fields would race with other tests that happen to hit
+	// /chat/completions on a loopback host.
+
+	var (
+		seenSessionID  atomic.Value // string
+		seenCacheCtrl  atomic.Value // string
+		seenModelField atomic.Value // string
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenSessionID.Store(r.Header.Get("x-session-id"))
+
+		body, _ := io.ReadAll(r.Body)
+
+		var parsed map[string]any
+
+		_ = json.Unmarshal(body, &parsed)
+
+		cc, _ := parsed["cache_control"].(map[string]any)
+		ctype, _ := cc["type"].(string)
+		seenCacheCtrl.Store(ctype)
+
+		modelName, _ := parsed["model"].(string)
+		seenModelField.Store(modelName)
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id": "chatcmpl-int-test",
+			"object": "chat.completion",
+			"created": 1700000000,
+			"model": "claude-haiku-4-5",
+			"choices": [{
+				"index": 0,
+				"message": {"role": "assistant", "content": "ok"},
+				"finish_reason": "stop"
+			}],
+			"usage": {
+				"prompt_tokens": 100,
+				"completion_tokens": 1,
+				"total_tokens": 101,
+				"prompt_tokens_details": {"cached_tokens": 80}
+			}
+		}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	llm, err := Resolve("openrouter", "~anthropic/claude-haiku-latest", "test-key", srv.URL+"/v1")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	ctx := WithSessionID(context.Background(), "integration-test-session")
+
+	req := &adkmodel.LLMRequest{
+		Model: "~anthropic/claude-haiku-latest",
+		Contents: []*genai.Content{
+			{Role: "user", Parts: []*genai.Part{genai.NewPartFromText("hello")}},
+		},
+	}
+
+	var (
+		gotCached int32
+		gotResps  int
+	)
+
+	for resp, err := range llm.GenerateContent(ctx, req, false) {
+		if err != nil {
+			t.Fatalf("GenerateContent: %v", err)
+		}
+
+		if resp != nil && resp.UsageMetadata != nil {
+			gotResps++
+
+			if resp.UsageMetadata.CachedContentTokenCount > gotCached {
+				gotCached = resp.UsageMetadata.CachedContentTokenCount
+			}
+		}
+	}
+
+	if got := seenSessionID.Load(); got != "integration-test-session" {
+		t.Errorf("upstream received x-session-id=%q, want %q", got, "integration-test-session")
+	}
+
+	if got := seenCacheCtrl.Load(); got != "ephemeral" {
+		t.Errorf("upstream received cache_control.type=%q, want %q (request body: %s)", got, "ephemeral", seenModelField.Load())
+	}
+
+	if got := seenModelField.Load(); got != "~anthropic/claude-haiku-latest" {
+		t.Errorf("upstream received model=%q, want %q", got, "~anthropic/claude-haiku-latest")
+	}
+
+	if gotCached != 80 {
+		t.Errorf("LLMResponse.UsageMetadata.CachedContentTokenCount=%d, want 80 (response tee not flowing through)", gotCached)
+	}
+
+	if gotResps == 0 {
+		t.Errorf("no usage metadata observed across the response stream — SDK never yielded a populated response")
+	}
 }

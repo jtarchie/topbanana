@@ -43,6 +43,13 @@ type RunRequest struct {
 	Seeds       []agent.SeedToolCall
 	BuildStart  time.Time
 	IsEdit      bool
+	// OnInstruction, when non-nil, is invoked once with the rendered system
+	// instruction the agent will see — after BuildContext is constructed and
+	// before the LLM is called. Used by buildAndLint to stamp the recorder via
+	// rec.SetSystemPrompt so the debug page can surface the same string the
+	// model saw. Stubs (test runners) leave it nil; production agentRunner
+	// invokes it.
+	OnInstruction func(string)
 }
 
 // agentRunner is the production Runner — a thin shim over package agent that
@@ -99,7 +106,7 @@ func (r agentRunner) Run(ctx context.Context, s *store.Store, req RunRequest, em
 		SiteURL: r.siteURL(req.Slug),
 		IsEdit:  req.IsEdit,
 	}
-	usage, err := agent.Run(ctx, r.llm, agent.RunRequest{
+	agentReq := agent.RunRequest{
 		Store:           s,
 		Slug:            req.Slug,
 		Prompt:          req.Prompt,
@@ -108,7 +115,13 @@ func (r agentRunner) Run(ctx context.Context, s *store.Store, req RunRequest, em
 		Seeds:           req.Seeds,
 		ReasoningEffort: r.reasoningEffort,
 		BuildContext:    bctx,
-	}, emit, tracker)
+	}
+
+	if req.OnInstruction != nil {
+		req.OnInstruction(agent.InstructionFor(agentReq))
+	}
+
+	usage, err := agent.Run(ctx, r.llm, agentReq, emit, tracker)
 	if err != nil {
 		return usage, fmt.Errorf("agent run: %w", err)
 	}
