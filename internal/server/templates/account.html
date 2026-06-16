@@ -126,7 +126,7 @@
           <p class="text-xs text-base-content/60 mt-0.5">Permanently removes your account and every site you own. There's no undo.</p>
         </div>
         {{ if .IsSuperAdmin }}
-        <span class="text-xs text-base-content/50 max-w-[16rem] text-right">Operator accounts can't be self-deleted. Ask another super admin to remove you.</span>
+        <span class="text-xs text-base-content/60 max-w-[16rem] text-right">Operator accounts can't be self-deleted. Ask another super admin to remove you.</span>
         {{ else }}
         <form method="POST" action="/account/delete" class="js-confirm"
               data-confirm-title="Delete your account?"

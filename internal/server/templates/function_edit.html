@@ -9,12 +9,12 @@
 {{ template "site_subnav" . }}
 <main class="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-6">
   <div class="flex flex-wrap items-center gap-2 mb-2">
-    <form method="POST" action="/files/{{ .Slug }}" class="flex items-baseline gap-1 text-2xl sm:text-3xl font-semibold tracking-tight">
+    <form method="POST" action="/files/{{ .Slug }}" class="flex flex-wrap items-baseline gap-x-1 gap-y-2 text-2xl sm:text-3xl font-semibold tracking-tight">
       <input type="hidden" name="_method" value="PATCH">
       <input type="hidden" name="from" value="functions/{{ .Name }}.js">
       <span class="font-mono">functions/</span>
       <input type="text" name="to_name" value="{{ .Name }}" pattern="[a-zA-Z][a-zA-Z0-9_-]{0,63}"
-             class="input input-sm font-mono text-base w-48"
+             class="input input-sm font-mono text-base w-full min-w-0 sm:w-48"
              autocomplete="off"
              aria-label="Function name">
       <span class="font-mono">.js</span>
@@ -31,7 +31,7 @@
       <button type="submit" class="btn btn-sm btn-error btn-outline">Delete function</button>
     </form>
   </div>
-  <p class="text-base-content/70 mb-6"><a href="/edit/{{ .Slug }}" class="link link-primary">← back to editor</a> · routes to <code>{{ .APIURL }}</code></p>
+  <p class="text-base-content/70 mb-6"><a href="/edit/{{ .Slug }}" class="link link-primary">← back to editor</a> · routes to <code class="break-all">{{ .APIURL }}</code></p>
 
   <div role="tablist" class="tabs tabs-lifted mb-4" id="fn-tabs">
     <a role="tab" class="tab tab-active" data-tab="source">Source</a>

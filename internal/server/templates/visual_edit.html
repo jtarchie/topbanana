@@ -38,10 +38,10 @@
 </head>
 <body class="bg-base-100">
 <header class="navbar bg-base-100 border-b border-base-300 px-4" style="height:56px;min-height:56px">
-  <div class="flex-1 gap-2 items-center">
-    <a href="/" class="font-semibold text-base">Top Banana</a>
-    <span class="text-base-content/40">/</span>
-    <span class="text-sm">Visual editor — <span class="font-mono">{{.Slug}} / {{.Page}}</span></span>
+  <div class="flex flex-1 min-w-0 gap-2 items-center">
+    <a href="/" class="font-semibold text-base shrink-0">Top Banana</a>
+    <span class="text-base-content/40 shrink-0" aria-hidden="true">/</span>
+    <span class="text-sm truncate min-w-0">Visual editor — <span class="font-mono">{{.Slug}} / {{.Page}}</span></span>
   </div>
   <div class="flex-none flex items-center gap-2">
     <span id="status" class="text-xs text-base-content/60 mr-2"></span>
