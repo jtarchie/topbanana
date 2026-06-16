@@ -69,13 +69,16 @@
         <div class="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
           <a href="{{ .URL }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener" aria-label="Open live site">Open ↗</a>
           <div class="dropdown dropdown-end">
-            <button type="button" class="btn btn-ghost btn-sm btn-square" aria-label="More actions for {{ .Name }}">
+            {{/* Focusable div with role=button, not a button element: daisyUI's
+                 focus-driven dropdown never opens from a button on iOS Safari
+                 (it doesn't focus buttons on tap). Mirrors the navbar trigger. */}}
+            <div tabindex="0" role="button" class="btn btn-ghost btn-sm btn-square" aria-label="More actions for {{ .Name }}">
               <svg viewBox="0 0 16 16" aria-hidden="true" class="size-4 fill-current">
                 <circle cx="8" cy="3" r="1.5"/>
                 <circle cx="8" cy="8" r="1.5"/>
                 <circle cx="8" cy="13" r="1.5"/>
               </svg>
-            </button>
+            </div>
             <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-10 w-44 p-2 shadow border border-base-300">
               <li><a href="/manage/{{ .Name }}">Manage</a></li>
               <li>
