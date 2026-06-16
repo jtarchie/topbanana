@@ -21,6 +21,10 @@
    compiled output, so the build is independent of a prior app.css. */
 @source not "./daisyui";
 @source not "./app.css";
+/* The vendored GrapesJS dist (served self-hosted by grapesAssetHandler) lives
+   here too; never scan its minified bundles or their class-like tokens balloon
+   the utility layer. */
+@source not "./grapesjs";
 
 /* daisyUI as a plugin so only the components/themes we configure ship. The
    admin chrome uses lemonade (light) + lemonade-dark (dark, prefers-color-scheme);

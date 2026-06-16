@@ -24,6 +24,10 @@ func (s *Server) mountRoutes(e *echo.Echo) {
 	e.GET("/favicon.svg", s.faviconHandler)
 	e.GET("/app.css", s.appCSSHandler)
 	e.GET("/image_drawer.js", s.imageDrawerJSHandler)
+	// Self-hosted GrapesJS (visual editor library + webpage preset), embedded —
+	// no CDN. Public like the other static assets; the editor page itself is
+	// gated by requireUser, but the libraries it loads needn't be.
+	e.GET("/vendor/grapesjs/:file", s.grapesAssetHandler)
 
 	// Legal pages: always-public, unauthenticated. Prospective users need to
 	// read these before signing up, so they can't sit behind requireUser.

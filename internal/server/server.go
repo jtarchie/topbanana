@@ -244,6 +244,30 @@ func (s *Server) imageDrawerJSHandler(c *echo.Context) error {
 	return c.Blob(http.StatusOK, "application/javascript; charset=utf-8", assets.ImageDrawerJS) //nolint:wrapcheck
 }
 
+// grapesAssetHandler serves the vendored GrapesJS dist (the UMD bundle, its
+// stylesheet, and the webpage preset) under /vendor/grapesjs/<file>. The files
+// are embedded in the binary, so the visual editor loads no CDN. Only the flat
+// vendored set is reachable: any path separator or traversal attempt 404s.
+func (s *Server) grapesAssetHandler(c *echo.Context) error {
+	file := c.Param("file")
+	if file == "" || strings.ContainsAny(file, `/\`) || strings.Contains(file, "..") {
+		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	}
+	data, err := assets.GrapesJSFS.ReadFile("grapesjs/" + file)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	}
+	contentType := "application/octet-stream"
+	switch {
+	case strings.HasSuffix(file, ".js"):
+		contentType = "application/javascript; charset=utf-8"
+	case strings.HasSuffix(file, ".css"):
+		contentType = "text/css; charset=utf-8"
+	}
+	c.Response().Header().Set("Cache-Control", "public, max-age=86400")
+	return c.Blob(http.StatusOK, contentType, data) //nolint:wrapcheck
+}
+
 // adminURL builds an absolute URL on the main app domain. Used by the toolbar
 // links injected into hosted-site pages on subdomains, where relative paths
 // would point at the wrong host.

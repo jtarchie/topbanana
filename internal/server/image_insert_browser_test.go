@@ -21,8 +21,10 @@ import (
 // "click did nothing" can only be caught by asserting on the editor HTML;
 // this test is the regression line for that path.
 //
-// Loads GrapesJS from the unpkg CDN. The boot poll skips on timeout so an
-// offline CI run short-circuits rather than reporting a bridge failure.
+// GrapesJS is served self-hosted from the test server (/vendor/grapesjs/*,
+// embedded — no CDN), so the editor boots without network access. The boot
+// poll still skips on timeout to absorb headless-Chrome flakiness rather than
+// reporting a bridge failure.
 func TestVisualEditInsertImage_AddsImgComponent(t *testing.T) {
 	st := minioStore(t)
 	chromePath := chromeExecPath()
@@ -87,7 +89,8 @@ func TestVisualEditInsertImage_AddsImgComponent(t *testing.T) {
 		t.Fatalf("chromedp navigate: %v", err)
 	}
 
-	// Phase 2: wait for GrapesJS to boot. Skip on timeout — unpkg unreachable.
+	// Phase 2: wait for GrapesJS to boot (served locally; skip on timeout to
+	// absorb headless-Chrome flakiness).
 	bootCtx, cancelBoot := context.WithTimeout(browserCtx, 15*time.Second)
 	defer cancelBoot()
 	var grapesReady bool
@@ -103,7 +106,7 @@ func TestVisualEditInsertImage_AddsImgComponent(t *testing.T) {
 		chromedp.WithPollingInterval(200*time.Millisecond),
 	))
 	if err != nil {
-		t.Skipf("GrapesJS did not finish booting within 15s (likely unpkg CDN unreachable): %v", err)
+		t.Skipf("GrapesJS did not finish booting within 15s (headless Chrome flakiness): %v", err)
 	}
 
 	drive := func(label string, timeout time.Duration, actions ...chromedp.Action) {

@@ -158,6 +158,28 @@ tasks:
         rm -rf "$tmp"
         node -e 'console.log("vendored daisyui", require("./internal/assets/daisyui/package.json").version)'
 
+  vendor:grapesjs:
+    desc: Re-vendor GrapesJS + the webpage preset into internal/assets/grapesjs (self-hosted, no CDN). After bumping, update GrapesJSVersion / GrapesJSPresetVersion in internal/assets/embed.go.
+    cmds:
+      - |
+        set -e
+        root="$PWD"
+        tmp="$(mktemp -d)"
+        ( cd "$tmp" && npm pack grapesjs grapesjs-preset-webpage >/dev/null )
+        mkdir "$tmp/gjs" "$tmp/preset"
+        tar xzf "$tmp"/grapesjs-[0-9]*.tgz -C "$tmp/gjs" --strip-components=1
+        tar xzf "$tmp"/grapesjs-preset-webpage-*.tgz -C "$tmp/preset" --strip-components=1
+        dest="$root/internal/assets/grapesjs"
+        rm -rf "$dest"; mkdir -p "$dest"
+        cp "$tmp/gjs/dist/grapes.min.js"        "$dest/grapes.min.js"
+        cp "$tmp/gjs/dist/css/grapes.min.css"   "$dest/grapes.min.css"
+        cp "$tmp/preset/dist/index.js"          "$dest/grapesjs-preset-webpage.min.js"
+        gv="$(node -e 'console.log(require("'"$tmp"'/gjs/package.json").version)')"
+        pv="$(node -e 'console.log(require("'"$tmp"'/preset/package.json").version)')"
+        printf '{\n  "grapesjs": "%s",\n  "grapesjs-preset-webpage": "%s"\n}\n' "$gv" "$pv" > "$dest/VERSIONS.json"
+        rm -rf "$tmp"
+        echo "vendored grapesjs $gv + grapesjs-preset-webpage $pv (update embed.go consts to match)"
+
   local:
     desc: Run the app locally using LM Studio and Minio
     deps: [minio:ready]

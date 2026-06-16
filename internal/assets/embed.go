@@ -25,6 +25,15 @@ import (
 // `task vendor:daisyui`; assets_test.go asserts it matches the package.json.
 const DaisyUIVersion = "5.5.20"
 
+// GrapesJSVersion and GrapesJSPresetVersion are the vendored GrapesJS releases
+// under ./grapesjs (the visual editor's library + the webpage preset),
+// self-hosted so the editor loads no CDN. Bump both with `task vendor:grapesjs`;
+// assets_test.go asserts they match ./grapesjs/VERSIONS.json.
+const (
+	GrapesJSVersion       = "0.23.2"
+	GrapesJSPresetVersion = "1.0.3"
+)
+
 // AppCSS is the compiled admin-UI stylesheet. See app.input.css for the source
 // and the package doc for how it is regenerated.
 //
@@ -44,6 +53,14 @@ var ImageDrawerJS []byte
 //
 //go:embed daisyui
 var daisyUIFS embed.FS
+
+// GrapesJSFS is the vendored GrapesJS dist (the UMD bundle that defines
+// window.grapesjs, its stylesheet, and the webpage preset), embedded and served
+// under /vendor/grapesjs/ by the server — the visual editor loads no CDN.
+// Files: grapes.min.js, grapes.min.css, grapesjs-preset-webpage.min.js.
+//
+//go:embed grapesjs
+var GrapesJSFS embed.FS
 
 // ExtractDaisyUI writes the vendored daisyUI package into parent/daisyui and
 // returns that directory. It is idempotent enough for startup use — files are

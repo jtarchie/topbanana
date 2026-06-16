@@ -32,6 +32,7 @@ Use `task` for development automation.
 | `task local` | Starts the application locally, ensuring Minio is ready and pointing to LM Studio. |
 | `task css` | Recompiles the embedded admin-UI stylesheet (`internal/assets/app.css`) from `app.input.css`. Run after editing the admin templates or input CSS. |
 | `task vendor:daisyui` | Re-vendors the daisyUI npm package into `internal/assets/daisyui` (then bump `DaisyUIVersion` in `internal/assets/embed.go` + run `task css`). |
+| `task vendor:grapesjs` | Re-vendors GrapesJS + the webpage preset into `internal/assets/grapesjs` (self-hosted for the visual editor, no CDN; then bump `GrapesJSVersion`/`GrapesJSPresetVersion` in `internal/assets/embed.go`). |
 | `task minio:start` | Starts a background Minio server. |
 | `task minio:stop` | Stops the running Minio server. |
 | `task minio:ready` | Verifies or starts Minio if it's not currently running. |

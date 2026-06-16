@@ -83,6 +83,76 @@ func TestVisualEditorLoadsSiteAppCSSIntoCanvas(t *testing.T) {
 	if !strings.Contains(got, `pageTheme = "synthwave"`) {
 		t.Errorf("editor did not pass the page data-theme; want pageTheme = \"synthwave\"")
 	}
+
+	// The editor must load GrapesJS + its preset from the self-hosted vendor
+	// path, and carry no CDN references (GrapesJS unpkg, Google Fonts).
+	for _, want := range []string{
+		`/vendor/grapesjs/grapes.min.js`,
+		`/vendor/grapesjs/grapes.min.css`,
+		`/vendor/grapesjs/grapesjs-preset-webpage.min.js`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("editor missing self-hosted asset %q", want)
+		}
+	}
+	for _, bad := range []string{"unpkg.com", "fonts.googleapis.com", "fonts.gstatic.com"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("visual editor must not reference the CDN %q", bad)
+		}
+	}
+}
+
+// TestGrapesAssetHandler_ServesEmbedded confirms the vendored GrapesJS dist is
+// served from the binary (no CDN) with sensible content types, and that path
+// traversal is rejected.
+func TestGrapesAssetHandler_ServesEmbedded(t *testing.T) {
+	st := minioStore(t)
+	snapSvc := snapshot.New(st, 0)
+	handler := buildServer(t, st, snapSvc)
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+
+	cases := []struct {
+		file    string
+		status  int
+		ctPfx   string
+		bodyHas string
+	}{
+		{"grapes.min.js", http.StatusOK, "application/javascript", "grapesjs"},
+		{"grapes.min.css", http.StatusOK, "text/css", ""},
+		{"grapesjs-preset-webpage.min.js", http.StatusOK, "application/javascript", "grapesjs-preset-webpage"},
+		{"nope.js", http.StatusNotFound, "", ""},
+		{"secret..go", http.StatusNotFound, "", ""}, // ".." guard, single segment
+	}
+	for _, tc := range cases {
+		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/vendor/grapesjs/"+tc.file, nil)
+		req.Host = "localhost"
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("GET /vendor/grapesjs/%s: %v", tc.file, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != tc.status {
+			t.Errorf("%s: status = %d, want %d", tc.file, resp.StatusCode, tc.status)
+			continue
+		}
+		if tc.status != http.StatusOK {
+			continue
+		}
+		if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, tc.ctPfx) {
+			t.Errorf("%s: content-type = %q, want prefix %q", tc.file, ct, tc.ctPfx)
+		}
+		if len(body) == 0 {
+			t.Errorf("%s: empty body", tc.file)
+		}
+		if strings.Contains(string(body), "unpkg.com") {
+			t.Errorf("%s: vendored asset references a CDN", tc.file)
+		}
+		if tc.bodyHas != "" && !strings.Contains(string(body), tc.bodyHas) {
+			t.Errorf("%s: body missing %q marker", tc.file, tc.bodyHas)
+		}
+	}
 }
 
 // TestProxyServesSiteAppCSS confirms a per-site app.css in S3 is served on the

@@ -22,14 +22,14 @@
   } catch (_) {}
 })();
 </script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<!-- Self-hosted Tailwind + daisyUI (see appCSSHandler); no CDN, no in-browser JIT. -->
+<!-- Self-hosted Tailwind + daisyUI (see appCSSHandler); no CDN, no in-browser JIT.
+     Typeface is the system sans stack — same as the rest of the admin UI per
+     DESIGN.md's One Family Rule; no Google Fonts / webfont request. -->
 <link rel="stylesheet" href="/app.css">
-<link rel="stylesheet" href="https://unpkg.com/grapesjs/dist/css/grapes.min.css">
+<!-- Self-hosted GrapesJS stylesheet (vendored, served by grapesAssetHandler). -->
+<link rel="stylesheet" href="/vendor/grapesjs/grapes.min.css">
 <style>
-  html, body { margin: 0; padding: 0; height: 100%; font-family: "Inter", system-ui, -apple-system, sans-serif; }
+  html, body { margin: 0; padding: 0; height: 100%; font-family: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif; }
   #editor-wrap { height: calc(100vh - 56px); position: relative; }
   #gjs { height: 100%; }
   #warnings { position: absolute; bottom: 0; left: 0; right: 0; max-height: 200px; overflow-y: auto; z-index: 5; display: none; }
@@ -66,8 +66,11 @@
     <button class="btn btn-ghost btn-sm" id="warnings-close" type="button" aria-label="Dismiss">✕</button>
   </div>
 </div>
-<script src="https://unpkg.com/grapesjs"></script>
-<script src="https://unpkg.com/grapesjs-preset-webpage"></script>
+<!-- Self-hosted GrapesJS + webpage preset (vendored via `task vendor:grapesjs`,
+     embedded, served by grapesAssetHandler). Order matters: the preset registers
+     itself onto the global `grapesjs` defined by the bundle above. -->
+<script src="/vendor/grapesjs/grapes.min.js"></script>
+<script src="/vendor/grapesjs/grapesjs-preset-webpage.min.js"></script>
 <script>
 (function(){
   var slug = {{.SlugJSON}};
