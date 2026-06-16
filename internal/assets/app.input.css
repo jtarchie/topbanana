@@ -40,6 +40,21 @@ body { font-family: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Aria
 :focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .btn { min-height: 2.5rem; }
 
+/* Touch-target floor (WCAG 2.2 target size). On coarse (touch) pointers every
+   interactive control reaches 44px; fine (mouse) pointers keep the documented
+   compact btn-sm/btn-xs density from DESIGN.md. One rule covers buttons, the
+   square icon buttons (width), menu/dropdown items, and tab strips — so phones
+   get real tap targets without inflating dense desktop tables. This is set
+   unlayered (like .btn above) on purpose: a Tailwind `min-h-11` utility lands
+   in @layer utilities and loses to the unlayered `.btn { min-height: 2.5rem }`
+   rule, so per-button utilities silently no-op — the floor has to live here. */
+@media (pointer: coarse) {
+  .btn { min-height: 2.75rem; }
+  .btn-square { min-width: 2.75rem; }
+  .menu :where(a, button, summary) { min-height: 2.75rem; }
+  .tabs > .tab { min-height: 2.75rem; }
+}
+
 /* Named z-index scale. Floating UI follows scrim < panel < dropdown <
    modal-backdrop < modal < toast < tooltip. Only the stack we actually use
    is materialized below; the rest are reserved values so a future modal or

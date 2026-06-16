@@ -41,8 +41,8 @@
           <td class="text-base-content/70">{{ .Modified }}</td>
           <td>
             <div class="flex gap-3 text-sm items-center">
-              {{ if .EditURL }}<a class="link link-primary" href="{{ .EditURL }}">edit</a>{{ end }}
-              {{ if .LinkURL }}<a class="link link-hover" href="{{ .LinkURL }}"{{ if eq .LinkLabel "open" }} target="_blank" rel="noopener"{{ end }}>{{ .LinkLabel }}</a>{{ end }}
+              {{ if .EditURL }}<a class="link link-primary inline-flex items-center min-h-11 px-1" href="{{ .EditURL }}">edit</a>{{ end }}
+              {{ if .LinkURL }}<a class="link link-hover inline-flex items-center min-h-11 px-1" href="{{ .LinkURL }}"{{ if eq .LinkLabel "open" }} target="_blank" rel="noopener"{{ end }}>{{ .LinkLabel }}</a>{{ end }}
               {{ if .Deletable }}
               <form method="POST" action="/files/{{ $.Slug }}" class="inline js-confirm"
                     data-confirm-title="Delete this file permanently?"
