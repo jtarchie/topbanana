@@ -32,12 +32,12 @@
       <div class="card-body">
         <h2 class="card-title text-base">Run details</h2>
         <dl class="grid grid-cols-[8rem_1fr] gap-y-1 gap-x-4 text-sm">
-          <dt class="text-base-content/60">Started</dt><dd class="font-mono">{{ .StartedAt }}</dd>
-          <dt class="text-base-content/60">Finished</dt><dd class="font-mono">{{ .FinishedAt }}</dd>
-          {{ if .Model }}<dt class="text-base-content/60">Model</dt><dd class="font-mono">{{ .Model }}</dd>{{ end }}
-          {{ if .ReasoningEffort }}<dt class="text-base-content/60">Reasoning</dt><dd class="font-mono">{{ .ReasoningEffort }}</dd>{{ end }}
-          {{ if .Template }}<dt class="text-base-content/60">Template</dt><dd class="font-mono">{{ .Template }}</dd>{{ end }}
-          {{ if .Page }}<dt class="text-base-content/60">Page</dt><dd class="font-mono">{{ .Page }}</dd>{{ end }}
+          <dt class="text-base-content/60">Started</dt><dd class="font-mono break-all">{{ .StartedAt }}</dd>
+          <dt class="text-base-content/60">Finished</dt><dd class="font-mono break-all">{{ .FinishedAt }}</dd>
+          {{ if .Model }}<dt class="text-base-content/60">Model</dt><dd class="font-mono break-all">{{ .Model }}</dd>{{ end }}
+          {{ if .ReasoningEffort }}<dt class="text-base-content/60">Reasoning</dt><dd class="font-mono break-all">{{ .ReasoningEffort }}</dd>{{ end }}
+          {{ if .Template }}<dt class="text-base-content/60">Template</dt><dd class="font-mono break-all">{{ .Template }}</dd>{{ end }}
+          {{ if .Page }}<dt class="text-base-content/60">Page</dt><dd class="font-mono break-all">{{ .Page }}</dd>{{ end }}
           {{ if .SelectionLen }}<dt class="text-base-content/60">Selection</dt><dd>{{ .SelectionLen }} bytes</dd>{{ end }}
           {{ if .UserPrompt }}<dt class="text-base-content/60">Prompt</dt><dd class="break-words">{{ .UserPrompt }}</dd>{{ end }}
           {{ if .HasUsage }}
@@ -45,7 +45,7 @@
             {{ .Usage.Total }} total
             <span class="text-base-content/60">({{ .Usage.Prompt }} prompt · {{ .Usage.Candidates }} output{{ if .Usage.Thoughts }} · {{ .Usage.Thoughts }} reasoning{{ end }})</span>
           </dd>
-          {{ if .CacheHitPct }}<dt class="text-base-content/60">Cache hits</dt><dd class="font-mono">{{ .CacheHitPct }} of prompt <span class="text-base-content/60">({{ .Usage.Cached }} tokens)</span></dd>{{ end }}
+          {{ if .CacheHitPct }}<dt class="text-base-content/60">Cache hits</dt><dd class="font-mono break-all">{{ .CacheHitPct }} of prompt <span class="text-base-content/60">({{ .Usage.Cached }} tokens)</span></dd>{{ end }}
           {{ end }}
         </dl>
       </div>
@@ -136,7 +136,7 @@ function escapeHTML(s) {
     {{ else if .Changed }}<span class="badge badge-warning badge-sm shrink-0">changed</span>
     {{ else }}<span class="badge badge-sm shrink-0">unchanged</span>{{ end }}
     <span class="text-base-content/60 shrink-0">{{ .BeforeSize }} → {{ .AfterSize }} bytes</span>
-    {{ if or .BeforeTruncated .AfterTruncated }}<span class="text-base-content/50 shrink-0" title="content was truncated before diffing">(truncated)</span>{{ end }}
+    {{ if or .BeforeTruncated .AfterTruncated }}<span class="text-base-content/70 shrink-0" title="content was truncated before diffing">(truncated)</span>{{ end }}
   </summary>
   <div class="px-2 pb-2">
     <div class="flex items-center gap-3 my-2">
@@ -149,13 +149,13 @@ function escapeHTML(s) {
       <div class="rounded border border-base-300 overflow-auto max-h-128 font-mono text-xs leading-relaxed">
         {{ range .Diff }}
         {{ if eq .Kind "hunk" }}
-        <div class="flex bg-base-200 text-base-content/50 select-none"><span class="w-12 shrink-0 px-1"></span><span class="w-12 shrink-0 px-1"></span><span class="px-2 flex-1 min-w-0 whitespace-pre-wrap break-all">{{ .Text }}</span></div>
+        <div class="flex bg-base-200 text-base-content/70 select-none"><span class="w-12 shrink-0 px-1"></span><span class="w-12 shrink-0 px-1"></span><span class="px-2 flex-1 min-w-0 whitespace-pre-wrap break-all">{{ .Text }}</span></div>
         {{ else if eq .Kind "add" }}
-        <div class="flex bg-success/15"><span class="w-12 shrink-0 px-1 text-right tabular-nums text-base-content/40 select-none"></span><span class="w-12 shrink-0 px-1 text-right tabular-nums text-base-content/40 select-none">{{ .New }}</span><span class="px-2 flex-1 min-w-0 whitespace-pre-wrap break-all"><span class="select-none font-bold text-success">+ </span>{{ .Text }}</span></div>
+        <div class="flex bg-success/15"><span class="w-12 shrink-0 px-1 text-right tabular-nums text-base-content/60 select-none"></span><span class="w-12 shrink-0 px-1 text-right tabular-nums text-base-content/60 select-none">{{ .New }}</span><span class="px-2 flex-1 min-w-0 whitespace-pre-wrap break-all"><span class="select-none font-bold text-success">+ </span>{{ .Text }}</span></div>
         {{ else if eq .Kind "del" }}
-        <div class="flex bg-error/15"><span class="w-12 shrink-0 px-1 text-right tabular-nums text-base-content/40 select-none">{{ .Old }}</span><span class="w-12 shrink-0 px-1 text-right tabular-nums text-base-content/40 select-none"></span><span class="px-2 flex-1 min-w-0 whitespace-pre-wrap break-all"><span class="select-none font-bold text-error">- </span>{{ .Text }}</span></div>
+        <div class="flex bg-error/15"><span class="w-12 shrink-0 px-1 text-right tabular-nums text-base-content/60 select-none">{{ .Old }}</span><span class="w-12 shrink-0 px-1 text-right tabular-nums text-base-content/60 select-none"></span><span class="px-2 flex-1 min-w-0 whitespace-pre-wrap break-all"><span class="select-none font-bold text-error">- </span>{{ .Text }}</span></div>
         {{ else }}
-        <div class="flex"><span class="w-12 shrink-0 px-1 text-right tabular-nums text-base-content/40 select-none">{{ .Old }}</span><span class="w-12 shrink-0 px-1 text-right tabular-nums text-base-content/40 select-none">{{ .New }}</span><span class="px-2 flex-1 min-w-0 whitespace-pre-wrap break-all"><span class="select-none opacity-0 font-bold">+ </span>{{ .Text }}</span></div>
+        <div class="flex"><span class="w-12 shrink-0 px-1 text-right tabular-nums text-base-content/60 select-none">{{ .Old }}</span><span class="w-12 shrink-0 px-1 text-right tabular-nums text-base-content/60 select-none">{{ .New }}</span><span class="px-2 flex-1 min-w-0 whitespace-pre-wrap break-all"><span class="select-none opacity-0 font-bold">+ </span>{{ .Text }}</span></div>
         {{ end }}
         {{ end }}
       </div>

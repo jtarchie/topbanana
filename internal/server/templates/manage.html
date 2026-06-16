@@ -136,7 +136,7 @@
         <h2 id="general-heading" class="card-title text-lg">General</h2>
         <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
           <dt class="text-base-content/60">Name</dt>
-          <dd class="font-medium">{{ if .Title }}{{ .Title }}{{ else }}<span class="font-mono text-base-content/70">{{ .Slug }}</span>{{ end }}</dd>
+          <dd class="font-medium">{{ if .Title }}{{ .Title }}{{ else }}<span class="font-mono text-base-content/70 break-all">{{ .Slug }}</span>{{ end }}</dd>
           <dt class="text-base-content/60">Address</dt>
           <dd><a class="link link-primary font-mono break-all" href="{{ .SiteURL }}" target="_blank" rel="noopener">{{ .SiteURL }}</a></dd>
         </dl>
@@ -171,9 +171,9 @@
 
         {{ if .FunctionsByTmpl }}
           <div class="flex flex-col">
-            <label class="label justify-start gap-3 cursor-not-allowed opacity-70" title="Always on for this template">
-              <input type="checkbox" checked disabled class="toggle toggle-primary">
-              <span class="text-sm">
+            <label class="flex items-start gap-3 cursor-not-allowed opacity-70" title="Always on for this template">
+              <input type="checkbox" checked disabled class="toggle toggle-primary shrink-0 mt-0.5">
+              <span class="text-sm min-w-0">
                 <span class="font-medium">Accept visitor input</span>
                 <span class="block text-xs text-base-content/60">Built into this template (forms, RSVPs, counters). Always on.</span>
               </span>
@@ -182,9 +182,9 @@
           <input type="hidden" name="enable_functions" value="on">
         {{ else }}
           <div class="flex flex-col">
-            <label class="label cursor-pointer justify-start gap-3">
-              <input type="checkbox" name="enable_functions" {{ if .FunctionsEnabled }}checked{{ end }} class="toggle toggle-primary">
-              <span class="text-sm">
+            <label class="flex items-start gap-3 cursor-pointer">
+              <input type="checkbox" name="enable_functions" {{ if .FunctionsEnabled }}checked{{ end }} class="toggle toggle-primary shrink-0 mt-0.5">
+              <span class="text-sm min-w-0">
                 <span class="font-medium">Accept visitor input</span>
                 <span class="block text-xs text-base-content/60">Allows forms, RSVPs, counters, and other submissions on your site.</span>
               </span>
@@ -193,8 +193,8 @@
         {{ end }}
 
         <div class="flex flex-col">
-          <label class="label cursor-pointer justify-start gap-3">
-            <input type="checkbox" name="enable_public_api" {{ if .PublicAPIEnabled }}checked{{ end }} class="toggle toggle-primary">
+          <label class="flex items-start gap-3 cursor-pointer">
+            <input type="checkbox" name="enable_public_api" {{ if .PublicAPIEnabled }}checked{{ end }} class="toggle toggle-primary shrink-0 mt-0.5">
             <span class="text-sm">
               <span class="font-medium">Allow other websites to post data here</span>
               <span class="block text-xs text-base-content/60">Off by default. Turn on only if another site needs to send data (e.g. a webhook).</span>
@@ -203,8 +203,8 @@
         </div>
 
         <div class="flex flex-col">
-          <label class="label cursor-pointer justify-start gap-3">
-            <input type="checkbox" name="private" {{ if .Private }}checked{{ end }} class="toggle toggle-primary">
+          <label class="flex items-start gap-3 cursor-pointer">
+            <input type="checkbox" name="private" {{ if .Private }}checked{{ end }} class="toggle toggle-primary shrink-0 mt-0.5">
             <span class="text-sm">
               <span class="font-medium">Keep this site private</span>
               <span class="block text-xs text-base-content/60">Hides the site from the public web. Only you (and super admins) can open it.</span>

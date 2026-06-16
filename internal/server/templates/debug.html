@@ -48,9 +48,9 @@
               {{ if eq .Status "completed" }}<span class="badge badge-success badge-sm">{{ .Status }}</span>
               {{ else if eq .Status "failed" }}<span class="badge badge-error badge-sm">{{ .Status }}</span>
               {{ else if .Status }}<span class="badge badge-sm">{{ .Status }}</span>
-              {{ else }}<span class="text-base-content/40">&mdash;</span>{{ end }}
+              {{ else }}<span class="text-base-content/60">&mdash;</span>{{ end }}
             </td>
-            <td class="font-mono text-base-content/70 text-xs">{{ if .Duration }}{{ .Duration }}{{ else }}<span class="text-base-content/40">&mdash;</span>{{ end }}</td>
+            <td class="font-mono text-base-content/70 text-xs">{{ if .Duration }}{{ .Duration }}{{ else }}<span class="text-base-content/60">&mdash;</span>{{ end }}</td>
             <td class="text-right text-base-content/70 text-xs">{{ .ToolCount }}</td>
           </tr>
           {{ end }}

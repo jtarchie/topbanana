@@ -44,7 +44,7 @@
         <ul class="menu menu-sm bg-base-100 rounded-box border border-base-300 w-full p-1">
           {{ range .Pages }}
           <li>
-            <a href="/workspace/{{ $.Slug }}?page={{ . }}" class="font-mono text-xs{{ if eq . $.Page }} active{{ end }}">{{ . }}</a>
+            <a href="/workspace/{{ $.Slug }}?page={{ . }}" class="font-mono text-xs break-all{{ if eq . $.Page }} active{{ end }}">{{ . }}</a>
           </li>
           {{ end }}
         </ul>
@@ -56,7 +56,7 @@
       <div>
         <div class="flex items-center justify-between mb-2">
           <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
-            Images{{ if .Assets }} <span class="text-base-content/40 normal-case font-normal">({{ len .Assets }})</span>{{ end }}
+            Images{{ if .Assets }} <span class="text-base-content/60 normal-case font-normal">({{ len .Assets }})</span>{{ end }}
           </h2>
           <button type="button" id="open-image-drawer" class="btn btn-ghost btn-xs">{{ if .Assets }}Browse{{ else }}Upload{{ end }}</button>
         </div>
@@ -85,7 +85,7 @@
         <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-2">Server functions</h2>
         <ul class="space-y-1">
           {{ range .Functions }}
-          <li class="text-xs"><a class="link link-hover font-mono" href="/edit/{{ $.Slug }}/function/{{ . }}">{{ . }}</a></li>
+          <li class="text-xs"><a class="link link-hover font-mono break-all" href="/edit/{{ $.Slug }}/function/{{ . }}">{{ . }}</a></li>
           {{ end }}
         </ul>
       </div>
@@ -147,7 +147,7 @@
           <input type="hidden" name="from" value="{{ .Page }}">
           <label for="rename-to" class="text-xs text-base-content/60">Path</label>
           <input id="rename-to" type="text" name="to" value="{{ .Page }}"
-                 class="input input-sm font-mono text-xs w-64"
+                 class="input input-sm font-mono text-xs w-full max-w-64 min-w-0"
                  autocomplete="off">
           <button type="submit" class="btn btn-sm btn-ghost">Rename</button>
         </form>
@@ -174,8 +174,8 @@
       <form method="POST" action="/edit/{{ .Slug }}" enctype="multipart/form-data" class="card bg-base-100 border border-base-300" id="edit-form">
         <div class="card-body gap-3 p-4">
           <input type="hidden" name="page" value="{{ .Page }}">
-          <label for="prompt" class="label pb-1 px-0">
-            <span class="text-sm font-medium">{{ if .Page }}Describe a change to <span class="font-mono">{{ .Page }}</span>{{ else }}Describe a change to the whole site{{ end }}</span>
+          <label for="prompt" class="block pb-1 px-0">
+            <span class="text-sm font-medium">{{ if .Page }}Describe a change to <span class="font-mono break-all">{{ .Page }}</span>{{ else }}Describe a change to the whole site{{ end }}</span>
           </label>
           <textarea name="prompt" id="prompt" rows="3" maxlength="4096" required {{ if .Building }}disabled{{ end }}
                     class="textarea w-full text-base"
@@ -588,7 +588,7 @@
       function makeBtn(label, cls, answer) {
         var b = document.createElement('button');
         b.type = 'button';
-        b.className = 'btn btn-sm ' + cls;
+        b.className = 'btn btn-sm max-w-full whitespace-normal h-auto ' + cls;
         b.textContent = label;
         b.addEventListener('click', function () {
           disableAll();

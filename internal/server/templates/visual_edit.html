@@ -38,17 +38,22 @@
 </head>
 <body class="bg-base-100">
 <header class="navbar bg-base-100 border-b border-base-300 px-4" style="height:56px;min-height:56px">
+  {{/* Below sm the toolbar (Images/Save/Back/toggle) needs the whole width, so
+       the editor descriptor and the redundant theme toggle collapse on mobile —
+       the brand wordmark stays as the identifier. This keeps the fixed 56px
+       chrome on one row (so #editor-wrap's calc(100vh-56px) holds) without a
+       second menu that would duplicate the images-btn / theme-toggle ids. */}}
   <div class="flex flex-1 min-w-0 gap-2 items-center">
     <a href="/" class="font-semibold text-base shrink-0">Top Banana</a>
-    <span class="text-base-content/40 shrink-0" aria-hidden="true">/</span>
-    <span class="text-sm truncate min-w-0">Visual editor — <span class="font-mono">{{.Slug}} / {{.Page}}</span></span>
+    <span class="text-base-content/40 shrink-0 hidden sm:inline" aria-hidden="true">/</span>
+    <span class="text-sm truncate min-w-0 hidden sm:inline">Visual editor — <span class="font-mono">{{.Slug}} / {{.Page}}</span></span>
   </div>
   <div class="flex-none flex items-center gap-2">
     <span id="status" class="text-xs text-base-content/60 mr-2"></span>
     <button id="images-btn" type="button" class="btn btn-ghost btn-sm">Images</button>
     <button id="save-btn" type="button" class="btn btn-primary btn-sm">Save</button>
     <a class="btn btn-ghost btn-sm" href="/edit/{{.Slug}}?page={{.Page}}">Back</a>
-    {{ template "theme_toggle" . }}
+    <span class="hidden sm:inline-flex items-center">{{ template "theme_toggle" . }}</span>
   </div>
 </header>
 <div id="editor-wrap">

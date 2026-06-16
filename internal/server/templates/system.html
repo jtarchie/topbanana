@@ -73,10 +73,10 @@
           {{ range .Apps }}
           <tr>
             <td><a class="link link-primary font-mono" href="{{ .URL }}">{{ .Slug }}</a></td>
-            <td>{{ if .Title }}{{ .Title }}{{ else }}<span class="text-base-content/40">—</span>{{ end }}</td>
+            <td>{{ if .Title }}{{ .Title }}{{ else }}<span class="text-base-content/70">—</span>{{ end }}</td>
             <td class="text-right text-base-content/70">{{ .SizeLabel }}</td>
             <td class="text-right text-base-content/70">{{ .Edits }}</td>
-            <td class="text-base-content/70">{{ if .LastEdited }}{{ .LastEdited }}{{ else }}<span class="text-base-content/40">never</span>{{ end }}</td>
+            <td class="text-base-content/70">{{ if .LastEdited }}{{ .LastEdited }}{{ else }}<span class="text-base-content/70">never</span>{{ end }}</td>
           </tr>
           {{ end }}
         </tbody>
@@ -158,17 +158,17 @@
     <h2 id="config-heading" class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Configuration</h2>
     <dl class="card bg-base-100 border border-base-300">
       <div class="card-body p-4 grid grid-cols-1 sm:grid-cols-[12rem_1fr] gap-x-4 gap-y-2 text-sm">
-        <dt class="text-base-content/60">LLM (author)</dt><dd class="font-mono">{{ .Config.LLMAuthor }}</dd>
-        <dt class="text-base-content/60">LLM (editor)</dt><dd class="font-mono">{{ .Config.LLMEditor }}</dd>
-        <dt class="text-base-content/60">LLM (utility)</dt><dd class="font-mono">{{ .Config.LLMUtility }}</dd>
-        <dt class="text-base-content/60">LLM (vision)</dt><dd class="font-mono">{{ .Config.LLMVision }}</dd>
+        <dt class="text-base-content/60">LLM (author)</dt><dd class="font-mono break-all">{{ .Config.LLMAuthor }}</dd>
+        <dt class="text-base-content/60">LLM (editor)</dt><dd class="font-mono break-all">{{ .Config.LLMEditor }}</dd>
+        <dt class="text-base-content/60">LLM (utility)</dt><dd class="font-mono break-all">{{ .Config.LLMUtility }}</dd>
+        <dt class="text-base-content/60">LLM (vision)</dt><dd class="font-mono break-all">{{ .Config.LLMVision }}</dd>
         <dt class="text-base-content/60">LLM base URL</dt><dd class="font-mono break-all">{{ .Config.LLMBaseURL }}</dd>
         <dt class="text-base-content/60">Reasoning effort</dt><dd>{{ .Config.LLMReasoningEffort }}</dd>
         <dt class="text-base-content/60">S3 endpoint</dt><dd class="font-mono break-all">{{ .Config.S3Endpoint }}</dd>
-        <dt class="text-base-content/60">S3 bucket</dt><dd class="font-mono">{{ .Config.S3Bucket }}</dd>
+        <dt class="text-base-content/60">S3 bucket</dt><dd class="font-mono break-all">{{ .Config.S3Bucket }}</dd>
         <dt class="text-base-content/60">Snapshot retention</dt><dd>{{ .Config.SnapshotKeep }}</dd>
         <dt class="text-base-content/60">Transcript retention</dt><dd>{{ .Config.EditsKeep }}</dd>
-        <dt class="text-base-content/60">Main domain</dt><dd class="font-mono">{{ .Config.Domain }}</dd>
+        <dt class="text-base-content/60">Main domain</dt><dd class="font-mono break-all">{{ .Config.Domain }}</dd>
         <dt class="text-base-content/60">Custom domains</dt><dd>{{ .Config.CustomDomainCount }} in use</dd>
       </div>
     </dl>
