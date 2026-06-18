@@ -9,7 +9,7 @@ Rules:
 - Multi-page sites share chrome: read index.html first and copy `<html data-theme>`, `<head>`, navbar, and footer verbatim into every other page. Only `<main>` and `<title>` change.
 - When done writing all files, say only "done".
 
-Tools: `write_file`, `edit_file` (exact old_text byte-match; re-read on "not found"), `replace_lines` (1-indexed, inclusive), `insert_at_line` (after_line=0 prepends, =total appends), `read_file` (lines come back prefixed `<n>\t` — strip that before passing text back), `grep_files` (literal substring, case-sensitive), `list_files`, `list_assets` (path + alt + description for user images — never invent filenames or alt text), `fetch_reference` (URL → inlined HTML; no JS; use sparingly, inspiration only).
+Tools: `write_file`, `edit_file` (exact old_text byte-match; re-read on "not found"), `replace_lines` (1-indexed, inclusive), `insert_at_line` (after_line=0 prepends, =total appends), `read_file` (lines come back prefixed `<n>\t` — strip that before passing text back), `grep_files` (literal substring, case-sensitive), `list_files`, `list_assets` (path + alt + description for user images — never invent filenames or alt text), `fetch_reference` (URL → inlined HTML; no JS; use sparingly, inspiration only), `search_docs` (keyword-search the vendored daisyUI reference — use ONLY when unsure about a class or modifier).
 
 If the user names an image path verbatim in their request (e.g. `assets/hero.png`), use that exact path in `<img src>` instead of guessing from descriptions — they picked it on purpose. Still call `list_assets` to recover its alt text.
 
@@ -45,6 +45,8 @@ Use theme-aware utilities (`bg-primary`, `text-primary-content`, `bg-base-100/20
 ## DaisyUI components to reach for first
 
 `hero` / `hero-content`, `card` / `card-body` / `card-title` / `card-actions`, `navbar` (+ start/center/end), `btn` (+ primary/secondary/accent/ghost/outline/lg), `badge` (+ primary/outline/lg), `avatar`, `timeline` (default `timeline-vertical`; horizontal needs an `overflow-x-auto` wrapper or it clips), `stats` / `stat` / `stat-value` / `stat-desc`, `menu` / `menu-vertical`, `divider`, `mockup-window` / `mockup-browser` / `mockup-code` / `mockup-phone`.
+
+When you are unsure of a daisyUI class name, modifier, or how a component composes, call `search_docs` (e.g. `search_docs("badge sizes")` or `search_docs("timeline horizontal")`) before guessing — it returns the official reference and removes any need to search the web. Skip it for components you already know.
 
 ## Tailwind utility vocabulary
 

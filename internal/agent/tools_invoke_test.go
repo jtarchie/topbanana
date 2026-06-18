@@ -104,7 +104,7 @@ func TestAgentTools_RegistersFullSurface(t *testing.T) {
 	tools, _, _ := newToolSet(t)
 	for _, name := range []string{
 		"write_file", "edit_file", "replace_lines", "insert_at_line",
-		"read_file", "list_files", "grep_files", "list_assets",
+		"read_file", "list_files", "grep_files", "list_assets", "search_docs",
 		"read_attachment", "read_example", "fetch_reference",
 		"write_function", "edit_function", "delete_function", "read_function", "list_functions",
 		"ask_user",
@@ -353,6 +353,23 @@ func TestAgentTools_ReadAttachmentAndExample(t *testing.T) {
 	res = invokeTool(t, tools["read_example"], map[string]any{"name": "nope"})
 	if !strings.Contains(resStr(res, "error"), "available: hero") {
 		t.Fatalf("unknown example should name the available set: %v", res)
+	}
+}
+
+func TestAgentTools_SearchDocs(t *testing.T) {
+	tools, _, _ := newToolSet(t)
+
+	// A real lookup returns daisyUI reference sections for the component.
+	res := invokeTool(t, tools["search_docs"], map[string]any{"query": "badge sizes"})
+	results := fmt.Sprint(res["results"])
+	if results == "[]" || !strings.Contains(strings.ToLower(results), "badge") {
+		t.Fatalf("search_docs(badge sizes) = %v", res)
+	}
+
+	// An empty query surfaces as an in-result error (the model recovers).
+	res = invokeTool(t, tools["search_docs"], map[string]any{"query": ""})
+	if !strings.Contains(resStr(res, "error"), "query is required") {
+		t.Fatalf("empty query should error: %v", res)
 	}
 }
 

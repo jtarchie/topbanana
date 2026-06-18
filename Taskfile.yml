@@ -180,6 +180,25 @@ tasks:
         rm -rf "$tmp"
         echo "vendored grapesjs $gv + grapesjs-preset-webpage $pv (update embed.go consts to match)"
 
+  vendor:docs:
+    desc: Re-vendor the daisyUI llms.txt reference into internal/docs/sources/daisyui.md (searched on demand by the agent's search_docs tool). After running, set DaisyUIDocsVersion in internal/docs/corpus.go to match assets.DaisyUIVersion.
+    cmds:
+      - |
+        set -e
+        dest="internal/docs/sources"
+        mkdir -p "$dest"
+        curl -fsSL https://daisyui.com/llms.txt -o "$dest/daisyui.md"
+        # Pin the docs freshness to the vendored daisyUI CSS version so the
+        # searchable reference and the compiled component classes never describe
+        # different releases (docs_test.go asserts both match).
+        ver="$(node -e 'console.log(require("./internal/assets/daisyui/package.json").version)')"
+        printf '{\n  "daisyui": "%s"\n}\n' "$ver" > "$dest/VERSIONS.json"
+        echo "vendored daisyui llms.txt at daisyui $ver (set DaisyUIDocsVersion in internal/docs/corpus.go)"
+      # OPTIONAL second corpus — Tailwind. There is no official single-file
+      # Tailwind LLM doc (the upstream /llms.txt PR was closed), so adding it is
+      # a deliberate, licensing-reviewed step: drop internal/docs/sources/
+      # tailwind.md, add one //go:embed var + one sources entry in corpus.go.
+
   local:
     desc: Run the app locally using LM Studio and Minio
     deps: [minio:ready]

@@ -532,6 +532,7 @@ func buildAgentTools(s *store.Store, slug string, tmpl *templates.SiteTemplate, 
 		newListFilesTool,
 		newGrepFilesTool,
 		newListAssetsTool,
+		newSearchDocsTool,
 	}
 	tools := make([]tool.Tool, 0, len(guardedBuilders)+len(plainBuilders)+6)
 	for _, b := range guardedBuilders {
