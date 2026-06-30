@@ -71,6 +71,7 @@ The page must never scroll horizontally — clipped content has no scrollbar aff
 - Generous whitespace: `py-16` to `py-24` around major sections.
 - Card-based content on `card` surfaces with elevation, not flat HTML lists.
 - Decorative inline SVG (blobs, geometric shapes) absolute-positioned behind the hero.
+- Icons and decorative accents are inline SVG, never Unicode emoji — emoji render inconsistently across devices/browsers/themes and read as unpolished. Color them with `fill="currentColor"`/`stroke="currentColor"` plus theme `text-*` classes (e.g. `text-primary`), and mark purely decorative ones `aria-hidden="true"`. For repeated icons, define a small `<symbol id="…">` sprite once and reference it with `<use href="#…">` (every `#id` must resolve to a symbol on the same page).
 - Subtle motion: `transition-all hover:scale-105 hover:shadow-2xl`, `hover:bg-primary/90`.
 
 ## Visual texture — apply 3–5 per page
@@ -92,6 +93,7 @@ The page must never scroll horizontally — clipped content has no scrollbar aff
 - Single-column page with bare `<section>` blocks alternating background colors.
 - `border-bottom: 2px solid #0056b3` headers — use `navbar` or hero.
 - Inline `<style>` reinventing buttons, cards, spacing scales.
+- Emoji used as icons, bullets, list markers, or decoration — use inline SVG instead.
 
 ## Asking the user for help
 

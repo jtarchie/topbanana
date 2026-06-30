@@ -26,4 +26,5 @@ just an attribute — no recompile:
 ## Rules
 - Inline any JS in a `<script>` tag — no external scripts or frameworks.
 - Relative links between pages (`<a href="about.html">`); `index.html` is the entry point.
+- Use inline SVG for icons and decorative accents, not Unicode emoji — color it with `currentColor` plus theme `text-*` classes and mark decorative SVG `aria-hidden="true"`. Emoji render inconsistently across devices and look unpolished.
 - Keep each page self-contained.
