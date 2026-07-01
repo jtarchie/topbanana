@@ -61,7 +61,7 @@ func resolveSiteTarget(dir, rawVal string, lc linkCheckContext) (resolved string
 	// poll) are served by the Go dispatch path, not static files. Treat them as
 	// valid targets for the upload form's action and the display's fetch when the
 	// template enables the wall — like /api/ routes when functions are enabled.
-	if lc.photoWall && (link == photoUploadPath || link == photoApprovedPath) {
+	if lc.photoWall && (link == photoUploadPath || link == photoApprovedPath || link == photoQRPath) {
 		return "", false, true
 	}
 	resolved, found := resolveLinkTarget(dir, link, lc.fileSet)

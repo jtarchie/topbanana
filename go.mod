@@ -25,6 +25,7 @@ require (
 	github.com/pires/go-proxyproto v0.12.0
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/samber/slog-echo/v2 v2.0.0
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/tdewolff/minify/v2 v2.24.13
 	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto v0.53.0

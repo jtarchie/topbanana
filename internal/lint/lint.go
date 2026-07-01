@@ -267,6 +267,7 @@ const localStylesheetTag = `<link rel="stylesheet" href="/app.css">`
 const (
 	photoUploadPath   = "/_photos"
 	photoApprovedPath = "/_photos/approved"
+	photoQRPath       = "/_photos/qr"
 )
 
 // WalkDOM does a depth-first pre-order traversal of the parse tree, invoking

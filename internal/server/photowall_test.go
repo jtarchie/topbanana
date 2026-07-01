@@ -258,6 +258,49 @@ func getApproved(t *testing.T, handler http.Handler, slug string) []approvedItem
 	return items
 }
 
+// TestPhotoWall_QRCode: the display page's QR endpoint returns a self-contained
+// SVG on a photo-wall site and 404s on any other site.
+func TestPhotoWall_QRCode(t *testing.T) {
+	st := minioStore(t)
+	ctx := context.Background()
+	snapSvc := snapshot.New(st, 0)
+	stateStore := state.NewMemory()
+	slug := "pw-qr-" + freshSlug(t)
+	cleanupSlug(t, ctx, st, snapSvc, slug)
+	seedPhotoWallSite(t, ctx, st, slug, "photowall")
+
+	handler, _ := newPWServer(t, st, snapSvc, stateStore)
+
+	req := httptest.NewRequest(http.MethodGet, "/_photos/qr", nil)
+	req.Host = slug + ".localhost"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /_photos/qr = %d want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "image/svg+xml") {
+		t.Errorf("qr content-type = %q want image/svg+xml", ct)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "<svg") || !strings.Contains(body, "</svg>") {
+		t.Errorf("qr body is not SVG: %q", body[:min(len(body), 80)])
+	}
+
+	// Gated off on a non-wall site.
+	offSlug := "pw-qroff-" + freshSlug(t)
+	cleanupSlug(t, ctx, st, snapSvc, offSlug)
+	seedPhotoWallSite(t, ctx, st, offSlug, "blank")
+	// Rebuild registry to include the new slug by making a fresh server.
+	offHandler, _ := newPWServer(t, st, snapSvc, stateStore)
+	offReq := httptest.NewRequest(http.MethodGet, "/_photos/qr", nil)
+	offReq.Host = offSlug + ".localhost"
+	offRec := httptest.NewRecorder()
+	offHandler.ServeHTTP(offRec, offReq)
+	if offRec.Code != http.StatusNotFound {
+		t.Errorf("GET /_photos/qr on non-wall site = %d want 404", offRec.Code)
+	}
+}
+
 // TestPhotoWall_RejectsNonImage: a non-image upload is refused with 415 and
 // leaves no state row.
 func TestPhotoWall_RejectsNonImage(t *testing.T) {

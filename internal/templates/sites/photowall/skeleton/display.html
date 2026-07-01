@@ -15,6 +15,14 @@
   }
   #stage img.show { opacity: 1; }
   #waiting { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  #qr {
+    position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 10;
+    display: flex; align-items: center; gap: 0.75rem;
+    background: rgba(255,255,255,0.95); padding: 0.75rem 1rem;
+    border-radius: 0.75rem; box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+  #qr img { width: 7rem; height: 7rem; display: block; }
+  #qr .label { max-width: 8rem; color: #111; font-weight: 600; line-height: 1.2; }
 </style>
 </head>
 <body class="bg-black text-base-content">
@@ -22,9 +30,13 @@
   <div id="waiting" class="text-center px-6">
     <div>
       <h1 class="text-3xl font-semibold text-white/90">Waiting for photos…</h1>
-      <p class="text-white/50 mt-2">Approved photos will appear here automatically.</p>
+      <p class="text-white/50 mt-2">Scan the code to add the first one.</p>
     </div>
   </div>
+  <aside id="qr">
+    <img src="/_photos/qr" alt="QR code — scan to upload a photo">
+    <div class="label">Scan to add your photo</div>
+  </aside>
   <script>
     (function () {
       var POLL_MS = 5000;    // how often to check for newly-approved photos

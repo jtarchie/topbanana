@@ -40,7 +40,7 @@ func (s *Server) photoWallEnabled(ctx context.Context, slug string) bool {
 // method is wrong), it claims the request and 404s — the endpoints are
 // invisible on every non-photo-wall site.
 func (s *Server) dispatchPhotoWall(c *echo.Context, slug, reqPath string) (bool, error) {
-	if reqPath != "/_photos" && reqPath != "/_photos/approved" {
+	if reqPath != "/_photos" && reqPath != "/_photos/approved" && reqPath != "/_photos/qr" {
 		return false, nil
 	}
 	if !s.photoWallEnabled(c.Request().Context(), slug) {
@@ -51,9 +51,26 @@ func (s *Server) dispatchPhotoWall(c *echo.Context, slug, reqPath string) (bool,
 		return true, s.photoUploadHandler(c, slug)
 	case reqPath == "/_photos/approved" && c.Request().Method == http.MethodGet:
 		return true, s.approvedListHandler(c, slug)
+	case reqPath == "/_photos/qr" && c.Request().Method == http.MethodGet:
+		return true, s.photoQRHandler(c)
 	default:
 		return true, notFound()
 	}
+}
+
+// photoQRHandler serves an SVG QR code that encodes this site's own upload page
+// (the request host's root). The display page shows it in a corner so guests
+// can scan the big screen and open the upload page. Built from the request host
+// so it points at whatever domain the display is being viewed on (subdomain or
+// custom domain). Cacheable — the encoded URL is stable per host.
+func (s *Server) photoQRHandler(c *echo.Context) error {
+	uploadURL := c.Scheme() + "://" + c.Request().Host + "/"
+	svg, err := photowall.QRCodeSVG(uploadURL)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "render qr", err)
+	}
+	c.Response().Header().Set("Cache-Control", "public, max-age=3600")
+	return c.Blob(http.StatusOK, "image/svg+xml; charset=utf-8", []byte(svg)) //nolint:wrapcheck
 }
 
 // photoUploadHandler accepts one multipart photo from an unauthenticated
