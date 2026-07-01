@@ -153,6 +153,12 @@ func (s *Server) dispatchSite(c *echo.Context, slug string) error {
 		return notFound()
 	}
 	reqPath := c.Request().URL.Path
+	// Event-photo-wall reserved endpoints (POST /_photos, GET /_photos/approved).
+	// Claimed only when the path shape matches, so non-photo-wall sites don't
+	// pay a metadata read on every request.
+	if handled, err := s.dispatchPhotoWall(c, slug, reqPath); handled {
+		return err
+	}
 	if name, ok := strings.CutPrefix(reqPath, "/api/"); ok {
 		return s.apiHandler(c, slug, name)
 	}

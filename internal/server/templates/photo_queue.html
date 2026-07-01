@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="lemonade">
+<head>
+<title>Photo queue — {{ .SiteName }} — Top Banana</title>
+{{ template "head" . }}
+</head>
+<body class="min-h-screen flex flex-col bg-base-100">
+{{ template "brand" . }}
+{{ template "site_subnav" . }}
+<main class="flex-1 max-w-2xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
+  <header class="flex items-end justify-between gap-3 flex-wrap">
+    <div>
+      <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight">Photo queue</h1>
+      <p class="text-sm text-base-content/70 mt-1">
+        Tap <span class="font-medium text-success">Approve</span> to send a photo to the display, or
+        <span class="font-medium text-error">Reject</span> to discard it. Keyboard: <kbd class="kbd kbd-sm">A</kbd> approve, <kbd class="kbd kbd-sm">R</kbd> reject.
+      </p>
+    </div>
+    <a href="/manage/{{ .Slug }}" class="text-sm link link-hover font-medium whitespace-nowrap">Back to Manage</a>
+  </header>
+
+  {{ if .Flash }}
+    <div class="alert alert-success" role="status"><span>{{ .Flash }}</span></div>
+  {{ end }}
+
+  <div class="flex items-center gap-2 text-sm">
+    <span class="badge badge-lg badge-warning" id="pending-badge" aria-live="polite">{{ .PendingCount }} awaiting review</span>
+    <span class="badge badge-lg badge-ghost">{{ .ApprovedCount }} on the display</span>
+  </div>
+
+  <div id="queue" data-slug="{{ .Slug }}">
+    {{ range .Pending }}
+    <article class="photo-card card bg-base-100 border border-base-300 shadow-sm hidden" data-photo-id="{{ .ID }}">
+      <figure class="bg-base-200 aspect-[4/3] overflow-hidden">
+        <img src="{{ .PreviewURL }}" alt="Pending photo {{ .ID }}" class="w-full h-full object-contain" loading="lazy">
+      </figure>
+      <div class="card-body p-4 gap-3">
+        <div class="grid grid-cols-2 gap-3">
+          <button type="button" class="btn btn-error btn-lg" data-action="reject" aria-label="Reject photo {{ .ID }}">Reject</button>
+          <button type="button" class="btn btn-success btn-lg" data-action="approve" aria-label="Approve photo {{ .ID }}">Approve</button>
+        </div>
+      </div>
+    </article>
+    {{ end }}
+  </div>
+
+  <div id="empty" class="card bg-base-100 border border-base-300 {{ if .Pending }}hidden{{ end }}">
+    <div class="card-body items-center text-center py-12">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="w-12 h-12 text-success" aria-hidden="true">
+        <path d="M20 6 9 17l-5-5"/>
+      </svg>
+      <h2 class="card-title mt-2">All caught up</h2>
+      <p class="text-sm text-base-content/70">No photos waiting. New uploads will appear here — reload to check.</p>
+      <a href="/manage/{{ .Slug }}" class="btn btn-sm btn-ghost mt-2">Back to Manage</a>
+    </div>
+  </div>
+</main>
+
+<script>
+(function () {
+  var queue = document.getElementById('queue');
+  var slug = queue.getAttribute('data-slug');
+  var badge = document.getElementById('pending-badge');
+  var empty = document.getElementById('empty');
+
+  function cards() { return Array.prototype.slice.call(queue.querySelectorAll('.photo-card')); }
+
+  function refresh() {
+    var remaining = cards();
+    remaining.forEach(function (c, i) { c.classList.toggle('hidden', i !== 0); });
+    badge.textContent = remaining.length + ' awaiting review';
+    empty.classList.toggle('hidden', remaining.length > 0);
+  }
+
+  function act(card, action) {
+    var id = card.getAttribute('data-photo-id');
+    var buttons = card.querySelectorAll('button');
+    buttons.forEach(function (b) { b.disabled = true; });
+    var body = 'id=' + encodeURIComponent(id) + '&confirm=' + encodeURIComponent(id);
+    fetch('/photos/' + slug + '/' + action, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+      body: body
+    }).then(function (r) {
+      if (!r.ok) { throw new Error('request failed: ' + r.status); }
+      card.remove();
+      refresh();
+    }).catch(function () {
+      buttons.forEach(function (b) { b.disabled = false; });
+      alert('Could not ' + action + ' that photo. Please try again.');
+    });
+  }
+
+  queue.addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-action]');
+    if (!btn) { return; }
+    var card = btn.closest('.photo-card');
+    if (card) { act(card, btn.getAttribute('data-action')); }
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) { return; }
+    var current = cards()[0];
+    if (!current) { return; }
+    var key = e.key.toLowerCase();
+    if (key === 'a') { e.preventDefault(); act(current, 'approve'); }
+    else if (key === 'r') { e.preventDefault(); act(current, 'reject'); }
+  });
+
+  refresh();
+})();
+</script>
+</body>
+</html>

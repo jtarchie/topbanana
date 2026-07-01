@@ -39,14 +39,31 @@ func hasAttr(n *html.Node, key string) bool {
 // checkForms runs the per-form data-loss checks plus the anywhere-on-page
 // file-input check. (Whether a form's action target exists is checkHTMLLinks'
 // job — action is one of the attributes it already validates.)
-func checkForms(pi pageInfo) []Error {
+//
+// The event photo wall is the one legitimate file upload: its form posts
+// multipart to the dedicated Go endpoint /_photos (which parses multipart,
+// unlike the /api/ functions runtime). On a photo-wall site, that form and the
+// file input inside it are exempt from the multipart/file data-loss checks.
+func checkForms(pi pageInfo, lc linkCheckContext) []Error {
 	var errs []Error
+
+	// File inputs living inside a photo-wall upload form are legitimate, so the
+	// anywhere-on-page check below must skip them.
+	exemptFileInputs := map[*html.Node]bool{}
+	if lc.photoWall {
+		for _, n := range pi.elements {
+			if n.Data == "form" && isPhotoUploadForm(n) {
+				collectFileInputs(n, exemptFileInputs)
+			}
+		}
+	}
+
 	for _, n := range pi.elements {
 		switch n.Data {
 		case "form":
-			errs = append(errs, checkOneForm(pi.name, n)...)
+			errs = append(errs, checkOneForm(pi.name, n, lc)...)
 		case "input":
-			if strings.EqualFold(strings.TrimSpace(attrVal(n, "type")), "file") {
+			if strings.EqualFold(strings.TrimSpace(attrVal(n, "type")), "file") && !exemptFileInputs[n] {
 				errs = append(errs, multipartError(pi.name, `<input type="file">`))
 			}
 		}
@@ -54,14 +71,32 @@ func checkForms(pi pageInfo) []Error {
 	return errs
 }
 
+// isPhotoUploadForm reports whether a form posts to the event-photo-wall upload
+// endpoint. Keyed on the action host, never on classes, so a design refactor
+// never flips the exemption.
+func isPhotoUploadForm(form *html.Node) bool {
+	return strings.TrimSpace(attrVal(form, "action")) == photoUploadPath
+}
+
+// collectFileInputs records every <input type="file"> in a form's subtree.
+func collectFileInputs(form *html.Node, into map[*html.Node]bool) {
+	WalkDOM(form, func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "input" &&
+			strings.EqualFold(strings.TrimSpace(attrVal(n, "type")), "file") {
+			into[n] = true
+		}
+	})
+}
+
 // checkOneForm flags a POST form with no destination, a multipart enctype,
 // and — for forms that actually submit somewhere (non-empty action) —
 // controls whose values the browser will silently drop because they have no
 // name. Forms without an action are left alone: inline-JS-handled forms
 // (e.g. an onsubmit that returns false) are a legitimate pattern.
-func checkOneForm(filename string, form *html.Node) []Error {
+func checkOneForm(filename string, form *html.Node, lc linkCheckContext) []Error {
 	action := strings.TrimSpace(attrVal(form, "action"))
 	method := strings.TrimSpace(attrVal(form, "method"))
+	photoForm := lc.photoWall && isPhotoUploadForm(form)
 
 	var errs []Error
 	if strings.EqualFold(method, "post") && action == "" {
@@ -71,7 +106,10 @@ func checkOneForm(filename string, form *html.Node) []Error {
 			Message: `form posts nowhere — this <form method="post"> has no action, so the browser posts the data back to the HTML page itself, where it is discarded (static pages cannot receive posts). Point action at a function route (e.g. action="/api/submit" backed by functions/submit.js), or if inline JavaScript handles the submit, remove method="post" and keep the onsubmit handler returning false.`,
 		})
 	}
-	if strings.Contains(strings.ToLower(attrVal(form, "enctype")), "multipart/form-data") {
+	// The photo-wall upload form legitimately posts multipart to /_photos, a
+	// dedicated Go handler that parses it — the /api/ multipart limitation this
+	// check guards against doesn't apply.
+	if !photoForm && strings.Contains(strings.ToLower(attrVal(form, "enctype")), "multipart/form-data") {
 		errs = append(errs, multipartError(filename, `enctype="multipart/form-data"`))
 	}
 	if action == "" {

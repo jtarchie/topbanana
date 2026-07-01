@@ -58,6 +58,13 @@ type manageData struct {
 	GuidePresent  int
 	GuideTotal    int
 	GuideComplete bool
+	// PhotoWall gates the event-photo-wall summary card. When true, PendingPhotos
+	// / ApprovedPhotos hold the queue counts and PhotoQueueURL links the owner to
+	// the moderation queue.
+	PhotoWall      bool
+	PendingPhotos  int
+	ApprovedPhotos int
+	PhotoQueueURL  string
 }
 
 // urlPattern matches bare http/https URLs anywhere in setup-notes text. Kept
@@ -153,6 +160,15 @@ func (s *sitesController) manageHandler(c *echo.Context) error {
 		cnameTarget = s.domain
 	}
 
+	// Event-photo-wall summary. base==nil falls back to no wall; the counts come
+	// from the same state blob as submissions, tallied once.
+	photoWall := base != nil && base.EnablesPhotoWall
+	pendingPhotos, approvedPhotos := 0, 0
+	if photoWall {
+		pending, approved := s.photoCounts(ctx, slug)
+		pendingPhotos, approvedPhotos = len(pending), approved
+	}
+
 	return s.render(c, "manage", manageData{
 		Chrome: Chrome{
 			Slug:     slug,
@@ -180,5 +196,9 @@ func (s *sitesController) manageHandler(c *echo.Context) error {
 		GuidePresent:     report.Present,
 		GuideTotal:       report.Total,
 		GuideComplete:    report.Complete(),
+		PhotoWall:        photoWall,
+		PendingPhotos:    pendingPhotos,
+		ApprovedPhotos:   approvedPhotos,
+		PhotoQueueURL:    "/photos/" + slug,
 	})
 }

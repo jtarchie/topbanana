@@ -29,6 +29,9 @@ var workspaceTemplate string
 //go:embed templates/manage.html
 var manageTemplate string
 
+//go:embed templates/photo_queue.html
+var photoQueueTemplate string
+
 //go:embed templates/system.html
 var systemTemplate string
 

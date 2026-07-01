@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="lemonade">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Share a photo</title>
+<meta name="description" content="Scan, snap, and share a photo to the event wall. Your photo appears once the host approves it.">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body class="bg-base-200 min-h-screen text-base-content">
+  <main class="max-w-md mx-auto px-6 py-12">
+    <h1 class="text-4xl font-bold tracking-tight">Share a photo</h1>
+    <p class="text-base-content/70 mt-2 mb-8">Scan, snap, and upload. Your photo joins the wall once the host approves it.</p>
+
+    <div id="thanks" class="alert alert-success mb-6 hidden" role="status">
+      <span>Thanks! Your photo was sent and will appear on the wall once the host approves it.</span>
+    </div>
+
+    <form method="POST" action="/_photos" enctype="multipart/form-data" class="card bg-base-100 shadow-xl">
+      <div class="card-body space-y-4">
+        <div class="flex flex-col">
+          <label class="label" for="photo"><span class="text-sm font-semibold">Your photo</span></label>
+          <input id="photo" name="photo" type="file" accept="image/*" required class="file-input file-input-bordered w-full">
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg mt-2">Upload photo</button>
+        <p class="text-xs text-base-content/60">JPEG, PNG, GIF, or WebP. One photo at a time.</p>
+      </div>
+    </form>
+  </main>
+  <script>
+    // Show the thank-you banner after the server redirects back with ?submitted=1.
+    if (new URLSearchParams(window.location.search).has('submitted')) {
+      document.getElementById('thanks').classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>

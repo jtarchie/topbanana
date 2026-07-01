@@ -58,6 +58,26 @@
     </section>
   {{ end }}
 
+  {{ if .PhotoWall }}
+    <section class="card bg-base-100 border border-base-300" aria-labelledby="photowall-heading">
+      <div class="card-body">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <h2 id="photowall-heading" class="card-title text-lg">Photo wall</h2>
+          <a href="{{ .PhotoQueueURL }}" class="btn btn-primary btn-sm{{ if gt .PendingPhotos 0 }}{{ else }} btn-outline{{ end }}">
+            Open moderation queue{{ if gt .PendingPhotos 0 }} <span class="badge badge-sm badge-neutral">{{ .PendingPhotos }}</span>{{ end }}
+          </a>
+        </div>
+        <p class="text-sm text-base-content/70">
+          Visitors upload photos from your site; each one waits for your approval before it appears on the display.
+        </p>
+        <div class="flex items-center gap-2 text-sm mt-1">
+          <span class="badge badge-lg {{ if gt .PendingPhotos 0 }}badge-warning{{ else }}badge-ghost{{ end }}">{{ .PendingPhotos }} awaiting review</span>
+          <span class="badge badge-lg badge-ghost">{{ .ApprovedPhotos }} on the display</span>
+        </div>
+      </div>
+    </section>
+  {{ end }}
+
   {{ if .SetupNotes }}
     <section class="card bg-base-100 border border-base-300" aria-labelledby="setup-heading">
       <div class="card-body">

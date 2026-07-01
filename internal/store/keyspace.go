@@ -35,4 +35,10 @@ const (
 	// `{slug}/_state/data.json` (internal/state). Unlike the prefixes above it
 	// exists once per site, so any bucket-level aggregation must walk slugs.
 	StateDir = "_state/"
+
+	// PendingDir is the in-slug directory for un-approved photo-wall bytes:
+	// `{slug}/_pending/{id}.jpg` (internal/photowall). Proxy-blocked like
+	// StateDir so visitor uploads can't be viewed before the owner approves
+	// them; approval Copies the bytes out to the public assets/ tree.
+	PendingDir = "_pending/"
 )

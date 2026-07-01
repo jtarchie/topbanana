@@ -26,6 +26,7 @@ import (
 	"github.com/jtarchie/topbanana/internal/editrec"
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/model"
+	"github.com/jtarchie/topbanana/internal/photowall"
 	"github.com/jtarchie/topbanana/internal/sandbox"
 	"github.com/jtarchie/topbanana/internal/snapshot"
 	"github.com/jtarchie/topbanana/internal/state"
@@ -113,6 +114,10 @@ type Server struct {
 	// when the secret is set.
 	mcpSecret string
 	mcpOAuth  *mcpOAuthState
+
+	// photoLimiter throttles the unauthenticated /_photos upload endpoint per
+	// (slug, client IP) so an open QR upload link can't be flooded.
+	photoLimiter *photowall.Limiter
 }
 
 // fallThroughHosts are hosts that should bypass subdomain proxying and hit
@@ -142,6 +147,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		{"apps", appsTemplate},
 		{"workspace", workspaceTemplate},
 		{"manage", manageTemplate},
+		{"photo_queue", photoQueueTemplate},
 		{"system", systemTemplate},
 		{"toolbar", editToolbarTemplate},
 		{"theme_preview_listener", themePreviewListenerTemplate},
@@ -177,6 +183,10 @@ func New(d Deps) (*echo.Echo, *Server) {
 		registry:     newSiteRegistry(d.Store, d.Build),
 		preWarmCert:  d.PreWarmCert,
 		mcpSecret:    d.MCPSecret,
+		// ~1 upload / 5s sustained with a burst of 5 per (slug, IP): enough for
+		// a person snapping a few shots in a row, tight enough to blunt a script
+		// hammering the open QR link.
+		photoLimiter: photowall.NewLimiter(0.2, 5),
 	}
 	s.registry.initialRebuildIndexes(context.Background())
 	if s.mcpSecret != "" {

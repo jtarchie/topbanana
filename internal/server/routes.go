@@ -78,5 +78,6 @@ func (s *Server) mountRoutes(e *echo.Echo) {
 	(&sitesController{s}).register(admin, owns)
 	(&functionsController{s}).register(admin, owns)
 	(&assetsController{s}).register(admin, owns)
+	(&photowallController{s}).register(admin, owns)
 	(&debugController{s}).register(admin, owns)
 }

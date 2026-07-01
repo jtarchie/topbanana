@@ -33,6 +33,11 @@ type SiteTemplate struct {
 	// renders. Optional; templates without a guide simply show no card.
 	Guide            []GuideItem
 	EnablesFunctions bool
+	// EnablesPhotoWall opts a site into the event-photo-wall feature: the
+	// unauthenticated /_photos upload + /_photos/approved polling endpoints on
+	// the site host and the owner-facing moderation queue. Opt-in like
+	// EnablesFunctions so no other site exposes an open upload endpoint.
+	EnablesPhotoWall bool
 	// SetupNotes is end-user-facing guidance shown on the manage page after a
 	// site is built — "you picked this template, here's what you need to
 	// configure" (Stripe keys, success URLs, etc). Plain text with bare URLs;
@@ -91,6 +96,7 @@ type templateMeta struct {
 	Checks           []Check     `json:"checks,omitempty"`
 	Guide            []GuideItem `json:"guide,omitempty"`
 	EnablesFunctions bool        `json:"enables_functions,omitempty"`
+	EnablesPhotoWall bool        `json:"enables_photo_wall,omitempty"`
 	SetupNotes       string      `json:"setup_notes,omitempty"`
 }
 
@@ -199,6 +205,7 @@ func loadOne(id string) (*SiteTemplate, error) {
 		Checks:           meta.Checks,
 		Guide:            meta.Guide,
 		EnablesFunctions: meta.EnablesFunctions,
+		EnablesPhotoWall: meta.EnablesPhotoWall,
 		SetupNotes:       strings.TrimSpace(meta.SetupNotes),
 	}, nil
 }

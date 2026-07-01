@@ -136,7 +136,11 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 		fileSet[f] = true
 	}
 
-	lc := linkCheckContext{fileSet: fileSet, enablesFns: tmpl != nil && tmpl.EnablesFunctions}
+	lc := linkCheckContext{
+		fileSet:    fileSet,
+		enablesFns: tmpl != nil && tmpl.EnablesFunctions,
+		photoWall:  tmpl != nil && tmpl.EnablesPhotoWall,
+	}
 
 	skeletonPages := templateSkeletonPages(tmpl)
 
@@ -167,7 +171,7 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 			errs = append(errs, checkDesignSubstrate(file, doc)...)
 			errs = append(errs, checkMobileViewport(file, doc)...)
 			errs = append(errs, checkHeadHygiene(pi)...)
-			errs = append(errs, checkForms(pi)...)
+			errs = append(errs, checkForms(pi, lc)...)
 			errs = append(errs, checkFetchTargets(pi, facts, lc)...)
 			errs = append(errs, checkDeadInteractions(pi, facts)...)
 			errs = append(errs, checkExternalResources(pi)...)
@@ -256,6 +260,14 @@ const localStylesheetHref = "/app.css"
 
 // localStylesheetTag is the canonical form AutoFixDesignSubstrate injects.
 const localStylesheetTag = `<link rel="stylesheet" href="/app.css">`
+
+// photoUploadPath / photoApprovedPath are the reserved event-photo-wall
+// endpoints served by the Go dispatch path (internal/server/photowall.go), not
+// static files — exempted from the broken-link/fetch checks on photo-wall sites.
+const (
+	photoUploadPath   = "/_photos"
+	photoApprovedPath = "/_photos/approved"
+)
 
 // WalkDOM does a depth-first pre-order traversal of the parse tree, invoking
 // visit on every node. Every DOM-based check shares it instead of redeclaring
@@ -587,6 +599,10 @@ func checkTemplateInvariants(ctx context.Context, s *store.Store, slug string, t
 type linkCheckContext struct {
 	fileSet    map[string]bool
 	enablesFns bool
+	// photoWall is true when the site's template enables the event photo wall,
+	// so the reserved /_photos endpoints (served by Go, not static files) aren't
+	// flagged as broken link/fetch targets.
+	photoWall bool
 }
 
 // checkHTMLLinks walks a parsed HTML tree and checks all relative href/src

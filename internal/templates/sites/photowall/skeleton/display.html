@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="black">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photo wall display</title>
+<meta name="description" content="Full-screen rotating wall of approved event photos. Open this page full-screen on the big display.">
+<link rel="stylesheet" href="/app.css">
+<style>
+  html, body { height: 100%; margin: 0; background: #000; }
+  #stage { position: fixed; inset: 0; overflow: hidden; }
+  #stage img {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: contain; opacity: 0; transition: opacity 1s ease-in-out;
+  }
+  #stage img.show { opacity: 1; }
+  #waiting { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+</style>
+</head>
+<body class="bg-black text-base-content">
+  <div id="stage" aria-live="off"></div>
+  <div id="waiting" class="text-center px-6">
+    <div>
+      <h1 class="text-3xl font-semibold text-white/90">Waiting for photos…</h1>
+      <p class="text-white/50 mt-2">Approved photos will appear here automatically.</p>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var POLL_MS = 5000;    // how often to check for newly-approved photos
+      var ROTATE_MS = 6000;  // how long each photo stays on screen
+      var stage = document.getElementById('stage');
+      var waiting = document.getElementById('waiting');
+      var urls = [];
+      var index = 0;
+      var frontImg = null;
+
+      function poll() {
+        fetch('/_photos/approved', { headers: { 'Accept': 'application/json' } })
+          .then(function (r) { return r.ok ? r.json() : []; })
+          .then(function (list) {
+            urls = (list || []).map(function (p) { return p.url; });
+            waiting.style.display = urls.length ? 'none' : 'flex';
+          })
+          .catch(function () { /* keep showing what we have */ });
+      }
+
+      function show(url) {
+        var img = document.createElement('img');
+        img.src = url;
+        stage.appendChild(img);
+        requestAnimationFrame(function () { img.classList.add('show'); });
+        var old = frontImg;
+        frontImg = img;
+        if (old) {
+          old.classList.remove('show');
+          setTimeout(function () { if (old.parentNode) { old.parentNode.removeChild(old); } }, 1200);
+        }
+      }
+
+      function rotate() {
+        if (!urls.length) { return; }
+        if (index >= urls.length) { index = 0; }
+        show(urls[index]);
+        index++;
+      }
+
+      poll();
+      setInterval(poll, POLL_MS);
+      setInterval(rotate, ROTATE_MS);
+    })();
+  </script>
+</body>
+</html>

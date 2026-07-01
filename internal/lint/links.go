@@ -57,6 +57,13 @@ func resolveSiteTarget(dir, rawVal string, lc linkCheckContext) (resolved string
 	if link == localStylesheetHref {
 		return "", false, true
 	}
+	// The event-photo-wall endpoints (POST /_photos upload, GET /_photos/approved
+	// poll) are served by the Go dispatch path, not static files. Treat them as
+	// valid targets for the upload form's action and the display's fetch when the
+	// template enables the wall — like /api/ routes when functions are enabled.
+	if lc.photoWall && (link == photoUploadPath || link == photoApprovedPath) {
+		return "", false, true
+	}
 	resolved, found := resolveLinkTarget(dir, link, lc.fileSet)
 	return resolved, found, false
 }
