@@ -1,8 +1,8 @@
 // Package snapshot captures and restores the full S3 state of a site as a
 // single tar+zstd archive. Each user-initiated mutation (build, edit,
-// visual-save, settings change, asset upload) snapshots the entire
-// `{slug}/` prefix beforehand so the change is reversible. Restores
-// auto-snapshot first, so restoring is itself reversible.
+// settings change, asset upload) snapshots the entire `{slug}/` prefix
+// beforehand so the change is reversible. Restores auto-snapshot first,
+// so restoring is itself reversible.
 package snapshot
 
 import (
@@ -37,7 +37,6 @@ const archiveContentType = "application/zstd"
 const (
 	ReasonBuild      = "build"
 	ReasonEdit       = "edit"
-	ReasonVisualSave = "visual-save"
 	ReasonThemeApply = "theme-apply"
 	ReasonSettings   = "settings"
 	ReasonUpload     = "upload"

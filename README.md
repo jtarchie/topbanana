@@ -59,8 +59,7 @@ link-in-bio page — same prompt-to-URL path, wildly different results.
 
 A site is never a dead end. The **Workspace** pairs your pages with a live
 preview and an "ask for a change" box — describe an edit and the agent makes
-it. **Theme Studio** restyles the whole site with one click across 30+ themes,
-and the **visual editor** lets you point at any element and refine it in place.
+it. **Theme Studio** restyles the whole site with one click across 30+ themes.
 
 <div align="center">
 
@@ -69,7 +68,6 @@ and the **visual editor** lets you point at any element and refine it in place.
 <br><br>
 
 <img src="docs/screenshots/theme-studio.png" alt="Theme Studio: a panel of daisyUI theme swatches grouped Professional, Warm, and Bold" width="410">
-<img src="docs/screenshots/visual-editor.png" alt="The visual editor with a live canvas and a Refine with AI panel" width="410">
 
 </div>
 

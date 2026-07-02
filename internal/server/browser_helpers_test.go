@@ -1,6 +1,13 @@
 package server_test
 
-import "strings"
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/chromedp/chromedp"
+)
 
 // shouldSkipChrome reports whether a chromedp error should downgrade the
 // test to a skip (Chrome unavailable / network unreachable) rather than a
@@ -39,4 +46,32 @@ func jsString(s string) string {
 	b.WriteByte('"')
 
 	return b.String()
+}
+
+// dumpInsertState captures the in-page state we need to triage which step
+// of the image-drawer Insert flow broke. Best-effort: the caller has already
+// decided to fail, so an evaluate error here just means the diagnostic is
+// empty.
+func dumpInsertState(t *testing.T, ctx context.Context) string {
+	t.Helper()
+	var dump string
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	_ = chromedp.Run(probeCtx, chromedp.Evaluate(`(function(){
+		try {
+			var panel = document.getElementById('tb-drawer-panel');
+			var detail = document.getElementById('tb-drawer-detail');
+			var status = document.getElementById('tb-drawer-status');
+			var grid = document.getElementById('tb-drawer-grid');
+			var selected = (window.TBImageDrawer && window.TBImageDrawer.selected) || null;
+			return JSON.stringify({
+				panelOpen: panel ? panel.dataset.open : null,
+				detailHidden: detail ? detail.hidden : null,
+				drawerStatus: status ? status.textContent : null,
+				gridCount: grid ? grid.querySelectorAll('.tb-drawer-card').length : null,
+				selectedPath: selected ? selected.path : null,
+			});
+		} catch (e) { return 'dump-failed: ' + e; }
+	})()`, &dump))
+	return "diagnostic: " + dump
 }

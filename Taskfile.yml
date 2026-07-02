@@ -36,7 +36,7 @@ tasks:
       # #nosec instead), so we exclude the rules that have approved per-site
       # //nolint markers in golangci-lint:
       #   G104, G301, G304, G306 — already excluded in .golangci.yml.
-      #   G203 — server.go/manage.go/visual_edit.go HTML escapes are vetted.
+      #   G203 — manage.go/proxy.go/workspace.go HTML escapes are vetted.
       #   G204 — css_compile.go subprocess uses an operator-resolved CLI path.
       #   G404 — slug_gen.go uses math/rand for public URL words, not tokens.
       # -tests=false skips test files (G115/G124 there are test-only patterns).
@@ -157,28 +157,6 @@ tasks:
         mv "$tmp"/package internal/assets/daisyui
         rm -rf "$tmp"
         node -e 'console.log("vendored daisyui", require("./internal/assets/daisyui/package.json").version)'
-
-  vendor:grapesjs:
-    desc: Re-vendor GrapesJS + the webpage preset into internal/assets/grapesjs (self-hosted, no CDN). After bumping, update GrapesJSVersion / GrapesJSPresetVersion in internal/assets/embed.go.
-    cmds:
-      - |
-        set -e
-        root="$PWD"
-        tmp="$(mktemp -d)"
-        ( cd "$tmp" && npm pack grapesjs grapesjs-preset-webpage >/dev/null )
-        mkdir "$tmp/gjs" "$tmp/preset"
-        tar xzf "$tmp"/grapesjs-[0-9]*.tgz -C "$tmp/gjs" --strip-components=1
-        tar xzf "$tmp"/grapesjs-preset-webpage-*.tgz -C "$tmp/preset" --strip-components=1
-        dest="$root/internal/assets/grapesjs"
-        rm -rf "$dest"; mkdir -p "$dest"
-        cp "$tmp/gjs/dist/grapes.min.js"        "$dest/grapes.min.js"
-        cp "$tmp/gjs/dist/css/grapes.min.css"   "$dest/grapes.min.css"
-        cp "$tmp/preset/dist/index.js"          "$dest/grapesjs-preset-webpage.min.js"
-        gv="$(node -e 'console.log(require("'"$tmp"'/gjs/package.json").version)')"
-        pv="$(node -e 'console.log(require("'"$tmp"'/preset/package.json").version)')"
-        printf '{\n  "grapesjs": "%s",\n  "grapesjs-preset-webpage": "%s"\n}\n' "$gv" "$pv" > "$dest/VERSIONS.json"
-        rm -rf "$tmp"
-        echo "vendored grapesjs $gv + grapesjs-preset-webpage $pv (update embed.go consts to match)"
 
   vendor:docs:
     desc: Re-vendor the daisyUI llms.txt reference into internal/docs/sources/daisyui.md (searched on demand by the agent's search_docs tool). After running, set DaisyUIDocsVersion in internal/docs/corpus.go to match assets.DaisyUIVersion.

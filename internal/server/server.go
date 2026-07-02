@@ -139,7 +139,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 	// blocks.
 	template.Must(tpl.Parse(layoutTemplate))
 	// image_drawer.html defines the "image_drawer" partial used by the
-	// workspace, visual-editor, and manage pages. Parse it alongside the
+	// workspace and manage pages. Parse it alongside the
 	// layout so any page below can reference {{ template "image_drawer" . }}.
 	template.Must(tpl.Parse(imageDrawerTemplate))
 	for _, t := range []struct{ name, body string }{
@@ -151,7 +151,6 @@ func New(d Deps) (*echo.Echo, *Server) {
 		{"system", systemTemplate},
 		{"toolbar", editToolbarTemplate},
 		{"theme_preview_listener", themePreviewListenerTemplate},
-		{"visual_edit", visualEditTemplate},
 		{"function_edit", functionEditTemplate},
 		{"files", filesTemplate},
 		{"debug", debugTemplate},
@@ -252,30 +251,6 @@ func (s *Server) appCSSHandler(c *echo.Context) error {
 func (s *Server) imageDrawerJSHandler(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "public, max-age=86400")
 	return c.Blob(http.StatusOK, "application/javascript; charset=utf-8", assets.ImageDrawerJS) //nolint:wrapcheck
-}
-
-// grapesAssetHandler serves the vendored GrapesJS dist (the UMD bundle, its
-// stylesheet, and the webpage preset) under /vendor/grapesjs/<file>. The files
-// are embedded in the binary, so the visual editor loads no CDN. Only the flat
-// vendored set is reachable: any path separator or traversal attempt 404s.
-func (s *Server) grapesAssetHandler(c *echo.Context) error {
-	file := c.Param("file")
-	if file == "" || strings.ContainsAny(file, `/\`) || strings.Contains(file, "..") {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
-	}
-	data, err := assets.GrapesJSFS.ReadFile("grapesjs/" + file)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "not found")
-	}
-	contentType := "application/octet-stream"
-	switch {
-	case strings.HasSuffix(file, ".js"):
-		contentType = "application/javascript; charset=utf-8"
-	case strings.HasSuffix(file, ".css"):
-		contentType = "text/css; charset=utf-8"
-	}
-	c.Response().Header().Set("Cache-Control", "public, max-age=86400")
-	return c.Blob(http.StatusOK, contentType, data) //nolint:wrapcheck
 }
 
 // adminURL builds an absolute URL on the main app domain. Used by the toolbar
@@ -603,9 +578,9 @@ func appLinkKey(a appLink) string {
 	return strings.ToLower(a.Name)
 }
 
-// maxPromptBytes caps the user-supplied prompt on /build, /edit/:slug, and
-// /edit/:slug/visual. Most real prompts are under a few hundred bytes; this is
-// the field-level check that pairs with maxPromptBodyBytes on the route.
+// maxPromptBytes caps the user-supplied prompt on /build and /edit/:slug.
+// Most real prompts are under a few hundred bytes; this is the field-level
+// check that pairs with maxPromptBodyBytes on the route.
 const maxPromptBytes = 4 * 1024
 
 // maxPromptBodyBytes caps the entire request body on prompt-bearing POSTs.

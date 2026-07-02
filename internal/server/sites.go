@@ -9,9 +9,9 @@ import (
 
 // sitesController is the heart of the admin UI: everything you do to a site you
 // own. It spans creation (build), the app list, the workspace + manage views,
-// the text/visual/theme editors, settings, history, data, files, export/import,
+// the text/theme editors, settings, history, data, files, export/import,
 // remix, transfer, and clarify. Handlers live in their topic files
-// (workspace.go, manage.go, visual_edit.go, …) but hang off this controller;
+// (workspace.go, manage.go, theme_studio.go, …) but hang off this controller;
 // shared helpers (render, startBuild, snapshotBefore, siteURL, the registry,
 // …) stay on the embedded *Server.
 type sitesController struct{ *Server }
@@ -34,8 +34,6 @@ func (s *sitesController) register(g *echo.Group, owns echo.MiddlewareFunc) {
 	g.GET("/edit/:slug", s.redirectToWorkspace, owns)
 	g.POST("/edit/:slug", s.editSubmitHandler, owns, promptWithAttachmentsBodyCap)
 	g.POST("/apps/:slug/lint", s.relintHandler, owns)
-	g.GET("/edit/:slug/visual", s.visualEditHandler, owns)
-	g.POST("/edit/:slug/visual", s.visualEditSaveHandler, owns, promptBodyCap)
 	g.GET("/edit/:slug/theme", s.redirectToWorkspace, owns)
 	g.POST("/edit/:slug/theme", s.themeStudioApplyHandler, owns)
 	g.GET("/export/:slug", s.exportHandler, owns)

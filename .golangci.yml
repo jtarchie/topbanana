@@ -92,7 +92,7 @@ linters:
         - G104
         # G304 (file inclusion via variable) fires on every agent file write —
         # paths are validated upstream by classifyUserPath / validateHTMLPath.
-        # The existing //nolint:gosec markers in server.go/visual_edit.go
+        # The existing //nolint:gosec markers in server.go
         # already document the call-sites that need a closer look.
         - G304
         # G306 / G301 — file/dir permissions. Static-site output and admin

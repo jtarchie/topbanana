@@ -482,7 +482,7 @@ func (svc *Service) AutoFix(ctx context.Context, slug string, errs []lint.Error)
 }
 
 // lintFixGuardrail prefaces every LintFixPrompt with the same edit-in-place
-// contract the visual editor uses (see EditPrompt). Without it the agent has
+// contract EditPrompt establishes. Without it the agent has
 // historically treated a terse "fix this" instruction as license to rewrite a
 // whole page from the error text alone — issuing write_file without ever
 // reading the file and wiping all unrelated content.

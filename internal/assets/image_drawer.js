@@ -1,5 +1,5 @@
 // image_drawer.js — controls the shared Images side-drawer used on the
-// workspace, visual-editor, and manage pages. Each page calls TBImageDrawer.init
+// workspace and manage pages. Each page calls TBImageDrawer.init
 // once with a {slug, mode, onInsert} object and gets back open()/close()
 // methods. The drawer fetches GET /assets/:slug on open, renders a thumbnail
 // grid, and routes "Insert" through the host-supplied onInsert callback.

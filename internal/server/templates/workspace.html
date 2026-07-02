@@ -70,9 +70,6 @@
         <div class="flex flex-col gap-1">
           <button type="button" data-panel="themes" class="btn btn-ghost btn-sm justify-start font-normal">Themes</button>
           <button type="button" data-panel="history" class="btn btn-ghost btn-sm justify-start font-normal">Version history</button>
-          {{ if .Page }}
-          <a href="/edit/{{ .Slug }}/visual?page={{ .Page }}" class="btn btn-ghost btn-sm justify-start font-normal">Visual editor</a>
-          {{ end }}
           <form method="POST" action="/apps/{{ .Slug }}/lint" class="contents">
             <button type="submit" class="btn btn-ghost btn-sm justify-start font-normal">Validate site</button>
           </form>

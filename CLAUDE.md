@@ -32,7 +32,6 @@ Use `task` for development automation.
 | `task local` | Starts the application locally, ensuring Minio is ready and pointing to LM Studio. |
 | `task css` | Recompiles the embedded admin-UI stylesheet (`internal/assets/app.css`) from `app.input.css`. Run after editing the admin templates or input CSS. |
 | `task vendor:daisyui` | Re-vendors the daisyUI npm package into `internal/assets/daisyui` (then bump `DaisyUIVersion` in `internal/assets/embed.go` + run `task css`). |
-| `task vendor:grapesjs` | Re-vendors GrapesJS + the webpage preset into `internal/assets/grapesjs` (self-hosted for the visual editor, no CDN; then bump `GrapesJSVersion`/`GrapesJSPresetVersion` in `internal/assets/embed.go`). |
 | `task minio:start` | Starts a background Minio server. |
 | `task minio:stop` | Stops the running Minio server. |
 | `task minio:ready` | Verifies or starts Minio if it's not currently running. |
@@ -95,7 +94,7 @@ Every directory under `internal/templates/sites/` must contain:
 The design substrate is **compiled, not CDN-loaded**. daisyUI v5 is vendored in `internal/assets/daisyui/` and the Tailwind v4 **standalone CLI** (Node-free) compiles it:
 
 - **The canonical substrate is `/app.css`** — a single `<link rel="stylesheet" href="/app.css">`. There are **no** CDN tags anywhere: the agent prompt, lint, and every skeleton/example HTML emit `/app.css`. (`internal/build/css_compile.go` still keeps regexes to *strip* legacy `cdn.jsdelivr.net` tags from old stored pages on re-edit.)
-- **Admin UI**: a single sheet `internal/assets/app.css` is precompiled (`task css`) from `internal/assets/app.input.css`, embedded via `internal/assets/embed.go`, and served at `/app.css` by `appCSSHandler`. Committed so `go run` works without the CLI. `layout.html` / `visual_edit.html` link `/app.css`.
+- **Admin UI**: a single sheet `internal/assets/app.css` is precompiled (`task css`) from `internal/assets/app.input.css`, embedded via `internal/assets/embed.go`, and served at `/app.css` by `appCSSHandler`. Committed so `go run` works without the CLI. `layout.html` links `/app.css`.
 - **User sites**: `build.Service.OptimizeCSS` (`internal/build/css_compile.go`) runs the CLI over the site's actual HTML (`@plugin "daisyui" { themes: all }`), writes `{slug}/app.css` (served at `/app.css` on the site host), and injects the `/app.css` link into pages that lack it. It runs after every web build/edit (`Service.Start`) **and** from the MCP `lint_site` tool, so directly-authored (Claude Code / MCP) sites get the same self-hosted sheet. **No fallback**: if the compile is skipped (no CLI) or fails, `/app.css` 404s and the page is unstyled — so the CLI must be present wherever sites are built or linted (it's in the Docker image; dev needs `tailwindcss`/`npx`).
 - **Lint**: `checkDesignSubstrate` requires the `/app.css` link (auto-fixed by `AutoFixDesignSubstrate`); `checkLink` exempts `/app.css` from the broken-link check since it's created post-lint by `optimizeCSS`.
 - **CLI resolution**: `--tailwind-cli` / `TAILWIND_CLI`, else `tailwindcss` on PATH, else `npx @tailwindcss/cli`, else skip. The Docker image carries the `tailwindcss-linux-*-musl` standalone binary at `/usr/local/bin/tailwindcss`.

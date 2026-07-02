@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"html/template"
 	"log/slog"
 	"net/http"
@@ -164,4 +165,16 @@ func (s *Server) buildInFlight(slug string) bool {
 	}
 	st := s.events.Get(slug)
 	return st != nil && events.IsActive(st.Status)
+}
+
+// toJSONLiteral marshals v to JSON and returns it as template.JS so the
+// html/template engine emits it verbatim inside a <script> block. This lets
+// templates assign server-supplied values directly to JS variables without
+// an intermediate JSON.parse step.
+func toJSONLiteral(v any) template.JS {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return template.JS("null")
+	}
+	return template.JS(b) //nolint:gosec // values are JSON-marshaled, not user-controlled JS.
 }

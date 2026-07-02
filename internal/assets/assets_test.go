@@ -50,48 +50,6 @@ func TestDaisyUIVersionMatchesPackage(t *testing.T) {
 	}
 }
 
-func TestGrapesJSVersionsMatchVendored(t *testing.T) {
-	t.Parallel()
-
-	raw, err := os.ReadFile(filepath.Join("grapesjs", "VERSIONS.json"))
-	if err != nil {
-		t.Fatalf("read vendored VERSIONS.json: %v", err)
-	}
-	var v struct {
-		GrapesJS string `json:"grapesjs"`
-		Preset   string `json:"grapesjs-preset-webpage"`
-	}
-	err = json.Unmarshal(raw, &v)
-	if err != nil {
-		t.Fatalf("parse VERSIONS.json: %v", err)
-	}
-	if v.GrapesJS != assets.GrapesJSVersion {
-		t.Errorf("GrapesJSVersion = %q, vendored = %q", assets.GrapesJSVersion, v.GrapesJS)
-	}
-	if v.Preset != assets.GrapesJSPresetVersion {
-		t.Errorf("GrapesJSPresetVersion = %q, vendored = %q", assets.GrapesJSPresetVersion, v.Preset)
-	}
-}
-
-func TestGrapesJSEmbedded(t *testing.T) {
-	t.Parallel()
-
-	for _, name := range []string{"grapes.min.js", "grapes.min.css", "grapesjs-preset-webpage.min.js"} {
-		data, err := assets.GrapesJSFS.ReadFile("grapesjs/" + name)
-		if err != nil {
-			t.Fatalf("embedded grapesjs/%s: %v", name, err)
-		}
-		if len(data) == 0 {
-			t.Errorf("grapesjs/%s is empty — run `task vendor:grapesjs`", name)
-		}
-	}
-	// The bundle must define the global the editor boots from.
-	js, _ := assets.GrapesJSFS.ReadFile("grapesjs/grapes.min.js")
-	if !strings.Contains(string(js), "grapesjs") {
-		t.Error("grapes.min.js does not look like the GrapesJS bundle")
-	}
-}
-
 func TestExtractDaisyUI(t *testing.T) {
 	t.Parallel()
 

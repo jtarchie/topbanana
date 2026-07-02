@@ -155,14 +155,11 @@ func (s *Server) injectEditToolbar(c *echo.Context, htmlContent, slug, page stri
 	if s.canEdit(c, slug) {
 		q := url.Values{"page": []string{page}}.Encode()
 		editURL := s.adminURL(c, "/edit/"+slug) + "?" + q
-		visualURL := s.adminURL(c, "/edit/"+slug+"/visual") + "?" + q
 
 		err := s.tpl.ExecuteTemplate(&buf, "toolbar", struct {
-			EditURL   template.URL
-			VisualURL template.URL
+			EditURL template.URL
 		}{
-			EditURL:   template.URL(editURL),   //nolint:gosec // URL built from controlled inputs above.
-			VisualURL: template.URL(visualURL), //nolint:gosec // URL built from controlled inputs above.
+			EditURL: template.URL(editURL), //nolint:gosec // URL built from controlled inputs above.
 		})
 		if err != nil {
 			slog.Warn("toolbar.render_failed", "slug", slug, "err", err)
