@@ -139,7 +139,6 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 	lc := linkCheckContext{
 		fileSet:    fileSet,
 		enablesFns: tmpl != nil && tmpl.EnablesFunctions,
-		photoWall:  tmpl != nil && tmpl.EnablesPhotoWall,
 	}
 
 	skeletonPages := templateSkeletonPages(tmpl)
@@ -171,7 +170,7 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 			errs = append(errs, checkDesignSubstrate(file, doc)...)
 			errs = append(errs, checkMobileViewport(file, doc)...)
 			errs = append(errs, checkHeadHygiene(pi)...)
-			errs = append(errs, checkForms(pi, lc)...)
+			errs = append(errs, checkForms(pi)...)
 			errs = append(errs, checkFetchTargets(pi, facts, lc)...)
 			errs = append(errs, checkDeadInteractions(pi, facts)...)
 			errs = append(errs, checkExternalResources(pi)...)
@@ -600,10 +599,6 @@ func checkTemplateInvariants(ctx context.Context, s *store.Store, slug string, t
 type linkCheckContext struct {
 	fileSet    map[string]bool
 	enablesFns bool
-	// photoWall is true when the site's template enables the event photo wall,
-	// so the reserved /_photos endpoints (served by Go, not static files) aren't
-	// flagged as broken link/fetch targets.
-	photoWall bool
 }
 
 // checkHTMLLinks walks a parsed HTML tree and checks all relative href/src

@@ -58,10 +58,14 @@ func resolveSiteTarget(dir, rawVal string, lc linkCheckContext) (resolved string
 		return "", false, true
 	}
 	// The event-photo-wall endpoints (POST /_photos upload, GET /_photos/approved
-	// poll) are served by the Go dispatch path, not static files. Treat them as
-	// valid targets for the upload form's action and the display's fetch when the
-	// template enables the wall — like /api/ routes when functions are enabled.
-	if lc.photoWall && (link == photoUploadPath || link == photoApprovedPath || link == photoQRPath) {
+	// poll, GET /_photos/qr) are served by the Go dispatch path, not static
+	// files — always-valid reserved platform routes, like /app.css. Exempt them
+	// unconditionally: gating on the resolved template made the exemption depend
+	// on lint seeing the right template, and when it didn't the agent was told
+	// these were broken links and rewrote the working upload form. A stray
+	// /_photos link on a non-wall site simply 404s at runtime, which is a far
+	// cheaper failure than destroying a real photo wall.
+	if link == photoUploadPath || link == photoApprovedPath || link == photoQRPath {
 		return "", false, true
 	}
 	resolved, found := resolveLinkTarget(dir, link, lc.fileSet)

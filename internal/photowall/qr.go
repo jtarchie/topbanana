@@ -29,7 +29,7 @@ func QRCodeSVG(content string) (string, error) {
 	b.WriteString(`<path fill="#000000" d="`)
 	for y := range n {
 		row := bitmap[y]
-		for x := range len(row) {
+		for x := range row {
 			if row[x] {
 				fmt.Fprintf(&b, "M%d %dh1v1h-1z", x, y)
 			}

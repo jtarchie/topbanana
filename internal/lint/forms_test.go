@@ -50,7 +50,7 @@ func TestCheckForms_UnnamedControls(t *testing.T) {
 			t.Parallel()
 			pi := pageOf(t, "index.html", `<!DOCTYPE html><html><body>`+tc.body+`</body></html>`)
 			var got []Error
-			for _, e := range checkForms(pi, linkCheckContext{}) {
+			for _, e := range checkForms(pi) {
 				if e.Kind == KindFormControlUnnamed {
 					got = append(got, e)
 				}
@@ -71,7 +71,7 @@ func TestCheckForms_UnnamedMessageIsActionable(t *testing.T) {
   <input type="email" name="email">
   <input type="tel">
 </form></body></html>`)
-	errs := checkForms(pi, linkCheckContext{})
+	errs := checkForms(pi)
 	if len(errs) != 1 {
 		t.Fatalf("expected 1 error, got %+v", errs)
 	}
@@ -103,7 +103,7 @@ func TestCheckForms_PostWithoutAction(t *testing.T) {
 			t.Parallel()
 			pi := pageOf(t, "index.html", `<!DOCTYPE html><html><body>`+tc.body+`</body></html>`)
 			var got []Error
-			for _, e := range checkForms(pi, linkCheckContext{}) {
+			for _, e := range checkForms(pi) {
 				if e.Kind == KindFormPostNoAction {
 					got = append(got, e)
 				}
@@ -126,7 +126,7 @@ func TestCheckForms_WaitlistSkeletonClean(t *testing.T) {
   <input type="email" name="email" placeholder="you@example.com" autocomplete="email" required class="input flex-1 min-w-56 text-base-content">
   <button type="submit" class="btn btn-primary">Join waitlist</button>
 </form></body></html>`)
-	if errs := checkForms(pi, linkCheckContext{}); len(errs) != 0 {
+	if errs := checkForms(pi); len(errs) != 0 {
 		t.Fatalf("the waitlist skeleton form must stay clean: %+v", errs)
 	}
 }
@@ -151,7 +151,7 @@ func TestCheckForms_Multipart(t *testing.T) {
 			t.Parallel()
 			pi := pageOf(t, "index.html", `<!DOCTYPE html><html><body>`+tc.body+`</body></html>`)
 			var got []Error
-			for _, e := range checkForms(pi, linkCheckContext{}) {
+			for _, e := range checkForms(pi) {
 				if e.Kind == KindMultipartForm {
 					got = append(got, e)
 				}
@@ -165,8 +165,11 @@ func TestCheckForms_Multipart(t *testing.T) {
 
 // TestCheckForms_PhotoWallUploadExempt pins the exemption: the event-photo-wall
 // upload form legitimately posts multipart with a file input to the dedicated
-// /_photos endpoint, so on a photo-wall site it must lint clean — while the same
-// form on any other site still trips the data-loss checks.
+// /_photos endpoint, so it must lint clean. The exemption is UNCONDITIONAL —
+// keyed only on the /_photos action, never on template resolution — so a lint
+// pass that failed to resolve the photo-wall template can't get the agent told
+// to gut the upload form into a URL field. A generic multipart form (any other
+// action) still trips the data-loss checks.
 func TestCheckForms_PhotoWallUploadExempt(t *testing.T) {
 	t.Parallel()
 
@@ -176,36 +179,42 @@ func TestCheckForms_PhotoWallUploadExempt(t *testing.T) {
   <button type="submit">Upload</button>
 </form></body></html>`
 	pi := pageOf(t, "index.html", uploadForm)
-
-	if errs := checkForms(pi, linkCheckContext{photoWall: true}); len(errs) != 0 {
+	if errs := checkForms(pi); len(errs) != 0 {
 		t.Fatalf("photo-wall upload form must lint clean, got %+v", errs)
 	}
 
+	// A multipart form to any OTHER action is not exempt: file input + enctype.
+	generic := pageOf(t, "index.html", `<!DOCTYPE html><html><body>
+<form method="POST" action="/api/up" enctype="multipart/form-data">
+  <input type="file" name="doc" required>
+</form></body></html>`)
 	var multipartErrs int
-	for _, e := range checkForms(pi, linkCheckContext{}) {
+	for _, e := range checkForms(generic) {
 		if e.Kind == KindMultipartForm {
 			multipartErrs++
 		}
 	}
 	if multipartErrs != 2 {
-		t.Fatalf("without the wall flag the form should flag file input + enctype (2), got %d", multipartErrs)
+		t.Fatalf("a non-/_photos multipart form should flag file input + enctype (2), got %d", multipartErrs)
 	}
 }
 
 // TestCheckFetchTargets_PhotoWallApprovedExempt pins the display page's poll:
-// fetch('/_photos/approved') is a platform endpoint, valid on a photo-wall site
-// and a broken fetch anywhere else.
+// fetch('/_photos/approved') is a reserved platform endpoint and is always
+// exempt; a genuinely missing fetch target still flags.
 func TestCheckFetchTargets_PhotoWallApprovedExempt(t *testing.T) {
 	t.Parallel()
 
 	pi := pageOf(t, "display.html", `<!DOCTYPE html><html><body><script>fetch('/_photos/approved')</script></body></html>`)
 	facts := collectJSFacts("display.html", pi.scripts)
-
-	if errs := checkFetchTargets(pi, facts, linkCheckContext{photoWall: true}); len(errs) != 0 {
+	if errs := checkFetchTargets(pi, facts, linkCheckContext{}); len(errs) != 0 {
 		t.Fatalf("photo-wall poll fetch must be exempt, got %+v", errs)
 	}
-	if errs := checkFetchTargets(pi, facts, linkCheckContext{}); len(errs) != 1 {
-		t.Fatalf("non-wall site should flag the /_photos/approved fetch, got %+v", errs)
+
+	miss := pageOf(t, "display.html", `<!DOCTYPE html><html><body><script>fetch('/missing.json')</script></body></html>`)
+	missFacts := collectJSFacts("display.html", miss.scripts)
+	if errs := checkFetchTargets(miss, missFacts, linkCheckContext{}); len(errs) != 1 {
+		t.Fatalf("a genuinely missing fetch target should flag, got %+v", errs)
 	}
 }
 

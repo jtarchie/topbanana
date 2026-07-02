@@ -57,7 +57,7 @@ func FuzzHTMLLint(f *testing.F) {
 		}
 		pi := collectPageInfo("index.html", doc)
 		facts := collectJSFacts("index.html", pi.scripts)
-		_ = checkForms(pi, linkCheckContext{})
+		_ = checkForms(pi)
 		_ = checkFetchTargets(pi, facts, linkCheckContext{fileSet: fileSet})
 		_ = checkDeadInteractions(pi, facts)
 		_ = checkExternalResources(pi)

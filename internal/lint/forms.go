@@ -42,26 +42,28 @@ func hasAttr(n *html.Node, key string) bool {
 //
 // The event photo wall is the one legitimate file upload: its form posts
 // multipart to the dedicated Go endpoint /_photos (which parses multipart,
-// unlike the /api/ functions runtime). On a photo-wall site, that form and the
-// file input inside it are exempt from the multipart/file data-loss checks.
-func checkForms(pi pageInfo, lc linkCheckContext) []Error {
+// unlike the /api/ functions runtime). That form and the file input inside it
+// are exempt from the multipart/file data-loss checks. The exemption is keyed
+// only on the form's /_photos action — NOT on whether lint resolved the
+// photo-wall template — because the destructive failure mode (the agent being
+// told to "collect a URL instead" and gutting a working upload form) must not
+// hinge on template resolution being correct at lint time.
+func checkForms(pi pageInfo) []Error {
 	var errs []Error
 
 	// File inputs living inside a photo-wall upload form are legitimate, so the
 	// anywhere-on-page check below must skip them.
 	exemptFileInputs := map[*html.Node]bool{}
-	if lc.photoWall {
-		for _, n := range pi.elements {
-			if n.Data == "form" && isPhotoUploadForm(n) {
-				collectFileInputs(n, exemptFileInputs)
-			}
+	for _, n := range pi.elements {
+		if n.Data == "form" && isPhotoUploadForm(n) {
+			collectFileInputs(n, exemptFileInputs)
 		}
 	}
 
 	for _, n := range pi.elements {
 		switch n.Data {
 		case "form":
-			errs = append(errs, checkOneForm(pi.name, n, lc)...)
+			errs = append(errs, checkOneForm(pi.name, n)...)
 		case "input":
 			if strings.EqualFold(strings.TrimSpace(attrVal(n, "type")), "file") && !exemptFileInputs[n] {
 				errs = append(errs, multipartError(pi.name, `<input type="file">`))
@@ -72,8 +74,8 @@ func checkForms(pi pageInfo, lc linkCheckContext) []Error {
 }
 
 // isPhotoUploadForm reports whether a form posts to the event-photo-wall upload
-// endpoint. Keyed on the action host, never on classes, so a design refactor
-// never flips the exemption.
+// endpoint. Keyed on the action, never on classes, so a design refactor never
+// flips the exemption.
 func isPhotoUploadForm(form *html.Node) bool {
 	return strings.TrimSpace(attrVal(form, "action")) == photoUploadPath
 }
@@ -93,10 +95,10 @@ func collectFileInputs(form *html.Node, into map[*html.Node]bool) {
 // controls whose values the browser will silently drop because they have no
 // name. Forms without an action are left alone: inline-JS-handled forms
 // (e.g. an onsubmit that returns false) are a legitimate pattern.
-func checkOneForm(filename string, form *html.Node, lc linkCheckContext) []Error {
+func checkOneForm(filename string, form *html.Node) []Error {
 	action := strings.TrimSpace(attrVal(form, "action"))
 	method := strings.TrimSpace(attrVal(form, "method"))
-	photoForm := lc.photoWall && isPhotoUploadForm(form)
+	photoForm := isPhotoUploadForm(form)
 
 	var errs []Error
 	if strings.EqualFold(method, "post") && action == "" {
