@@ -18,13 +18,13 @@ import (
 	_ "embed"
 
 	"github.com/achetronic/adk-utils-go/plugin/contextguard"
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/agent/llmagent"
-	adkmodel "google.golang.org/adk/model"
-	"google.golang.org/adk/runner"
-	"google.golang.org/adk/session"
-	"google.golang.org/adk/tool"
-	"google.golang.org/adk/tool/functiontool"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/agent/llmagent"
+	adkmodel "google.golang.org/adk/v2/model"
+	"google.golang.org/adk/v2/runner"
+	"google.golang.org/adk/v2/session"
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/functiontool"
 	"google.golang.org/genai"
 
 	"github.com/jtarchie/topbanana/internal/events"
@@ -461,7 +461,7 @@ func seedSession(ctx context.Context, sessSvc session.Service, slug string, seed
 
 		callPart := genai.NewPartFromFunctionCall(s.Name, s.Args)
 		callPart.FunctionCall.ID = callID
-		callEv := session.NewEvent(invID)
+		callEv := session.NewEvent(ctx, invID)
 		callEv.Author = "html-builder"
 		callEv.Timestamp = time.Now()
 		callEv.LLMResponse = adkmodel.LLMResponse{Content: &genai.Content{
@@ -475,7 +475,7 @@ func seedSession(ctx context.Context, sessSvc session.Service, slug string, seed
 
 		respPart := genai.NewPartFromFunctionResponse(s.Name, s.Response)
 		respPart.FunctionResponse.ID = callID
-		respEv := session.NewEvent(invID)
+		respEv := session.NewEvent(ctx, invID)
 		respEv.Author = "user"
 		respEv.Timestamp = time.Now()
 		respEv.LLMResponse = adkmodel.LLMResponse{Content: &genai.Content{
@@ -510,7 +510,7 @@ func (e emitter) fail(path string, err error) {
 }
 
 // buildAgentTools constructs the tools the agent uses against a single site.
-// agent.ToolContext chains down to context.Context via interface embedding, so it's
+// agent.Context chains down to context.Context via interface embedding, so it's
 // passed to store methods directly. Tool callbacks fire later from the runner
 // with their own per-invocation context — that is the correct one to forward
 // (contextcheck objects to this but is wrong).
@@ -626,7 +626,7 @@ func newReadAttachmentTool(attachments []Attachment, emit func(events.Event)) (t
 			Name:        "read_attachment",
 			Description: "Re-read a user-uploaded markdown or HTML attachment. The full set is pre-loaded into history; call only when you need a second look.",
 		},
-		func(_ agent.ToolContext, args readAttachmentArgs) (readAttachmentResult, error) {
+		func(_ agent.Context, args readAttachmentArgs) (readAttachmentResult, error) {
 			em.start(args.Name)
 			content, ok := index[args.Name]
 			if !ok {
@@ -691,7 +691,7 @@ func newReadExampleTool(tmpl *templates.SiteTemplate, emit func(events.Event)) (
 			Name:        "read_example",
 			Description: "Re-read an aspirational reference HTML page for this template. Inspiration only — never copy markup verbatim. Pre-loaded into history; call only when you need a second look.",
 		},
-		func(_ agent.ToolContext, args readExampleArgs) (readExampleResult, error) {
+		func(_ agent.Context, args readExampleArgs) (readExampleResult, error) {
 			em.start(args.Name)
 			content, ok := index[args.Name]
 			if !ok {
@@ -838,7 +838,7 @@ func newWriteFileTool(s *store.Store, slug string, emit func(events.Event), stat
 	em := emitter{emit: emit, tool: "write_file"}
 	t, err := functiontool.New(
 		functiontool.Config{Name: "write_file", Description: "Write content to an HTML file"},
-		func(tctx agent.ToolContext, args writeFileArgs) (writeFileResult, error) {
+		func(tctx agent.Context, args writeFileArgs) (writeFileResult, error) {
 			em.start(args.Path)
 			err := validateHTMLPath(args.Path)
 			if err != nil {
@@ -910,7 +910,7 @@ func newReadFileTool(s *store.Store, slug string, emit func(events.Event)) (tool
 			Name:        "read_file",
 			Description: "Read an HTML file. Pass start_line/end_line (1-indexed inclusive) for a slice. Lines come back prefixed with their 1-indexed number and a tab — strip that annotation before passing text back.",
 		},
-		func(tctx agent.ToolContext, args readFileArgs) (readFileResult, error) {
+		func(tctx agent.Context, args readFileArgs) (readFileResult, error) {
 			em.start(args.Path)
 			err := validateHTMLPath(args.Path)
 			if err != nil {
@@ -964,7 +964,7 @@ func newEditFileTool(s *store.Store, slug string, emit func(events.Event), state
 			Name:        "edit_file",
 			Description: "Surgical edit on an HTML file: old_text must byte-match and be unique unless replace_all=true. Prefer this over rewriting the whole file.",
 		},
-		func(tctx agent.ToolContext, args editFileArgs) (editFileResult, error) {
+		func(tctx agent.Context, args editFileArgs) (editFileResult, error) {
 			em.start(args.Path)
 			pathErr := validateHTMLPath(args.Path)
 			if pathErr != nil {
@@ -1024,7 +1024,7 @@ func newReplaceLinesTool(s *store.Store, slug string, emit func(events.Event), s
 			Name:        "replace_lines",
 			Description: "Replace lines start_line..end_line (1-indexed inclusive) in an HTML file with new_text. Empty new_text deletes. Line numbers must reflect the current file — re-read between multiple edits.",
 		},
-		func(tctx agent.ToolContext, args replaceLinesArgs) (editFileResult, error) {
+		func(tctx agent.Context, args replaceLinesArgs) (editFileResult, error) {
 			em.start(args.Path)
 			pathErr := validateHTMLPath(args.Path)
 			if pathErr != nil {
@@ -1063,7 +1063,7 @@ func newInsertAtLineTool(s *store.Store, slug string, emit func(events.Event), s
 			Name:        "insert_at_line",
 			Description: "Insert content after line N in an HTML file. after_line=0 prepends, after_line=total_lines appends. Inserted verbatim — include a trailing newline if needed.",
 		},
-		func(tctx agent.ToolContext, args insertAtLineArgs) (editFileResult, error) {
+		func(tctx agent.Context, args insertAtLineArgs) (editFileResult, error) {
 			em.start(args.Path)
 			pathErr := validateHTMLPath(args.Path)
 			if pathErr != nil {
@@ -1161,7 +1161,7 @@ func newGrepFilesTool(s *store.Store, slug string, emit func(events.Event)) (too
 			Name:        "grep_files",
 			Description: "Literal (case-sensitive, no regex) substring search across HTML pages and function handlers. Returns paths, 1-indexed line numbers, and snippets.",
 		},
-		func(tctx agent.ToolContext, args grepFilesArgs) (grepFilesResult, error) {
+		func(tctx agent.Context, args grepFilesArgs) (grepFilesResult, error) {
 			em.start("")
 			if args.Pattern == "" {
 				em.fail("", errors.New("pattern required"))
@@ -1198,7 +1198,7 @@ func newListFilesTool(s *store.Store, slug string, emit func(events.Event)) (too
 	em := emitter{emit: emit, tool: "list_files"}
 	t, err := functiontool.New(
 		functiontool.Config{Name: "list_files", Description: "List all HTML files created so far"},
-		func(tctx agent.ToolContext, _ struct{}) (listFilesResult, error) {
+		func(tctx agent.Context, _ struct{}) (listFilesResult, error) {
 			em.start("")
 			files, err := s.List(tctx, slug)
 			if err != nil {
@@ -1230,7 +1230,7 @@ func newListAssetsTool(s *store.Store, slug string, emit func(events.Event)) (to
 			Name:        "list_assets",
 			Description: "List uploaded image assets with path, alt text, and description. Embed with <img src=\"assets/filename.ext\" alt=\"...\">; use the alt verbatim. Description tells you which image fits where.",
 		},
-		func(tctx agent.ToolContext, _ struct{}) (listAssetsResult, error) {
+		func(tctx agent.Context, _ struct{}) (listAssetsResult, error) {
 			em.start("")
 			files, err := s.List(tctx, slug)
 			if err != nil {
@@ -1282,7 +1282,7 @@ func newWriteFunctionTool(s *store.Store, slug string, emit func(events.Event), 
 			Name:        "write_function",
 			Description: "Write a server-side handler JS file to functions/{name}.js. Source must be a CommonJS module: module.exports = function(request) { ... }. See the 'Dynamic features' section for available globals.",
 		},
-		func(tctx agent.ToolContext, args writeFunctionArgs) (writeFunctionResult, error) {
+		func(tctx agent.Context, args writeFunctionArgs) (writeFunctionResult, error) {
 			path := functionsDir + args.Name + jsExt
 			err := validateFunctionName(args.Name)
 			if err != nil {
@@ -1313,7 +1313,7 @@ func newReadFunctionTool(s *store.Store, slug string, emit func(events.Event)) (
 	em := emitter{emit: emit, tool: "read_function"}
 	t, err := functiontool.New(
 		functiontool.Config{Name: "read_function", Description: "Read the source of an existing functions/{name}.js handler."},
-		func(tctx agent.ToolContext, args readFunctionArgs) (readFunctionResult, error) {
+		func(tctx agent.Context, args readFunctionArgs) (readFunctionResult, error) {
 			path := functionsDir + args.Name + jsExt
 			err := validateFunctionName(args.Name)
 			if err != nil {
@@ -1345,7 +1345,7 @@ func newEditFunctionTool(s *store.Store, slug string, emit func(events.Event), s
 			Name:        "edit_function",
 			Description: "Surgical edit on a functions/<name>.js handler: same semantics as edit_file. Prefer this over rewriting the whole handler.",
 		},
-		func(tctx agent.ToolContext, args editFunctionArgs) (editFunctionResult, error) {
+		func(tctx agent.Context, args editFunctionArgs) (editFunctionResult, error) {
 			path := functionsDir + args.Name + jsExt
 			err := validateFunctionName(args.Name)
 			if err != nil {
@@ -1408,7 +1408,7 @@ func newDeleteFunctionTool(s *store.Store, slug string, emit func(events.Event),
 			Name:        "delete_function",
 			Description: "Remove a functions/<name>.js handler. The /api/<name> endpoint will return 404 after deletion. HTML pages cannot be deleted — leave stale pages in place or rewrite with write_file.",
 		},
-		func(tctx agent.ToolContext, args deleteFunctionArgs) (deleteFunctionResult, error) {
+		func(tctx agent.Context, args deleteFunctionArgs) (deleteFunctionResult, error) {
 			path := functionsDir + args.Name + jsExt
 			err := validateFunctionName(args.Name)
 			if err != nil {
@@ -1439,7 +1439,7 @@ func newListFunctionsTool(s *store.Store, slug string, emit func(events.Event)) 
 	em := emitter{emit: emit, tool: "list_functions"}
 	t, err := functiontool.New(
 		functiontool.Config{Name: "list_functions", Description: "List handler names currently under functions/. Each name maps to /api/{name}."},
-		func(tctx agent.ToolContext, _ struct{}) (listFunctionsResult, error) {
+		func(tctx agent.Context, _ struct{}) (listFunctionsResult, error) {
 			em.start("")
 			files, err := s.List(tctx, slug)
 			if err != nil {
@@ -1557,7 +1557,7 @@ func newAskUserTool(slug string, tracker *events.Tracker, emit func(events.Event
 				"Never ask about technical details (components, file names, themes). " +
 				"At most 3 questions per build — make a reasonable choice instead whenever possible.",
 		},
-		func(tctx agent.ToolContext, args askUserArgs) (askUserResult, error) {
+		func(tctx agent.Context, args askUserArgs) (askUserResult, error) {
 			return invokeAskUser(tctx, args, slug, tracker, emit, state, askQuestionTimeout)
 		},
 	)

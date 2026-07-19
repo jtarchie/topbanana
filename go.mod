@@ -5,13 +5,13 @@ go 1.26
 require (
 	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/achetronic/adk-utils-go v0.22.0
-	github.com/alecthomas/kong v1.15.0
+	github.com/alecthomas/kong v1.16.0
 	github.com/aws/aws-sdk-go-v2 v1.42.1
 	github.com/aws/aws-sdk-go-v2/config v1.32.30
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.105.1
-	github.com/aws/smithy-go v1.27.3
-	github.com/chromedp/cdproto v0.0.0-20260714002449-7ad0ec4e4115
-	github.com/chromedp/chromedp v0.15.1
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.105.2
+	github.com/aws/smithy-go v1.27.4
+	github.com/chromedp/cdproto v0.0.0-20260714215040-dc233986426f
+	github.com/chromedp/chromedp v0.16.0
 	github.com/dop251/goja v0.0.0-20260701091749-b07b74453ea9
 	github.com/egregors/passkey v1.0.8
 	github.com/go-resty/resty/v2 v2.17.2
@@ -32,17 +32,17 @@ require (
 	golang.org/x/net v0.57.0
 	golang.org/x/sync v0.22.0
 	golang.org/x/time v0.15.0
-	google.golang.org/adk v1.5.0
-	google.golang.org/genai v1.63.0
+	google.golang.org/adk/v2 v2.0.0
+	google.golang.org/genai v1.64.0
 )
 
 require (
-	charm.land/catwalk v0.49.22 // indirect
+	charm.land/catwalk v0.49.28 // indirect
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.22.0 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	github.com/andybalholm/cascadia v1.3.4 // indirect
-	github.com/anthropics/anthropic-sdk-go v1.57.0 // indirect
+	github.com/anthropics/anthropic-sdk-go v1.58.0 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.14 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.29 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.30 // indirect
@@ -63,7 +63,7 @@ require (
 	github.com/charmbracelet/x/etag v0.2.0 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/dlclark/regexp2/v2 v2.5.0 // indirect
+	github.com/dlclark/regexp2/v2 v2.5.2 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68 // indirect
@@ -86,7 +86,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.23.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
-	github.com/openai/openai-go/v3 v3.42.0 // indirect
+	github.com/openai/openai-go/v3 v3.44.0 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/samber/lo v1.53.0 // indirect
@@ -113,10 +113,9 @@ require (
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
-	google.golang.org/adk/v2 v2.0.0 // indirect
-	google.golang.org/api v0.288.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260713224248-f5fc221cf8c4 // indirect
-	google.golang.org/grpc v1.82.0 // indirect
+	google.golang.org/api v0.289.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260715232425-e75dac1f907d // indirect
+	google.golang.org/grpc v1.82.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	rsc.io/omap v1.2.0 // indirect

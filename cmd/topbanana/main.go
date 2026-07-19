@@ -11,7 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	adkmodel "google.golang.org/adk/model"
+	adkmodel "google.golang.org/adk/v2/model"
 
 	"github.com/jtarchie/topbanana/internal/auth"
 	"github.com/jtarchie/topbanana/internal/build"

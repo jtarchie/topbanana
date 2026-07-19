@@ -6,7 +6,7 @@ import (
 	"iter"
 	"testing"
 
-	adkmodel "google.golang.org/adk/model"
+	adkmodel "google.golang.org/adk/v2/model"
 
 	"github.com/jtarchie/topbanana/internal/agent"
 	"github.com/jtarchie/topbanana/internal/events"

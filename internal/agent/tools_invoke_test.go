@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	adk "google.golang.org/adk/agent"
-	"google.golang.org/adk/session"
-	"google.golang.org/adk/tool"
+	adk "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/session"
+	"google.golang.org/adk/v2/tool"
 	"google.golang.org/genai"
 
 	"github.com/jtarchie/topbanana/internal/events"
@@ -29,26 +29,29 @@ import (
 //nolint:containedctx // adk.InvocationContext itself embeds context.Context; a stub must too.
 type stubInvocation struct{ context.Context }
 
-func (stubInvocation) Agent() adk.Agent            { return nil }
-func (stubInvocation) Artifacts() adk.Artifacts    { return nil }
-func (stubInvocation) Memory() adk.Memory          { return nil }
-func (stubInvocation) Session() session.Session    { return nil }
-func (stubInvocation) InvocationID() string        { return "test-invocation" }
-func (stubInvocation) Branch() string              { return "" }
-func (stubInvocation) UserContent() *genai.Content { return nil }
-func (stubInvocation) RunConfig() *adk.RunConfig   { return nil }
-func (stubInvocation) EndInvocation()              {}
-func (stubInvocation) Ended() bool                 { return false }
+func (stubInvocation) Agent() adk.Agent                { return nil }
+func (stubInvocation) Artifacts() adk.Artifacts        { return nil }
+func (stubInvocation) Memory() adk.Memory              { return nil }
+func (stubInvocation) Session() session.Session        { return nil }
+func (stubInvocation) InvocationID() string            { return "test-invocation" }
+func (stubInvocation) Branch() string                  { return "" }
+func (stubInvocation) IsolationScope() string          { return "" }
+func (stubInvocation) UserContent() *genai.Content     { return nil }
+func (stubInvocation) RunConfig() *adk.RunConfig       { return nil }
+func (stubInvocation) EndInvocation()                  {}
+func (stubInvocation) Ended() bool                     { return false }
+func (stubInvocation) ResumedInput(string) (any, bool) { return nil, false }
 func (s stubInvocation) WithContext(ctx context.Context) adk.InvocationContext {
 	return stubInvocation{ctx}
 }
+func (s stubInvocation) WithICDelta(*adk.InvocationContextDelta) adk.InvocationContext { return s }
 
 // invokeTool calls a registered tool the way the ADK runner would, decoding
 // args from the wire-shaped map and returning the wire-shaped result map.
 func invokeTool(t *testing.T, tl tool.Tool, args map[string]any) map[string]any {
 	t.Helper()
 	r, ok := tl.(interface {
-		Run(adk.ToolContext, any) (map[string]any, error)
+		Run(adk.Context, any) (map[string]any, error)
 	})
 	if !ok {
 		t.Fatalf("tool %s does not expose the functiontool Run surface", tl.Name())

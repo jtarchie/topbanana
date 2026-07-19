@@ -40,7 +40,7 @@ import (
 	"sync"
 
 	genaiopenai "github.com/achetronic/adk-utils-go/genai/openai"
-	adkmodel "google.golang.org/adk/model"
+	adkmodel "google.golang.org/adk/v2/model"
 )
 
 // Max length per OpenRouter docs for the session_id field.

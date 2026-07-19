@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	adkmodel "google.golang.org/adk/model"
+	adkmodel "google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
 

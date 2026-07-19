@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/tool"
-	"google.golang.org/adk/tool/functiontool"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/functiontool"
 
 	"github.com/jtarchie/topbanana/internal/docs"
 	"github.com/jtarchie/topbanana/internal/events"
@@ -41,7 +41,7 @@ func newSearchDocsTool(_ *store.Store, _ string, emit func(events.Event)) (tool.
 				"Returns the matching reference sections. Do NOT call it for components you already know " +
 				"(btn, card, navbar, hero) or for plain HTML/CSS. This replaces any need to search the web.",
 		},
-		func(_ agent.ToolContext, args searchDocsArgs) (searchDocsResult, error) {
+		func(_ agent.Context, args searchDocsArgs) (searchDocsResult, error) {
 			em.start("")
 			if args.Query == "" {
 				err := errors.New("query is required")

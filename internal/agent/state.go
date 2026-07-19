@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/session"
 
 	"github.com/jtarchie/topbanana/internal/textedit"
 )

@@ -17,9 +17,9 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/tdewolff/minify/v2"
 	mincss "github.com/tdewolff/minify/v2/css"
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/tool"
-	"google.golang.org/adk/tool/functiontool"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/functiontool"
 
 	"github.com/jtarchie/topbanana/internal/events"
 )
@@ -266,7 +266,7 @@ func newFetchReferenceTool(emit func(events.Event)) (tool.Tool, error) {
 			Name:        "fetch_reference",
 			Description: "Fetch an external URL as design inspiration. GETs the page, inlines linked stylesheets (minified), and returns the resulting HTML (line-numbered, same convention as read_file/read_attachment). JavaScript is NOT executed — single-page-app shells come back mostly empty, so prefer server-rendered or static pages. Use sparingly (one or two URLs per session). Treat the result as a reference for layout, palette, and typography; never copy markup verbatim, and keep your output inline-only with no external CDNs other than the design substrate.",
 		},
-		func(tctx agent.ToolContext, args fetchReferenceArgs) (fetchReferenceResult, error) {
+		func(tctx agent.Context, args fetchReferenceArgs) (fetchReferenceResult, error) {
 			em.start(args.URL)
 			parsed, err := validateReferenceURL(args.URL, nil)
 			if err != nil {
