@@ -16,6 +16,7 @@ primary_region = "sjc"
 [[services]]
   protocol = "tcp"
   internal_port = 443
+  auto_stop_machines = "suspend"
   [[services.ports]]
     port = 443
     handlers = ["proxy_proto"]
