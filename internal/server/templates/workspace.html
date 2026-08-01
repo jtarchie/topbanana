@@ -28,7 +28,7 @@
 </div>
 {{ end }}
 
-<main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-4">
+<main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 pt-4 pb-24 lg:pb-4">
   {{ if eq .Flash "lint-clean" }}
   <div class="alert alert-success mb-4" role="status"><span>Validation passed — no issues found.</span></div>
   {{ end }}
@@ -37,7 +37,10 @@
   {{ end }}
 
   <div class="grid grid-cols-1 lg:grid-cols-[14rem_1fr] gap-4">
-    <aside class="space-y-4 text-sm" aria-label="Workspace tools">
+    {{/* Desktop tool rail. Below lg it's hidden and the fixed bottom tool bar
+         (rendered after </main>) takes over, so the editor leads on mobile
+         instead of being buried under this list of secondary tools. */}}
+    <aside class="hidden lg:block space-y-4 text-sm" aria-label="Workspace tools">
       <div>
         <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-2">Pages</h2>
         {{ if .Pages }}
@@ -198,6 +201,79 @@
     </section>
   </div>
 </main>
+
+{{/* Mobile tool bar. Collapses the desktop <aside> rail into a fixed bottom bar
+     so the editor leads the page on phones/tablets. Hidden at lg where the rail
+     returns. Buttons reuse the existing panel_js + TBImageDrawer wiring: Pages
+     and More open sheets defined just below; Images opens the shared drawer;
+     Themes opens the Themes panel. Sits under the scrim (z-30 < --z-scrim) so
+     opening a sheet dims it. */}}
+<nav class="lg:hidden fixed inset-x-0 bottom-0 z-30 bg-base-100 border-t border-base-300 flex items-stretch justify-around pb-[env(safe-area-inset-bottom)]"
+     aria-label="Site tools">
+  <button type="button" data-panel="pages" class="btn btn-ghost rounded-none flex-1 flex-col flex-nowrap gap-0.5 h-auto py-2 font-normal">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h10l6 6v10a0 0 0 0 1 0 0H4z"/><path d="M14 4v6h6"/></svg>
+    <span class="text-[0.7rem] normal-case">Pages</span>
+  </button>
+  <button type="button" id="bar-open-images" class="btn btn-ghost rounded-none flex-1 flex-col flex-nowrap gap-0.5 h-auto py-2 font-normal">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 16l-5-5L5 20"/></svg>
+    <span class="text-[0.7rem] normal-case">Images</span>
+  </button>
+  <button type="button" data-panel="themes" class="btn btn-ghost rounded-none flex-1 flex-col flex-nowrap gap-0.5 h-auto py-2 font-normal">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="6.5" r="1"/><circle cx="17.5" cy="10.5" r="1"/><circle cx="8.5" cy="7.5" r="1"/><circle cx="6.5" cy="12.5" r="1"/><path d="M12 2a10 10 0 1 0 0 20c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.2 0-1.1.9-2 2-2h2.3A4.7 4.7 0 0 0 22 10.7 8.7 8.7 0 0 0 12 2Z"/></svg>
+    <span class="text-[0.7rem] normal-case">Themes</span>
+  </button>
+  <button type="button" data-panel="more" class="btn btn-ghost rounded-none flex-1 flex-col flex-nowrap gap-0.5 h-auto py-2 font-normal">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+    <span class="text-[0.7rem] normal-case">More</span>
+  </button>
+</nav>
+
+<!-- Pages sheet (mobile) — mirrors the desktop rail's Pages list. -->
+<div class="side-scrim" id="scrim-pages" data-scrim="pages"></div>
+<aside class="side-panel bg-base-100 border-l border-base-300 flex flex-col" id="panel-pages" aria-label="Pages" aria-hidden="true">
+  <header class="flex items-center justify-between p-4 border-b border-base-300">
+    <h2 class="font-semibold">Pages</h2>
+    <button type="button" class="btn btn-ghost btn-sm btn-square" data-close="pages" aria-label="Close pages panel">×</button>
+  </header>
+  <div class="overflow-y-auto p-3 flex-1">
+    {{ if .Pages }}
+    <ul class="menu menu-sm w-full p-0 gap-1">
+      {{ range .Pages }}
+      <li><a href="/workspace/{{ $.Slug }}?page={{ . }}" class="font-mono text-xs break-all{{ if eq . $.Page }} active{{ end }}">{{ . }}</a></li>
+      {{ end }}
+    </ul>
+    {{ else }}
+    <p class="text-sm text-base-content/70 px-1">No pages yet.</p>
+    {{ end }}
+  </div>
+</aside>
+
+<!-- More sheet (mobile) — the lower-frequency tools from the desktop rail. -->
+<div class="side-scrim" id="scrim-more" data-scrim="more"></div>
+<aside class="side-panel bg-base-100 border-l border-base-300 flex flex-col" id="panel-more" aria-label="More tools" aria-hidden="true">
+  <header class="flex items-center justify-between p-4 border-b border-base-300">
+    <h2 class="font-semibold">More tools</h2>
+    <button type="button" class="btn btn-ghost btn-sm btn-square" data-close="more" aria-label="Close tools panel">×</button>
+  </header>
+  <div class="overflow-y-auto p-3 flex-1 flex flex-col gap-1">
+    {{/* Both attributes fire on tap: close this sheet, open the history sheet. */}}
+    <button type="button" data-panel="history" data-close="more" class="btn btn-ghost btn-sm justify-start font-normal">Version history</button>
+    <form method="POST" action="/apps/{{ .Slug }}/lint" class="contents">
+      <button type="submit" class="btn btn-ghost btn-sm justify-start font-normal">Validate site</button>
+    </form>
+    <a href="/export/{{ .Slug }}" class="btn btn-ghost btn-sm justify-start font-normal">Export site</a>
+    {{ if .Functions }}
+    <div class="mt-3">
+      <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-2 px-1">Server functions</h3>
+      <ul class="space-y-1">
+        {{ range .Functions }}
+        <li class="text-xs px-1"><a class="link link-hover font-mono break-all" href="/edit/{{ $.Slug }}/function/{{ . }}">{{ . }}</a></li>
+        {{ end }}
+      </ul>
+    </div>
+    {{ end }}
+  </div>
+</aside>
 
 <!-- Themes side panel -->
 <div class="side-scrim" id="scrim-themes" data-scrim="themes"></div>
@@ -804,6 +880,7 @@
     }
     bind('open-image-drawer');
     bind('prompt-pick-image');
+    bind('bar-open-images');
   })();
 </script>
 </body>
