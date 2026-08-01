@@ -4,55 +4,88 @@
 <title>Manage {{ .SiteName }} — Top Banana</title>
 {{ template "head" . }}
 </head>
-<body class="min-h-screen flex flex-col bg-base-100">
+<body class="min-h-screen flex flex-col bg-base-200">
 {{ template "brand" . }}
 {{ template "site_subnav" . }}
-<main class="flex-1 max-w-3xl w-full mx-auto px-4 sm:px-6 py-8 space-y-8">
-  <header class="flex items-end justify-between gap-3 flex-wrap">
-    <div>
-      <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight">Manage</h1>
-      <p class="text-sm text-base-content/70 mt-1">Site configuration and tools. Design lives in the <a href="/workspace/{{ .Slug }}" class="link link-hover font-medium">Workspace</a>.</p>
-    </div>
-    {{ if gt .TotalRows 0 }}
-    <a href="#submissions-heading" class="text-sm link link-hover font-medium whitespace-nowrap">
-      {{ .TotalRows }} {{ if eq .TotalRows 1 }}submission{{ else }}submissions{{ end }} →
-    </a>
-    {{ end }}
-  </header>
+<main class="flex-1 max-w-3xl w-full mx-auto px-4 sm:px-6 py-8 space-y-6">
 
   {{ if .Flash }}
     <div class="alert alert-success" role="status"><span>{{ .Flash }}</span></div>
   {{ end }}
 
+  {{/* ── Tier 1 · Read ─────────────────────────────────────────────
+       Identity band: what this site is, where it lives, its status, and
+       how close it is to done — the summary you read, not a task. Replaces
+       the old <h1>Manage</h1> header plus the "General" card's name/address
+       list, so the everyday facts sit together at the top. */}}
+  <section class="card bg-base-100 border border-base-300" aria-labelledby="site-name">
+    <div class="card-body gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div class="min-w-0">
+        <p class="text-xs font-medium uppercase tracking-wide text-base-content/50">Manage</p>
+        <h1 id="site-name" class="text-2xl font-semibold tracking-tight mt-0.5 break-words">
+          {{ if .Title }}{{ .Title }}{{ else }}<span class="font-mono">{{ .Slug }}</span>{{ end }}
+        </h1>
+        <div class="flex items-center flex-wrap gap-2 mt-2">
+          <a class="link link-primary font-mono text-sm break-all" href="{{ .SiteURL }}" target="_blank" rel="noopener">{{ .SiteURL }}</a>
+          <button type="button" class="btn btn-ghost btn-xs js-copy shrink-0" data-copy="{{ .SiteURL }}" data-copied-label="Copied!" aria-label="Copy site address">Copy</button>
+        </div>
+        <div class="flex items-center flex-wrap gap-2 mt-2">
+          {{ if .Private }}
+            <span class="badge badge-neutral gap-1">
+              <svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+              Private
+            </span>
+          {{ else }}
+            <span class="badge badge-success gap-1.5">
+              <span class="inline-block h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true"></span>
+              Live
+            </span>
+          {{ end }}
+          {{ if .TemplateLabel }}<span class="badge badge-ghost">{{ .TemplateLabel }} template</span>{{ end }}
+        </div>
+      </div>
+      {{ if gt .GuideTotal 0 }}
+      <a href="#guide-heading"
+         class="badge badge-lg shrink-0 self-start sm:self-center whitespace-nowrap {{ if .GuideComplete }}badge-success{{ else }}badge-warning{{ end }}"
+         aria-label="{{ .GuidePresent }} of {{ .GuideTotal }} essentials present">
+        {{ if .GuideComplete }}✓ {{ end }}{{ .GuidePresent }} of {{ .GuideTotal }} essentials
+      </a>
+      {{ end }}
+    </div>
+  </section>
+
+  {{/* ── Tier 2 · Do ───────────────────────────────────────────────
+       The everyday work, in frequency order: finish setup, watch
+       submissions, moderate photos, then the occasional settings change.
+       Every panel is the same quiet bordered card. */}}
+
   {{ if gt .GuideTotal 0 }}
     <section class="card bg-base-100 border border-base-300" aria-labelledby="guide-heading">
       <div class="card-body">
-        <div class="flex items-center justify-between flex-wrap gap-3">
-          <h2 id="guide-heading" class="card-title text-lg">Is my site complete?</h2>
-          <span class="badge badge-lg {{ if .GuideComplete }}badge-success{{ else }}badge-ghost{{ end }}"
-                aria-label="{{ .GuidePresent }} of {{ .GuideTotal }} essentials present">
-            {{ .GuidePresent }} of {{ .GuideTotal }} essentials
-          </span>
-        </div>
+        <h2 id="guide-heading" class="card-title text-lg">Is my site complete?</h2>
         <p class="text-sm text-base-content/70">
-          A quick checklist for a credible {{ if .TemplateLabel }}{{ .TemplateLabel }}{{ else }}site{{ end }}. These checks read your pages directly — no AI, nothing hidden.
+          A quick checklist for a credible {{ if .TemplateLabel }}{{ .TemplateLabel }}{{ else }}site{{ end }}. These checks read your pages directly, with no AI and nothing hidden.
         </p>
+        {{/* Missing items first — they're the call to action — then the
+             passes, compacted, so the work-left reads at a glance. */}}
         <ul class="divide-y divide-base-300 border border-base-300 rounded-box mt-2 overflow-hidden">
-          {{ range .GuideResults }}
-          <li class="flex items-start gap-3 px-4 py-3">
-            <span class="mt-0.5 shrink-0 text-base {{ if .Present }}text-success{{ else }}text-base-content/40{{ end }}" aria-hidden="true">{{ if .Present }}✓{{ else }}✗{{ end }}</span>
+          {{ range .GuideResults }}{{ if not .Present }}
+          <li class="flex items-start gap-3 px-4 py-3 bg-warning/10">
+            <span class="mt-0.5 shrink-0 text-base text-warning" aria-hidden="true">✗</span>
             <div class="flex-1 min-w-0">
-              <div class="text-sm font-medium">
-                {{ .Item.Label }}<span class="sr-only">{{ if .Present }} — present{{ else }} — missing{{ end }}</span>
-              </div>
+              <div class="text-sm font-medium">{{ .Item.Label }}<span class="sr-only"> — missing</span></div>
               <p class="text-xs text-base-content/70 mt-0.5">{{ .Item.Why }}</p>
-              {{ if not .Present }}
               <p class="text-xs text-base-content/80 mt-1">{{ .Item.How }}</p>
               <a href="{{ .WorkspaceURL }}" class="link link-primary text-xs font-medium mt-1 inline-block">Add this in the editor →</a>
-              {{ end }}
             </div>
           </li>
-          {{ end }}
+          {{ end }}{{ end }}
+          {{ range .GuideResults }}{{ if .Present }}
+          <li class="flex items-center gap-3 px-4 py-2.5">
+            <span class="shrink-0 text-base text-success" aria-hidden="true">✓</span>
+            <div class="text-sm text-base-content/80 min-w-0">{{ .Item.Label }}<span class="sr-only"> — present</span></div>
+          </li>
+          {{ end }}{{ end }}
         </ul>
       </div>
     </section>
@@ -150,80 +183,46 @@
     </div>
   </section>
 
-  <form method="POST" action="/settings/{{ .Slug }}" class="space-y-8">
-    <section class="card bg-base-100 border border-base-300" aria-labelledby="general-heading">
+  {{/* Site settings — one form, one Save. The toggles ("Permissions") and
+       the custom domain live on a single card; the Save button sits directly
+       below the controls it saves, and the heavy DNS instructions fold away
+       so a first-timer isn't scrolling past them. */}}
+  <form method="POST" action="/settings/{{ .Slug }}">
+    <section class="card bg-base-100 border border-base-300" aria-labelledby="settings-heading">
       <div class="card-body">
-        <h2 id="general-heading" class="card-title text-lg">General</h2>
-        <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
-          <dt class="text-base-content/60">Name</dt>
-          <dd class="font-medium">{{ if .Title }}{{ .Title }}{{ else }}<span class="font-mono text-base-content/70 break-all">{{ .Slug }}</span>{{ end }}</dd>
-          <dt class="text-base-content/60">Address</dt>
-          <dd><a class="link link-primary font-mono break-all" href="{{ .SiteURL }}" target="_blank" rel="noopener">{{ .SiteURL }}</a></dd>
-        </dl>
+        <h2 id="settings-heading" class="card-title text-lg">Site settings</h2>
 
-        <div class="flex flex-col mt-4">
-          <label for="domains" class="label pb-1"><span class="text-sm font-medium">Custom web address</span></label>
-          <textarea name="domains" id="domains" rows="3"
-                    class="textarea w-full font-mono text-sm"
-                    placeholder="example.com&#10;www.example.com">{{ .Domains }}</textarea>
-          <p class="text-sm text-base-content/70 mt-2">One address per line. After adding an address here, create this DNS record at your domain provider:</p>
-          <div class="mt-2 rounded-lg border border-base-300 bg-base-200/40 p-3 text-sm">
-            <dl class="grid grid-cols-[5rem_1fr] gap-x-3 gap-y-1.5 items-center">
-              <dt class="text-base-content/60">Type</dt>
-              <dd class="font-mono">CNAME</dd>
-              <dt class="text-base-content/60">Name</dt>
-              <dd class="font-mono text-base-content/70">your subdomain (e.g. <span class="text-base-content">www</span>)</dd>
-              <dt class="text-base-content/60">Value</dt>
-              <dd class="flex items-center gap-2 min-w-0">
-                <code class="font-mono bg-base-100 px-1.5 py-0.5 rounded break-all">{{ .DNSCNAMETarget }}</code>
-                <button type="button" class="btn btn-ghost btn-xs js-copy shrink-0" data-copy="{{ .DNSCNAMETarget }}" data-copied-label="Copied!" aria-label="Copy CNAME target">Copy</button>
-              </dd>
-            </dl>
-          </div>
-          <p class="text-xs text-base-content/60 mt-2">A TLS certificate is issued automatically on the first visit. For a root/apex domain (<span class="font-mono">example.com</span>), use your provider's CNAME flattening / ALIAS record. On Cloudflare, set the record to <code class="font-mono bg-base-200 px-1 rounded">DNS only</code> (grey cloud) or certificate issuance will fail.</p>
-        </div>
-      </div>
-    </section>
+        <div class="mt-1" role="group" aria-label="Permissions">
+          <p class="text-xs font-medium uppercase tracking-wide text-base-content/50 mb-1">Permissions</p>
 
-    <section class="card bg-base-100 border border-base-300" aria-labelledby="permissions-heading">
-      <div class="card-body">
-        <h2 id="permissions-heading" class="card-title text-lg">Permissions</h2>
-
-        {{ if .FunctionsByTmpl }}
-          <div class="flex flex-col">
-            <label class="flex items-start gap-3 cursor-not-allowed opacity-70" title="Always on for this template">
+          {{ if .FunctionsByTmpl }}
+            <label class="flex items-start gap-3 cursor-not-allowed opacity-70 py-2" title="Always on for this template">
               <input type="checkbox" checked disabled class="toggle toggle-primary shrink-0 mt-0.5">
               <span class="text-sm min-w-0">
                 <span class="font-medium">Accept visitor input</span>
                 <span class="block text-xs text-base-content/60">Built into this template (forms, RSVPs, counters). Always on.</span>
               </span>
             </label>
-          </div>
-          <input type="hidden" name="enable_functions" value="on">
-        {{ else }}
-          <div class="flex flex-col">
-            <label class="flex items-start gap-3 cursor-pointer">
+            <input type="hidden" name="enable_functions" value="on">
+          {{ else }}
+            <label class="flex items-start gap-3 cursor-pointer py-2">
               <input type="checkbox" name="enable_functions" {{ if .FunctionsEnabled }}checked{{ end }} class="toggle toggle-primary shrink-0 mt-0.5">
               <span class="text-sm min-w-0">
                 <span class="font-medium">Accept visitor input</span>
                 <span class="block text-xs text-base-content/60">Allows forms, RSVPs, counters, and other submissions on your site.</span>
               </span>
             </label>
-          </div>
-        {{ end }}
+          {{ end }}
 
-        <div class="flex flex-col">
-          <label class="flex items-start gap-3 cursor-pointer">
+          <label class="flex items-start gap-3 cursor-pointer py-2 border-t border-base-200">
             <input type="checkbox" name="enable_public_api" {{ if .PublicAPIEnabled }}checked{{ end }} class="toggle toggle-primary shrink-0 mt-0.5">
             <span class="text-sm">
               <span class="font-medium">Allow other websites to post data here</span>
               <span class="block text-xs text-base-content/60">Off by default. Turn on only if another site needs to send data (e.g. a webhook).</span>
             </span>
           </label>
-        </div>
 
-        <div class="flex flex-col">
-          <label class="flex items-start gap-3 cursor-pointer">
+          <label class="flex items-start gap-3 cursor-pointer py-2 border-t border-base-200">
             <input type="checkbox" name="private" {{ if .Private }}checked{{ end }} class="toggle toggle-primary shrink-0 mt-0.5">
             <span class="text-sm">
               <span class="font-medium">Keep this site private</span>
@@ -232,17 +231,50 @@
           </label>
         </div>
 
-        <div class="card-actions justify-end pt-2">
+        {{/* Custom web address — folded by default; the summary shows whether
+             one is set so the state is legible without opening it. */}}
+        <details class="collapse collapse-arrow border border-base-300 bg-base-200/40 rounded-box mt-3"{{ if .Domains }} open{{ end }}>
+          <summary class="collapse-title text-sm font-medium flex items-center gap-2 pe-12">
+            Custom web address
+            <span class="badge badge-sm {{ if .Domains }}badge-success{{ else }}badge-ghost{{ end }} ms-auto">{{ if .Domains }}in use{{ else }}not set up{{ end }}</span>
+          </summary>
+          <div class="collapse-content">
+            <label for="domains" class="label pb-1"><span class="text-sm font-medium">One address per line</span></label>
+            <textarea name="domains" id="domains" rows="3"
+                      class="textarea w-full font-mono text-sm"
+                      placeholder="example.com&#10;www.example.com">{{ .Domains }}</textarea>
+            <p class="text-sm text-base-content/70 mt-2">After adding an address here, create this DNS record at your domain provider:</p>
+            <div class="mt-2 rounded-lg border border-base-300 bg-base-100 p-3 text-sm">
+              <dl class="grid grid-cols-[5rem_1fr] gap-x-3 gap-y-1.5 items-center">
+                <dt class="text-base-content/60">Type</dt>
+                <dd class="font-mono">CNAME</dd>
+                <dt class="text-base-content/60">Name</dt>
+                <dd class="font-mono text-base-content/70">your subdomain (e.g. <span class="text-base-content">www</span>)</dd>
+                <dt class="text-base-content/60">Value</dt>
+                <dd class="flex items-center gap-2 min-w-0">
+                  <code class="font-mono bg-base-200 px-1.5 py-0.5 rounded break-all">{{ .DNSCNAMETarget }}</code>
+                  <button type="button" class="btn btn-ghost btn-xs js-copy shrink-0" data-copy="{{ .DNSCNAMETarget }}" data-copied-label="Copied!" aria-label="Copy CNAME target">Copy</button>
+                </dd>
+              </dl>
+            </div>
+            <p class="text-xs text-base-content/70 mt-2">A TLS certificate is issued automatically on the first visit. For a root/apex domain (<span class="font-mono">example.com</span>), use your provider's CNAME flattening / ALIAS record. On Cloudflare, set the record to <code class="font-mono bg-base-200 px-1 rounded">DNS only</code> (grey cloud) or certificate issuance will fail.</p>
+          </div>
+        </details>
+
+        <div class="card-actions justify-end pt-3 mt-3 border-t border-base-300">
           <button type="submit" class="btn btn-primary">Save changes</button>
         </div>
       </div>
     </section>
   </form>
 
-  <section class="pt-8 border-t border-base-300" aria-labelledby="advanced-heading">
-    <h2 id="advanced-heading" class="text-lg font-semibold tracking-tight">Advanced tools</h2>
-    <p class="text-sm text-base-content/70 mt-2">Diagnostic surfaces, useful when something looks wrong.</p>
-    <ul class="divide-y divide-base-300 border border-base-300 rounded-box mt-3 overflow-hidden">
+  {{/* ── Tier 3 · Rarely ───────────────────────────────────────────
+       Diagnostics and account-level actions. Quiet by default; the
+       irreversible ones share one clearly-marked danger region. */}}
+
+  <section aria-labelledby="advanced-heading">
+    <h2 id="advanced-heading" class="text-sm font-semibold uppercase tracking-wide text-base-content/50 px-1 mb-2">Advanced tools</h2>
+    <ul class="divide-y divide-base-300 border border-base-300 rounded-box overflow-hidden bg-base-100">
       <li>
         <button type="button" id="open-image-drawer" class="w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-base-200 transition">
           <div class="flex-1">
@@ -273,52 +305,67 @@
     </ul>
   </section>
 
-  <section class="pt-8 border-t border-base-300" aria-labelledby="duplicate-heading">
-    <h2 id="duplicate-heading" class="text-lg font-semibold tracking-tight">Duplicate this site</h2>
-    <p class="text-sm text-base-content/70 mt-2">Copies every file into a new app you own. The original is untouched. Custom domains and the private flag do not carry over.</p>
-    <form method="POST" action="/apps/{{ .Slug }}/remix"
-          class="mt-3 js-confirm"
-          data-confirm-title="Duplicate this site?"
-          data-confirm="A new app will be created with the same files. You'll own both, and your quota counts the copy."
-          data-confirm-ok="Duplicate"
-          data-confirm-tone="primary">
-      <button type="submit" class="btn btn-outline btn-sm">Duplicate</button>
-    </form>
-  </section>
+  {{/* Danger zone — the three account-level actions in one region,
+       escalating from reversible (Duplicate) to irreversible (Delete). */}}
+  <section aria-labelledby="danger-heading" class="rounded-box border border-error/40 overflow-hidden bg-base-100">
+    <h2 id="danger-heading" class="text-xs font-semibold uppercase tracking-wide text-error bg-error/10 border-b border-error/30 px-4 py-2.5 flex items-center gap-2">
+      <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+      Danger zone
+    </h2>
 
-  <section class="pt-8 border-t border-base-300" aria-labelledby="transfer-heading">
-    <h2 id="transfer-heading" class="text-lg font-semibold tracking-tight">Transfer ownership</h2>
-    <p class="text-sm text-base-content/70 mt-2">Hand this app off to another user by email. They take over editing immediately; you lose access (unless you're a super admin).</p>
-    <form method="POST" action="/apps/{{ .Slug }}/transfer"
-          class="js-confirm flex flex-wrap gap-3 mt-3 items-end"
-          data-confirm-title="Transfer this app?"
-          data-confirm="The new owner takes over editing immediately. You'll lose access unless you're a super admin."
-          data-confirm-ok="Transfer">
-      <label class="flex flex-col grow">
-        <span class="text-sm font-medium">New owner email</span>
-        <input type="email" name="new_owner_email" required class="input mt-1" placeholder="them@example.com">
-      </label>
-      <button type="submit" class="btn btn-primary">Transfer</button>
-    </form>
-  </section>
+    <div class="flex items-center gap-4 flex-wrap px-4 py-3.5">
+      <div class="flex-1 min-w-[15rem]">
+        <div class="text-sm font-medium">Duplicate this site</div>
+        <p class="text-xs text-base-content/70 mt-0.5">Copies every file into a new app you own. The original is untouched. Custom domains and the private flag do not carry over.</p>
+      </div>
+      <form method="POST" action="/apps/{{ .Slug }}/remix"
+            class="js-confirm"
+            data-confirm-title="Duplicate this site?"
+            data-confirm="A new app will be created with the same files. You'll own both, and your quota counts the copy."
+            data-confirm-ok="Duplicate"
+            data-confirm-tone="primary">
+        <button type="submit" class="btn btn-outline btn-sm">Duplicate</button>
+      </form>
+    </div>
 
-  <section class="pt-8 border-t border-error/40" aria-labelledby="danger-heading">
-    <h2 id="danger-heading" class="text-lg font-semibold tracking-tight text-error">Delete this app</h2>
-    <p class="text-sm text-base-content/70 mt-2">Permanently removes every page, file, and the entire version history. Custom domains attached to this site are released back to the pool. <strong>This cannot be undone.</strong></p>
-    <form method="POST" action="/apps/{{ .Slug }}"
-          class="js-confirm flex flex-col gap-3 mt-3"
-          data-confirm-title="Delete this app permanently?"
-          data-confirm="Every page, file, and version is removed. Custom domains are released back to the pool. This cannot be undone."
-          data-confirm-ok="Delete permanently">
-      <input type="hidden" name="_method" value="DELETE">
-      <div>
-        <label for="confirm" class="label pb-1"><span class="text-sm">Type <code class="font-mono">{{ .Slug }}</code> to confirm</span></label>
-        <input type="text" name="confirm" id="confirm" autocomplete="off" required class="input w-full" placeholder="{{ .Slug }}">
+    <div class="flex items-center gap-4 flex-wrap px-4 py-3.5 border-t border-base-300">
+      <div class="flex-1 min-w-[15rem]">
+        <div class="text-sm font-medium">Transfer ownership</div>
+        <p class="text-xs text-base-content/70 mt-0.5">Hand this app off to another user by email. They take over editing immediately; you lose access (unless you're a super admin).</p>
       </div>
-      <div>
-        <button type="submit" class="btn btn-error">Delete permanently</button>
+      <form method="POST" action="/apps/{{ .Slug }}/transfer"
+            class="js-confirm flex flex-wrap gap-2 items-end"
+            data-confirm-title="Transfer this app?"
+            data-confirm="The new owner takes over editing immediately. You'll lose access unless you're a super admin."
+            data-confirm-ok="Transfer">
+        <label class="flex flex-col">
+          <span class="sr-only">New owner email</span>
+          <input type="email" name="new_owner_email" required class="input input-sm" placeholder="them@example.com">
+        </label>
+        <button type="submit" class="btn btn-error btn-outline btn-sm">Transfer</button>
+      </form>
+    </div>
+
+    <div class="px-4 py-3.5 border-t border-error/30 bg-error/5">
+      <div class="flex items-start justify-between gap-3 flex-wrap">
+        <div class="flex-1 min-w-[15rem]">
+          <div class="text-sm font-medium text-error">Delete this app</div>
+          <p class="text-xs text-base-content/70 mt-0.5">Permanently removes every page, file, and the entire version history. Custom domains attached to this site are released back to the pool. <strong>This cannot be undone.</strong></p>
+        </div>
       </div>
-    </form>
+      <form method="POST" action="/apps/{{ .Slug }}"
+            class="js-confirm flex flex-wrap items-end gap-3 mt-3"
+            data-confirm-title="Delete this app permanently?"
+            data-confirm="Every page, file, and version is removed. Custom domains are released back to the pool. This cannot be undone."
+            data-confirm-ok="Delete permanently">
+        <input type="hidden" name="_method" value="DELETE">
+        <div class="grow">
+          <label for="confirm" class="label pb-1"><span class="text-sm">Type <code class="font-mono">{{ .Slug }}</code> to confirm</span></label>
+          <input type="text" name="confirm" id="confirm" autocomplete="off" required class="input input-sm w-full max-w-xs" placeholder="{{ .Slug }}">
+        </div>
+        <button type="submit" class="btn btn-error btn-sm">Delete permanently</button>
+      </form>
+    </div>
   </section>
 </main>
 {{ template "image_drawer" . }}
