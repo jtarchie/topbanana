@@ -25,7 +25,7 @@ func TestUserStore_SaveLoadRoundtrip(t *testing.T) {
 	email := "round+" + freshSuffix() + "@example.com"
 	t.Cleanup(func() { _ = us.Delete(ctx, email) })
 
-	err = us.Save(ctx, &User{Email: email, Role: RoleAdmin, Quotas: Quotas{MaxApps: 2}, Created: time.Now().UTC()})
+	err = us.Save(ctx, &User{Email: email, Role: RoleAdmin, Meta: testMeta(2), Created: time.Now().UTC()})
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -40,8 +40,8 @@ func TestUserStore_SaveLoadRoundtrip(t *testing.T) {
 	if got.Role != RoleAdmin {
 		t.Errorf("Role = %q, want admin", got.Role)
 	}
-	if got.Quotas.MaxApps != 2 {
-		t.Errorf("Quotas not persisted: %+v", got.Quotas)
+	if string(got.Meta) != string(testMeta(2)) {
+		t.Errorf("Meta not persisted: %s", got.Meta)
 	}
 }
 
@@ -304,25 +304,25 @@ func TestUserStore_CreateFromInviteIdempotent(t *testing.T) {
 	email := "create+" + freshSuffix() + "@example.com"
 	t.Cleanup(func() { _ = us.Delete(ctx, email) })
 
-	inv := Invite{Email: email, Role: RoleAdmin, Quotas: Quotas{MaxApps: 4}}
+	inv := Invite{Email: email, Role: RoleAdmin, Meta: testMeta(4)}
 	first, err := us.CreateFromInvite(ctx, inv)
 	if err != nil {
 		t.Fatalf("first CreateFromInvite: %v", err)
 	}
-	if first.Role != RoleAdmin || first.Quotas.MaxApps != 4 {
+	if first.Role != RoleAdmin || string(first.Meta) != string(testMeta(4)) {
 		t.Errorf("first user = %+v", first)
 	}
 
 	// Second call must return the existing record, not overwrite it.
-	second, err := us.CreateFromInvite(ctx, Invite{Email: email, Role: RoleSuperAdmin, Quotas: Quotas{MaxApps: 99}})
+	second, err := us.CreateFromInvite(ctx, Invite{Email: email, Role: RoleSuperAdmin, Meta: testMeta(99)})
 	if err != nil {
 		t.Fatalf("second CreateFromInvite: %v", err)
 	}
 	if second.Role != RoleAdmin {
 		t.Errorf("second call overwrote Role: %q", second.Role)
 	}
-	if second.Quotas.MaxApps != 4 {
-		t.Errorf("second call overwrote Quotas: %+v", second.Quotas)
+	if string(second.Meta) != string(testMeta(4)) {
+		t.Errorf("second call overwrote Meta: %s", second.Meta)
 	}
 }
 

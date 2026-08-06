@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/jtarchie/topbanana/internal/blobs"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/jtarchie/topbanana/internal/blobs"
 	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
@@ -20,7 +21,7 @@ func TestInviteStore_IssueAndGetRoundtrip(t *testing.T) {
 	ctx := context.Background()
 	email := "alice+" + freshSuffix() + "@example.com"
 
-	inv, err := is.Issue(ctx, email, RoleAdmin, Quotas{MaxApps: 5}, DefaultInviteTTL)
+	inv, err := is.Issue(ctx, email, RoleAdmin, testMeta(5), DefaultInviteTTL)
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -35,8 +36,8 @@ func TestInviteStore_IssueAndGetRoundtrip(t *testing.T) {
 	if inv.Role != RoleAdmin {
 		t.Errorf("Role = %q, want admin", inv.Role)
 	}
-	if inv.Quotas.MaxApps != 5 {
-		t.Errorf("Quotas not persisted: %+v", inv.Quotas)
+	if string(inv.Meta) != string(testMeta(5)) {
+		t.Errorf("Meta not persisted: %s", inv.Meta)
 	}
 	if inv.Expires.Before(time.Now()) {
 		t.Errorf("Expires already past: %s", inv.Expires)
@@ -70,7 +71,7 @@ func TestInviteStore_GetExpiredReturnsExpired(t *testing.T) {
 	is := NewInviteStore(blobs.FromStore(st))
 	ctx := context.Background()
 
-	inv, err := is.Issue(ctx, "exp+"+freshSuffix()+"@example.com", RoleAdmin, Quotas{}, time.Millisecond)
+	inv, err := is.Issue(ctx, "exp+"+freshSuffix()+"@example.com", RoleAdmin, nil, time.Millisecond)
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -92,7 +93,7 @@ func TestInviteStore_ConsumeMarksUsedAndGetReturnsNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	email := "consume+" + freshSuffix() + "@example.com"
-	inv, err := is.Issue(ctx, email, RoleAdmin, Quotas{}, DefaultInviteTTL)
+	inv, err := is.Issue(ctx, email, RoleAdmin, nil, DefaultInviteTTL)
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -120,7 +121,7 @@ func TestInviteStore_ConsumeTwiceBySameConsumerIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 
 	email := "twice+" + freshSuffix() + "@example.com"
-	inv, err := is.Issue(ctx, email, RoleAdmin, Quotas{}, DefaultInviteTTL)
+	inv, err := is.Issue(ctx, email, RoleAdmin, nil, DefaultInviteTTL)
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -146,7 +147,7 @@ func TestInviteStore_ConsumeByDifferentEmailRejected(t *testing.T) {
 	suffix := freshSuffix()
 	first := "first+" + suffix + "@example.com"
 	second := "second+" + suffix + "@example.com"
-	inv, err := is.Issue(ctx, first, RoleAdmin, Quotas{}, DefaultInviteTTL)
+	inv, err := is.Issue(ctx, first, RoleAdmin, nil, DefaultInviteTTL)
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -169,7 +170,7 @@ func TestInviteStore_RevokeDeletesRecord(t *testing.T) {
 	is := NewInviteStore(blobs.FromStore(st))
 	ctx := context.Background()
 
-	inv, err := is.Issue(ctx, "revoke+"+freshSuffix()+"@example.com", RoleAdmin, Quotas{}, DefaultInviteTTL)
+	inv, err := is.Issue(ctx, "revoke+"+freshSuffix()+"@example.com", RoleAdmin, nil, DefaultInviteTTL)
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -192,7 +193,7 @@ func TestInviteStore_ListIncludesIssued(t *testing.T) {
 	is := NewInviteStore(blobs.FromStore(st))
 	ctx := context.Background()
 
-	inv, err := is.Issue(ctx, "listed+"+freshSuffix()+"@example.com", RoleAdmin, Quotas{}, DefaultInviteTTL)
+	inv, err := is.Issue(ctx, "listed+"+freshSuffix()+"@example.com", RoleAdmin, nil, DefaultInviteTTL)
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
@@ -277,7 +278,7 @@ func TestInvite_JSONRoundtrip(t *testing.T) {
 		Token:   "tok",
 		Email:   "x@example.com",
 		Role:    RoleAdmin,
-		Quotas:  Quotas{MaxApps: 3},
+		Meta:    testMeta(3),
 		Created: time.Now().UTC().Truncate(time.Second),
 		Expires: time.Now().UTC().Add(time.Hour).Truncate(time.Second),
 	}
@@ -290,7 +291,7 @@ func TestInvite_JSONRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if got.Token != inv.Token || got.Email != inv.Email || got.Role != inv.Role || got.Quotas.MaxApps != inv.Quotas.MaxApps {
+	if got.Token != inv.Token || got.Email != inv.Email || got.Role != inv.Role || string(got.Meta) != string(inv.Meta) {
 		t.Errorf("roundtrip mismatch: got=%+v want=%+v", got, inv)
 	}
 }
@@ -312,4 +313,11 @@ func TestNewToken_ProducesUniqueOpaqueValues(t *testing.T) {
 		}
 		seen[tok] = struct{}{}
 	}
+}
+
+// testMeta is a stand-in for whatever application policy a consumer attaches
+// to a record. This package stores it verbatim and never interprets it, so the
+// tests only ever assert that the bytes survive the round trip.
+func testMeta(n int) json.RawMessage {
+	return json.RawMessage(fmt.Sprintf(`{"max_apps":%d}`, n))
 }

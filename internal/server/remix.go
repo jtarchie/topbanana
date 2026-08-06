@@ -9,8 +9,8 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/jtarchie/topbanana/internal/auth"
 	"github.com/jtarchie/topbanana/internal/build"
+	"github.com/jtarchie/topbanana/internal/quotas"
 )
 
 // remixHandler duplicates an existing app into a fresh slug owned by the
@@ -34,9 +34,9 @@ func (s *sitesController) remixHandler(c *echo.Context) error {
 	srcMeta := s.build.ReadMeta(ctx, srcSlug)
 
 	if s.auth != nil {
-		quotaErr := auth.CheckMaxApps(caller, s.registry.countAppsFor(caller.Email), s.auth.QuotaDefaults())
+		quotaErr := quotas.CheckMaxApps(caller, s.registry.countAppsFor(caller.Email), s.quotaDefaults)
 		if quotaErr != nil {
-			if errors.Is(quotaErr, auth.ErrMaxAppsReached) {
+			if errors.Is(quotaErr, quotas.ErrMaxAppsReached) {
 				return echo.NewHTTPError(http.StatusForbidden, quotaErr.Error())
 			}
 			return httpErr(http.StatusInternalServerError, "check quota", quotaErr)

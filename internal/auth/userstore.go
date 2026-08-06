@@ -153,7 +153,7 @@ func (s *UserStore) Save(ctx context.Context, user *User) error {
 
 // List enumerates every user record in the bucket. Used by the super
 // admin's /admin/users page. Returns concrete *User values (not the
-// passkey.User interface) because callers want Role + Quotas, not just
+// passkey.User interface) because callers want Role + Meta, not just
 // the WebAuthn methods.
 func (s *UserStore) List(ctx context.Context) ([]*User, error) {
 	keys, err := s.blobs.List(ctx, userStorePrefix)
@@ -207,7 +207,7 @@ func (s *UserStore) CreateFromInvite(ctx context.Context, inv Invite) (*User, er
 	user := &User{
 		Email:   email,
 		Role:    inv.Role,
-		Quotas:  inv.Quotas,
+		Meta:    inv.Meta,
 		Created: time.Now().UTC(),
 	}
 	err = s.Save(ctx, user)

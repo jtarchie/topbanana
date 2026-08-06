@@ -18,6 +18,7 @@ import (
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/model"
+	"github.com/jtarchie/topbanana/internal/quotas"
 	"github.com/jtarchie/topbanana/internal/sandbox"
 	"github.com/jtarchie/topbanana/internal/server"
 	"github.com/jtarchie/topbanana/internal/snapshot"
@@ -180,10 +181,6 @@ func run() error {
 		SuperAdminEmail: cli.SuperAdminEmail,
 		InsecureCookies: cli.InsecureCookies,
 		Port:            cli.Port,
-		QuotaDefaults: auth.QuotaDefaults{
-			MaxApps: cli.DefaultMaxApps,
-			Tiers:   tierMap,
-		},
 	})
 	if err != nil {
 		return fmt.Errorf("auth init: %w", err)
@@ -202,6 +199,12 @@ func run() error {
 	}
 
 	deps := server.Deps{
+		// Quota policy is the product's, not the identity layer's — it is wired
+		// into the HTTP layer that enforces it.
+		QuotaDefaults: quotas.Defaults{
+			MaxApps: cli.DefaultMaxApps,
+			Tiers:   tierMap,
+		},
 		Store:     s,
 		Build:     buildSvc,
 		Events:    tracker,

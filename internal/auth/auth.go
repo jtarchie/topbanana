@@ -45,9 +45,6 @@ type Config struct {
 	// (the default 80/443 case where the browser omits the port from
 	// Origin headers).
 	Port string
-	// QuotaDefaults are the platform-wide fallbacks applied when a user
-	// record's Quotas struct is zero-valued. Wired from CLI flags.
-	QuotaDefaults QuotaDefaults
 }
 
 // Auth is the wired-up auth subsystem: stores, the passkey library, and the
@@ -223,10 +220,6 @@ func (a *Auth) SuperAdminEmail() string { return a.cfg.SuperAdminEmail }
 // commits b30103b ("read the session cookie under the name the library
 // actually sets") and 8c44f89 (project rename, which re-broke it).
 func (a *Auth) SessionCookieName() string { return a.sessionCookieName }
-
-// QuotaDefaults returns the platform fallback quotas wired at startup.
-// Used by the build handler to fill in zero-valued per-user limits.
-func (a *Auth) QuotaDefaults() QuotaDefaults { return a.cfg.QuotaDefaults }
 
 // slogLogger adapts slog into the passkey.Logger interface. The library
 // logs at Debug/Info/Warn/Error — we map them straight through.

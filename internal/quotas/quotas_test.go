@@ -1,12 +1,26 @@
-package auth
+package quotas
 
 import (
 	"encoding/json"
 	"errors"
 	"testing"
 
+	"github.com/jtarchie/topbanana/internal/auth"
 	"github.com/jtarchie/topbanana/internal/model"
 )
+
+// userWith builds a user carrying the given policy on Meta — the round trip
+// through the opaque field the auth package actually stores, so these tests
+// exercise the encode/decode boundary rather than reaching past it.
+func userWith(t *testing.T, q Quotas) *auth.User {
+	t.Helper()
+	u := &auth.User{}
+	err := Set(u, q)
+	if err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	return u
+}
 
 func TestQuotas_UnmarshalJSON_LegacyArrayForm(t *testing.T) {
 	t.Parallel()
@@ -159,7 +173,7 @@ func TestQuotas_RoundTrip_ObjectForm(t *testing.T) {
 func TestResolveTiers_NoUserReturnsDefaults(t *testing.T) {
 	t.Parallel()
 
-	defaults := QuotaDefaults{
+	defaults := Defaults{
 		Tiers: model.TierMap{model.TierAuthor: "big", model.TierEditor: "med"},
 	}
 	got := ResolveTiers(nil, defaults)
@@ -171,7 +185,7 @@ func TestResolveTiers_NoUserReturnsDefaults(t *testing.T) {
 func TestResolveTiers_UserOverridesMergeOnTopOfDefaults(t *testing.T) {
 	t.Parallel()
 
-	defaults := QuotaDefaults{
+	defaults := Defaults{
 		Tiers: model.TierMap{
 			model.TierAuthor:  "default-author",
 			model.TierEditor:  "default-editor",
@@ -179,14 +193,12 @@ func TestResolveTiers_UserOverridesMergeOnTopOfDefaults(t *testing.T) {
 			model.TierVision:  "default-vision",
 		},
 	}
-	u := &User{
-		Quotas: Quotas{
-			AllowedModels: model.TierMap{
-				model.TierEditor: "user-editor",
-				model.TierVision: "user-vision",
-			},
+	u := userWith(t, Quotas{
+		AllowedModels: model.TierMap{
+			model.TierEditor: "user-editor",
+			model.TierVision: "user-vision",
 		},
-	}
+	})
 
 	got := ResolveTiers(u, defaults)
 
@@ -206,8 +218,8 @@ func TestResolveTiers_UserOverridesMergeOnTopOfDefaults(t *testing.T) {
 func TestResolveModel_LegacyShim(t *testing.T) {
 	t.Parallel()
 
-	defaults := QuotaDefaults{Tiers: model.TierMap{model.TierAuthor: "system"}}
-	u := &User{Quotas: Quotas{AllowedModels: model.TierMap{model.TierAuthor: "user-author"}}}
+	defaults := Defaults{Tiers: model.TierMap{model.TierAuthor: "system"}}
+	u := userWith(t, Quotas{AllowedModels: model.TierMap{model.TierAuthor: "user-author"}})
 
 	// Requested empty: user's Author override wins.
 	got, err := ResolveModel(u, "", defaults)
@@ -227,7 +239,7 @@ func TestResolveModel_NilUserErrors(t *testing.T) {
 
 	// nil user still yields a string from defaults via the shim — no error,
 	// matching the pre-tier behaviour for the empty-quota path.
-	defaults := QuotaDefaults{Tiers: model.TierMap{model.TierAuthor: "system"}}
+	defaults := Defaults{Tiers: model.TierMap{model.TierAuthor: "system"}}
 	got, err := ResolveModel(nil, "", defaults)
 	if err != nil || got != "system" {
 		t.Errorf("ResolveModel(nil) = (%q, %v), want (system, nil)", got, err)

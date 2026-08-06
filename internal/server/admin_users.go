@@ -16,6 +16,7 @@ import (
 
 	"github.com/jtarchie/topbanana/internal/auth"
 	"github.com/jtarchie/topbanana/internal/model"
+	"github.com/jtarchie/topbanana/internal/quotas"
 )
 
 // adminController serves the super-admin-only user-management surface: the user
@@ -117,6 +118,7 @@ func (s *adminController) adminUsersHandler(c *echo.Context) error {
 
 	rows := make([]adminUserRow, 0, len(users))
 	for _, u := range users {
+		q := quotas.Of(u)
 		rows = append(rows, adminUserRow{
 			Email:        u.Email,
 			Role:         string(u.Role),
@@ -124,11 +126,11 @@ func (s *adminController) adminUsersHandler(c *echo.Context) error {
 			Credentials:  len(u.Credentials),
 			Created:      u.Created.UTC().Format("2006-01-02"),
 			IsSelf:       current != nil && current.Email == u.Email,
-			MaxApps:      u.Quotas.MaxApps,
-			ModelAuthor:  u.Quotas.AllowedModels[model.TierAuthor],
-			ModelEditor:  u.Quotas.AllowedModels[model.TierEditor],
-			ModelUtility: u.Quotas.AllowedModels[model.TierUtility],
-			ModelVision:  u.Quotas.AllowedModels[model.TierVision],
+			MaxApps:      q.MaxApps,
+			ModelAuthor:  q.AllowedModels[model.TierAuthor],
+			ModelEditor:  q.AllowedModels[model.TierEditor],
+			ModelUtility: q.AllowedModels[model.TierUtility],
+			ModelVision:  q.AllowedModels[model.TierVision],
 		})
 	}
 
@@ -240,7 +242,7 @@ func (s *adminController) adminInviteCreateHandler(c *echo.Context) error {
 	if role != string(auth.RoleAdmin) && role != string(auth.RoleSuperAdmin) {
 		return c.Redirect(http.StatusSeeOther, "/admin/users?error=invalid+role") //nolint:wrapcheck
 	}
-	inv, err := s.auth.Invites.Issue(c.Request().Context(), email, auth.Role(role), auth.Quotas{}, auth.DefaultInviteTTL)
+	inv, err := s.auth.Invites.Issue(c.Request().Context(), email, auth.Role(role), nil, auth.DefaultInviteTTL)
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "issue invite", err)
 	}
@@ -499,8 +501,13 @@ func (s *adminController) adminUserQuotasHandler(c *echo.Context) error {
 		}
 		maxApps = parsed
 	}
-	user.Quotas.MaxApps = maxApps
-	user.Quotas.AllowedModels = parseTierForm(c.FormValue)
+	err = quotas.Set(user, quotas.Quotas{
+		MaxApps:       maxApps,
+		AllowedModels: parseTierForm(c.FormValue),
+	})
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "encode quotas", err)
+	}
 	err = s.auth.Users.Save(ctx, user)
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "save user", err)

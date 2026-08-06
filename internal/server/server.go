@@ -27,6 +27,7 @@ import (
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/model"
 	"github.com/jtarchie/topbanana/internal/photowall"
+	"github.com/jtarchie/topbanana/internal/quotas"
 	"github.com/jtarchie/topbanana/internal/sandbox"
 	"github.com/jtarchie/topbanana/internal/snapshot"
 	"github.com/jtarchie/topbanana/internal/state"
@@ -77,6 +78,10 @@ type Deps struct {
 	// server plus its OAuth endpoints at /mcp and /oauth/*; empty leaves the
 	// whole surface unmounted. Wired from --mcp-secret.
 	MCPSecret string
+
+	// QuotaDefaults are the platform-wide per-user fallbacks (max apps, model
+	// tiers) applied when a user record carries no policy of its own.
+	QuotaDefaults quotas.Defaults
 }
 
 // Server is the wired-up state shared across handlers.
@@ -118,6 +123,11 @@ type Server struct {
 	// photoLimiter throttles the unauthenticated /_photos upload endpoint per
 	// (slug, client IP) so an open QR upload link can't be flooded.
 	photoLimiter *photowall.Limiter
+
+	// quotaDefaults are the platform-wide fallbacks applied when a user record
+	// carries no policy of its own. Held here rather than on auth.Auth because
+	// quotas are this product's policy, not part of identity.
+	quotaDefaults quotas.Defaults
 }
 
 // fallThroughHosts are hosts that should bypass subdomain proxying and hit
@@ -167,21 +177,22 @@ func New(d Deps) (*echo.Echo, *Server) {
 	}
 
 	s := &Server{
-		store:        d.Store,
-		build:        d.Build,
-		events:       d.Events,
-		sandbox:      d.Sandbox,
-		state:        d.State,
-		snapshot:     d.Snapshot,
-		auth:         d.Auth,
-		domain:       d.Domain,
-		port:         d.Port,
-		tpl:          tpl,
-		systemInfo:   d.SystemInfo,
-		htmlMinifier: newHTMLMinifier(),
-		registry:     newSiteRegistry(d.Store, d.Build),
-		preWarmCert:  d.PreWarmCert,
-		mcpSecret:    d.MCPSecret,
+		store:         d.Store,
+		build:         d.Build,
+		events:        d.Events,
+		sandbox:       d.Sandbox,
+		state:         d.State,
+		snapshot:      d.Snapshot,
+		auth:          d.Auth,
+		domain:        d.Domain,
+		port:          d.Port,
+		tpl:           tpl,
+		systemInfo:    d.SystemInfo,
+		htmlMinifier:  newHTMLMinifier(),
+		registry:      newSiteRegistry(d.Store, d.Build),
+		preWarmCert:   d.PreWarmCert,
+		mcpSecret:     d.MCPSecret,
+		quotaDefaults: d.QuotaDefaults,
 		// ~1 upload / 5s sustained with a burst of 5 per (slug, IP): enough for
 		// a person snapping a few shots in a row, tight enough to blunt a script
 		// hammering the open QR link.
@@ -285,7 +296,7 @@ func (s *Server) effectiveTiersFor(user *auth.User) model.TierMap {
 	if s.auth == nil {
 		return nil
 	}
-	return auth.ResolveTiers(user, s.auth.QuotaDefaults())
+	return quotas.ResolveTiers(user, s.quotaDefaults)
 }
 
 // startBuild kicks off the build via the build service and lands the user
@@ -527,8 +538,8 @@ func (s *Server) appsOverQuota(user *auth.User) (int, int) {
 	if s.auth == nil || user == nil || user.Role == auth.RoleSuperAdmin {
 		return 0, 0
 	}
-	defaults := s.auth.QuotaDefaults()
-	quotaCap := user.Quotas.MaxApps
+	defaults := s.quotaDefaults
+	quotaCap := quotas.Of(user).MaxApps
 	if quotaCap == 0 {
 		quotaCap = defaults.MaxApps
 	}
@@ -622,7 +633,7 @@ func (s *sitesController) buildHandler(c *echo.Context) error {
 	// AllowedModels merged over the operator defaults so build.Service
 	// dispatches each tier against the matching Runner.
 	if s.auth != nil {
-		quotaErr := auth.CheckMaxApps(user, s.registry.countAppsFor(owner), s.auth.QuotaDefaults())
+		quotaErr := quotas.CheckMaxApps(user, s.registry.countAppsFor(owner), s.quotaDefaults)
 		if quotaErr != nil {
 			return echo.NewHTTPError(http.StatusForbidden, quotaErr.Error())
 		}

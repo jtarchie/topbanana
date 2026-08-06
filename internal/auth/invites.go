@@ -50,7 +50,7 @@ func inviteKey(token string) string {
 // Returns the token so the caller can build the /register?invite=<token>
 // URL. Doesn't dedupe — issuing two invites to the same email lets the
 // operator hand out a new one without revoking the old.
-func (s *InviteStore) Issue(ctx context.Context, email string, role Role, quotas Quotas, ttl time.Duration) (*Invite, error) {
+func (s *InviteStore) Issue(ctx context.Context, email string, role Role, meta json.RawMessage, ttl time.Duration) (*Invite, error) {
 	token, err := newToken()
 	if err != nil {
 		return nil, err
@@ -60,7 +60,7 @@ func (s *InviteStore) Issue(ctx context.Context, email string, role Role, quotas
 		Token:   token,
 		Email:   NormalizeEmail(email),
 		Role:    role,
-		Quotas:  quotas,
+		Meta:    meta,
 		Created: now,
 		Expires: now.Add(ttl),
 	}
@@ -84,7 +84,7 @@ func (s *InviteStore) IssueOrReuseBootstrap(ctx context.Context, email string) (
 	if ok {
 		return existing, nil
 	}
-	return s.Issue(ctx, email, RoleSuperAdmin, Quotas{}, BootstrapInviteTTL)
+	return s.Issue(ctx, email, RoleSuperAdmin, nil, BootstrapInviteTTL)
 }
 
 // Get reads an invite by token. Returns ErrInviteNotFound for missing or

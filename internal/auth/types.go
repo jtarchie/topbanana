@@ -1,7 +1,11 @@
-// Package auth owns multi-tenant identity for topbanana: user records,
-// passkey credentials, sessions, invites, role-based authorization, and
-// per-user quotas. Records live in S3 under the reserved `_auth/` prefix so
-// no new datastore is introduced.
+// Package auth owns multi-tenant identity: user records, passkey
+// credentials, sessions, invites, and role-based authorization. Records are
+// keyed documents under the reserved `_auth/` prefix, persisted through
+// blobstore.Blobs — no datastore of its own, and no knowledge of which one
+// the application picked.
+//
+// Application policy (resource caps, model allowlists, anything else a
+// specific product cares about) rides on User.Meta and is opaque here.
 package auth
 
 import (
@@ -12,8 +16,6 @@ import (
 	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
-
-	"github.com/jtarchie/topbanana/internal/model"
 )
 
 // Role gates which routes a user can hit. RoleSuperAdmin sees every app and
@@ -25,91 +27,63 @@ const (
 	RoleAdmin      Role = "admin"
 )
 
-// Quotas caps per-user resource usage. The zero value means "use the
-// system defaults" (resolved by the quota check at enforcement time);
-// RoleSuperAdmin bypasses all checks.
-//
-// AllowedModels carries per-tier model overrides — one model per agent
-// lifecycle phase (Author/Editor/Utility/Vision). Empty entries fall
-// through to the system default for that tier. The shape is a map so
-// operators can override exactly the tiers they want without touching the
-// rest; see model.TierMap for the fallback semantics.
-//
-// Legacy records on disk stored AllowedModels as a flat []string; the
-// custom UnmarshalJSON below interprets element 0 as the Author override
-// and drops the rest, so old user records keep loading without a one-shot
-// migration.
-type Quotas struct {
-	// MaxApps is the hard cap on owned-app count. 0 = use system default.
-	MaxApps int `json:"max_apps,omitempty"`
-	// AllowedModels is the per-tier override map. Empty entries / missing
-	// tiers fall through to QuotaDefaults at resolve time.
-	AllowedModels model.TierMap `json:"allowed_models,omitempty"`
+// legacyMetaField is what Meta was called on records written before
+// application policy was pushed out of this package: a `quotas` object holding
+// whatever the application cared about. Records are lifted on read and rewrite
+// themselves under the new name on the next save, so no migration pass is
+// needed — the same intentional-compat-read approach the rest of the repo uses
+// for renamed sidecars.
+const legacyMetaField = "quotas"
+
+// liftLegacyMeta returns the meta bytes to use, preferring the current field
+// and falling back to the legacy one.
+func liftLegacyMeta(data []byte, current json.RawMessage) (json.RawMessage, error) {
+	if len(current) > 0 {
+		return current, nil
+	}
+	var probe map[string]json.RawMessage
+	err := json.Unmarshal(data, &probe)
+	if err != nil {
+		return nil, fmt.Errorf("decode record: %w", err)
+	}
+	legacy, ok := probe[legacyMetaField]
+	if !ok || len(legacy) == 0 || string(legacy) == "null" {
+		return nil, nil
+	}
+	return json.RawMessage(legacy), nil
 }
 
-// UnmarshalJSON accepts either the new object form
-// (`{"author":"X","editor":"Y"}`) or the legacy array form
-// (`["openai/gpt-4-turbo"]`) for the allowed_models field. The legacy form
-// projects element 0 into TierAuthor and drops the rest — the old code
-// already treated `AllowedModels[0]` as the user's effective default, so
-// no information is lost beyond unused list entries.
-func (q *Quotas) UnmarshalJSON(data []byte) error {
-	// Decode into a shape that's permissive about allowed_models. Use
-	// json.RawMessage so we can dispatch on the underlying type.
-	var raw struct {
-		MaxApps       int             `json:"max_apps,omitempty"`
-		AllowedModels json.RawMessage `json:"allowed_models,omitempty"`
-	}
-	err := json.Unmarshal(data, &raw)
+// UnmarshalJSON decodes a user record, lifting a pre-rename `quotas` object
+// into Meta. The alias type sheds the method set so this doesn't recurse.
+func (u *User) UnmarshalJSON(data []byte) error {
+	type alias User
+	tmp := (*alias)(u)
+	err := json.Unmarshal(data, tmp)
 	if err != nil {
-		return fmt.Errorf("decode quotas: %w", err)
+		return fmt.Errorf("decode user: %w", err)
 	}
-	q.MaxApps = raw.MaxApps
-	q.AllowedModels = nil
-
-	trimmed := strings.TrimSpace(string(raw.AllowedModels))
-	if trimmed == "" || trimmed == "null" {
-		return nil
+	meta, err := liftLegacyMeta(data, u.Meta)
+	if err != nil {
+		return err
 	}
+	u.Meta = meta
+	return nil
+}
 
-	// Object form: parse straight into a TierMap.
-	if trimmed[0] == '{' {
-		var tm model.TierMap
-		err = json.Unmarshal(raw.AllowedModels, &tm)
-		if err != nil {
-			return fmt.Errorf("decode allowed_models object: %w", err)
-		}
-		// Drop empty entries so the map stays canonical.
-		for k, v := range tm {
-			if v == "" {
-				delete(tm, k)
-			}
-		}
-		if len(tm) > 0 {
-			q.AllowedModels = tm
-		}
-		return nil
+// UnmarshalJSON mirrors User.UnmarshalJSON for invite records.
+func (i *Invite) UnmarshalJSON(data []byte) error {
+	type alias Invite
+	tmp := (*alias)(i)
+	err := json.Unmarshal(data, tmp)
+	if err != nil {
+		return fmt.Errorf("decode invite: %w", err)
 	}
-
-	// Legacy array form: element 0 becomes the Author override.
-	if trimmed[0] == '[' {
-		var list []string
-		err = json.Unmarshal(raw.AllowedModels, &list)
-		if err != nil {
-			return fmt.Errorf("decode allowed_models array: %w", err)
-		}
-		for _, m := range list {
-			m = strings.TrimSpace(m)
-			if m == "" {
-				continue
-			}
-			q.AllowedModels = model.TierMap{model.TierAuthor: m}
-			return nil
-		}
-		return nil
+	meta, err := liftLegacyMeta(data, i.Meta)
+	if err != nil {
+		return err
 	}
-
-	return fmt.Errorf("allowed_models: unexpected shape %q", trimmed[:1])
+	i.Meta = meta
+	return nil
 }
 
 // Invite is a one-shot token a super admin issues to onboard a new user.
@@ -117,13 +91,14 @@ func (q *Quotas) UnmarshalJSON(data []byte) error {
 // validity. Consumed (UsedBy set) records are kept briefly for audit but
 // can't be reused.
 type Invite struct {
-	Token   string    `json:"token"`
-	Email   string    `json:"email"`
-	Role    Role      `json:"role"`
-	Quotas  Quotas    `json:"quotas"`
-	Created time.Time `json:"created"`
-	Expires time.Time `json:"expires"`
-	UsedBy  string    `json:"used_by,omitempty"`
+	Token string `json:"token"`
+	Email string `json:"email"`
+	Role  Role   `json:"role"`
+	// Meta rides along to the User record this invite creates; see User.Meta.
+	Meta    json.RawMessage `json:"meta,omitempty"`
+	Created time.Time       `json:"created"`
+	Expires time.Time       `json:"expires"`
+	UsedBy  string          `json:"used_by,omitempty"`
 }
 
 // User is the persistent identity for a single human in the system. Email
@@ -134,10 +109,15 @@ type Invite struct {
 // Implements both webauthn.User (required for the WebAuthn ceremony) and
 // passkey.User (the egregors wrapper, which adds PutCredential).
 type User struct {
-	Email       string                `json:"email"`
-	Name        string                `json:"name,omitempty"`
-	Role        Role                  `json:"role"`
-	Quotas      Quotas                `json:"quotas,omitempty"`
+	Email string `json:"email"`
+	Name  string `json:"name,omitempty"`
+	Role  Role   `json:"role"`
+	// Meta is application-defined data carried verbatim on the record. This
+	// package never looks inside it. It exists so a consumer can attach its
+	// own policy — resource caps, feature flags, billing tier — without the
+	// identity domain growing a concept of what any of that means, which is
+	// exactly the coupling that kept this package pinned to one application.
+	Meta        json.RawMessage       `json:"meta,omitempty"`
 	Credentials []webauthn.Credential `json:"credentials,omitempty"`
 	Created     time.Time             `json:"created"`
 	Disabled    bool                  `json:"disabled,omitempty"`

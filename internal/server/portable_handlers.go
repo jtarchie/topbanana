@@ -12,9 +12,9 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/jtarchie/topbanana/internal/auth"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/portable"
+	"github.com/jtarchie/topbanana/internal/quotas"
 )
 
 // exportHandler streams a tar.zst archive of the slug's site files back to
@@ -63,9 +63,9 @@ func (s *sitesController) importHandler(c *echo.Context) error {
 	}
 
 	if s.auth != nil {
-		quotaErr := auth.CheckMaxApps(caller, s.registry.countAppsFor(caller.Email), s.auth.QuotaDefaults())
+		quotaErr := quotas.CheckMaxApps(caller, s.registry.countAppsFor(caller.Email), s.quotaDefaults)
 		if quotaErr != nil {
-			if errors.Is(quotaErr, auth.ErrMaxAppsReached) {
+			if errors.Is(quotaErr, quotas.ErrMaxAppsReached) {
 				return echo.NewHTTPError(http.StatusForbidden, quotaErr.Error())
 			}
 			return httpErr(http.StatusInternalServerError, "check quota", quotaErr)
