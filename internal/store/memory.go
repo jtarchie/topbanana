@@ -73,11 +73,17 @@ func (b *memoryBackend) putConditional(_ context.Context, key string, body []byt
 	defer b.mu.Unlock()
 	cur, exists := b.objects[key]
 	switch {
-	case expectedETag == "" && exists:
-		return "", ErrPrecondition
-	case expectedETag != "" && !exists:
-		return "", ErrPrecondition
-	case expectedETag != "" && cur.etag != expectedETag:
+	case expectedETag == "":
+		// If-None-Match: * — nothing may be there yet.
+		if exists {
+			return "", ErrPrecondition
+		}
+	case !exists || cur.etag != expectedETag:
+		// If-Match — the key must exist and still carry that exact version.
+		// The existence check shares an expression with the dereference so
+		// short-circuiting guarantees cur is non-nil here; splitting them
+		// across switch cases makes the safety depend on case order, which is
+		// one careless reorder away from a nil panic.
 		return "", ErrPrecondition
 	}
 	etag := b.tagLocked()
