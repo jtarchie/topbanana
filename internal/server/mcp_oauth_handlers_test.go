@@ -105,7 +105,11 @@ func TestMCPTokenHandler_ErrorPaths(t *testing.T) {
 	clientID := registerTestClient(t, s)
 
 	seedCode := func() string {
-		return s.mcpOAuth.newCode("user@example.com", clientID, "https://cb.example/done", challenge)
+		code, err := s.mcpOAuth.newCode(context.Background(), "user@example.com", clientID, "https://cb.example/done", challenge)
+		if err != nil {
+			t.Fatalf("newCode: %v", err)
+		}
+		return code
 	}
 
 	cases := []struct {
@@ -171,7 +175,10 @@ func TestMCPTokenHandler_SuccessAndReplay(t *testing.T) {
 	s := newOAuthTestServer(t)
 	verifier, challenge := pkcePair()
 	clientID := registerTestClient(t, s)
-	code := s.mcpOAuth.newCode("user@example.com", clientID, "https://cb.example/done", challenge)
+	code, err := s.mcpOAuth.newCode(context.Background(), "user@example.com", clientID, "https://cb.example/done", challenge)
+	if err != nil {
+		t.Fatalf("newCode: %v", err)
+	}
 
 	form := url.Values{
 		"grant_type": {"authorization_code"}, "code": {code},
@@ -186,7 +193,7 @@ func TestMCPTokenHandler_SuccessAndReplay(t *testing.T) {
 		TokenType   string `json:"token_type"`
 		ExpiresIn   int    `json:"expires_in"`
 	}
-	err := json.Unmarshal(rec.Body.Bytes(), &resp)
+	err = json.Unmarshal(rec.Body.Bytes(), &resp)
 	if err != nil {
 		t.Fatalf("decode token response: %v", err)
 	}

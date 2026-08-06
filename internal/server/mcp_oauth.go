@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -31,27 +32,49 @@ import (
 // session, so no second login system is introduced. Tokens are the JWTs minted
 // by internal/auth/mcp.go and verified by the bearer middleware on /mcp.
 //
-// Client registrations are persisted to S3 under mcpOAuthClientPrefix: an MCP
-// client registers once and reuses its client_id indefinitely, so a
-// process-local map meant every restart or redeploy broke returning clients
-// with "unknown client_id". Pending authorization codes are still in memory
-// (process-local) — they carry a 10-minute TTL, so losing them costs at most
-// one retry of an in-progress connect, and only that map keeps this endpoint
-// from being run multi-instance.
+// Both halves of the flow's state are persisted to S3, because both outlive a
+// single request and neither survives being process-local:
+//
+//   - Client registrations (mcpOAuthClientPrefix). An MCP client registers once
+//     and reuses its client_id indefinitely, so a map meant every restart or
+//     redeploy broke returning clients with "unknown client_id".
+//   - Authorization codes (mcpOAuthCodePrefix), so the /oauth/token POST can
+//     land on a different instance than the /oauth/authorize that issued it.
+//     Without this a two-instance deployment fails roughly half of all
+//     connects, and retrying is a coin flip rather than a fix. There is
+//     deliberately no in-memory copy — see newCode.
+//
+// ponytail: single use across instances has a narrow race. Two simultaneous
+// redemptions can both ReadRaw the code before either DeleteRaw lands, so both
+// mint a token. Upgrade path is a compare-and-set on the stored object (ReadRaw
+// already returns an ETag; internal/state shows the If-Match / If-None-Match
+// shape working against both S3 and Minio) — store has no conditional write
+// today. Not urgent: winning that race requires the PKCE verifier, and whoever
+// holds it can already get one valid token by asking once, so a second token
+// for the same subject and scope grants nothing new.
 
 const mcpAuthCodeTTL = 10 * time.Minute
 
 // mcpOAuthClientPrefix is the bucket home of RFC 7591 registrations, one JSON
 // blob per client_id — the same shape internal/auth uses for invites.
-const mcpOAuthClientPrefix = "_auth/oauth/clients/"
+// mcpOAuthCodePrefix is the equivalent for pending authorization codes.
+const (
+	mcpOAuthClientPrefix = "_auth/oauth/clients/"
+	mcpOAuthCodePrefix   = "_auth/oauth/codes/"
+)
 
-// mcpClientIDPattern is the alphabet mcpRandomToken emits. client_id arrives
-// from an untrusted query parameter and is interpolated into a bucket key, so
-// anything outside it is rejected before it reaches the store.
-var mcpClientIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+// mcpTokenPattern is the alphabet mcpRandomToken emits. Both a client_id and an
+// authorization code arrive from untrusted request input and are interpolated
+// into a bucket key, so anything outside it is rejected before it reaches the
+// store.
+var mcpTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 func mcpOAuthClientKey(id string) string {
 	return mcpOAuthClientPrefix + id + ".json"
+}
+
+func mcpOAuthCodeKey(code string) string {
+	return mcpOAuthCodePrefix + code + ".json"
 }
 
 // echo's response methods return an error wrapcheck flags at every call site.
@@ -87,9 +110,10 @@ type mcpOAuthState struct {
 	mu sync.Mutex
 	// clients is a read cache only — S3 is the source of truth, and a miss
 	// here falls through to it. Never treat an absent entry as "no such
-	// client".
+	// client". Safe to cache because a registration is immutable for its
+	// lifetime; revokeClient evicts on the one path that ends it. Codes get no
+	// such cache: a stale hit there would mint a token (see newCode).
 	clients map[string]mcpOAuthClient
-	codes   map[string]mcpAuthCode
 }
 
 type mcpOAuthClient struct {
@@ -103,11 +127,11 @@ type mcpOAuthClient struct {
 }
 
 type mcpAuthCode struct {
-	Email         string
-	ClientID      string
-	RedirectURI   string
-	CodeChallenge string
-	Expires       time.Time
+	Email         string    `json:"email"`
+	ClientID      string    `json:"client_id"`
+	RedirectURI   string    `json:"redirect_uri"`
+	CodeChallenge string    `json:"code_challenge"`
+	Expires       time.Time `json:"expires"`
 }
 
 func newMCPOAuthState(s *store.Store) *mcpOAuthState {
@@ -118,7 +142,6 @@ func newMCPOAuthState(s *store.Store) *mcpOAuthState {
 		// sustained per IP, burst 5 for a shared NAT.
 		registerLimiter: photowall.NewLimiter(0.2, 5),
 		clients:         map[string]mcpOAuthClient{},
-		codes:           map[string]mcpAuthCode{},
 	}
 }
 
@@ -154,7 +177,7 @@ func (st *mcpOAuthState) registerClient(ctx context.Context, redirectURIs []stri
 // "registered"; a non-nil error means the lookup itself failed and must not be
 // reported to the caller as an unknown client.
 func (st *mcpOAuthState) client(ctx context.Context, id string) (mcpOAuthClient, bool, error) {
-	if !mcpClientIDPattern.MatchString(id) {
+	if !mcpTokenPattern.MatchString(id) {
 		return mcpOAuthClient{}, false, nil
 	}
 	st.mu.Lock()
@@ -227,7 +250,7 @@ func (st *mcpOAuthState) listClients(ctx context.Context) ([]registeredClient, e
 // would still serve its own cached copy, which is one more thing the codes-map
 // multi-instance work has to account for.
 func (st *mcpOAuthState) revokeClient(ctx context.Context, id string) error {
-	if !mcpClientIDPattern.MatchString(id) {
+	if !mcpTokenPattern.MatchString(id) {
 		return nil
 	}
 	err := st.store.DeleteRaw(ctx, mcpOAuthClientKey(id))
@@ -240,46 +263,100 @@ func (st *mcpOAuthState) revokeClient(ctx context.Context, id string) error {
 	return nil
 }
 
-func (st *mcpOAuthState) newCode(email, clientID, redirectURI, challenge string) string {
+// newCode issues an authorization code. The stored object is the code — there
+// is deliberately no in-memory copy. A local map looks like a free fast path
+// but silently breaks single use: if instance A issues, B redeems, and the
+// request retries onto A, A's map still says yes and mints a second token. A
+// cache whose staleness grants access isn't a cache.
+func (st *mcpOAuthState) newCode(ctx context.Context, email, clientID, redirectURI, challenge string) (string, error) {
 	code := mcpRandomToken()
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	// A code is only deleted when it's redeemed, so every abandoned connect
-	// (closed tab, tool error, dropped network) leaks an entry for the life of
-	// the process. Sweeping here costs one pass over a map that is empty in
-	// steady state, and avoids a background goroutine whose only job would be
-	// this. Issuing is gated on a passkey session, so the map can't be inflated
-	// from outside.
-	now := time.Now()
-	for k, ac := range st.codes {
-		if now.After(ac.Expires) {
-			delete(st.codes, k)
-		}
-	}
-	st.codes[code] = mcpAuthCode{
+	body, err := json.Marshal(mcpAuthCode{
 		Email:         email,
 		ClientID:      clientID,
 		RedirectURI:   redirectURI,
 		CodeChallenge: challenge,
 		Expires:       time.Now().Add(mcpAuthCodeTTL),
+	})
+	if err != nil {
+		return "", fmt.Errorf("server: marshal auth code: %w", err)
 	}
-	return code
+	err = st.store.WriteRaw(ctx, mcpOAuthCodeKey(code), string(body), "application/json", nil)
+	if err != nil {
+		return "", fmt.Errorf("server: write auth code: %w", err)
+	}
+	st.sweepStoredCodes(ctx)
+	return code, nil
 }
 
 // takeCode looks up and removes a code (single use). Returns false if missing
-// or expired.
-func (st *mcpOAuthState) takeCode(code string) (mcpAuthCode, bool) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	ac, ok := st.codes[code]
-	if !ok {
+// or expired — the caller must not distinguish the two, since both mean
+// "invalid_grant" and the difference is only useful to someone probing.
+func (st *mcpOAuthState) takeCode(ctx context.Context, code string) (mcpAuthCode, bool) {
+	if !mcpTokenPattern.MatchString(code) {
 		return mcpAuthCode{}, false
 	}
-	delete(st.codes, code)
-	if time.Now().After(ac.Expires) {
+	obj, err := st.store.ReadRaw(ctx, mcpOAuthCodeKey(code))
+	if err != nil {
+		slog.Warn("mcp.oauth.code_read_failed", "err", err)
 		return mcpAuthCode{}, false
 	}
-	return ac, true
+	if obj.Content == "" {
+		return mcpAuthCode{}, false
+	}
+	// Delete before honouring it, so a crash between here and the response
+	// can't leave a redeemable code behind.
+	st.deleteStoredCode(ctx, code)
+	stored := mcpAuthCode{}
+	err = json.Unmarshal([]byte(obj.Content), &stored)
+	if err != nil {
+		slog.Warn("mcp.oauth.code_parse_failed", "err", err)
+		return mcpAuthCode{}, false
+	}
+	if time.Now().After(stored.Expires) {
+		return mcpAuthCode{}, false
+	}
+	return stored, true
+}
+
+func (st *mcpOAuthState) deleteStoredCode(ctx context.Context, code string) {
+	if !mcpTokenPattern.MatchString(code) {
+		return
+	}
+	err := st.store.DeleteRaw(ctx, mcpOAuthCodeKey(code))
+	if err != nil {
+		slog.Warn("mcp.oauth.code_delete_failed", "err", err)
+	}
+}
+
+// sweepStoredCodes drops expired code objects. Redemption deletes its own
+// object, so this only cleans up after abandoned connects — the stored twin of
+// the in-memory sweep above, and the reason persisting codes doesn't trade a
+// memory leak for a bucket leak. Runs on the authorize path, which is rare and
+// already doing a write; the listing only ever holds codes from the last ten
+// minutes plus abandoned ones, which this is in the business of removing.
+func (st *mcpOAuthState) sweepStoredCodes(ctx context.Context) {
+	keys, err := st.store.ListPrefix(ctx, mcpOAuthCodePrefix)
+	if err != nil {
+		slog.Warn("mcp.oauth.code_sweep_failed", "err", err)
+		return
+	}
+	now := time.Now()
+	for _, key := range keys {
+		obj, err := st.store.ReadRaw(ctx, key)
+		if err != nil || obj.Content == "" {
+			continue
+		}
+		stored := mcpAuthCode{}
+		// An unparseable record is junk we can never honour, so it goes too.
+		parseErr := json.Unmarshal([]byte(obj.Content), &stored)
+		if parseErr == nil && !now.After(stored.Expires) {
+			continue
+		}
+		err = st.store.DeleteRaw(ctx, key)
+		if err != nil {
+			slog.Warn("mcp.oauth.code_sweep_delete_failed", "key", key, "err", err)
+		}
+	}
 }
 
 func (c mcpOAuthClient) allows(redirectURI string) bool {
@@ -427,7 +504,13 @@ func (s *Server) mcpAuthorizeHandler(c *echo.Context) error {
 		return mcpRedirect(c, "/login?return="+url.QueryEscape(c.Request().URL.String()))
 	}
 
-	code := s.mcpOAuth.newCode(email, clientID, redirectURI, challenge)
+	code, err := s.mcpOAuth.newCode(c.Request().Context(), email, clientID, redirectURI, challenge)
+	if err != nil {
+		// Failing here is better than redirecting with a code the token
+		// endpoint can never resolve: the user sees the problem now instead of
+		// an opaque invalid_grant from their tool.
+		return mcpRespString(c, http.StatusInternalServerError, "could not issue authorization code")
+	}
 	dest, err := url.Parse(redirectURI)
 	if err != nil {
 		return mcpRespString(c, http.StatusBadRequest, "invalid redirect_uri")
@@ -447,7 +530,7 @@ func (s *Server) mcpTokenHandler(c *echo.Context) error {
 	if c.FormValue("grant_type") != "authorization_code" {
 		return mcpRespJSON(c, http.StatusBadRequest, map[string]string{"error": "unsupported_grant_type"})
 	}
-	ac, ok := s.mcpOAuth.takeCode(c.FormValue("code"))
+	ac, ok := s.mcpOAuth.takeCode(c.Request().Context(), c.FormValue("code"))
 	if !ok {
 		return mcpRespJSON(c, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
 	}

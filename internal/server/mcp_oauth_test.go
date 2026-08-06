@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -29,46 +30,113 @@ func TestVerifyPKCE(t *testing.T) {
 	}
 }
 
-func TestMCPOAuthState_CodeSingleUse(t *testing.T) {
-	st := newMCPOAuthState(storetest.New(t, 0))
-	code := st.newCode("user@example.com", "client-1", "https://cb", "challenge")
+// mustNewCode issues a code or fails the test — the error path is exercised
+// on its own in the handler tests.
+func mustNewCode(t *testing.T, st *mcpOAuthState, ctx context.Context) string {
+	t.Helper()
+	code, err := st.newCode(ctx, "user@example.com", "client-1", "https://cb", "challenge")
+	if err != nil {
+		t.Fatalf("newCode: %v", err)
+	}
+	return code
+}
 
-	ac, ok := st.takeCode(code)
+func TestMCPOAuthState_CodeSingleUse(t *testing.T) {
+	ctx := context.Background()
+	st := newMCPOAuthState(storetest.New(t, 0))
+	code := mustNewCode(t, st, ctx)
+
+	ac, ok := st.takeCode(ctx, code)
 	if !ok {
 		t.Fatal("first takeCode should succeed")
 	}
 	if ac.Email != "user@example.com" || ac.ClientID != "client-1" || ac.RedirectURI != "https://cb" {
 		t.Fatalf("code payload mismatch: %+v", ac)
 	}
-	if _, ok := st.takeCode(code); ok {
+	if _, ok := st.takeCode(ctx, code); ok {
 		t.Fatal("second takeCode should fail (single use)")
 	}
 }
 
-func TestMCPOAuthState_CodeExpiry(t *testing.T) {
-	st := newMCPOAuthState(storetest.New(t, 0))
-	st.codes["expired"] = mcpAuthCode{
-		Email:   "user@example.com",
-		Expires: time.Now().Add(-time.Minute),
+// TestMCPOAuthState_CodeRedeemableAcrossInstances is the multi-instance case:
+// /oauth/authorize lands on one instance and the /oauth/token POST is
+// load-balanced to another, which has never seen the code in memory. Two
+// states over one store stand in for the two processes.
+func TestMCPOAuthState_CodeRedeemableAcrossInstances(t *testing.T) {
+	ctx := context.Background()
+	backing := storetest.New(t, 0)
+	issuer := newMCPOAuthState(backing)
+	redeemer := newMCPOAuthState(backing)
+
+	code := mustNewCode(t, issuer, ctx)
+
+	ac, ok := redeemer.takeCode(ctx, code)
+	if !ok {
+		t.Fatal("a sibling instance must be able to redeem the code")
 	}
-	if _, ok := st.takeCode("expired"); ok {
-		t.Fatal("expired code should not be honoured")
+	if ac.Email != "user@example.com" || ac.ClientID != "client-1" || ac.CodeChallenge != "challenge" {
+		t.Fatalf("payload did not survive the round trip: %+v", ac)
+	}
+
+	// Single use has to hold across instances too, including back on the
+	// issuer, whose in-memory copy is now stale.
+	if _, ok := redeemer.takeCode(ctx, code); ok {
+		t.Fatal("redeemed code must not be redeemable twice on the same instance")
+	}
+	if _, ok := issuer.takeCode(ctx, code); ok {
+		t.Fatal("a code redeemed elsewhere must not still work on the issuer")
 	}
 }
 
-// TestMCPOAuthState_ExpiredCodesSwept: an abandoned connect leaves a code
-// behind that nothing ever redeems, so issuing has to clear the dead ones or
-// the map only grows for the life of the process.
-func TestMCPOAuthState_ExpiredCodesSwept(t *testing.T) {
-	st := newMCPOAuthState(storetest.New(t, 0))
-	st.codes["stale"] = mcpAuthCode{Email: "user@example.com", Expires: time.Now().Add(-time.Minute)}
-	live := st.newCode("user@example.com", "client-1", "https://cb", "challenge")
+// An expired code in the store must be refused the same way an expired
+// in-memory one is — otherwise persistence would quietly extend the TTL.
+func TestMCPOAuthState_StoredCodeExpiryEnforced(t *testing.T) {
+	ctx := context.Background()
+	backing := storetest.New(t, 0)
+	issuer := newMCPOAuthState(backing)
 
-	if _, ok := st.codes["stale"]; ok {
-		t.Fatal("issuing a code should sweep expired entries")
+	code := mustNewCode(t, issuer, ctx)
+	stale := mcpAuthCode{Email: "user@example.com", Expires: time.Now().Add(-time.Minute)}
+	body, err := json.Marshal(stale)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
 	}
-	if _, ok := st.codes[live]; !ok {
-		t.Fatal("the freshly issued code must survive its own sweep")
+	err = backing.WriteRaw(ctx, mcpOAuthCodeKey(code), string(body), "application/json", nil)
+	if err != nil {
+		t.Fatalf("overwrite stored code: %v", err)
+	}
+
+	if _, ok := newMCPOAuthState(backing).takeCode(ctx, code); ok {
+		t.Fatal("expired stored code must not be honoured")
+	}
+}
+
+// Persisting codes must not trade the in-memory leak for a bucket leak:
+// abandoned code objects are swept the next time one is issued.
+func TestMCPOAuthState_StoredCodesSwept(t *testing.T) {
+	ctx := context.Background()
+	backing := storetest.New(t, 0)
+	st := newMCPOAuthState(backing)
+
+	abandoned := mustNewCode(t, st, ctx)
+	stale := mcpAuthCode{Email: "user@example.com", Expires: time.Now().Add(-time.Minute)}
+	body, err := json.Marshal(stale)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	err = backing.WriteRaw(ctx, mcpOAuthCodeKey(abandoned), string(body), "application/json", nil)
+	if err != nil {
+		t.Fatalf("age the stored code: %v", err)
+	}
+
+	live := mustNewCode(t, st, ctx)
+
+	keys, err := backing.ListPrefix(ctx, mcpOAuthCodePrefix)
+	if err != nil {
+		t.Fatalf("list codes: %v", err)
+	}
+	if len(keys) != 1 || keys[0] != mcpOAuthCodeKey(live) {
+		t.Fatalf("stored codes = %v, want only the live one (%s)", keys, mcpOAuthCodeKey(live))
 	}
 }
 
