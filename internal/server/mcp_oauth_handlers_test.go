@@ -43,7 +43,7 @@ func newOAuthTestServer(t *testing.T) *Server {
 
 func registerTestClient(t *testing.T, s *Server) string {
 	t.Helper()
-	id, err := s.mcpOAuth.registerClient(context.Background(), []string{"https://cb.example/done"})
+	id, err := s.mcpOAuth.registerClient(context.Background(), []string{"https://cb.example/done"}, "Test Client")
 	if err != nil {
 		t.Fatalf("registerClient: %v", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -93,6 +94,12 @@ type mcpOAuthState struct {
 
 type mcpOAuthClient struct {
 	RedirectURIs []string `json:"redirect_uris"`
+	// ClientName and Created exist purely so the admin console can show a
+	// human something other than a random id. Both are self-reported by an
+	// unauthenticated caller (ClientName especially) — display only, never a
+	// trust signal. Records written before these fields decode as zero values.
+	ClientName string    `json:"client_name,omitempty"`
+	Created    time.Time `json:"created,omitempty"`
 }
 
 type mcpAuthCode struct {
@@ -124,9 +131,13 @@ func mcpRandomToken() string {
 // registerClient persists a registration and returns its client_id. The write
 // must land before the id is handed out: a client that gets an id we failed to
 // store would fail at /oauth/authorize with no way to recover but re-register.
-func (st *mcpOAuthState) registerClient(ctx context.Context, redirectURIs []string) (string, error) {
+func (st *mcpOAuthState) registerClient(ctx context.Context, redirectURIs []string, clientName string) (string, error) {
 	id := mcpRandomToken()
-	client := mcpOAuthClient{RedirectURIs: redirectURIs}
+	client := mcpOAuthClient{
+		RedirectURIs: redirectURIs,
+		ClientName:   clientName,
+		Created:      time.Now().UTC(),
+	}
 	body, err := json.Marshal(client)
 	if err != nil {
 		return "", fmt.Errorf("server: marshal oauth client: %w", err)
@@ -172,6 +183,61 @@ func (st *mcpOAuthState) cache(id string, c mcpOAuthClient) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.clients[id] = c
+}
+
+// registeredClient pairs a stored registration with its client_id, which lives
+// in the key rather than the body.
+type registeredClient struct {
+	ID string
+	mcpOAuthClient
+}
+
+// listClients enumerates every registration for the admin console. O(N) reads
+// over the prefix, same shape as auth.InviteStore.List — fine at the scale this
+// runs at (one record per tool install). Unparseable records are skipped rather
+// than failing the page: one bad blob shouldn't hide the rest.
+func (st *mcpOAuthState) listClients(ctx context.Context) ([]registeredClient, error) {
+	keys, err := st.store.ListPrefix(ctx, mcpOAuthClientPrefix)
+	if err != nil {
+		return nil, fmt.Errorf("server: list oauth clients: %w", err)
+	}
+	out := make([]registeredClient, 0, len(keys))
+	for _, key := range keys {
+		id := strings.TrimSuffix(strings.TrimPrefix(key, mcpOAuthClientPrefix), ".json")
+		if id == "" {
+			continue
+		}
+		obj, err := st.store.ReadRaw(ctx, key)
+		if err != nil || obj.Content == "" {
+			continue
+		}
+		c := mcpOAuthClient{}
+		err = json.Unmarshal([]byte(obj.Content), &c)
+		if err != nil {
+			continue
+		}
+		out = append(out, registeredClient{ID: id, mcpOAuthClient: c})
+	}
+	return out, nil
+}
+
+// revokeClient deletes a registration and drops it from the read cache. The
+// cache eviction is what makes revocation take effect immediately — without it
+// this instance would keep honouring the id until restart. A second instance
+// would still serve its own cached copy, which is one more thing the codes-map
+// multi-instance work has to account for.
+func (st *mcpOAuthState) revokeClient(ctx context.Context, id string) error {
+	if !mcpClientIDPattern.MatchString(id) {
+		return nil
+	}
+	err := st.store.DeleteRaw(ctx, mcpOAuthClientKey(id))
+	if err != nil {
+		return fmt.Errorf("server: revoke oauth client: %w", err)
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	delete(st.clients, id)
+	return nil
 }
 
 func (st *mcpOAuthState) newCode(email, clientID, redirectURI, challenge string) string {
@@ -300,7 +366,7 @@ func (s *Server) mcpRegisterHandler(c *echo.Context) error {
 	if len(req.RedirectURIs) == 0 {
 		return mcpRespJSON(c, http.StatusBadRequest, map[string]string{"error": "invalid_redirect_uri"})
 	}
-	clientID, err := s.mcpOAuth.registerClient(c.Request().Context(), req.RedirectURIs)
+	clientID, err := s.mcpOAuth.registerClient(c.Request().Context(), req.RedirectURIs, req.ClientName)
 	if err != nil {
 		return mcpRespJSON(c, http.StatusInternalServerError, map[string]string{"error": "server_error"})
 	}

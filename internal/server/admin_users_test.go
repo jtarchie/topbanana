@@ -51,6 +51,44 @@ func TestAdminUsers_DeleteControls(t *testing.T) {
 	}
 }
 
+// TestAdminUsers_MCPClientsSection: the MCP table only appears when the MCP
+// surface is mounted, renders a revoke control per registration, and degrades
+// to a readable placeholder for records written before name/created existed.
+func TestAdminUsers_MCPClientsSection(t *testing.T) {
+	t.Parallel()
+
+	off := renderAdminUsers(t, adminUsersData{MCPEnabled: false})
+	if strings.Contains(off, "Connected MCP clients") {
+		t.Error("MCP section must stay hidden when --mcp-secret is unset")
+	}
+
+	html := renderAdminUsers(t, adminUsersData{
+		MCPEnabled: true,
+		MCPClients: []adminMCPClientRow{
+			{ID: "abc123", Name: "Claude Code", Created: "2026-08-06 10:00", RedirectURIs: []string{"https://cb.example/done"}},
+			{ID: "legacy1"},
+		},
+	})
+	for _, want := range []string{
+		"Connected MCP clients",
+		`action="/admin/mcp-clients/abc123/revoke"`,
+		`action="/admin/mcp-clients/legacy1/revoke"`,
+		"Claude Code",
+		"https://cb.example/done",
+		">unnamed<",
+		">unknown<",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("MCP section missing %q", want)
+		}
+	}
+
+	empty := renderAdminUsers(t, adminUsersData{MCPEnabled: true})
+	if !strings.Contains(empty, "No tools have registered yet.") {
+		t.Error("empty MCP list should render its placeholder")
+	}
+}
+
 // makeFormLookup returns a func(string) string that matches values from a
 // fixture map. Missing keys yield "" — mirrors echo.FormValue semantics.
 func makeFormLookup(values map[string]string) func(string) string {

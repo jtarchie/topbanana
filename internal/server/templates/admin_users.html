@@ -70,6 +70,44 @@
   </section>
   {{ end }}
 
+  {{ if .MCPEnabled }}
+  <section class="mt-8" aria-labelledby="mcp-clients-heading">
+    <h2 id="mcp-clients-heading" class="text-lg font-semibold tracking-tight mb-1">
+      Connected MCP clients <span class="text-sm font-normal text-base-content/60 ml-1">· {{ len .MCPClients }}</span>
+    </h2>
+    <p class="text-sm text-base-content/70 mb-3">
+      External tools (e.g. Claude Code) that registered to edit sites over MCP. Registration is open by
+      design, so a row here is not proof of access — every connection still requires a passkey sign-in.
+      Revoking forces the tool to register and authorize again; tokens it already holds keep working until they expire.
+    </p>
+    {{ if .MCPClients }}
+    <div class="overflow-x-auto rounded-box border border-base-300">
+      <table class="table table-zebra">
+        <thead><tr><th scope="col">Name</th><th scope="col">Registered</th><th scope="col">Redirect URIs</th><th scope="col">Client ID</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody>
+          {{ range .MCPClients }}
+          <tr>
+            <td>{{ if .Name }}{{ .Name }}{{ else }}<span class="text-base-content/50">unnamed</span>{{ end }}</td>
+            <td>{{ if .Created }}{{ .Created }}{{ else }}<span class="text-base-content/50">unknown</span>{{ end }}</td>
+            <td><div class="flex flex-col gap-0.5">{{ range .RedirectURIs }}<code class="text-xs break-all">{{ . }}</code>{{ end }}</div></td>
+            <td><code class="text-xs break-all">{{ .ID }}</code></td>
+            <td>
+              <form method="POST" action="/admin/mcp-clients/{{ .ID }}/revoke" class="js-confirm"
+                    data-confirm-title="Revoke this MCP client?" data-confirm="The tool will have to register and sign in again to reconnect." data-confirm-ok="Revoke">
+                <button class="btn btn-ghost btn-sm text-error">Revoke</button>
+              </form>
+            </td>
+          </tr>
+          {{ end }}
+        </tbody>
+      </table>
+    </div>
+    {{ else }}
+    <p class="text-sm text-base-content/60">No tools have registered yet.</p>
+    {{ end }}
+  </section>
+  {{ end }}
+
   <section class="mt-8" aria-labelledby="users-heading">
     <div class="flex items-baseline justify-between gap-3 flex-wrap mb-3">
       <h2 id="users-heading" class="text-lg font-semibold tracking-tight">

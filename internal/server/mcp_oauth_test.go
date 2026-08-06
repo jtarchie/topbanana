@@ -59,7 +59,7 @@ func TestMCPOAuthState_CodeExpiry(t *testing.T) {
 func TestMCPOAuthState_ClientRegistration(t *testing.T) {
 	ctx := context.Background()
 	st := newMCPOAuthState(storetest.New(t, 0))
-	id, err := st.registerClient(ctx, []string{"https://cb/one", "https://cb/two"})
+	id, err := st.registerClient(ctx, []string{"https://cb/one", "https://cb/two"}, "Two Callbacks")
 	if err != nil {
 		t.Fatalf("registerClient: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestMCPOAuthState_ClientSurvivesRestart(t *testing.T) {
 	ctx := context.Background()
 	backing := storetest.New(t, 0)
 
-	id, err := newMCPOAuthState(backing).registerClient(ctx, []string{"https://cb/one"})
+	id, err := newMCPOAuthState(backing).registerClient(ctx, []string{"https://cb/one"}, "Restart Probe")
 	if err != nil {
 		t.Fatalf("registerClient: %v", err)
 	}
@@ -109,6 +109,59 @@ func TestMCPOAuthState_ClientSurvivesRestart(t *testing.T) {
 	}
 	if !client.allows("https://cb/one") {
 		t.Fatal("redirect URIs should survive the restart")
+	}
+}
+
+// TestMCPOAuthState_ListAndRevoke covers the admin console's two operations.
+// The load-bearing assertion is the last one: revoke has to evict the read
+// cache, or this instance keeps honouring a client_id whose record is gone.
+func TestMCPOAuthState_ListAndRevoke(t *testing.T) {
+	ctx := context.Background()
+	st := newMCPOAuthState(storetest.New(t, 0))
+
+	keep, err := st.registerClient(ctx, []string{"https://cb/keep"}, "Keeper")
+	if err != nil {
+		t.Fatalf("registerClient: %v", err)
+	}
+	drop, err := st.registerClient(ctx, []string{"https://cb/drop"}, "Doomed")
+	if err != nil {
+		t.Fatalf("registerClient: %v", err)
+	}
+
+	listed, err := st.listClients(ctx)
+	if err != nil {
+		t.Fatalf("listClients: %v", err)
+	}
+	if len(listed) != 2 {
+		t.Fatalf("listed %d clients, want 2", len(listed))
+	}
+	byID := map[string]registeredClient{}
+	for _, cl := range listed {
+		byID[cl.ID] = cl
+	}
+	if got := byID[keep]; got.ClientName != "Keeper" || got.Created.IsZero() {
+		t.Fatalf("listed record lost its metadata: %+v", got)
+	}
+
+	// Both ids are in the read cache right now (registerClient seeds it), which
+	// is exactly the condition revoke has to defeat.
+	err = st.revokeClient(ctx, drop)
+	if err != nil {
+		t.Fatalf("revokeClient: %v", err)
+	}
+
+	listed, err = st.listClients(ctx)
+	if err != nil {
+		t.Fatalf("listClients after revoke: %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != keep {
+		t.Fatalf("after revoke listed %+v, want only %s", listed, keep)
+	}
+	if _, ok, _ := st.client(ctx, drop); ok {
+		t.Fatal("revoked client_id still resolves — the read cache was not evicted")
+	}
+	if _, ok, _ := st.client(ctx, keep); !ok {
+		t.Fatal("revoking one client must not affect the others")
 	}
 }
 

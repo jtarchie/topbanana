@@ -29,6 +29,7 @@ func (s *adminController) register(e *echo.Echo, super echo.MiddlewareFunc) {
 	e.GET("/admin/users", s.adminUsersHandler, super)
 	e.POST("/admin/users/invite", s.adminInviteCreateHandler, super)
 	e.POST("/admin/invites/:token/revoke", s.adminInviteRevokeHandler, super)
+	e.POST("/admin/mcp-clients/:id/revoke", s.adminMCPClientRevokeHandler, super)
 	e.PATCH("/admin/users/:email", s.adminUserSetDisabledHandler, super)
 	e.DELETE("/admin/users/:email/sessions", s.adminUserRevokeSessionsHandler, super)
 	e.PATCH("/admin/users/:email/quotas", s.adminUserQuotasHandler, super)
@@ -61,11 +62,23 @@ type adminInviteRow struct {
 	URL     string
 }
 
+// adminMCPClientRow is one row in the registered-MCP-clients table. Name is
+// self-reported at registration by an unauthenticated caller, so it's a label,
+// not an identity — the id is the only thing that means anything.
+type adminMCPClientRow struct {
+	ID           string
+	Name         string
+	Created      string
+	RedirectURIs []string
+}
+
 // adminUsersData backs templates/admin_users.html.
 type adminUsersData struct {
 	Chrome
 	Users           []adminUserRow
 	Invites         []adminInviteRow
+	MCPClients      []adminMCPClientRow
+	MCPEnabled      bool
 	Flash           string
 	Error           string
 	Roles           []string
@@ -142,15 +155,72 @@ func (s *adminController) adminUsersHandler(c *echo.Context) error {
 	}
 	sort.SliceStable(inviteRows, func(i, j int) bool { return inviteRows[i].Email < inviteRows[j].Email })
 
+	mcpRows, err := s.mcpClientRows(ctx)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "list mcp clients", err)
+	}
+
 	return s.render(c, "admin_users", adminUsersData{
 		Chrome:          Chrome{Active: "admin_users"},
 		Users:           rows,
 		Invites:         inviteRows,
+		MCPClients:      mcpRows,
+		MCPEnabled:      s.mcpOAuth != nil,
 		Flash:           c.QueryParam("flash"),
 		Error:           c.QueryParam("error"),
 		Roles:           []string{string(auth.RoleAdmin), string(auth.RoleSuperAdmin)},
 		SuggestedModels: suggestedModels,
 	})
+}
+
+// mcpClientRows lists the registered MCP clients for the console. Returns
+// nothing (not an error) when the MCP surface is unmounted, which is the
+// default for deployments that never set --mcp-secret.
+func (s *adminController) mcpClientRows(ctx context.Context) ([]adminMCPClientRow, error) {
+	if s.mcpOAuth == nil {
+		return nil, nil
+	}
+	clients, err := s.mcpOAuth.listClients(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]adminMCPClientRow, 0, len(clients))
+	for _, cl := range clients {
+		created := ""
+		if !cl.Created.IsZero() {
+			created = cl.Created.UTC().Format("2006-01-02 15:04")
+		}
+		rows = append(rows, adminMCPClientRow{
+			ID:           cl.ID,
+			Name:         cl.ClientName,
+			Created:      created,
+			RedirectURIs: cl.RedirectURIs,
+		})
+	}
+	// Newest first: the row an operator is looking for right after connecting a
+	// tool is the one they just created. Blank Created (pre-upgrade records)
+	// sorts last.
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Created > rows[j].Created })
+	return rows, nil
+}
+
+// adminMCPClientRevokeHandler deletes one MCP client registration. The tool
+// holding that client_id has to re-register (and re-authorize with a passkey)
+// before it can connect again; any access token it already minted stays valid
+// until it expires, since tokens are self-contained JWTs.
+func (s *adminController) adminMCPClientRevokeHandler(c *echo.Context) error {
+	if s.mcpOAuth == nil {
+		return notFound()
+	}
+	id := c.Param("id")
+	if id == "" {
+		return notFound()
+	}
+	err := s.mcpOAuth.revokeClient(c.Request().Context(), id)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "revoke mcp client", err)
+	}
+	return c.Redirect(http.StatusSeeOther, "/admin/users?flash=mcp+client+revoked") //nolint:wrapcheck
 }
 
 // adminInviteCreateHandler accepts a form post to issue a new invite.
