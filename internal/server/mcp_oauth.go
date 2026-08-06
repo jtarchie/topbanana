@@ -244,6 +244,18 @@ func (st *mcpOAuthState) newCode(email, clientID, redirectURI, challenge string)
 	code := mcpRandomToken()
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	// A code is only deleted when it's redeemed, so every abandoned connect
+	// (closed tab, tool error, dropped network) leaks an entry for the life of
+	// the process. Sweeping here costs one pass over a map that is empty in
+	// steady state, and avoids a background goroutine whose only job would be
+	// this. Issuing is gated on a passkey session, so the map can't be inflated
+	// from outside.
+	now := time.Now()
+	for k, ac := range st.codes {
+		if now.After(ac.Expires) {
+			delete(st.codes, k)
+		}
+	}
 	st.codes[code] = mcpAuthCode{
 		Email:         email,
 		ClientID:      clientID,

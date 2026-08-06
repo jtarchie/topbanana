@@ -56,6 +56,22 @@ func TestMCPOAuthState_CodeExpiry(t *testing.T) {
 	}
 }
 
+// TestMCPOAuthState_ExpiredCodesSwept: an abandoned connect leaves a code
+// behind that nothing ever redeems, so issuing has to clear the dead ones or
+// the map only grows for the life of the process.
+func TestMCPOAuthState_ExpiredCodesSwept(t *testing.T) {
+	st := newMCPOAuthState(storetest.New(t, 0))
+	st.codes["stale"] = mcpAuthCode{Email: "user@example.com", Expires: time.Now().Add(-time.Minute)}
+	live := st.newCode("user@example.com", "client-1", "https://cb", "challenge")
+
+	if _, ok := st.codes["stale"]; ok {
+		t.Fatal("issuing a code should sweep expired entries")
+	}
+	if _, ok := st.codes[live]; !ok {
+		t.Fatal("the freshly issued code must survive its own sweep")
+	}
+}
+
 func TestMCPOAuthState_ClientRegistration(t *testing.T) {
 	ctx := context.Background()
 	st := newMCPOAuthState(storetest.New(t, 0))
