@@ -52,13 +52,20 @@ import (
 
 const mcpAuthCodeTTL = 10 * time.Minute
 
-// mcpOAuthClientPrefix is the bucket home of RFC 7591 registrations, one JSON
-// blob per client_id — the same shape internal/auth uses for invites.
-// mcpOAuthCodePrefix is the equivalent for pending authorization codes.
-const (
-	mcpOAuthClientPrefix = "_auth/oauth/clients/"
-	mcpOAuthCodePrefix   = "_auth/oauth/codes/"
-)
+// mcpOAuthPrefix is the bucket namespace the authorization server owns:
+// registrations under clients/, pending authorization codes under codes/, one
+// JSON blob each — the same shape internal/auth uses for invites.
+//
+// Held per-instance rather than as a package constant because both listing
+// paths (listClients, sweepStoredCodes) assume everything under the prefix is
+// theirs. That is true in production, where the server owns the namespace, and
+// false in tests sharing one bucket — which is how a suite that passed against
+// the in-memory store failed against Minio, reading records left by its
+// neighbours and by previous runs.
+const mcpOAuthPrefix = "_auth/oauth/"
+
+func (st *mcpOAuthState) clientsPrefix() string { return st.prefix + "clients/" }
+func (st *mcpOAuthState) codesPrefix() string   { return st.prefix + "codes/" }
 
 // mcpTokenPattern is the alphabet mcpRandomToken emits. Both a client_id and an
 // authorization code arrive from untrusted request input and are interpolated
@@ -66,12 +73,12 @@ const (
 // store.
 var mcpTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
-func mcpOAuthClientKey(id string) string {
-	return mcpOAuthClientPrefix + id + ".json"
+func (st *mcpOAuthState) clientKey(id string) string {
+	return st.clientsPrefix() + id + ".json"
 }
 
-func mcpOAuthCodeKey(code string) string {
-	return mcpOAuthCodePrefix + code + ".json"
+func (st *mcpOAuthState) codeKey(code string) string {
+	return st.codesPrefix() + code + ".json"
 }
 
 // echo's response methods return an error wrapcheck flags at every call site.
@@ -94,6 +101,9 @@ func mcpRedirect(c *echo.Context, dest string) error {
 // registration rate limiter, which is advisory and fine to keep per-instance.
 type mcpOAuthState struct {
 	store *store.Store
+
+	// prefix is the bucket namespace this instance owns; see mcpOAuthPrefix.
+	prefix string
 
 	// registerLimiter throttles /oauth/register per client IP. RFC 7591
 	// registration is necessarily unauthenticated — Claude Code registers
@@ -130,8 +140,15 @@ type mcpAuthCode struct {
 }
 
 func newMCPOAuthState(s *store.Store) *mcpOAuthState {
+	return newMCPOAuthStateAt(s, mcpOAuthPrefix)
+}
+
+// newMCPOAuthStateAt is newMCPOAuthState with an explicit namespace. Tests use
+// it to get a prefix of their own so they don't read each other's records.
+func newMCPOAuthStateAt(s *store.Store, prefix string) *mcpOAuthState {
 	return &mcpOAuthState{
-		store: s,
+		store:  s,
+		prefix: prefix,
 		// Registering is a once-per-tool-install event, so this is far above
 		// any legitimate rate while still blunting a script: ~1 per 5s
 		// sustained per IP, burst 5 for a shared NAT.
@@ -159,7 +176,7 @@ func (st *mcpOAuthState) registerClient(ctx context.Context, redirectURIs []stri
 	if err != nil {
 		return "", fmt.Errorf("server: marshal oauth client: %w", err)
 	}
-	err = st.store.WriteRaw(ctx, mcpOAuthClientKey(id), string(body), "application/json", nil)
+	err = st.store.WriteRaw(ctx, st.clientKey(id), string(body), "application/json", nil)
 	if err != nil {
 		return "", fmt.Errorf("server: write oauth client: %w", err)
 	}
@@ -181,7 +198,7 @@ func (st *mcpOAuthState) client(ctx context.Context, id string) (mcpOAuthClient,
 	if !mcpTokenPattern.MatchString(id) {
 		return mcpOAuthClient{}, false, nil
 	}
-	obj, err := st.store.ReadRaw(ctx, mcpOAuthClientKey(id))
+	obj, err := st.store.ReadRaw(ctx, st.clientKey(id))
 	if err != nil {
 		return mcpOAuthClient{}, false, fmt.Errorf("server: read oauth client: %w", err)
 	}
@@ -208,13 +225,13 @@ type registeredClient struct {
 // runs at (one record per tool install). Unparseable records are skipped rather
 // than failing the page: one bad blob shouldn't hide the rest.
 func (st *mcpOAuthState) listClients(ctx context.Context) ([]registeredClient, error) {
-	keys, err := st.store.ListPrefix(ctx, mcpOAuthClientPrefix)
+	keys, err := st.store.ListPrefix(ctx, st.clientsPrefix())
 	if err != nil {
 		return nil, fmt.Errorf("server: list oauth clients: %w", err)
 	}
 	out := make([]registeredClient, 0, len(keys))
 	for _, key := range keys {
-		id := strings.TrimSuffix(strings.TrimPrefix(key, mcpOAuthClientPrefix), ".json")
+		id := strings.TrimSuffix(strings.TrimPrefix(key, st.clientsPrefix()), ".json")
 		// Every id we ever issued is a mcpRandomToken, so anything else under
 		// this prefix is not a registration. Skipping it keeps the console
 		// consistent with revokeClient, which refuses such ids — otherwise the
@@ -244,7 +261,7 @@ func (st *mcpOAuthState) revokeClient(ctx context.Context, id string) error {
 	if !mcpTokenPattern.MatchString(id) {
 		return ErrMCPClientNotFound
 	}
-	err := st.store.DeleteRaw(ctx, mcpOAuthClientKey(id))
+	err := st.store.DeleteRaw(ctx, st.clientKey(id))
 	if err != nil {
 		return fmt.Errorf("server: revoke oauth client: %w", err)
 	}
@@ -272,7 +289,7 @@ func (st *mcpOAuthState) newCode(ctx context.Context, email, clientID, redirectU
 	if err != nil {
 		return "", fmt.Errorf("server: marshal auth code: %w", err)
 	}
-	err = st.store.WriteRaw(ctx, mcpOAuthCodeKey(code), string(body), "application/json", nil)
+	err = st.store.WriteRaw(ctx, st.codeKey(code), string(body), "application/json", nil)
 	if err != nil {
 		return "", fmt.Errorf("server: write auth code: %w", err)
 	}
@@ -290,7 +307,7 @@ func (st *mcpOAuthState) takeCode(ctx context.Context, code string) (mcpAuthCode
 	if !mcpTokenPattern.MatchString(code) {
 		return mcpAuthCode{}, false, nil
 	}
-	obj, err := st.store.ReadRaw(ctx, mcpOAuthCodeKey(code))
+	obj, err := st.store.ReadRaw(ctx, st.codeKey(code))
 	if err != nil {
 		return mcpAuthCode{}, false, fmt.Errorf("server: read auth code: %w", err)
 	}
@@ -319,7 +336,7 @@ func (st *mcpOAuthState) takeCode(ctx context.Context, code string) (mcpAuthCode
 	if err != nil {
 		return mcpAuthCode{}, false, fmt.Errorf("server: marshal consumed auth code: %w", err)
 	}
-	_, err = st.store.WriteRawIfMatch(ctx, mcpOAuthCodeKey(code), string(consumed), "application/json", nil, obj.ETag)
+	_, err = st.store.WriteRawIfMatch(ctx, st.codeKey(code), string(consumed), "application/json", nil, obj.ETag)
 	if errors.Is(err, store.ErrPrecondition) {
 		// Someone else claimed it first, or it was swept out from under us.
 		return mcpAuthCode{}, false, nil
@@ -340,7 +357,7 @@ func (st *mcpOAuthState) takeCode(ctx context.Context, code string) (mcpAuthCode
 // caller holds the claim, so a failure is cosmetic: the stored record already
 // says Consumed and the sweeper will collect it.
 func (st *mcpOAuthState) deleteStoredCode(ctx context.Context, code string) {
-	err := st.store.DeleteRaw(ctx, mcpOAuthCodeKey(code))
+	err := st.store.DeleteRaw(ctx, st.codeKey(code))
 	if err != nil {
 		slog.Warn("mcp.oauth.code_delete_failed", "err", err)
 	}
@@ -353,7 +370,7 @@ func (st *mcpOAuthState) deleteStoredCode(ctx context.Context, code string) {
 // already doing a write; the listing only ever holds codes from the last ten
 // minutes plus abandoned ones, which this is in the business of removing.
 func (st *mcpOAuthState) sweepStoredCodes(ctx context.Context) {
-	keys, err := st.store.ListPrefix(ctx, mcpOAuthCodePrefix)
+	keys, err := st.store.ListPrefix(ctx, st.codesPrefix())
 	if err != nil {
 		slog.Warn("mcp.oauth.code_sweep_failed", "err", err)
 		return

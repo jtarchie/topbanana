@@ -25,6 +25,7 @@ import (
 func newOAuthTestServer(t *testing.T) *Server {
 	t.Helper()
 	backing := storetest.New(t, 0)
+	oauthPrefix := oauthTestPrefix(t)
 	a, err := auth.New(auth.Config{
 		Blobs:           blobs.FromStore(backing),
 		Domain:          "localhost",
@@ -37,7 +38,7 @@ func newOAuthTestServer(t *testing.T) *Server {
 	t.Cleanup(func() { _ = a.Close() })
 	return &Server{
 		auth:      a,
-		mcpOAuth:  newMCPOAuthState(backing),
+		mcpOAuth:  newMCPOAuthStateAt(backing, oauthPrefix),
 		mcpSecret: "test-oauth-secret",
 	}
 }
@@ -369,7 +370,7 @@ func TestMCPRegisterHandler_RateLimited(t *testing.T) {
 	}
 
 	// The refused attempt must not have created a registration.
-	keys, err := s.mcpOAuth.store.ListPrefix(context.Background(), mcpOAuthClientPrefix)
+	keys, err := s.mcpOAuth.store.ListPrefix(context.Background(), s.mcpOAuth.clientsPrefix())
 	if err != nil {
 		t.Fatalf("list registrations: %v", err)
 	}

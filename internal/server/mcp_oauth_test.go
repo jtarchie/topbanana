@@ -7,10 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/jtarchie/topbanana/internal/store"
 	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
@@ -44,9 +47,30 @@ func mustNewCode(t *testing.T, st *mcpOAuthState, ctx context.Context) string {
 	return code
 }
 
+// oauthTestState returns a state with a namespace unique to this test. The
+// listing paths (listClients, sweepStoredCodes) treat everything under the
+// prefix as theirs, which is true in production and false when the suite runs
+// against a shared Minio bucket — without this, these tests read records left
+// by their neighbours and by earlier runs.
+func oauthTestState(t *testing.T, s *store.Store) *mcpOAuthState {
+	t.Helper()
+	return newMCPOAuthStateAt(s, oauthTestPrefix(t))
+}
+
+// oauthTestPrefix is a namespace unique per test, for the cases that need
+// several states sharing one.
+func oauthTestPrefix(t *testing.T) string {
+	t.Helper()
+	return "_auth/oauth-test/" + strconv.FormatInt(time.Now().UnixNano(), 36) + "-" + strconv.FormatInt(int64(oauthPrefixSeq.Add(1)), 10) + "/"
+}
+
+// Wall-clock alone collides: these tests run in well under a nanosecond's
+// worth of timer resolution on a fast machine.
+var oauthPrefixSeq atomic.Int32
+
 func TestMCPOAuthState_CodeSingleUse(t *testing.T) {
 	ctx := context.Background()
-	st := newMCPOAuthState(storetest.New(t, 0))
+	st := oauthTestState(t, storetest.New(t, 0))
 	code := mustNewCode(t, st, ctx)
 
 	ac, ok, err := st.takeCode(ctx, code)
@@ -71,8 +95,11 @@ func TestMCPOAuthState_CodeSingleUse(t *testing.T) {
 func TestMCPOAuthState_CodeRedeemableAcrossInstances(t *testing.T) {
 	ctx := context.Background()
 	backing := storetest.New(t, 0)
-	issuer := newMCPOAuthState(backing)
-	redeemer := newMCPOAuthState(backing)
+	// Both instances share a namespace: they stand in for two processes
+	// serving the same deployment.
+	prefix := oauthTestPrefix(t)
+	issuer := newMCPOAuthStateAt(backing, prefix)
+	redeemer := newMCPOAuthStateAt(backing, prefix)
 
 	code := mustNewCode(t, issuer, ctx)
 
@@ -105,7 +132,8 @@ func TestMCPOAuthState_CodeRedeemableAcrossInstances(t *testing.T) {
 func TestMCPOAuthState_ConcurrentRedemptionYieldsOneToken(t *testing.T) {
 	ctx := context.Background()
 	backing := storetest.New(t, 0)
-	code := mustNewCode(t, newMCPOAuthState(backing), ctx)
+	prefix := oauthTestPrefix(t)
+	code := mustNewCode(t, newMCPOAuthStateAt(backing, prefix), ctx)
 
 	// Separate states over one store: distinct processes, no shared memory to
 	// accidentally serialise them.
@@ -117,7 +145,9 @@ func TestMCPOAuthState_ConcurrentRedemptionYieldsOneToken(t *testing.T) {
 		hardError error
 	)
 	for range redeemers {
-		st := newMCPOAuthState(backing)
+		// Same namespace for every redeemer — a per-state prefix would have
+		// them racing on nothing and the test would pass vacuously.
+		st := newMCPOAuthStateAt(backing, prefix)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -152,7 +182,7 @@ func TestMCPOAuthState_ConcurrentRedemptionYieldsOneToken(t *testing.T) {
 func TestMCPOAuthState_ConsumedTombstoneNeverHonoured(t *testing.T) {
 	ctx := context.Background()
 	backing := storetest.New(t, 0)
-	st := newMCPOAuthState(backing)
+	st := oauthTestState(t, backing)
 	code := mustNewCode(t, st, ctx)
 
 	tombstone := mcpAuthCode{
@@ -164,7 +194,7 @@ func TestMCPOAuthState_ConsumedTombstoneNeverHonoured(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	err = backing.WriteRaw(ctx, mcpOAuthCodeKey(code), string(body), "application/json", nil)
+	err = backing.WriteRaw(ctx, st.codeKey(code), string(body), "application/json", nil)
 	if err != nil {
 		t.Fatalf("write tombstone: %v", err)
 	}
@@ -179,7 +209,8 @@ func TestMCPOAuthState_ConsumedTombstoneNeverHonoured(t *testing.T) {
 func TestMCPOAuthState_StoredCodeExpiryEnforced(t *testing.T) {
 	ctx := context.Background()
 	backing := storetest.New(t, 0)
-	issuer := newMCPOAuthState(backing)
+	prefix := oauthTestPrefix(t)
+	issuer := newMCPOAuthStateAt(backing, prefix)
 
 	code := mustNewCode(t, issuer, ctx)
 	stale := mcpAuthCode{Email: "user@example.com", Expires: time.Now().Add(-time.Minute)}
@@ -187,12 +218,12 @@ func TestMCPOAuthState_StoredCodeExpiryEnforced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	err = backing.WriteRaw(ctx, mcpOAuthCodeKey(code), string(body), "application/json", nil)
+	err = backing.WriteRaw(ctx, issuer.codeKey(code), string(body), "application/json", nil)
 	if err != nil {
 		t.Fatalf("overwrite stored code: %v", err)
 	}
 
-	if _, ok, _ := newMCPOAuthState(backing).takeCode(ctx, code); ok {
+	if _, ok, _ := newMCPOAuthStateAt(backing, prefix).takeCode(ctx, code); ok {
 		t.Fatal("expired stored code must not be honoured")
 	}
 }
@@ -202,7 +233,7 @@ func TestMCPOAuthState_StoredCodeExpiryEnforced(t *testing.T) {
 func TestMCPOAuthState_StoredCodesSwept(t *testing.T) {
 	ctx := context.Background()
 	backing := storetest.New(t, 0)
-	st := newMCPOAuthState(backing)
+	st := oauthTestState(t, backing)
 
 	abandoned := mustNewCode(t, st, ctx)
 	stale := mcpAuthCode{Email: "user@example.com", Expires: time.Now().Add(-time.Minute)}
@@ -210,25 +241,25 @@ func TestMCPOAuthState_StoredCodesSwept(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	err = backing.WriteRaw(ctx, mcpOAuthCodeKey(abandoned), string(body), "application/json", nil)
+	err = backing.WriteRaw(ctx, st.codeKey(abandoned), string(body), "application/json", nil)
 	if err != nil {
 		t.Fatalf("age the stored code: %v", err)
 	}
 
 	live := mustNewCode(t, st, ctx)
 
-	keys, err := backing.ListPrefix(ctx, mcpOAuthCodePrefix)
+	keys, err := backing.ListPrefix(ctx, st.codesPrefix())
 	if err != nil {
 		t.Fatalf("list codes: %v", err)
 	}
-	if len(keys) != 1 || keys[0] != mcpOAuthCodeKey(live) {
-		t.Fatalf("stored codes = %v, want only the live one (%s)", keys, mcpOAuthCodeKey(live))
+	if len(keys) != 1 || keys[0] != st.codeKey(live) {
+		t.Fatalf("stored codes = %v, want only the live one (%s)", keys, st.codeKey(live))
 	}
 }
 
 func TestMCPOAuthState_ClientRegistration(t *testing.T) {
 	ctx := context.Background()
-	st := newMCPOAuthState(storetest.New(t, 0))
+	st := oauthTestState(t, storetest.New(t, 0))
 	id, err := st.registerClient(ctx, []string{"https://cb/one", "https://cb/two"}, "Two Callbacks")
 	if err != nil {
 		t.Fatalf("registerClient: %v", err)
@@ -264,12 +295,13 @@ func TestMCPOAuthState_ClientSurvivesRestart(t *testing.T) {
 	ctx := context.Background()
 	backing := storetest.New(t, 0)
 
-	id, err := newMCPOAuthState(backing).registerClient(ctx, []string{"https://cb/one"}, "Restart Probe")
+	prefix := oauthTestPrefix(t)
+	id, err := newMCPOAuthStateAt(backing, prefix).registerClient(ctx, []string{"https://cb/one"}, "Restart Probe")
 	if err != nil {
 		t.Fatalf("registerClient: %v", err)
 	}
 
-	restarted := newMCPOAuthState(backing)
+	restarted := newMCPOAuthStateAt(backing, prefix)
 	client, ok, err := restarted.client(ctx, id)
 	if err != nil {
 		t.Fatalf("client lookup after restart: %v", err)
@@ -285,7 +317,7 @@ func TestMCPOAuthState_ClientSurvivesRestart(t *testing.T) {
 // TestMCPOAuthState_ListAndRevoke covers the admin console's two operations.
 func TestMCPOAuthState_ListAndRevoke(t *testing.T) {
 	ctx := context.Background()
-	st := newMCPOAuthState(storetest.New(t, 0))
+	st := oauthTestState(t, storetest.New(t, 0))
 
 	keep, err := st.registerClient(ctx, []string{"https://cb/keep"}, "Keeper")
 	if err != nil {
@@ -338,8 +370,9 @@ func TestMCPOAuthState_ListAndRevoke(t *testing.T) {
 func TestMCPOAuthState_RevokeTakesEffectOnOtherInstances(t *testing.T) {
 	ctx := context.Background()
 	backing := storetest.New(t, 0)
-	serving := newMCPOAuthState(backing)
-	console := newMCPOAuthState(backing)
+	prefix := oauthTestPrefix(t)
+	serving := newMCPOAuthStateAt(backing, prefix)
+	console := newMCPOAuthStateAt(backing, prefix)
 
 	id, err := serving.registerClient(ctx, []string{"https://cb/one"}, "Doomed")
 	if err != nil {
@@ -363,7 +396,7 @@ func TestMCPOAuthState_RevokeTakesEffectOnOtherInstances(t *testing.T) {
 // revokeClient must not report success for an id that could never name a
 // registration, or the console shows "revoked" for something it never touched.
 func TestMCPOAuthState_RevokeRejectsInvalidID(t *testing.T) {
-	st := newMCPOAuthState(storetest.New(t, 0))
+	st := oauthTestState(t, storetest.New(t, 0))
 	for _, id := range []string{"", "../../_auth/invites/tok", "a/b", "with space"} {
 		err := st.revokeClient(context.Background(), id)
 		if !errors.Is(err, ErrMCPClientNotFound) {
@@ -377,13 +410,13 @@ func TestMCPOAuthState_RevokeRejectsInvalidID(t *testing.T) {
 func TestMCPOAuthState_ListSkipsNonRegistrationKeys(t *testing.T) {
 	ctx := context.Background()
 	backing := storetest.New(t, 0)
-	st := newMCPOAuthState(backing)
+	st := oauthTestState(t, backing)
 
 	genuine, err := st.registerClient(ctx, []string{"https://cb/one"}, "Real")
 	if err != nil {
 		t.Fatalf("registerClient: %v", err)
 	}
-	err = backing.WriteRaw(ctx, mcpOAuthClientPrefix+"not a client id.json", `{"redirect_uris":["https://x"]}`, "application/json", nil)
+	err = backing.WriteRaw(ctx, st.clientsPrefix()+"not a client id.json", `{"redirect_uris":["https://x"]}`, "application/json", nil)
 	if err != nil {
 		t.Fatalf("seed junk key: %v", err)
 	}
@@ -400,7 +433,7 @@ func TestMCPOAuthState_ListSkipsNonRegistrationKeys(t *testing.T) {
 // A client_id from the query string lands in a bucket key, so traversal-shaped
 // input must be refused before it reaches the store.
 func TestMCPOAuthState_ClientIDRejectsTraversal(t *testing.T) {
-	st := newMCPOAuthState(storetest.New(t, 0))
+	st := oauthTestState(t, storetest.New(t, 0))
 	for _, id := range []string{"", "../../_auth/invites/tok", "a/b", "with space", "a.json"} {
 		_, ok, err := st.client(context.Background(), id)
 		if ok || err != nil {
