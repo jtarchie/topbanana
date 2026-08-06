@@ -15,6 +15,7 @@ import (
 
 	"github.com/jtarchie/topbanana/internal/store"
 	"github.com/jtarchie/topbanana/internal/templates"
+	"github.com/jtarchie/topbanana/internal/textedit"
 )
 
 // Kind classifies an Error so the build loop can decide whether to attempt
@@ -286,7 +287,7 @@ func WalkDOM(n *html.Node, visit func(*html.Node)) {
 // document has no </head>. The auto-fixers share it so the "insert into <head>"
 // mechanics live in one place.
 func injectBeforeHeadClose(content, tag string) (string, bool) {
-	closeIdx := strings.Index(strings.ToLower(content), "</head>")
+	closeIdx := strings.Index(textedit.ASCIILower(content), "</head>")
 	if closeIdx == -1 {
 		return content, false
 	}
@@ -301,7 +302,8 @@ func injectBeforeHeadClose(content, tag string) (string, bool) {
 // "<head" keeps <header> from matching. Returns (content, false) when no
 // <head> open tag exists.
 func injectAfterHeadOpen(content, tag string) (string, bool) {
-	lower := strings.ToLower(content)
+	// Length-preserving: every index below is sliced back out of content.
+	lower := textedit.ASCIILower(content)
 	from := 0
 	for {
 		i := strings.Index(lower[from:], "<head")

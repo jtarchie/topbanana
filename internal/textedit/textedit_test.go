@@ -145,6 +145,42 @@ func TestCollapseWS(t *testing.T) {
 	}
 }
 
+// TestASCIILower_PreservesLength is the property the callers depend on: they
+// find an index in the lowered copy and slice it out of the original. The
+// invalid-UTF-8 case is the one strings.ToLower gets wrong (it substitutes a
+// three-byte U+FFFD per bad byte), which panicked the charset auto-fixer.
+func TestASCIILower_PreservesLength(t *testing.T) {
+	cases := []string{
+		"<HEAD>",
+		"<heAd >",
+		"\xd3\xd3\xd3\xd3<heAd ",
+		"\xff\xfe</HEAD>",
+		"café <HEAD>",
+		"",
+	}
+	for _, in := range cases {
+		got := ASCIILower(in)
+		if len(got) != len(in) {
+			t.Errorf("ASCIILower(%q): len %d, want %d — indices no longer map to the input", in, len(got), len(in))
+		}
+	}
+}
+
+func TestASCIILower_LowersOnlyASCII(t *testing.T) {
+	cases := map[string]string{
+		"<HeAd>":     "<head>",
+		"</HEAD>":    "</head>",
+		"already":    "already",
+		"CAFÉ":       "cafÉ", // É is non-ASCII: left alone, unlike strings.ToLower
+		"\xd3<HEAD>": "\xd3<head>",
+	}
+	for in, want := range cases {
+		if got := ASCIILower(in); got != want {
+			t.Errorf("ASCIILower(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestSpliceLines(t *testing.T) {
 	cases := []struct {
 		name    string

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jtarchie/topbanana/internal/assets"
+	"github.com/jtarchie/topbanana/internal/textedit"
 )
 
 // cssCompileTimeout caps the Tailwind compile subprocess. The compile itself
@@ -233,7 +234,7 @@ func injectBeforeHeadClose(content, marker, tag string) string {
 	if strings.Contains(content, marker) {
 		return content
 	}
-	idx := strings.Index(strings.ToLower(content), "</head>")
+	idx := strings.Index(textedit.ASCIILower(content), "</head>")
 	if idx == -1 {
 		return content
 	}

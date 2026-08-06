@@ -185,6 +185,24 @@ func TestAutoFixDesignSubstrate(t *testing.T) {
 		}
 	})
 
+	// Invalid UTF-8 before </head> used to panic: strings.ToLower re-encodes
+	// each bad byte as a three-byte U+FFFD, so the index found in the lowered
+	// copy pointed past the end of the original. Stored pages are arbitrary
+	// bytes, so one bad byte broke every build touching the page.
+	t.Run("survives invalid UTF-8 before </head>", func(t *testing.T) {
+		in := "\xd3\xd3\xd3\xd3<html><head><title>x</title></HEAD><body></body></html>"
+		out, changed := AutoFixDesignSubstrate(in)
+		if !changed {
+			t.Fatal("expected changed=true")
+		}
+		if !strings.Contains(out, want) {
+			t.Errorf("missing /app.css link in output: %q", out)
+		}
+		if strings.Index(out, want) > strings.Index(out, "</HEAD>") {
+			t.Errorf("link must be injected before </head>: %q", out)
+		}
+	})
+
 	t.Run("idempotent when already present", func(t *testing.T) {
 		in := `<!DOCTYPE html><html><head><link rel="stylesheet" href="/app.css"></head><body></body></html>`
 		out, changed := AutoFixDesignSubstrate(in)

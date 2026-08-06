@@ -20,6 +20,21 @@ const pageWithCDNSubstrate = `<!DOCTYPE html>
 <body class="min-h-screen"><button class="btn btn-primary">Go</button></body>
 </html>`
 
+// TestInjectBeforeHeadClose_InvalidUTF8 pins the panic that strings.ToLower
+// caused here: it re-encodes each invalid byte as a three-byte U+FFFD, so the
+// index found in the lowered copy ran past the end of the original and slicing
+// it blew up. Stored pages are arbitrary bytes, so a single bad byte upstream
+// took down every build and edit that touched the page.
+func TestInjectBeforeHeadClose_InvalidUTF8(t *testing.T) {
+	t.Parallel()
+
+	content := "\xd3\xd3\xd3\xd3</HEAD>"
+	got := injectBeforeHeadClose(content, "marker-absent", "<tag>")
+	if got != "\xd3\xd3\xd3\xd3<tag>\n</HEAD>" {
+		t.Fatalf("injected at the wrong offset: %q", got)
+	}
+}
+
 func TestSwapSubstrateForLocalCSS(t *testing.T) {
 	t.Parallel()
 

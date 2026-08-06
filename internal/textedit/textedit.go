@@ -132,6 +132,25 @@ func matchCollapsedFrom(content string, i int, target string) int {
 	}
 }
 
+// ASCIILower lowercases A-Z and returns every other byte untouched, including
+// bytes that aren't valid UTF-8. The length of the result always equals the
+// length of the input, which is the whole point.
+//
+// Use this — never strings.ToLower — when an index found in the lowered copy is
+// applied back to the original string. strings.ToLower re-encodes each invalid
+// byte as the three-byte U+FFFD, so the copy grows and every offset past the
+// first bad byte points somewhere else; past the end, slicing the original
+// panics. Stored HTML is arbitrary bytes, so that input is reachable.
+func ASCIILower(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	return string(b)
+}
+
 // CollapseWS collapses every run of ASCII whitespace to a single space.
 func CollapseWS(s string) string {
 	var b strings.Builder
