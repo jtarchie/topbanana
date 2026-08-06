@@ -12,6 +12,7 @@ package storetest
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"strconv"
 	"sync/atomic"
@@ -37,15 +38,7 @@ func New(t *testing.T, cacheSize int) *store.Store {
 		}
 		return s
 	}
-	cfg, err := config.LoadDefaultConfig(context.Background())
-	if err != nil {
-		t.Fatalf("load aws config: %v", err)
-	}
-	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(os.Getenv("AWS_ENDPOINT_URL"))
-		o.UsePathStyle = true
-	})
-	s, err := store.New(client, os.Getenv("S3_BUCKET"), cacheSize)
+	s, err := store.New(S3Client(t), os.Getenv("S3_BUCKET"), cacheSize)
 	if err != nil {
 		t.Fatalf("store.New: %v", err)
 	}
@@ -54,6 +47,37 @@ func New(t *testing.T, cacheSize int) *store.Store {
 		t.Fatalf("ensure bucket: %v", err)
 	}
 	return s
+}
+
+// S3Client builds an S3 client pointed at AWS_ENDPOINT_URL for tests, on an
+// HTTP transport this package owns and tears down.
+//
+// The ownership is the point. The SDK's default client keeps connections in a
+// pool that outlives the test, and every package here runs
+// goleak.VerifyTestMain — so against a real bucket the pooled readLoop /
+// writeLoop goroutines were reported as leaks and every S3-touching package
+// failed. That made goleak's signal worthless in exactly the mode most likely
+// to expose a genuine leak.
+//
+// Closing idle connections on cleanup fixes it without an ignore-list, which
+// would have suppressed real net/http leaks in the SSE, sandbox, and LLM paths
+// too. Keep-alives are disabled as well so nothing is pooled in the first
+// place: the alternative is racing the connection teardown against goleak's
+// check, and against a local bucket the extra handshakes cost nothing.
+func S3Client(t *testing.T) *s3.Client {
+	t.Helper()
+	transport := &http.Transport{DisableKeepAlives: true}
+	t.Cleanup(transport.CloseIdleConnections)
+
+	cfg, err := config.LoadDefaultConfig(context.Background(),
+		config.WithHTTPClient(&http.Client{Transport: transport}))
+	if err != nil {
+		t.Fatalf("load aws config: %v", err)
+	}
+	return s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String(os.Getenv("AWS_ENDPOINT_URL"))
+		o.UsePathStyle = true
+	})
 }
 
 // IsRemote reports whether New returns an S3-backed store (both env vars set)

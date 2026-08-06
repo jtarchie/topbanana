@@ -8,11 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-
 	"github.com/jtarchie/topbanana/internal/state"
+	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
 // conformanceTests is the suite every Store implementation has to satisfy.
@@ -138,14 +135,7 @@ func TestS3Conformance(t *testing.T) {
 		t.Skip("set AWS_ENDPOINT_URL + S3_BUCKET to run S3 conformance tests")
 	}
 
-	cfg, err := config.LoadDefaultConfig(context.Background())
-	if err != nil {
-		t.Fatalf("load aws config: %v", err)
-	}
-	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(endpoint)
-		o.UsePathStyle = true
-	})
+	client := storetest.S3Client(t)
 
 	// Per-test prefix so reruns don't collide.
 	prefix := func() string {

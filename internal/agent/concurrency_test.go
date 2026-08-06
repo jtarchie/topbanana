@@ -9,11 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-
 	"github.com/jtarchie/topbanana/internal/store"
+	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
 // TestBuildState_WriteMuSerializesEdits pins the contract behind
@@ -94,15 +91,7 @@ func agentMinioStore(t *testing.T) *store.Store {
 	if endpoint == "" || bucket == "" {
 		return nil
 	}
-	cfg, err := config.LoadDefaultConfig(context.Background())
-	if err != nil {
-		t.Fatalf("load aws config: %v", err)
-	}
-	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		o.BaseEndpoint = aws.String(endpoint)
-		o.UsePathStyle = true
-	})
-	s, err := store.New(client, bucket, 0)
+	s, err := store.New(storetest.S3Client(t), bucket, 0)
 	if err != nil {
 		t.Fatalf("store.New: %v", err)
 	}
