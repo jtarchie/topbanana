@@ -44,14 +44,11 @@ import (
 //     connects, and retrying is a coin flip rather than a fix. There is
 //     deliberately no in-memory copy — see newCode.
 //
-// ponytail: single use across instances has a narrow race. Two simultaneous
-// redemptions can both ReadRaw the code before either DeleteRaw lands, so both
-// mint a token. Upgrade path is a compare-and-set on the stored object (ReadRaw
-// already returns an ETag; internal/state shows the If-Match / If-None-Match
-// shape working against both S3 and Minio) — store has no conditional write
-// today. Not urgent: winning that race requires the PKCE verifier, and whoever
-// holds it can already get one valid token by asking once, so a second token
-// for the same subject and scope grants nothing new.
+// Single use is enforced by a compare-and-set on the stored code, not by the
+// delete that follows it — see takeCode. Two redemptions racing on the same
+// code both read the same version and exactly one write can win; the loser is
+// refused. Read-then-delete would give both a token, since neither can tell it
+// lost.
 
 const mcpAuthCodeTTL = 10 * time.Minute
 
@@ -125,6 +122,11 @@ type mcpAuthCode struct {
 	RedirectURI   string    `json:"redirect_uri"`
 	CodeChallenge string    `json:"code_challenge"`
 	Expires       time.Time `json:"expires"`
+	// Consumed marks a code that has been redeemed. Written by the winning
+	// compare-and-set in takeCode, which is what makes redemption single use
+	// across instances; the delete that follows is only cleanup. A record
+	// carrying it is a tombstone and must never be honoured again.
+	Consumed bool `json:"consumed,omitempty"`
 }
 
 func newMCPOAuthState(s *store.Store) *mcpOAuthState {
@@ -295,25 +297,53 @@ func (st *mcpOAuthState) takeCode(ctx context.Context, code string) (mcpAuthCode
 	if obj.Content == "" {
 		return mcpAuthCode{}, false, nil
 	}
-	// Consume before honouring it: the delete is what makes the code single
-	// use, so if it fails we must not mint a token. Otherwise the object
-	// survives and the same code can be redeemed again for another token
-	// inside its ten-minute window — the exact property the whole flow leans
-	// on. Failing here costs the user one retry with a fresh code.
-	err = st.store.DeleteRaw(ctx, mcpOAuthCodeKey(code))
-	if err != nil {
-		return mcpAuthCode{}, false, fmt.Errorf("server: consume auth code: %w", err)
-	}
 	stored := mcpAuthCode{}
 	err = json.Unmarshal([]byte(obj.Content), &stored)
 	if err != nil {
 		slog.Warn("mcp.oauth.code_parse_failed", "err", err)
 		return mcpAuthCode{}, false, nil
 	}
-	if time.Now().After(stored.Expires) {
+	if stored.Consumed || time.Now().After(stored.Expires) {
 		return mcpAuthCode{}, false, nil
 	}
+
+	// Claim it with a compare-and-set against the version we just read. This is
+	// what makes single use hold across instances: two redemptions racing on
+	// the same code both reach here, both hold the same ETag, and exactly one
+	// write can succeed — the loser gets ErrPrecondition and is refused. A
+	// plain read-then-delete gives both of them a token, because neither can
+	// tell it lost. A failure to claim must never mint: that is the whole
+	// property, and it costs the user one retry with a fresh code.
+	stored.Consumed = true
+	consumed, err := json.Marshal(stored)
+	if err != nil {
+		return mcpAuthCode{}, false, fmt.Errorf("server: marshal consumed auth code: %w", err)
+	}
+	_, err = st.store.WriteRawIfMatch(ctx, mcpOAuthCodeKey(code), string(consumed), "application/json", nil, obj.ETag)
+	if errors.Is(err, store.ErrPrecondition) {
+		// Someone else claimed it first, or it was swept out from under us.
+		return mcpAuthCode{}, false, nil
+	}
+	if err != nil {
+		return mcpAuthCode{}, false, fmt.Errorf("server: claim auth code: %w", err)
+	}
+
+	// We hold the claim, so the code can no longer be redeemed by anyone even
+	// if this delete fails — the tombstone is authoritative and the sweeper
+	// collects it at expiry. Best-effort from here on.
+	st.deleteStoredCode(ctx, code)
+	stored.Consumed = false
 	return stored, true, nil
+}
+
+// deleteStoredCode removes a redeemed code's object. Only ever called once the
+// caller holds the claim, so a failure is cosmetic: the stored record already
+// says Consumed and the sweeper will collect it.
+func (st *mcpOAuthState) deleteStoredCode(ctx context.Context, code string) {
+	err := st.store.DeleteRaw(ctx, mcpOAuthCodeKey(code))
+	if err != nil {
+		slog.Warn("mcp.oauth.code_delete_failed", "err", err)
+	}
 }
 
 // sweepStoredCodes drops expired code objects. Redemption deletes its own

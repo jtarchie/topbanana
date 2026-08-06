@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -92,6 +94,83 @@ func TestMCPOAuthState_CodeRedeemableAcrossInstances(t *testing.T) {
 	}
 	if _, ok, _ := issuer.takeCode(ctx, code); ok {
 		t.Fatal("a code redeemed elsewhere must not still work on the issuer")
+	}
+}
+
+// TestMCPOAuthState_ConcurrentRedemptionYieldsOneToken is the race that used
+// to be a documented shortcut. N instances redeem the same code simultaneously
+// — the retry storm a flaky network produces — and exactly one may be handed
+// the grant. Read-then-delete passes the sequential single-use test and fails
+// this one, which is why the sequential test alone was never enough.
+func TestMCPOAuthState_ConcurrentRedemptionYieldsOneToken(t *testing.T) {
+	ctx := context.Background()
+	backing := storetest.New(t, 0)
+	code := mustNewCode(t, newMCPOAuthState(backing), ctx)
+
+	// Separate states over one store: distinct processes, no shared memory to
+	// accidentally serialise them.
+	const redeemers = 8
+	var (
+		wg        sync.WaitGroup
+		mu        sync.Mutex
+		granted   int
+		hardError error
+	)
+	for range redeemers {
+		st := newMCPOAuthState(backing)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ac, ok, err := st.takeCode(ctx, code)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				hardError = err
+				return
+			}
+			if ok {
+				granted++
+				if ac.Email != "user@example.com" {
+					hardError = fmt.Errorf("winner got a mangled payload: %+v", ac)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	if hardError != nil {
+		t.Fatalf("redemption failed: %v", hardError)
+	}
+	if granted != 1 {
+		t.Fatalf("%d redeemers were granted the code, want exactly 1", granted)
+	}
+}
+
+// A code already claimed must stay refused even if its tombstone is still in
+// the bucket — the delete after a successful claim is cleanup, not the thing
+// enforcing single use.
+func TestMCPOAuthState_ConsumedTombstoneNeverHonoured(t *testing.T) {
+	ctx := context.Background()
+	backing := storetest.New(t, 0)
+	st := newMCPOAuthState(backing)
+	code := mustNewCode(t, st, ctx)
+
+	tombstone := mcpAuthCode{
+		Email:    "user@example.com",
+		Expires:  time.Now().Add(time.Hour),
+		Consumed: true,
+	}
+	body, err := json.Marshal(tombstone)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	err = backing.WriteRaw(ctx, mcpOAuthCodeKey(code), string(body), "application/json", nil)
+	if err != nil {
+		t.Fatalf("write tombstone: %v", err)
+	}
+
+	if _, ok, _ := st.takeCode(ctx, code); ok {
+		t.Fatal("a consumed code must never be honoured again, tombstone or not")
 	}
 }
 

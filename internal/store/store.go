@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -389,6 +390,40 @@ func (s *Store) WriteRaw(ctx context.Context, key, content, contentType string, 
 	}
 	_, err := s.backend.put(ctx, key, []byte(content), contentType, metadata)
 	return err
+}
+
+// ErrPrecondition is returned by the conditional writers when the object
+// changed (or appeared, or vanished) between the caller's read and its write.
+// It is the "someone else won" signal, not a fault: callers turn it into
+// "retry" or "you lost the claim", never into a 500.
+var ErrPrecondition = errors.New("store: precondition failed")
+
+// WriteRawIfMatch writes key only if it currently carries expectedETag —
+// the compare-and-set half of a read-modify-write. Pass the ETag from the
+// ReadRaw that produced the value you're basing the write on; returns
+// ErrPrecondition if anything changed underneath.
+//
+// This is what makes a claim atomic across processes. Without it, two
+// instances that both read the same key both believe they may act on it, and
+// "read it, then delete it" is not single use — it's two winners.
+func (s *Store) WriteRawIfMatch(ctx context.Context, key, content, contentType string, metadata map[string]string, expectedETag string) (string, error) {
+	if contentType == "" {
+		contentType = DefaultContentType
+	}
+	if expectedETag == "" {
+		return "", fmt.Errorf("%w: WriteRawIfMatch needs an ETag (use WriteRawIfAbsent to create)", ErrPrecondition)
+	}
+	return s.backend.putConditional(ctx, key, []byte(content), contentType, metadata, expectedETag)
+}
+
+// WriteRawIfAbsent writes key only if nothing is there yet, returning
+// ErrPrecondition when another writer got there first. The create-once half of
+// the same primitive.
+func (s *Store) WriteRawIfAbsent(ctx context.Context, key, content, contentType string, metadata map[string]string) (string, error) {
+	if contentType == "" {
+		contentType = DefaultContentType
+	}
+	return s.backend.putConditional(ctx, key, []byte(content), contentType, metadata, "")
 }
 
 // ReadRaw is the symmetric counterpart to WriteRaw: fetches an object by

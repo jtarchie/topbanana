@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/jtarchie/topbanana/internal/auth"
+	"github.com/jtarchie/topbanana/internal/blobs"
 	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
@@ -25,7 +26,7 @@ func newOAuthTestServer(t *testing.T) *Server {
 	t.Helper()
 	backing := storetest.New(t, 0)
 	a, err := auth.New(auth.Config{
-		Store:           backing,
+		Blobs:           blobs.FromStore(backing),
 		Domain:          "localhost",
 		SuperAdminEmail: "admin@example.com",
 		InsecureCookies: true,

@@ -65,6 +65,32 @@ func storeMetadata(m map[string]string) map[string]string {
 	return out
 }
 
+// putConditional mirrors s3Backend's If-Match / If-None-Match semantics under
+// the same lock that guards put, so the claim is atomic here too — the
+// concurrency tests rely on this backend behaving like S3, not merely passing.
+func (b *memoryBackend) putConditional(_ context.Context, key string, body []byte, contentType string, metadata map[string]string, expectedETag string) (string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	cur, exists := b.objects[key]
+	switch {
+	case expectedETag == "" && exists:
+		return "", ErrPrecondition
+	case expectedETag != "" && !exists:
+		return "", ErrPrecondition
+	case expectedETag != "" && cur.etag != expectedETag:
+		return "", ErrPrecondition
+	}
+	etag := b.tagLocked()
+	b.objects[key] = &memObject{
+		body:         cloneBytes(body),
+		etag:         etag,
+		contentType:  contentType,
+		metadata:     storeMetadata(metadata),
+		lastModified: time.Now().UTC(),
+	}
+	return etag, nil
+}
+
 func (b *memoryBackend) put(_ context.Context, key string, body []byte, contentType string, metadata map[string]string) (string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

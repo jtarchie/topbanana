@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jtarchie/topbanana/internal/blobstore"
+
 	"github.com/egregors/passkey"
 	"github.com/go-webauthn/webauthn/webauthn"
 	lru "github.com/hashicorp/golang-lru/v2"
-
-	"github.com/jtarchie/topbanana/internal/store"
 )
 
 // authChallengeTTL bounds how long a WebAuthn challenge is honoured. Five
@@ -144,7 +144,7 @@ func (s *memAuthSessionStore) sweep(interval time.Duration) {
 // the underlying object. An LRU cache absorbs the per-request lookup hot
 // path.
 type UserSessionStore struct {
-	store *store.Store
+	blobs blobstore.Blobs
 	cache *lru.Cache[string, cachedSession]
 }
 
@@ -155,12 +155,12 @@ type cachedSession struct {
 
 // NewUserSessionStore wires the persistent store + read cache. Returns
 // passkey.SessionStore so it can be plugged into passkey.Config directly.
-func NewUserSessionStore(s *store.Store) (*UserSessionStore, error) {
+func NewUserSessionStore(b blobstore.Blobs) (*UserSessionStore, error) {
 	cache, err := lru.New[string, cachedSession](sessionCacheCapacity)
 	if err != nil {
 		return nil, fmt.Errorf("auth: build session cache: %w", err)
 	}
-	return &UserSessionStore{store: s, cache: cache}, nil
+	return &UserSessionStore{blobs: b, cache: cache}, nil
 }
 
 func sessionKey(token string) string {
@@ -176,7 +176,7 @@ func (s *UserSessionStore) Create(data passkey.UserSessionData) (string, error) 
 	if err != nil {
 		return "", fmt.Errorf("auth: marshal session: %w", err)
 	}
-	err = s.store.WriteRaw(context.Background(), sessionKey(token), string(body), "application/json", nil)
+	err = s.blobs.Put(context.Background(), sessionKey(token), string(body))
 	if err != nil {
 		return "", fmt.Errorf("auth: write session: %w", err)
 	}
@@ -186,7 +186,7 @@ func (s *UserSessionStore) Create(data passkey.UserSessionData) (string, error) 
 
 func (s *UserSessionStore) Delete(token string) {
 	s.cache.Remove(token)
-	err := s.store.DeleteRaw(context.Background(), sessionKey(token))
+	err := s.blobs.Delete(context.Background(), sessionKey(token))
 	if err != nil {
 		// Sessions don't expose an error path on the interface; log and move
 		// on. A stale S3 object is harmless because the next Get will see
@@ -215,7 +215,7 @@ func (s *UserSessionStore) Get(token string) (*passkey.UserSessionData, bool) {
 }
 
 func (s *UserSessionStore) load(token string) (passkey.UserSessionData, bool) {
-	obj, err := s.store.ReadRaw(context.Background(), sessionKey(token))
+	obj, err := s.blobs.Get(context.Background(), sessionKey(token))
 	if err != nil {
 		return passkey.UserSessionData{}, false
 	}
@@ -230,7 +230,7 @@ func (s *UserSessionStore) load(token string) (passkey.UserSessionData, bool) {
 	if time.Now().After(data.Expires) {
 		// Tidy up an expired session record so a future revoke-all doesn't
 		// have to wade through them.
-		_ = s.store.DeleteRaw(context.Background(), sessionKey(token))
+		_ = s.blobs.Delete(context.Background(), sessionKey(token))
 		return passkey.UserSessionData{}, false
 	}
 	s.cache.Add(token, cachedSession{data: data, inserted: time.Now()})
@@ -242,13 +242,13 @@ func (s *UserSessionStore) load(token string) (passkey.UserSessionData, bool) {
 // the session list, which is fine at our scale.
 func (s *UserSessionStore) RevokeAllForUser(ctx context.Context, email string) error {
 	email = NormalizeEmail(email)
-	keys, err := s.store.ListPrefix(ctx, sessionStorePrefix)
+	keys, err := s.blobs.List(ctx, sessionStorePrefix)
 	if err != nil {
 		return fmt.Errorf("auth: list sessions: %w", err)
 	}
 	var firstErr error
 	for _, key := range keys {
-		obj, err := s.store.ReadRaw(ctx, key)
+		obj, err := s.blobs.Get(ctx, key)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -266,7 +266,7 @@ func (s *UserSessionStore) RevokeAllForUser(ctx context.Context, email string) e
 		if string(data.UserID) != email {
 			continue
 		}
-		err = s.store.DeleteRaw(ctx, key)
+		err = s.blobs.Delete(ctx, key)
 		if err != nil && firstErr == nil {
 			firstErr = err
 		}

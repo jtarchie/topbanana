@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jtarchie/topbanana/internal/auth"
+	"github.com/jtarchie/topbanana/internal/blobs"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/sandbox"
@@ -41,7 +42,7 @@ func buildMCPTestServer(t *testing.T, st *store.Store, slug, ownerEmail string) 
 	tracker := events.NewTracker()
 	t.Cleanup(tracker.Close)
 	authSvc, err := auth.New(auth.Config{
-		Store:           st,
+		Blobs:           blobs.FromStore(st),
 		Domain:          "localhost",
 		SuperAdminEmail: "super@example.com",
 		InsecureCookies: true,
@@ -320,7 +321,7 @@ func TestMCP_FullToolSurfaceLifecycle(t *testing.T) {
 func seedUser(t *testing.T, _ *httptest.Server, st *store.Store, email string) {
 	t.Helper()
 	a, err := auth.New(auth.Config{
-		Store:           st,
+		Blobs:           blobs.FromStore(st),
 		Domain:          "localhost",
 		SuperAdminEmail: "super@example.com",
 		InsecureCookies: true,

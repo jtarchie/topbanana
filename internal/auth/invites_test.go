@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/jtarchie/topbanana/internal/blobs"
 	"testing"
 	"time"
 
@@ -15,7 +16,7 @@ func TestInviteStore_IssueAndGetRoundtrip(t *testing.T) {
 
 	st := storetest.New(t, 0)
 
-	is := NewInviteStore(st)
+	is := NewInviteStore(blobs.FromStore(st))
 	ctx := context.Background()
 	email := "alice+" + freshSuffix() + "@example.com"
 
@@ -54,7 +55,7 @@ func TestInviteStore_GetUnknownTokenReturnsNotFound(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	is := NewInviteStore(st)
+	is := NewInviteStore(blobs.FromStore(st))
 
 	_, err := is.Get(context.Background(), "no-such-token-"+freshSuffix())
 	if !errors.Is(err, ErrInviteNotFound) {
@@ -66,7 +67,7 @@ func TestInviteStore_GetExpiredReturnsExpired(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	is := NewInviteStore(st)
+	is := NewInviteStore(blobs.FromStore(st))
 	ctx := context.Background()
 
 	inv, err := is.Issue(ctx, "exp+"+freshSuffix()+"@example.com", RoleAdmin, Quotas{}, time.Millisecond)
@@ -87,7 +88,7 @@ func TestInviteStore_ConsumeMarksUsedAndGetReturnsNotFound(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	is := NewInviteStore(st)
+	is := NewInviteStore(blobs.FromStore(st))
 	ctx := context.Background()
 
 	email := "consume+" + freshSuffix() + "@example.com"
@@ -115,7 +116,7 @@ func TestInviteStore_ConsumeTwiceBySameConsumerIsIdempotent(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	is := NewInviteStore(st)
+	is := NewInviteStore(blobs.FromStore(st))
 	ctx := context.Background()
 
 	email := "twice+" + freshSuffix() + "@example.com"
@@ -139,7 +140,7 @@ func TestInviteStore_ConsumeByDifferentEmailRejected(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	is := NewInviteStore(st)
+	is := NewInviteStore(blobs.FromStore(st))
 	ctx := context.Background()
 
 	suffix := freshSuffix()
@@ -165,7 +166,7 @@ func TestInviteStore_RevokeDeletesRecord(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	is := NewInviteStore(st)
+	is := NewInviteStore(blobs.FromStore(st))
 	ctx := context.Background()
 
 	inv, err := is.Issue(ctx, "revoke+"+freshSuffix()+"@example.com", RoleAdmin, Quotas{}, DefaultInviteTTL)
@@ -188,7 +189,7 @@ func TestInviteStore_ListIncludesIssued(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	is := NewInviteStore(st)
+	is := NewInviteStore(blobs.FromStore(st))
 	ctx := context.Background()
 
 	inv, err := is.Issue(ctx, "listed+"+freshSuffix()+"@example.com", RoleAdmin, Quotas{}, DefaultInviteTTL)
@@ -218,7 +219,7 @@ func TestInviteStore_IssueOrReuseBootstrap_ReusesUnconsumed(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	is := NewInviteStore(st)
+	is := NewInviteStore(blobs.FromStore(st))
 	ctx := context.Background()
 
 	email := "boot+" + freshSuffix() + "@example.com"
@@ -244,7 +245,7 @@ func TestInviteStore_IssueOrReuseBootstrap_IssuesAfterConsume(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	is := NewInviteStore(st)
+	is := NewInviteStore(blobs.FromStore(st))
 	ctx := context.Background()
 
 	email := "boot2+" + freshSuffix() + "@example.com"

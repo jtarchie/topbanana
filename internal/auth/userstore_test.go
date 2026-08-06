@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"github.com/jtarchie/topbanana/internal/blobs"
 	"sync"
 	"testing"
 	"time"
@@ -16,7 +17,7 @@ func TestUserStore_SaveLoadRoundtrip(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	us, err := NewUserStore(st)
+	us, err := NewUserStore(blobs.FromStore(st))
 	if err != nil {
 		t.Fatalf("NewUserStore: %v", err)
 	}
@@ -48,7 +49,7 @@ func TestUserStore_LoadMissingReturnsErrUserNotFound(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	us, err := NewUserStore(st)
+	us, err := NewUserStore(blobs.FromStore(st))
 	if err != nil {
 		t.Fatalf("NewUserStore: %v", err)
 	}
@@ -62,7 +63,7 @@ func TestUserStore_SaveRejectsEmptyEmail(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	us, err := NewUserStore(st)
+	us, err := NewUserStore(blobs.FromStore(st))
 	if err != nil {
 		t.Fatalf("NewUserStore: %v", err)
 	}
@@ -76,7 +77,7 @@ func TestUserStore_EmailNormalisedOnSaveAndLoad(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	us, err := NewUserStore(st)
+	us, err := NewUserStore(blobs.FromStore(st))
 	if err != nil {
 		t.Fatalf("NewUserStore: %v", err)
 	}
@@ -105,7 +106,7 @@ func TestUserStore_LookupCachedHitAvoidsLoad(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	us, err := NewUserStore(st)
+	us, err := NewUserStore(blobs.FromStore(st))
 	if err != nil {
 		t.Fatalf("NewUserStore: %v", err)
 	}
@@ -140,7 +141,7 @@ func TestUserStore_SaveInvalidatesCache(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	us, err := NewUserStore(st)
+	us, err := NewUserStore(blobs.FromStore(st))
 	if err != nil {
 		t.Fatalf("NewUserStore: %v", err)
 	}
@@ -174,7 +175,7 @@ func TestUserStore_DeleteRemovesRecordAndCache(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	us, err := NewUserStore(st)
+	us, err := NewUserStore(blobs.FromStore(st))
 	if err != nil {
 		t.Fatalf("NewUserStore: %v", err)
 	}
@@ -204,7 +205,7 @@ func TestUserStore_ListIncludesSaved(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	us, err := NewUserStore(st)
+	us, err := NewUserStore(blobs.FromStore(st))
 	if err != nil {
 		t.Fatalf("NewUserStore: %v", err)
 	}
@@ -237,7 +238,7 @@ func TestUserStore_ConcurrentPutCredentialSerialisesViaStripeLock(t *testing.T) 
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	us, err := NewUserStore(st)
+	us, err := NewUserStore(blobs.FromStore(st))
 	if err != nil {
 		t.Fatalf("NewUserStore: %v", err)
 	}
@@ -295,7 +296,7 @@ func TestUserStore_CreateFromInviteIdempotent(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	us, err := NewUserStore(st)
+	us, err := NewUserStore(blobs.FromStore(st))
 	if err != nil {
 		t.Fatalf("NewUserStore: %v", err)
 	}
@@ -329,7 +330,7 @@ func TestUserStore_DeleteUnknownIsNoop(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	us, err := NewUserStore(st)
+	us, err := NewUserStore(blobs.FromStore(st))
 	if err != nil {
 		t.Fatalf("NewUserStore: %v", err)
 	}

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/jtarchie/topbanana/internal/auth"
+	"github.com/jtarchie/topbanana/internal/blobs"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/sandbox"
@@ -27,7 +28,7 @@ func buildServerWithSandbox(t *testing.T, st *store.Store, snapSvc *snapshot.Ser
 	t.Cleanup(tracker.Close)
 	buildSvc := build.New(st, nil, tracker, snapSvc)
 	authSvc, err := auth.New(auth.Config{
-		Store:           st,
+		Blobs:           blobs.FromStore(st),
 		Domain:          "localhost",
 		SuperAdminEmail: testAdminUser,
 		InsecureCookies: true,

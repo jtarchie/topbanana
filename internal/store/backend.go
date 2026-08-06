@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 )
 
 // objectBackend is the low-level blob layer that Store sits on top of. The S3
@@ -28,6 +29,13 @@ type objectBackend interface {
 	// put stores body at key, returning the new ETag. metadata is stored
 	// verbatim — any encoding is Store's concern.
 	put(ctx context.Context, key string, body []byte, contentType string, metadata map[string]string) (string, error)
+	// putConditional stores body at key only if the precondition holds, and
+	// returns ErrPrecondition when it doesn't. expectedETag == "" means "the
+	// key must not exist yet" (If-None-Match: *); otherwise the stored object
+	// must currently carry that exact ETag (If-Match). This is the primitive
+	// that lets callers turn read-then-write into an atomic claim across
+	// processes; without it, two instances racing on the same key both win.
+	putConditional(ctx context.Context, key string, body []byte, contentType string, metadata map[string]string, expectedETag string) (string, error)
 	// get fetches key. Returns (nil, nil) when the key does not exist, so a
 	// clean miss is distinguishable from a backend fault (non-nil error).
 	get(ctx context.Context, key string) (*rawObject, error)
@@ -90,6 +98,74 @@ func (b *s3Backend) put(ctx context.Context, key string, body []byte, contentTyp
 		return *out.ETag, nil
 	}
 	return "", nil
+}
+
+func (b *s3Backend) putConditional(ctx context.Context, key string, body []byte, contentType string, metadata map[string]string, expectedETag string) (string, error) {
+	in := &s3.PutObjectInput{
+		Bucket:      aws.String(b.bucket),
+		Key:         aws.String(key),
+		Body:        strings.NewReader(string(body)),
+		ContentType: aws.String(contentType),
+		Metadata:    metadata,
+	}
+	if expectedETag == "" {
+		in.IfNoneMatch = aws.String("*")
+	} else {
+		in.IfMatch = aws.String(expectedETag)
+	}
+	out, err := b.client.PutObject(ctx, in)
+	if err != nil {
+		// An If-Match against a key that no longer exists comes back as 404
+		// NoSuchKey from both S3 and Minio, not the 412 the HTTP spec would
+		// suggest. For a caller it means the same thing the 412 does — the
+		// object you based this write on is not there any more, so you lost —
+		// and collapsing the two here is what lets callers treat
+		// ErrPrecondition as the single "someone else won" signal instead of
+		// re-deriving backend trivia.
+		if isPreconditionFailed(err) || (expectedETag != "" && isMissingKey(err)) {
+			return "", ErrPrecondition
+		}
+		return "", fmt.Errorf("failed to write object %s: %w", key, err)
+	}
+	if out != nil && out.ETag != nil {
+		return *out.ETag, nil
+	}
+	return "", nil
+}
+
+// isMissingKey reports whether err is S3's "key does not exist". Checked via
+// the typed error first, with a status/code fallback because Minio surfaces it
+// as a plain 404 API error on the PutObject path rather than a NoSuchKey shape.
+func isMissingKey(err error) bool {
+	var nsk *types.NoSuchKey
+	if errors.As(err, &nsk) {
+		return true
+	}
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.ErrorCode() == "NoSuchKey" || apiErr.ErrorCode() == "404"
+	}
+	return false
+}
+
+// isPreconditionFailed reports whether err is S3's 412 for a failed If-Match /
+// If-None-Match. Mirrors internal/state's helper: the SDK surfaces this
+// inconsistently across S3 and Minio, so the string fallbacks stay.
+func isPreconditionFailed(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		code := apiErr.ErrorCode()
+		if code == "PreconditionFailed" || code == "412" {
+			return true
+		}
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "PreconditionFailed") ||
+		strings.Contains(msg, "precondition failed") ||
+		strings.Contains(msg, "412")
 }
 
 func (b *s3Backend) get(ctx context.Context, key string) (*rawObject, error) {

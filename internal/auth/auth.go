@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jtarchie/topbanana/internal/blobstore"
+
 	"github.com/egregors/passkey"
 	"github.com/go-webauthn/webauthn/webauthn"
-
-	"github.com/jtarchie/topbanana/internal/store"
 )
 
 // defaultCookieNamePrefix is the prefix passed to the egregors/passkey
@@ -26,7 +26,9 @@ const defaultCookieNamePrefix = "bh"
 // the cookies are scoped to and the WebAuthn RPID — every admin route is
 // served from the same parent so RPID and Origin can be derived from it.
 type Config struct {
-	Store            *store.Store
+	// Blobs is the keyed-document store every subsystem here persists to.
+	// An interface, not a concrete store: see blobs.go for why.
+	Blobs            blobstore.Blobs
 	Domain           string
 	SuperAdminEmail  string
 	UserSessionTTL   time.Duration
@@ -82,8 +84,8 @@ func (a *Auth) Close() error {
 // construction failure. The caller is expected to call Bootstrap once
 // the server is otherwise ready.
 func New(cfg Config) (*Auth, error) {
-	if cfg.Store == nil {
-		return nil, errors.New("auth: store required")
+	if cfg.Blobs == nil {
+		return nil, errors.New("auth: blobs required")
 	}
 	if cfg.Domain == "" {
 		return nil, errors.New("auth: domain required")
@@ -99,15 +101,15 @@ func New(cfg Config) (*Auth, error) {
 		cfg.CookieNamePrefix = defaultCookieNamePrefix
 	}
 
-	users, err := NewUserStore(cfg.Store)
+	users, err := NewUserStore(cfg.Blobs)
 	if err != nil {
 		return nil, err
 	}
-	sessions, err := NewUserSessionStore(cfg.Store)
+	sessions, err := NewUserSessionStore(cfg.Blobs)
 	if err != nil {
 		return nil, err
 	}
-	invites := NewInviteStore(cfg.Store)
+	invites := NewInviteStore(cfg.Blobs)
 
 	opts := []passkey.Option{
 		passkey.WithLogger(slogLogger{}),

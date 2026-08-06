@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jtarchie/topbanana/internal/store"
+	"github.com/jtarchie/topbanana/internal/blobstore"
 )
 
 const inviteStorePrefix = "_auth/invites/"
@@ -35,11 +35,11 @@ var ErrInviteExpired = errors.New("invite expired")
 
 // InviteStore is the S3-backed lifecycle for one-time invite tokens.
 type InviteStore struct {
-	store *store.Store
+	blobs blobstore.Blobs
 }
 
-func NewInviteStore(s *store.Store) *InviteStore {
-	return &InviteStore{store: s}
+func NewInviteStore(b blobstore.Blobs) *InviteStore {
+	return &InviteStore{blobs: b}
 }
 
 func inviteKey(token string) string {
@@ -91,7 +91,7 @@ func (s *InviteStore) IssueOrReuseBootstrap(ctx context.Context, email string) (
 // consumed records, ErrInviteExpired for past-expiry records. Callers
 // should not treat the difference as security-meaningful.
 func (s *InviteStore) Get(ctx context.Context, token string) (*Invite, error) {
-	obj, err := s.store.ReadRaw(ctx, inviteKey(token))
+	obj, err := s.blobs.Get(ctx, inviteKey(token))
 	if err != nil {
 		return nil, fmt.Errorf("auth: read invite: %w", err)
 	}
@@ -118,7 +118,7 @@ func (s *InviteStore) Get(ctx context.Context, token string) (*Invite, error) {
 // the invite via Get before calling.
 func (s *InviteStore) Consume(ctx context.Context, token, consumer string) error {
 	consumer = NormalizeEmail(consumer)
-	obj, err := s.store.ReadRaw(ctx, inviteKey(token))
+	obj, err := s.blobs.Get(ctx, inviteKey(token))
 	if err != nil {
 		return fmt.Errorf("auth: read invite: %w", err)
 	}
@@ -140,7 +140,7 @@ func (s *InviteStore) Consume(ctx context.Context, token, consumer string) error
 // Revoke deletes an invite outright. Used by super admin to invalidate an
 // invite sent to a wrong address before the recipient has bound a passkey.
 func (s *InviteStore) Revoke(ctx context.Context, token string) error {
-	err := s.store.DeleteRaw(ctx, inviteKey(token))
+	err := s.blobs.Delete(ctx, inviteKey(token))
 	if err != nil {
 		return fmt.Errorf("auth: revoke invite: %w", err)
 	}
@@ -151,13 +151,13 @@ func (s *InviteStore) Revoke(ctx context.Context, token string) error {
 // admin UI to render the pending-invite table. O(N) over invite count;
 // fine at our scale.
 func (s *InviteStore) List(ctx context.Context) ([]*Invite, error) {
-	keys, err := s.store.ListPrefix(ctx, inviteStorePrefix)
+	keys, err := s.blobs.List(ctx, inviteStorePrefix)
 	if err != nil {
 		return nil, fmt.Errorf("auth: list invites: %w", err)
 	}
 	invites := make([]*Invite, 0, len(keys))
 	for _, key := range keys {
-		obj, err := s.store.ReadRaw(ctx, key)
+		obj, err := s.blobs.Get(ctx, key)
 		if err != nil || obj.Content == "" {
 			continue
 		}
@@ -190,7 +190,7 @@ func (s *InviteStore) save(ctx context.Context, inv *Invite) error {
 	if err != nil {
 		return fmt.Errorf("auth: marshal invite: %w", err)
 	}
-	err = s.store.WriteRaw(ctx, inviteKey(inv.Token), string(body), "application/json", nil)
+	err = s.blobs.Put(ctx, inviteKey(inv.Token), string(body))
 	if err != nil {
 		return fmt.Errorf("auth: write invite: %w", err)
 	}

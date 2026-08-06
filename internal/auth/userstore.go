@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jtarchie/topbanana/internal/blobstore"
+
 	"github.com/egregors/passkey"
 	"github.com/hashicorp/golang-lru/arc/v2"
-
-	"github.com/jtarchie/topbanana/internal/store"
 )
 
 // userStorePrefix is the bucket area for user records. One file per user,
@@ -52,7 +52,7 @@ type cachedUser struct {
 // passkey library calls PutCredential + Update in sequence on login and
 // registration — re-entrant on the same email is rare but possible).
 type UserStore struct {
-	store *store.Store
+	blobs blobstore.Blobs
 	cache *arc.ARCCache[string, cachedUser]
 
 	mu    sync.Mutex
@@ -61,13 +61,13 @@ type UserStore struct {
 
 // NewUserStore wires the cache and write-locks. Errors only on cache
 // construction (size <= 0); panics are unreachable for our constant size.
-func NewUserStore(s *store.Store) (*UserStore, error) {
+func NewUserStore(b blobstore.Blobs) (*UserStore, error) {
 	cache, err := arc.NewARC[string, cachedUser](userCacheCapacity) //nolint:exptostd // arc.NewARC is the API
 	if err != nil {
 		return nil, fmt.Errorf("auth: build user cache: %w", err)
 	}
 	return &UserStore{
-		store: s,
+		blobs: b,
 		cache: cache,
 		locks: map[string]*sync.Mutex{},
 	}, nil
@@ -97,7 +97,7 @@ func (s *UserStore) lockFor(email string) *sync.Mutex {
 // can be used to warm the cache or refresh after an external write.
 func (s *UserStore) Load(ctx context.Context, email string) (*User, error) {
 	email = NormalizeEmail(email)
-	obj, err := s.store.ReadRaw(ctx, userKey(email))
+	obj, err := s.blobs.Get(ctx, userKey(email))
 	if err != nil {
 		return nil, fmt.Errorf("auth: read user %s: %w", email, err)
 	}
@@ -143,7 +143,7 @@ func (s *UserStore) Save(ctx context.Context, user *User) error {
 		return fmt.Errorf("auth: marshal user %s: %w", email, err)
 	}
 	s.cache.Remove(email)
-	err = s.store.WriteRaw(ctx, userKey(email), string(body), "application/json", nil)
+	err = s.blobs.Put(ctx, userKey(email), string(body))
 	if err != nil {
 		return fmt.Errorf("auth: write user %s: %w", email, err)
 	}
@@ -156,13 +156,13 @@ func (s *UserStore) Save(ctx context.Context, user *User) error {
 // passkey.User interface) because callers want Role + Quotas, not just
 // the WebAuthn methods.
 func (s *UserStore) List(ctx context.Context) ([]*User, error) {
-	keys, err := s.store.ListPrefix(ctx, userStorePrefix)
+	keys, err := s.blobs.List(ctx, userStorePrefix)
 	if err != nil {
 		return nil, fmt.Errorf("auth: list users: %w", err)
 	}
 	users := make([]*User, 0, len(keys))
 	for _, key := range keys {
-		obj, readErr := s.store.ReadRaw(ctx, key)
+		obj, readErr := s.blobs.Get(ctx, key)
 		if readErr != nil || obj.Content == "" {
 			continue
 		}
@@ -183,7 +183,7 @@ func (s *UserStore) Delete(ctx context.Context, email string) error {
 	lock := s.lockFor(email)
 	lock.Lock()
 	defer lock.Unlock()
-	err := s.store.DeleteRaw(ctx, userKey(email))
+	err := s.blobs.Delete(ctx, userKey(email))
 	if err != nil {
 		return fmt.Errorf("auth: delete user %s: %w", email, err)
 	}

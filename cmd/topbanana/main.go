@@ -14,6 +14,7 @@ import (
 	adkmodel "google.golang.org/adk/v2/model"
 
 	"github.com/jtarchie/topbanana/internal/auth"
+	"github.com/jtarchie/topbanana/internal/blobs"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/model"
@@ -174,7 +175,7 @@ func run() error {
 	stateStore := state.NewS3(s3Client, cli.S3Bucket)
 
 	authSvc, err := auth.New(auth.Config{
-		Store:           s,
+		Blobs:           blobs.FromStore(s),
 		Domain:          cli.Domain,
 		SuperAdminEmail: cli.SuperAdminEmail,
 		InsecureCookies: cli.InsecureCookies,

@@ -15,6 +15,7 @@ import (
 
 	"github.com/jtarchie/topbanana/internal/agent"
 	"github.com/jtarchie/topbanana/internal/auth"
+	"github.com/jtarchie/topbanana/internal/blobs"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/server"
@@ -92,7 +93,7 @@ func buildServerWithRunnerAndInfo(t *testing.T, st *store.Store, snapSvc *snapsh
 		RecordEdit: true,
 	})
 	authSvc, err := auth.New(auth.Config{
-		Store:           st,
+		Blobs:           blobs.FromStore(st),
 		Domain:          "localhost",
 		SuperAdminEmail: testAdminUser,
 		InsecureCookies: true,

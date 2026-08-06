@@ -3,6 +3,7 @@ package auth
 import (
 	"bytes"
 	"context"
+	"github.com/jtarchie/topbanana/internal/blobs"
 	"sync"
 	"testing"
 	"time"
@@ -118,7 +119,7 @@ func TestUserSessionStore_CreateGetDelete(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	uss, err := NewUserSessionStore(st)
+	uss, err := NewUserSessionStore(blobs.FromStore(st))
 	if err != nil {
 		t.Fatalf("NewUserSessionStore: %v", err)
 	}
@@ -151,7 +152,7 @@ func TestUserSessionStore_ExpiredSessionReturnsFalse(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	uss, err := NewUserSessionStore(st)
+	uss, err := NewUserSessionStore(blobs.FromStore(st))
 	if err != nil {
 		t.Fatalf("NewUserSessionStore: %v", err)
 	}
@@ -176,7 +177,7 @@ func TestUserSessionStore_GetReadsThroughCache(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	uss, err := NewUserSessionStore(st)
+	uss, err := NewUserSessionStore(blobs.FromStore(st))
 	if err != nil {
 		t.Fatalf("NewUserSessionStore: %v", err)
 	}
@@ -205,7 +206,7 @@ func TestUserSessionStore_RevokeAllForUserOnlyDropsMatching(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	uss, err := NewUserSessionStore(st)
+	uss, err := NewUserSessionStore(blobs.FromStore(st))
 	if err != nil {
 		t.Fatalf("NewUserSessionStore: %v", err)
 	}
@@ -265,7 +266,7 @@ func TestUserSessionStore_RevokeAllEvictsCacheImmediately(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	uss, err := NewUserSessionStore(st)
+	uss, err := NewUserSessionStore(blobs.FromStore(st))
 	if err != nil {
 		t.Fatalf("NewUserSessionStore: %v", err)
 	}
@@ -297,7 +298,7 @@ func TestUserSessionStore_GetUnknownTokenReturnsFalse(t *testing.T) {
 	t.Parallel()
 
 	st := storetest.New(t, 0)
-	uss, err := NewUserSessionStore(st)
+	uss, err := NewUserSessionStore(blobs.FromStore(st))
 	if err != nil {
 		t.Fatalf("NewUserSessionStore: %v", err)
 	}

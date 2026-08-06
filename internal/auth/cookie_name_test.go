@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"github.com/jtarchie/topbanana/internal/blobs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -45,7 +46,7 @@ func TestAuth_SessionCookieName_TracksLibraryWriteSide(t *testing.T) {
 	superEmail := "super+" + suffix + "@example.com"
 
 	a, err := New(Config{
-		Store:           st,
+		Blobs:           blobs.FromStore(st),
 		Domain:          "localhost",
 		SuperAdminEmail: superEmail,
 		InsecureCookies: true,

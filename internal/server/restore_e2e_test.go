@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jtarchie/topbanana/internal/auth"
+	"github.com/jtarchie/topbanana/internal/blobs"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/server"
@@ -81,7 +82,7 @@ func buildServer(t *testing.T, st *store.Store, snapSvc *snapshot.Service) http.
 func buildServerWithState(t *testing.T, st *store.Store, snapSvc *snapshot.Service, kv state.Store) http.Handler {
 	t.Helper()
 	authSvc, err := auth.New(auth.Config{
-		Store:           st,
+		Blobs:           blobs.FromStore(st),
 		Domain:          "localhost",
 		SuperAdminEmail: testAdminUser,
 		InsecureCookies: true,
