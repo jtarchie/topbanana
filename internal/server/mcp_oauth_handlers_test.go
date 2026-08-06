@@ -23,8 +23,9 @@ import (
 // driven both unauthenticated and with an injected session cookie.
 func newOAuthTestServer(t *testing.T) *Server {
 	t.Helper()
+	backing := storetest.New(t, 0)
 	a, err := auth.New(auth.Config{
-		Store:           storetest.New(t, 0),
+		Store:           backing,
 		Domain:          "localhost",
 		SuperAdminEmail: "admin@example.com",
 		InsecureCookies: true,
@@ -35,9 +36,18 @@ func newOAuthTestServer(t *testing.T) *Server {
 	t.Cleanup(func() { _ = a.Close() })
 	return &Server{
 		auth:      a,
-		mcpOAuth:  newMCPOAuthState(),
+		mcpOAuth:  newMCPOAuthState(backing),
 		mcpSecret: "test-oauth-secret",
 	}
+}
+
+func registerTestClient(t *testing.T, s *Server) string {
+	t.Helper()
+	id, err := s.mcpOAuth.registerClient(context.Background(), []string{"https://cb.example/done"})
+	if err != nil {
+		t.Fatalf("registerClient: %v", err)
+	}
+	return id
 }
 
 func oauthGET(t *testing.T, s *Server, handler func(*echo.Context) error, rawQuery string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
@@ -92,7 +102,7 @@ func pkcePair() (verifier, challenge string) {
 func TestMCPTokenHandler_ErrorPaths(t *testing.T) {
 	s := newOAuthTestServer(t)
 	verifier, challenge := pkcePair()
-	clientID := s.mcpOAuth.registerClient([]string{"https://cb.example/done"})
+	clientID := registerTestClient(t, s)
 
 	seedCode := func() string {
 		return s.mcpOAuth.newCode("user@example.com", clientID, "https://cb.example/done", challenge)
@@ -160,7 +170,7 @@ func TestMCPTokenHandler_ErrorPaths(t *testing.T) {
 func TestMCPTokenHandler_SuccessAndReplay(t *testing.T) {
 	s := newOAuthTestServer(t)
 	verifier, challenge := pkcePair()
-	clientID := s.mcpOAuth.registerClient([]string{"https://cb.example/done"})
+	clientID := registerTestClient(t, s)
 	code := s.mcpOAuth.newCode("user@example.com", clientID, "https://cb.example/done", challenge)
 
 	form := url.Values{
@@ -207,7 +217,7 @@ func TestMCPTokenHandler_SuccessAndReplay(t *testing.T) {
 func TestMCPAuthorizeHandler_Rejections(t *testing.T) {
 	s := newOAuthTestServer(t)
 	_, challenge := pkcePair()
-	clientID := s.mcpOAuth.registerClient([]string{"https://cb.example/done"})
+	clientID := registerTestClient(t, s)
 
 	base := url.Values{
 		"response_type": {"code"}, "code_challenge_method": {"S256"},
@@ -253,7 +263,7 @@ func TestMCPAuthorizeHandler_Rejections(t *testing.T) {
 func TestMCPAuthorizeHandler_SessionFlow(t *testing.T) {
 	s := newOAuthTestServer(t)
 	verifier, challenge := pkcePair()
-	clientID := s.mcpOAuth.registerClient([]string{"https://cb.example/done"})
+	clientID := registerTestClient(t, s)
 	query := url.Values{
 		"response_type": {"code"}, "code_challenge_method": {"S256"},
 		"code_challenge": {challenge}, "client_id": {clientID},
@@ -319,4 +329,43 @@ func FuzzVerifyPKCE(f *testing.F) {
 			t.Fatalf("verifyPKCE(%q, %q) = %v, want %v", v, c, got, want)
 		}
 	})
+}
+
+// TestMCPRegisterHandler_RateLimited pins the cap on the unauthenticated
+// registration endpoint: without it an anonymous loop writes a bucket object
+// per call, forever. Burst is 5, so the sixth immediate attempt must be
+// refused rather than persisted.
+func TestMCPRegisterHandler_RateLimited(t *testing.T) {
+	s := newOAuthTestServer(t)
+
+	post := func() *httptest.ResponseRecorder {
+		body := strings.NewReader(`{"redirect_uris":["https://cb.example/done"]}`)
+		req := httptest.NewRequest(http.MethodPost, "/oauth/register", body)
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		rec := httptest.NewRecorder()
+		err := s.mcpRegisterHandler(echo.New().NewContext(req, rec))
+		if err != nil {
+			t.Fatalf("register handler: %v", err)
+		}
+		return rec
+	}
+
+	for i := range 5 {
+		if rec := post(); rec.Code != http.StatusCreated {
+			t.Fatalf("registration %d: status = %d, want 201 (%s)", i+1, rec.Code, rec.Body.String())
+		}
+	}
+	rec := post()
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("over-burst status = %d, want 429 (%s)", rec.Code, rec.Body.String())
+	}
+
+	// The refused attempt must not have created a registration.
+	keys, err := s.mcpOAuth.store.ListPrefix(context.Background(), mcpOAuthClientPrefix)
+	if err != nil {
+		t.Fatalf("list registrations: %v", err)
+	}
+	if len(keys) != 5 {
+		t.Fatalf("stored registrations = %d, want 5 (the 429 must not persist)", len(keys))
+	}
 }

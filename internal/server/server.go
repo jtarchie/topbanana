@@ -109,9 +109,9 @@ type Server struct {
 	preWarmCert func(host string)
 
 	// mcpSecret signs MCP bearer tokens; empty leaves the MCP + OAuth routes
-	// unmounted. mcpOAuth holds the in-memory OAuth authorization-server state
-	// (registered clients + pending authorization codes), created in New only
-	// when the secret is set.
+	// unmounted. mcpOAuth holds the OAuth authorization-server state
+	// (S3-backed client registrations + in-memory authorization codes),
+	// created in New only when the secret is set.
 	mcpSecret string
 	mcpOAuth  *mcpOAuthState
 
@@ -189,7 +189,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 	}
 	s.registry.initialRebuildIndexes(context.Background())
 	if s.mcpSecret != "" {
-		s.mcpOAuth = newMCPOAuthState()
+		s.mcpOAuth = newMCPOAuthState(d.Store)
 	}
 
 	e := echo.New()

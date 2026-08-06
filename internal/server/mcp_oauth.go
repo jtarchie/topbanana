@@ -1,12 +1,15 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sync"
 	"time"
 
@@ -15,6 +18,8 @@ import (
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 
 	"github.com/jtarchie/topbanana/internal/auth"
+	"github.com/jtarchie/topbanana/internal/photowall"
+	"github.com/jtarchie/topbanana/internal/store"
 )
 
 // This file is a minimal OAuth 2.1 authorization server that fronts the MCP
@@ -25,11 +30,28 @@ import (
 // session, so no second login system is introduced. Tokens are the JWTs minted
 // by internal/auth/mcp.go and verified by the bearer middleware on /mcp.
 //
-// Client registrations and pending authorization codes live in memory
-// (process-local). That's fine for a single instance; a multi-instance
-// deployment behind a load balancer would need shared storage here.
+// Client registrations are persisted to S3 under mcpOAuthClientPrefix: an MCP
+// client registers once and reuses its client_id indefinitely, so a
+// process-local map meant every restart or redeploy broke returning clients
+// with "unknown client_id". Pending authorization codes are still in memory
+// (process-local) — they carry a 10-minute TTL, so losing them costs at most
+// one retry of an in-progress connect, and only that map keeps this endpoint
+// from being run multi-instance.
 
 const mcpAuthCodeTTL = 10 * time.Minute
+
+// mcpOAuthClientPrefix is the bucket home of RFC 7591 registrations, one JSON
+// blob per client_id — the same shape internal/auth uses for invites.
+const mcpOAuthClientPrefix = "_auth/oauth/clients/"
+
+// mcpClientIDPattern is the alphabet mcpRandomToken emits. client_id arrives
+// from an untrusted query parameter and is interpolated into a bucket key, so
+// anything outside it is rejected before it reaches the store.
+var mcpClientIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+func mcpOAuthClientKey(id string) string {
+	return mcpOAuthClientPrefix + id + ".json"
+}
 
 // echo's response methods return an error wrapcheck flags at every call site.
 // These thin wrappers carry the single nolint so the handlers below stay clean
@@ -46,15 +68,31 @@ func mcpRedirect(c *echo.Context, dest string) error {
 	return c.Redirect(http.StatusSeeOther, dest) //nolint:wrapcheck
 }
 
-// mcpOAuthState holds the in-memory authorization-server state.
+// mcpOAuthState holds the authorization-server state: S3-backed client
+// registrations (with an in-memory read cache in front) and in-memory codes.
 type mcpOAuthState struct {
-	mu      sync.Mutex
+	store *store.Store
+
+	// registerLimiter throttles /oauth/register per client IP. RFC 7591
+	// registration is necessarily unauthenticated — Claude Code registers
+	// before any human signs in — so without this an anonymous loop writes
+	// bucket objects and cache entries without bound. Nothing is exposed by
+	// the spam (a client_id is inert until /oauth/authorize sees a passkey
+	// session); this caps the junk and the PUT bill. The type lives in
+	// internal/photowall because that's where the first per-key token bucket
+	// was needed; it carries no photo-specific behaviour.
+	registerLimiter *photowall.Limiter
+
+	mu sync.Mutex
+	// clients is a read cache only — S3 is the source of truth, and a miss
+	// here falls through to it. Never treat an absent entry as "no such
+	// client".
 	clients map[string]mcpOAuthClient
 	codes   map[string]mcpAuthCode
 }
 
 type mcpOAuthClient struct {
-	RedirectURIs []string
+	RedirectURIs []string `json:"redirect_uris"`
 }
 
 type mcpAuthCode struct {
@@ -65,10 +103,15 @@ type mcpAuthCode struct {
 	Expires       time.Time
 }
 
-func newMCPOAuthState() *mcpOAuthState {
+func newMCPOAuthState(s *store.Store) *mcpOAuthState {
 	return &mcpOAuthState{
-		clients: map[string]mcpOAuthClient{},
-		codes:   map[string]mcpAuthCode{},
+		store: s,
+		// Registering is a once-per-tool-install event, so this is far above
+		// any legitimate rate while still blunting a script: ~1 per 5s
+		// sustained per IP, burst 5 for a shared NAT.
+		registerLimiter: photowall.NewLimiter(0.2, 5),
+		clients:         map[string]mcpOAuthClient{},
+		codes:           map[string]mcpAuthCode{},
 	}
 }
 
@@ -78,19 +121,57 @@ func mcpRandomToken() string {
 	return base64.RawURLEncoding.EncodeToString(buf)
 }
 
-func (st *mcpOAuthState) registerClient(redirectURIs []string) string {
+// registerClient persists a registration and returns its client_id. The write
+// must land before the id is handed out: a client that gets an id we failed to
+// store would fail at /oauth/authorize with no way to recover but re-register.
+func (st *mcpOAuthState) registerClient(ctx context.Context, redirectURIs []string) (string, error) {
 	id := mcpRandomToken()
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	st.clients[id] = mcpOAuthClient{RedirectURIs: redirectURIs}
-	return id
+	client := mcpOAuthClient{RedirectURIs: redirectURIs}
+	body, err := json.Marshal(client)
+	if err != nil {
+		return "", fmt.Errorf("server: marshal oauth client: %w", err)
+	}
+	err = st.store.WriteRaw(ctx, mcpOAuthClientKey(id), string(body), "application/json", nil)
+	if err != nil {
+		return "", fmt.Errorf("server: write oauth client: %w", err)
+	}
+	st.cache(id, client)
+	return id, nil
 }
 
-func (st *mcpOAuthState) client(id string) (mcpOAuthClient, bool) {
+// client resolves a client_id, reading through the cache to S3. The bool is
+// "registered"; a non-nil error means the lookup itself failed and must not be
+// reported to the caller as an unknown client.
+func (st *mcpOAuthState) client(ctx context.Context, id string) (mcpOAuthClient, bool, error) {
+	if !mcpClientIDPattern.MatchString(id) {
+		return mcpOAuthClient{}, false, nil
+	}
+	st.mu.Lock()
+	c, ok := st.clients[id]
+	st.mu.Unlock()
+	if ok {
+		return c, true, nil
+	}
+
+	obj, err := st.store.ReadRaw(ctx, mcpOAuthClientKey(id))
+	if err != nil {
+		return mcpOAuthClient{}, false, fmt.Errorf("server: read oauth client: %w", err)
+	}
+	if obj.Content == "" {
+		return mcpOAuthClient{}, false, nil
+	}
+	err = json.Unmarshal([]byte(obj.Content), &c)
+	if err != nil {
+		return mcpOAuthClient{}, false, fmt.Errorf("server: parse oauth client: %w", err)
+	}
+	st.cache(id, c)
+	return c, true, nil
+}
+
+func (st *mcpOAuthState) cache(id string, c mcpOAuthClient) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	c, ok := st.clients[id]
-	return c, ok
+	st.clients[id] = c
 }
 
 func (st *mcpOAuthState) newCode(email, clientID, redirectURI, challenge string) string {
@@ -202,6 +283,12 @@ func (s *Server) mcpAuthServerMetadataHandler(c *echo.Context) error {
 // --- dynamic client registration (RFC 7591, minimal) ------------------------
 
 func (s *Server) mcpRegisterHandler(c *echo.Context) error {
+	if !s.mcpOAuth.registerLimiter.Allow(c.RealIP()) {
+		return mcpRespJSON(c, http.StatusTooManyRequests, map[string]string{
+			"error":             "temporarily_unavailable",
+			"error_description": "too many registration attempts — please retry shortly",
+		})
+	}
 	var req struct {
 		RedirectURIs []string `json:"redirect_uris"`
 		ClientName   string   `json:"client_name"`
@@ -213,7 +300,10 @@ func (s *Server) mcpRegisterHandler(c *echo.Context) error {
 	if len(req.RedirectURIs) == 0 {
 		return mcpRespJSON(c, http.StatusBadRequest, map[string]string{"error": "invalid_redirect_uri"})
 	}
-	clientID := s.mcpOAuth.registerClient(req.RedirectURIs)
+	clientID, err := s.mcpOAuth.registerClient(c.Request().Context(), req.RedirectURIs)
+	if err != nil {
+		return mcpRespJSON(c, http.StatusInternalServerError, map[string]string{"error": "server_error"})
+	}
 	return mcpRespJSON(c, http.StatusCreated, map[string]any{
 		"client_id":                  clientID,
 		"redirect_uris":              req.RedirectURIs,
@@ -239,7 +329,10 @@ func (s *Server) mcpAuthorizeHandler(c *echo.Context) error {
 		return mcpRespString(c, http.StatusBadRequest, "code_challenge is required")
 	}
 	clientID := q.Get("client_id")
-	client, ok := s.mcpOAuth.client(clientID)
+	client, ok, err := s.mcpOAuth.client(c.Request().Context(), clientID)
+	if err != nil {
+		return mcpRespString(c, http.StatusInternalServerError, "client lookup failed")
+	}
 	if !ok {
 		return mcpRespString(c, http.StatusBadRequest, "unknown client_id")
 	}
