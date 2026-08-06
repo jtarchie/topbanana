@@ -460,9 +460,14 @@ func buildDiff(before, after string) []diffLine {
 
 // splitLines splits content into lines, dropping a single trailing newline so
 // a normal "ends in \n" file doesn't render a spurious blank final line.
+// Returns an empty slice rather than nil for empty input: buildDiff indexes
+// the result, and the only thing keeping that safe is that difflib's opcodes
+// can't range past the sequence it was given. That's a real invariant but not
+// one a reader (or a static analyzer) can see from the index site, so don't
+// hand it a nil to reason about.
 func splitLines(s string) []string {
 	if s == "" {
-		return nil
+		return []string{}
 	}
 	return strings.Split(strings.TrimSuffix(s, "\n"), "\n")
 }

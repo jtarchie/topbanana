@@ -15,7 +15,7 @@ vars:
   COVERAGE_FILE: coverage.out
   BENCHSTAT_DIR: .benchstats
   FUZZ_TIME: 30s
-  ALLOWED_LICENSES: MIT,MIT-0,Apache-2.0,BSD-3-Clause,BSD-2-Clause,ISC,MPL-2.0
+  ALLOWED_LICENSES: MIT,MIT-0,Apache-2.0,BSD-3-Clause,BSD-2-Clause,ISC,MPL-2.0,LicenseRef-MIT-Lucent
 
 tasks:
   fmt:
@@ -50,6 +50,13 @@ tasks:
       # root is intentional). github.com/segmentio/asm ships an MIT-No-
       # Attribution (MIT-0) license that go-licenses' classifier can't name —
       # the license is strictly more permissive than MIT, so we ignore it.
+      #
+      # LicenseRef-MIT-Lucent in ALLOWED_LICENSES covers goja's ftoa package:
+      # the Gay/Lucent dtoa notice also carried by V8, CPython, and
+      # SpiderMonkey. Permissive (use/copy/modify/distribute for any purpose,
+      # retain the notice, don't use Lucent's name to advertise), it just has
+      # no SPDX id. Allow-listed by name rather than --ignore'd so a future
+      # license change anywhere else in goja still fails this gate.
       - >
         go-licenses check ./...
         --allowed_licenses={{.ALLOWED_LICENSES}}
@@ -118,7 +125,10 @@ tasks:
     cmds:
       - go install golang.org/x/vuln/cmd/govulncheck@latest
       - go install github.com/securego/gosec/v2/cmd/gosec@latest
-      - go install github.com/google/go-licenses@latest
+      # v2, not v1: v1.6.0 is the last v1 release and cannot load a Go 1.26
+      # stdlib ("Package hash/crc64 does not have module info"), which failed
+      # the whole task before it classified anything. google/go-licenses#128.
+      - go install github.com/google/go-licenses/v2@latest
       - go install go.uber.org/nilaway/cmd/nilaway@latest
       - go install golang.org/x/perf/cmd/benchstat@latest
 

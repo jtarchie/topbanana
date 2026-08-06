@@ -127,7 +127,8 @@ func (s *captureSlot) parse() {
 		line := bytes.TrimSpace(body[start:end])
 		end = start - 1
 
-		if !bytes.HasPrefix(line, []byte("data:")) {
+		rest, isData := bytes.CutPrefix(line, []byte("data:"))
+		if !isData {
 			if end <= 0 {
 				return
 			}
@@ -135,7 +136,7 @@ func (s *captureSlot) parse() {
 			continue
 		}
 
-		payload := bytes.TrimSpace(line[len("data:"):])
+		payload := bytes.TrimSpace(rest)
 		if cached, discount, ok := extractCacheFields(payload); ok {
 			s.cachedTokens, s.cacheDiscount = cached, discount
 
@@ -244,8 +245,13 @@ func maybeInjectCacheControl(req *http.Request) error {
 
 	var doc map[string]any
 
+	// A body of literal `null` unmarshals without error and leaves doc nil,
+	// and writing to a nil map panics. Today the write below is unreachable
+	// because a nil doc yields an empty model name that isAnthropicModel
+	// rejects — an accident of another function's behaviour on "", not
+	// something this code should depend on.
 	jerr := json.Unmarshal(body, &doc)
-	if jerr == nil {
+	if jerr == nil && doc != nil {
 		if name, _ := doc["model"].(string); isAnthropicModel(name) {
 			doc["cache_control"] = map[string]string{"type": "ephemeral"}
 

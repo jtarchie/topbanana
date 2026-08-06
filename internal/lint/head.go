@@ -162,6 +162,12 @@ func checkDuplicateTitles(pages []pageInfo) []Error {
 	var errs []Error
 	for _, title := range titles {
 		names := groups[title]
+		// titles only collects keys whose group has >1 entry, so this can't
+		// trip — but the guarantee lives 10 lines up, and names[0] below is
+		// what pays for it being wrong.
+		if len(names) < 2 {
+			continue
+		}
 		sort.Slice(names, func(i, j int) bool {
 			if (names[i] == "index.html") != (names[j] == "index.html") {
 				return names[i] == "index.html"
