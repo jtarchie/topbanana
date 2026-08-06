@@ -13,7 +13,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/jtarchie/topbanana/internal/auth"
+	"github.com/jtarchie/topbanana/auth"
 	"github.com/jtarchie/topbanana/internal/blobs"
 	"github.com/jtarchie/topbanana/internal/storetest"
 )

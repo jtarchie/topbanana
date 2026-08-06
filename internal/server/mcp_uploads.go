@@ -11,7 +11,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/jtarchie/topbanana/internal/auth"
+	"github.com/jtarchie/topbanana/auth"
 )
 
 // Binary upload over MCP works by ticket, not by stuffing bytes through a JSON

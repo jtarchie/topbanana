@@ -15,7 +15,7 @@ import (
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/jtarchie/topbanana/internal/auth"
+	"github.com/jtarchie/topbanana/auth"
 	"github.com/jtarchie/topbanana/internal/editrec"
 	"github.com/jtarchie/topbanana/internal/lint"
 	"github.com/jtarchie/topbanana/internal/templates"

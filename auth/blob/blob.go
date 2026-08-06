@@ -1,9 +1,15 @@
-// Package blobstore is the storage contract the auth domain is written
-// against, and nothing else. It deliberately imports no other package in this
-// repository: that leaf position is what lets the auth packages above it stay
-// portable, while the adapter below it (internal/blobs) binds them to this
-// platform's object store.
-package blobstore
+// Package blob is the storage contract the auth domain is written against, and
+// nothing else. It depends on nothing but the standard library: that leaf
+// position is what lets the auth packages above it stay portable, while a
+// consumer-supplied adapter binds them to whatever object store that consumer
+// actually runs.
+//
+// Memory (memory.go) is a complete in-process implementation, and
+// blob/blobtest carries the conformance suite every implementation should
+// pass. Both ship with the contract on purpose: the semantics below are easy
+// to get subtly wrong, and wrong here is a silent security bug rather than a
+// compile error.
+package blob
 
 import (
 	"context"
@@ -61,4 +67,4 @@ type Object struct {
 // appeared, or vanished between the caller's read and its write. It is a
 // "someone else won" signal, never a fault — callers turn it into "you didn't
 // get the claim", not into a 500.
-var ErrPrecondition = errors.New("blobstore: precondition failed")
+var ErrPrecondition = errors.New("blob: precondition failed")

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jtarchie/topbanana/auth"
 	"github.com/jtarchie/topbanana/internal/agent"
-	"github.com/jtarchie/topbanana/internal/auth"
 	"github.com/jtarchie/topbanana/internal/blobs"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/events"

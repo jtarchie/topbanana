@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jtarchie/topbanana/internal/blobstore"
+	"github.com/jtarchie/topbanana/auth/blob"
 )
 
 const inviteStorePrefix = "_auth/invites/"
@@ -35,10 +35,10 @@ var ErrInviteExpired = errors.New("invite expired")
 
 // InviteStore is the S3-backed lifecycle for one-time invite tokens.
 type InviteStore struct {
-	blobs blobstore.Blobs
+	blobs blob.Blobs
 }
 
-func NewInviteStore(b blobstore.Blobs) *InviteStore {
+func NewInviteStore(b blob.Blobs) *InviteStore {
 	return &InviteStore{blobs: b}
 }
 

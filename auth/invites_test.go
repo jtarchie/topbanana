@@ -5,19 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/jtarchie/topbanana/auth/blob"
 	"testing"
 	"time"
-
-	"github.com/jtarchie/topbanana/internal/blobs"
-	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
 func TestInviteStore_IssueAndGetRoundtrip(t *testing.T) {
 	t.Parallel()
 
-	st := storetest.New(t, 0)
+	st := blob.NewMemory()
 
-	is := NewInviteStore(blobs.FromStore(st))
+	is := NewInviteStore(st)
 	ctx := context.Background()
 	email := "alice+" + freshSuffix() + "@example.com"
 
@@ -55,8 +53,8 @@ func TestInviteStore_IssueAndGetRoundtrip(t *testing.T) {
 func TestInviteStore_GetUnknownTokenReturnsNotFound(t *testing.T) {
 	t.Parallel()
 
-	st := storetest.New(t, 0)
-	is := NewInviteStore(blobs.FromStore(st))
+	st := blob.NewMemory()
+	is := NewInviteStore(st)
 
 	_, err := is.Get(context.Background(), "no-such-token-"+freshSuffix())
 	if !errors.Is(err, ErrInviteNotFound) {
@@ -67,8 +65,8 @@ func TestInviteStore_GetUnknownTokenReturnsNotFound(t *testing.T) {
 func TestInviteStore_GetExpiredReturnsExpired(t *testing.T) {
 	t.Parallel()
 
-	st := storetest.New(t, 0)
-	is := NewInviteStore(blobs.FromStore(st))
+	st := blob.NewMemory()
+	is := NewInviteStore(st)
 	ctx := context.Background()
 
 	inv, err := is.Issue(ctx, "exp+"+freshSuffix()+"@example.com", RoleAdmin, nil, time.Millisecond)
@@ -88,8 +86,8 @@ func TestInviteStore_GetExpiredReturnsExpired(t *testing.T) {
 func TestInviteStore_ConsumeMarksUsedAndGetReturnsNotFound(t *testing.T) {
 	t.Parallel()
 
-	st := storetest.New(t, 0)
-	is := NewInviteStore(blobs.FromStore(st))
+	st := blob.NewMemory()
+	is := NewInviteStore(st)
 	ctx := context.Background()
 
 	email := "consume+" + freshSuffix() + "@example.com"
@@ -116,8 +114,8 @@ func TestInviteStore_ConsumeMarksUsedAndGetReturnsNotFound(t *testing.T) {
 func TestInviteStore_ConsumeTwiceBySameConsumerIsIdempotent(t *testing.T) {
 	t.Parallel()
 
-	st := storetest.New(t, 0)
-	is := NewInviteStore(blobs.FromStore(st))
+	st := blob.NewMemory()
+	is := NewInviteStore(st)
 	ctx := context.Background()
 
 	email := "twice+" + freshSuffix() + "@example.com"
@@ -140,8 +138,8 @@ func TestInviteStore_ConsumeTwiceBySameConsumerIsIdempotent(t *testing.T) {
 func TestInviteStore_ConsumeByDifferentEmailRejected(t *testing.T) {
 	t.Parallel()
 
-	st := storetest.New(t, 0)
-	is := NewInviteStore(blobs.FromStore(st))
+	st := blob.NewMemory()
+	is := NewInviteStore(st)
 	ctx := context.Background()
 
 	suffix := freshSuffix()
@@ -166,8 +164,8 @@ func TestInviteStore_ConsumeByDifferentEmailRejected(t *testing.T) {
 func TestInviteStore_RevokeDeletesRecord(t *testing.T) {
 	t.Parallel()
 
-	st := storetest.New(t, 0)
-	is := NewInviteStore(blobs.FromStore(st))
+	st := blob.NewMemory()
+	is := NewInviteStore(st)
 	ctx := context.Background()
 
 	inv, err := is.Issue(ctx, "revoke+"+freshSuffix()+"@example.com", RoleAdmin, nil, DefaultInviteTTL)
@@ -189,8 +187,8 @@ func TestInviteStore_RevokeDeletesRecord(t *testing.T) {
 func TestInviteStore_ListIncludesIssued(t *testing.T) {
 	t.Parallel()
 
-	st := storetest.New(t, 0)
-	is := NewInviteStore(blobs.FromStore(st))
+	st := blob.NewMemory()
+	is := NewInviteStore(st)
 	ctx := context.Background()
 
 	inv, err := is.Issue(ctx, "listed+"+freshSuffix()+"@example.com", RoleAdmin, nil, DefaultInviteTTL)
@@ -219,8 +217,8 @@ func TestInviteStore_ListIncludesIssued(t *testing.T) {
 func TestInviteStore_IssueOrReuseBootstrap_ReusesUnconsumed(t *testing.T) {
 	t.Parallel()
 
-	st := storetest.New(t, 0)
-	is := NewInviteStore(blobs.FromStore(st))
+	st := blob.NewMemory()
+	is := NewInviteStore(st)
 	ctx := context.Background()
 
 	email := "boot+" + freshSuffix() + "@example.com"
@@ -245,8 +243,8 @@ func TestInviteStore_IssueOrReuseBootstrap_ReusesUnconsumed(t *testing.T) {
 func TestInviteStore_IssueOrReuseBootstrap_IssuesAfterConsume(t *testing.T) {
 	t.Parallel()
 
-	st := storetest.New(t, 0)
-	is := NewInviteStore(blobs.FromStore(st))
+	st := blob.NewMemory()
+	is := NewInviteStore(st)
 	ctx := context.Background()
 
 	email := "boot2+" + freshSuffix() + "@example.com"

@@ -2,14 +2,12 @@ package auth
 
 import (
 	"context"
-	"github.com/jtarchie/topbanana/internal/blobs"
+	"github.com/jtarchie/topbanana/auth/blob"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
 // TestAuth_SessionCookieName_DerivedFromPrefix locks in the fact that
@@ -39,14 +37,14 @@ func TestAuth_SessionCookieName_DerivedFromPrefix(t *testing.T) {
 func TestAuth_SessionCookieName_TracksLibraryWriteSide(t *testing.T) {
 	t.Parallel()
 
-	st := storetest.New(t, 0)
+	st := blob.NewMemory()
 
 	suffix := freshSuffix()
 	probeEmail := "probe+" + suffix + "@example.com"
 	superEmail := "super+" + suffix + "@example.com"
 
 	a, err := New(Config{
-		Blobs:           blobs.FromStore(st),
+		Blobs:           st,
 		Domain:          "localhost",
 		SuperAdminEmail: superEmail,
 		InsecureCookies: true,

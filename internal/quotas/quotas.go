@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jtarchie/topbanana/internal/auth"
+	"github.com/jtarchie/topbanana/auth"
 	"github.com/jtarchie/topbanana/internal/model"
 )
 

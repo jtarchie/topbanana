@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jtarchie/topbanana/internal/blobstore"
+	"github.com/jtarchie/topbanana/auth/blob"
 
 	"github.com/egregors/passkey"
 	"github.com/hashicorp/golang-lru/arc/v2"
@@ -52,7 +52,7 @@ type cachedUser struct {
 // passkey library calls PutCredential + Update in sequence on login and
 // registration — re-entrant on the same email is rare but possible).
 type UserStore struct {
-	blobs blobstore.Blobs
+	blobs blob.Blobs
 	cache *arc.ARCCache[string, cachedUser]
 
 	mu    sync.Mutex
@@ -61,7 +61,7 @@ type UserStore struct {
 
 // NewUserStore wires the cache and write-locks. Errors only on cache
 // construction (size <= 0); panics are unreachable for our constant size.
-func NewUserStore(b blobstore.Blobs) (*UserStore, error) {
+func NewUserStore(b blob.Blobs) (*UserStore, error) {
 	cache, err := arc.NewARC[string, cachedUser](userCacheCapacity) //nolint:exptostd // arc.NewARC is the API
 	if err != nil {
 		return nil, fmt.Errorf("auth: build user cache: %w", err)

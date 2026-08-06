@@ -1,7 +1,7 @@
 // Package auth owns multi-tenant identity: user records, passkey
 // credentials, sessions, invites, and role-based authorization. Records are
 // keyed documents under the reserved `_auth/` prefix, persisted through
-// blobstore.Blobs — no datastore of its own, and no knowledge of which one
+// blob.Blobs — no datastore of its own, and no knowledge of which one
 // the application picked.
 //
 // Application policy (resource caps, model allowlists, anything else a

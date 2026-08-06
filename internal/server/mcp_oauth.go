@@ -19,7 +19,7 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 
-	"github.com/jtarchie/topbanana/internal/auth"
+	"github.com/jtarchie/topbanana/auth"
 	"github.com/jtarchie/topbanana/internal/photowall"
 	"github.com/jtarchie/topbanana/internal/store"
 )

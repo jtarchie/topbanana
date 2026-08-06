@@ -1,4 +1,4 @@
-// Package blobs adapts the platform's object store to blobstore.Blobs, the
+// Package blobs adapts the platform's object store to blob.Blobs, the
 // narrow keyed-document contract the auth domain and the MCP OAuth server are
 // written against.
 //
@@ -16,7 +16,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jtarchie/topbanana/internal/blobstore"
+	"github.com/jtarchie/topbanana/auth/blob"
 	"github.com/jtarchie/topbanana/internal/store"
 )
 
@@ -24,21 +24,21 @@ import (
 // domain only ever stores JSON, so the contract doesn't take one.
 const contentType = "application/json"
 
-// Store adapts *store.Store to blobstore.Blobs.
+// Store adapts *store.Store to blob.Blobs.
 type Store struct{ s *store.Store }
 
-// FromStore wraps s. The returned value satisfies blobstore.Blobs.
+// FromStore wraps s. The returned value satisfies blob.Blobs.
 func FromStore(s *store.Store) *Store { return &Store{s: s} }
 
-func (b *Store) Get(ctx context.Context, key string) (blobstore.Object, error) {
+func (b *Store) Get(ctx context.Context, key string) (blob.Object, error) {
 	obj, err := b.s.ReadRaw(ctx, key)
 	if err != nil {
-		return blobstore.Object{}, fmt.Errorf("blobs: get %s: %w", key, err)
+		return blob.Object{}, fmt.Errorf("blobs: get %s: %w", key, err)
 	}
 	// ReadRaw already reports a miss as an empty object rather than an error,
-	// which is the same convention blobstore.Blobs requires — so a miss passes
+	// which is the same convention blob.Blobs requires — so a miss passes
 	// through as a zero Object with a nil error.
-	return blobstore.Object{Content: obj.Content, ETag: obj.ETag}, nil
+	return blob.Object{Content: obj.Content, ETag: obj.ETag}, nil
 }
 
 func (b *Store) Put(ctx context.Context, key, content string) error {
@@ -67,7 +67,7 @@ func (b *Store) translate(key string, err error) error {
 	case err == nil:
 		return nil
 	case errors.Is(err, store.ErrPrecondition):
-		return blobstore.ErrPrecondition
+		return blob.ErrPrecondition
 	default:
 		return fmt.Errorf("blobs: conditional put %s: %w", key, err)
 	}

@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/jtarchie/topbanana/internal/blobstore"
+	"github.com/jtarchie/topbanana/auth/blob"
 
 	"github.com/egregors/passkey"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -28,7 +28,7 @@ const defaultCookieNamePrefix = "bh"
 type Config struct {
 	// Blobs is the keyed-document store every subsystem here persists to.
 	// An interface, not a concrete store: see blobs.go for why.
-	Blobs            blobstore.Blobs
+	Blobs            blob.Blobs
 	Domain           string
 	SuperAdminEmail  string
 	UserSessionTTL   time.Duration

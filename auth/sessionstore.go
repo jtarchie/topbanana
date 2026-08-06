@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jtarchie/topbanana/internal/blobstore"
+	"github.com/jtarchie/topbanana/auth/blob"
 
 	"github.com/egregors/passkey"
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -144,7 +144,7 @@ func (s *memAuthSessionStore) sweep(interval time.Duration) {
 // the underlying object. An LRU cache absorbs the per-request lookup hot
 // path.
 type UserSessionStore struct {
-	blobs blobstore.Blobs
+	blobs blob.Blobs
 	cache *lru.Cache[string, cachedSession]
 }
 
@@ -155,7 +155,7 @@ type cachedSession struct {
 
 // NewUserSessionStore wires the persistent store + read cache. Returns
 // passkey.SessionStore so it can be plugged into passkey.Config directly.
-func NewUserSessionStore(b blobstore.Blobs) (*UserSessionStore, error) {
+func NewUserSessionStore(b blob.Blobs) (*UserSessionStore, error) {
 	cache, err := lru.New[string, cachedSession](sessionCacheCapacity)
 	if err != nil {
 		return nil, fmt.Errorf("auth: build session cache: %w", err)

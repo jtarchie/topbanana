@@ -20,8 +20,8 @@ import (
 	slogecho "github.com/samber/slog-echo/v2"
 	"github.com/tdewolff/minify/v2"
 
+	"github.com/jtarchie/topbanana/auth"
 	"github.com/jtarchie/topbanana/internal/assets"
-	"github.com/jtarchie/topbanana/internal/auth"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/editrec"
 	"github.com/jtarchie/topbanana/internal/events"

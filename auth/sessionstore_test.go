@@ -3,15 +3,13 @@ package auth
 import (
 	"bytes"
 	"context"
-	"github.com/jtarchie/topbanana/internal/blobs"
+	"github.com/jtarchie/topbanana/auth/blob"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/egregors/passkey"
 	"github.com/go-webauthn/webauthn/webauthn"
-
-	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
 // --- memAuthSessionStore (WebAuthn challenges, in-memory) -------------------
@@ -118,8 +116,8 @@ func TestMemAuthSessionStore_ConcurrentCreateProducesUniqueTokens(t *testing.T) 
 func TestUserSessionStore_CreateGetDelete(t *testing.T) {
 	t.Parallel()
 
-	st := storetest.New(t, 0)
-	uss, err := NewUserSessionStore(blobs.FromStore(st))
+	st := blob.NewMemory()
+	uss, err := NewUserSessionStore(st)
 	if err != nil {
 		t.Fatalf("NewUserSessionStore: %v", err)
 	}
@@ -151,8 +149,8 @@ func TestUserSessionStore_CreateGetDelete(t *testing.T) {
 func TestUserSessionStore_ExpiredSessionReturnsFalse(t *testing.T) {
 	t.Parallel()
 
-	st := storetest.New(t, 0)
-	uss, err := NewUserSessionStore(blobs.FromStore(st))
+	st := blob.NewMemory()
+	uss, err := NewUserSessionStore(st)
 	if err != nil {
 		t.Fatalf("NewUserSessionStore: %v", err)
 	}
@@ -176,8 +174,8 @@ func TestUserSessionStore_ExpiredSessionReturnsFalse(t *testing.T) {
 func TestUserSessionStore_GetReadsThroughCache(t *testing.T) {
 	t.Parallel()
 
-	st := storetest.New(t, 0)
-	uss, err := NewUserSessionStore(blobs.FromStore(st))
+	st := blob.NewMemory()
+	uss, err := NewUserSessionStore(st)
 	if err != nil {
 		t.Fatalf("NewUserSessionStore: %v", err)
 	}
@@ -205,8 +203,8 @@ func TestUserSessionStore_GetReadsThroughCache(t *testing.T) {
 func TestUserSessionStore_RevokeAllForUserOnlyDropsMatching(t *testing.T) {
 	t.Parallel()
 
-	st := storetest.New(t, 0)
-	uss, err := NewUserSessionStore(blobs.FromStore(st))
+	st := blob.NewMemory()
+	uss, err := NewUserSessionStore(st)
 	if err != nil {
 		t.Fatalf("NewUserSessionStore: %v", err)
 	}
@@ -265,8 +263,8 @@ func TestUserSessionStore_RevokeAllForUserOnlyDropsMatching(t *testing.T) {
 func TestUserSessionStore_RevokeAllEvictsCacheImmediately(t *testing.T) {
 	t.Parallel()
 
-	st := storetest.New(t, 0)
-	uss, err := NewUserSessionStore(blobs.FromStore(st))
+	st := blob.NewMemory()
+	uss, err := NewUserSessionStore(st)
 	if err != nil {
 		t.Fatalf("NewUserSessionStore: %v", err)
 	}
@@ -297,8 +295,8 @@ func TestUserSessionStore_RevokeAllEvictsCacheImmediately(t *testing.T) {
 func TestUserSessionStore_GetUnknownTokenReturnsFalse(t *testing.T) {
 	t.Parallel()
 
-	st := storetest.New(t, 0)
-	uss, err := NewUserSessionStore(blobs.FromStore(st))
+	st := blob.NewMemory()
+	uss, err := NewUserSessionStore(st)
 	if err != nil {
 		t.Fatalf("NewUserSessionStore: %v", err)
 	}
