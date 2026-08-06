@@ -6,13 +6,13 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -92,8 +92,9 @@ func mcpRedirect(c *echo.Context, dest string) error {
 	return c.Redirect(http.StatusSeeOther, dest) //nolint:wrapcheck
 }
 
-// mcpOAuthState holds the authorization-server state: S3-backed client
-// registrations (with an in-memory read cache in front) and in-memory codes.
+// mcpOAuthState holds the authorization-server state. Both registrations and
+// codes live in the store and nowhere else; the only process-local state is the
+// registration rate limiter, which is advisory and fine to keep per-instance.
 type mcpOAuthState struct {
 	store *store.Store
 
@@ -106,14 +107,6 @@ type mcpOAuthState struct {
 	// internal/photowall because that's where the first per-key token bucket
 	// was needed; it carries no photo-specific behaviour.
 	registerLimiter *photowall.Limiter
-
-	mu sync.Mutex
-	// clients is a read cache only — S3 is the source of truth, and a miss
-	// here falls through to it. Never treat an absent entry as "no such
-	// client". Safe to cache because a registration is immutable for its
-	// lifetime; revokeClient evicts on the one path that ends it. Codes get no
-	// such cache: a stale hit there would mint a token (see newCode).
-	clients map[string]mcpOAuthClient
 }
 
 type mcpOAuthClient struct {
@@ -141,7 +134,6 @@ func newMCPOAuthState(s *store.Store) *mcpOAuthState {
 		// any legitimate rate while still blunting a script: ~1 per 5s
 		// sustained per IP, burst 5 for a shared NAT.
 		registerLimiter: photowall.NewLimiter(0.2, 5),
-		clients:         map[string]mcpOAuthClient{},
 	}
 }
 
@@ -169,24 +161,24 @@ func (st *mcpOAuthState) registerClient(ctx context.Context, redirectURIs []stri
 	if err != nil {
 		return "", fmt.Errorf("server: write oauth client: %w", err)
 	}
-	st.cache(id, client)
 	return id, nil
 }
 
-// client resolves a client_id, reading through the cache to S3. The bool is
+// client resolves a client_id straight from the store. The bool is
 // "registered"; a non-nil error means the lookup itself failed and must not be
 // reported to the caller as an unknown client.
+//
+// Deliberately uncached. A read cache here would save one GET on
+// /oauth/authorize — a rare, human-initiated request that is already doing a
+// session lookup and a redirect — and would buy that with the one transition
+// that matters: revocation. A revoked client_id would keep working on every
+// instance that had it cached until that process restarted, while the admin
+// console reports it as revoked. Same reasoning as newCode: a cache whose
+// staleness grants access isn't a cache.
 func (st *mcpOAuthState) client(ctx context.Context, id string) (mcpOAuthClient, bool, error) {
 	if !mcpTokenPattern.MatchString(id) {
 		return mcpOAuthClient{}, false, nil
 	}
-	st.mu.Lock()
-	c, ok := st.clients[id]
-	st.mu.Unlock()
-	if ok {
-		return c, true, nil
-	}
-
 	obj, err := st.store.ReadRaw(ctx, mcpOAuthClientKey(id))
 	if err != nil {
 		return mcpOAuthClient{}, false, fmt.Errorf("server: read oauth client: %w", err)
@@ -194,18 +186,12 @@ func (st *mcpOAuthState) client(ctx context.Context, id string) (mcpOAuthClient,
 	if obj.Content == "" {
 		return mcpOAuthClient{}, false, nil
 	}
+	c := mcpOAuthClient{}
 	err = json.Unmarshal([]byte(obj.Content), &c)
 	if err != nil {
 		return mcpOAuthClient{}, false, fmt.Errorf("server: parse oauth client: %w", err)
 	}
-	st.cache(id, c)
 	return c, true, nil
-}
-
-func (st *mcpOAuthState) cache(id string, c mcpOAuthClient) {
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	st.clients[id] = c
 }
 
 // registeredClient pairs a stored registration with its client_id, which lives
@@ -227,7 +213,11 @@ func (st *mcpOAuthState) listClients(ctx context.Context) ([]registeredClient, e
 	out := make([]registeredClient, 0, len(keys))
 	for _, key := range keys {
 		id := strings.TrimSuffix(strings.TrimPrefix(key, mcpOAuthClientPrefix), ".json")
-		if id == "" {
+		// Every id we ever issued is a mcpRandomToken, so anything else under
+		// this prefix is not a registration. Skipping it keeps the console
+		// consistent with revokeClient, which refuses such ids — otherwise the
+		// page would show a row whose Revoke button silently does nothing.
+		if !mcpTokenPattern.MatchString(id) {
 			continue
 		}
 		obj, err := st.store.ReadRaw(ctx, key)
@@ -244,24 +234,24 @@ func (st *mcpOAuthState) listClients(ctx context.Context) ([]registeredClient, e
 	return out, nil
 }
 
-// revokeClient deletes a registration and drops it from the read cache. The
-// cache eviction is what makes revocation take effect immediately — without it
-// this instance would keep honouring the id until restart. A second instance
-// would still serve its own cached copy, which is one more thing the codes-map
-// multi-instance work has to account for.
+// revokeClient deletes a registration. Because client() reads through to the
+// store on every authorize, the delete takes effect immediately and on every
+// instance. Returns ErrMCPClientNotFound for an id that was never a valid
+// registration, so the console doesn't report a revocation that didn't happen.
 func (st *mcpOAuthState) revokeClient(ctx context.Context, id string) error {
 	if !mcpTokenPattern.MatchString(id) {
-		return nil
+		return ErrMCPClientNotFound
 	}
 	err := st.store.DeleteRaw(ctx, mcpOAuthClientKey(id))
 	if err != nil {
 		return fmt.Errorf("server: revoke oauth client: %w", err)
 	}
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	delete(st.clients, id)
 	return nil
 }
+
+// ErrMCPClientNotFound is returned when a revoke targets an id that could never
+// name a registration.
+var ErrMCPClientNotFound = errors.New("mcp client not found")
 
 // newCode issues an authorization code. The stored object is the code — there
 // is deliberately no in-memory copy. A local map looks like a free fast path
@@ -288,44 +278,42 @@ func (st *mcpOAuthState) newCode(ctx context.Context, email, clientID, redirectU
 	return code, nil
 }
 
-// takeCode looks up and removes a code (single use). Returns false if missing
-// or expired — the caller must not distinguish the two, since both mean
-// "invalid_grant" and the difference is only useful to someone probing.
-func (st *mcpOAuthState) takeCode(ctx context.Context, code string) (mcpAuthCode, bool) {
+// takeCode looks up and removes a code (single use). ok=false means missing or
+// expired, and the caller must not distinguish the two: both are invalid_grant
+// and the difference is only useful to someone probing. A non-nil error is
+// different in kind — the store failed, so we cannot say whether the code was
+// good, and the caller must report that as transient rather than as a verdict
+// on the code.
+func (st *mcpOAuthState) takeCode(ctx context.Context, code string) (mcpAuthCode, bool, error) {
 	if !mcpTokenPattern.MatchString(code) {
-		return mcpAuthCode{}, false
+		return mcpAuthCode{}, false, nil
 	}
 	obj, err := st.store.ReadRaw(ctx, mcpOAuthCodeKey(code))
 	if err != nil {
-		slog.Warn("mcp.oauth.code_read_failed", "err", err)
-		return mcpAuthCode{}, false
+		return mcpAuthCode{}, false, fmt.Errorf("server: read auth code: %w", err)
 	}
 	if obj.Content == "" {
-		return mcpAuthCode{}, false
+		return mcpAuthCode{}, false, nil
 	}
-	// Delete before honouring it, so a crash between here and the response
-	// can't leave a redeemable code behind.
-	st.deleteStoredCode(ctx, code)
+	// Consume before honouring it: the delete is what makes the code single
+	// use, so if it fails we must not mint a token. Otherwise the object
+	// survives and the same code can be redeemed again for another token
+	// inside its ten-minute window — the exact property the whole flow leans
+	// on. Failing here costs the user one retry with a fresh code.
+	err = st.store.DeleteRaw(ctx, mcpOAuthCodeKey(code))
+	if err != nil {
+		return mcpAuthCode{}, false, fmt.Errorf("server: consume auth code: %w", err)
+	}
 	stored := mcpAuthCode{}
 	err = json.Unmarshal([]byte(obj.Content), &stored)
 	if err != nil {
 		slog.Warn("mcp.oauth.code_parse_failed", "err", err)
-		return mcpAuthCode{}, false
+		return mcpAuthCode{}, false, nil
 	}
 	if time.Now().After(stored.Expires) {
-		return mcpAuthCode{}, false
+		return mcpAuthCode{}, false, nil
 	}
-	return stored, true
-}
-
-func (st *mcpOAuthState) deleteStoredCode(ctx context.Context, code string) {
-	if !mcpTokenPattern.MatchString(code) {
-		return
-	}
-	err := st.store.DeleteRaw(ctx, mcpOAuthCodeKey(code))
-	if err != nil {
-		slog.Warn("mcp.oauth.code_delete_failed", "err", err)
-	}
+	return stored, true, nil
 }
 
 // sweepStoredCodes drops expired code objects. Redemption deletes its own
@@ -530,7 +518,15 @@ func (s *Server) mcpTokenHandler(c *echo.Context) error {
 	if c.FormValue("grant_type") != "authorization_code" {
 		return mcpRespJSON(c, http.StatusBadRequest, map[string]string{"error": "unsupported_grant_type"})
 	}
-	ac, ok := s.mcpOAuth.takeCode(c.Request().Context(), c.FormValue("code"))
+	ac, ok, err := s.mcpOAuth.takeCode(c.Request().Context(), c.FormValue("code"))
+	if err != nil {
+		// The store failed, so we never learned whether the code was good.
+		// Saying invalid_grant would be a terminal verdict the client acts on
+		// by restarting the whole flow; temporarily_unavailable tells it to
+		// retry, which is what actually recovers.
+		slog.Warn("mcp.oauth.take_code_failed", "err", err)
+		return mcpRespJSON(c, http.StatusServiceUnavailable, map[string]string{"error": "temporarily_unavailable"})
+	}
 	if !ok {
 		return mcpRespJSON(c, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
 	}

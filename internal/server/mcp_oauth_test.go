@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -46,14 +47,17 @@ func TestMCPOAuthState_CodeSingleUse(t *testing.T) {
 	st := newMCPOAuthState(storetest.New(t, 0))
 	code := mustNewCode(t, st, ctx)
 
-	ac, ok := st.takeCode(ctx, code)
+	ac, ok, err := st.takeCode(ctx, code)
+	if err != nil {
+		t.Fatalf("takeCode: %v", err)
+	}
 	if !ok {
 		t.Fatal("first takeCode should succeed")
 	}
 	if ac.Email != "user@example.com" || ac.ClientID != "client-1" || ac.RedirectURI != "https://cb" {
 		t.Fatalf("code payload mismatch: %+v", ac)
 	}
-	if _, ok := st.takeCode(ctx, code); ok {
+	if _, ok, _ := st.takeCode(ctx, code); ok {
 		t.Fatal("second takeCode should fail (single use)")
 	}
 }
@@ -70,7 +74,10 @@ func TestMCPOAuthState_CodeRedeemableAcrossInstances(t *testing.T) {
 
 	code := mustNewCode(t, issuer, ctx)
 
-	ac, ok := redeemer.takeCode(ctx, code)
+	ac, ok, err := redeemer.takeCode(ctx, code)
+	if err != nil {
+		t.Fatalf("takeCode: %v", err)
+	}
 	if !ok {
 		t.Fatal("a sibling instance must be able to redeem the code")
 	}
@@ -80,10 +87,10 @@ func TestMCPOAuthState_CodeRedeemableAcrossInstances(t *testing.T) {
 
 	// Single use has to hold across instances too, including back on the
 	// issuer, whose in-memory copy is now stale.
-	if _, ok := redeemer.takeCode(ctx, code); ok {
+	if _, ok, _ := redeemer.takeCode(ctx, code); ok {
 		t.Fatal("redeemed code must not be redeemable twice on the same instance")
 	}
-	if _, ok := issuer.takeCode(ctx, code); ok {
+	if _, ok, _ := issuer.takeCode(ctx, code); ok {
 		t.Fatal("a code redeemed elsewhere must not still work on the issuer")
 	}
 }
@@ -106,7 +113,7 @@ func TestMCPOAuthState_StoredCodeExpiryEnforced(t *testing.T) {
 		t.Fatalf("overwrite stored code: %v", err)
 	}
 
-	if _, ok := newMCPOAuthState(backing).takeCode(ctx, code); ok {
+	if _, ok, _ := newMCPOAuthState(backing).takeCode(ctx, code); ok {
 		t.Fatal("expired stored code must not be honoured")
 	}
 }
@@ -197,8 +204,6 @@ func TestMCPOAuthState_ClientSurvivesRestart(t *testing.T) {
 }
 
 // TestMCPOAuthState_ListAndRevoke covers the admin console's two operations.
-// The load-bearing assertion is the last one: revoke has to evict the read
-// cache, or this instance keeps honouring a client_id whose record is gone.
 func TestMCPOAuthState_ListAndRevoke(t *testing.T) {
 	ctx := context.Background()
 	st := newMCPOAuthState(storetest.New(t, 0))
@@ -227,8 +232,6 @@ func TestMCPOAuthState_ListAndRevoke(t *testing.T) {
 		t.Fatalf("listed record lost its metadata: %+v", got)
 	}
 
-	// Both ids are in the read cache right now (registerClient seeds it), which
-	// is exactly the condition revoke has to defeat.
 	err = st.revokeClient(ctx, drop)
 	if err != nil {
 		t.Fatalf("revokeClient: %v", err)
@@ -242,10 +245,76 @@ func TestMCPOAuthState_ListAndRevoke(t *testing.T) {
 		t.Fatalf("after revoke listed %+v, want only %s", listed, keep)
 	}
 	if _, ok, _ := st.client(ctx, drop); ok {
-		t.Fatal("revoked client_id still resolves — the read cache was not evicted")
+		t.Fatal("revoked client_id still resolves")
 	}
 	if _, ok, _ := st.client(ctx, keep); !ok {
 		t.Fatal("revoking one client must not affect the others")
+	}
+}
+
+// TestMCPOAuthState_RevokeTakesEffectOnOtherInstances is why client() is not
+// cached. An admin revokes on whichever instance served the console; every
+// other instance has to stop honouring the id on its very next authorize, not
+// whenever that process happens to restart.
+func TestMCPOAuthState_RevokeTakesEffectOnOtherInstances(t *testing.T) {
+	ctx := context.Background()
+	backing := storetest.New(t, 0)
+	serving := newMCPOAuthState(backing)
+	console := newMCPOAuthState(backing)
+
+	id, err := serving.registerClient(ctx, []string{"https://cb/one"}, "Doomed")
+	if err != nil {
+		t.Fatalf("registerClient: %v", err)
+	}
+	// Resolve it first: this is the read that a cache would have populated.
+	if _, ok, _ := serving.client(ctx, id); !ok {
+		t.Fatal("client should resolve before revocation")
+	}
+
+	err = console.revokeClient(ctx, id)
+	if err != nil {
+		t.Fatalf("revokeClient: %v", err)
+	}
+
+	if _, ok, _ := serving.client(ctx, id); ok {
+		t.Fatal("a revoked client_id must stop resolving on every instance immediately")
+	}
+}
+
+// revokeClient must not report success for an id that could never name a
+// registration, or the console shows "revoked" for something it never touched.
+func TestMCPOAuthState_RevokeRejectsInvalidID(t *testing.T) {
+	st := newMCPOAuthState(storetest.New(t, 0))
+	for _, id := range []string{"", "../../_auth/invites/tok", "a/b", "with space"} {
+		err := st.revokeClient(context.Background(), id)
+		if !errors.Is(err, ErrMCPClientNotFound) {
+			t.Errorf("revokeClient(%q) = %v, want ErrMCPClientNotFound", id, err)
+		}
+	}
+}
+
+// listClients must not surface keys that revokeClient would refuse: a row whose
+// Revoke button silently does nothing is worse than no row.
+func TestMCPOAuthState_ListSkipsNonRegistrationKeys(t *testing.T) {
+	ctx := context.Background()
+	backing := storetest.New(t, 0)
+	st := newMCPOAuthState(backing)
+
+	genuine, err := st.registerClient(ctx, []string{"https://cb/one"}, "Real")
+	if err != nil {
+		t.Fatalf("registerClient: %v", err)
+	}
+	err = backing.WriteRaw(ctx, mcpOAuthClientPrefix+"not a client id.json", `{"redirect_uris":["https://x"]}`, "application/json", nil)
+	if err != nil {
+		t.Fatalf("seed junk key: %v", err)
+	}
+
+	listed, err := st.listClients(ctx)
+	if err != nil {
+		t.Fatalf("listClients: %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != genuine {
+		t.Fatalf("listed %+v, want only the real registration %s", listed, genuine)
 	}
 }
 

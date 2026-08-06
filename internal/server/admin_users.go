@@ -217,6 +217,9 @@ func (s *adminController) adminMCPClientRevokeHandler(c *echo.Context) error {
 		return notFound()
 	}
 	err := s.mcpOAuth.revokeClient(c.Request().Context(), id)
+	if errors.Is(err, ErrMCPClientNotFound) {
+		return notFound()
+	}
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "revoke mcp client", err)
 	}
