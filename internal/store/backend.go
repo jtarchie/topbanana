@@ -201,36 +201,52 @@ func (b *s3Backend) get(ctx context.Context, key string) (*rawObject, error) {
 	return obj, nil
 }
 
+// list walks every page. ListObjectsV2 returns at most 1000 keys per response,
+// so the single call this used to make silently truncated: a site with more
+// than 1000 objects listed 1000 of them and reported success, and the same cap
+// applied to every prefix sweep layered on top (sessions, invites, snapshots).
+// Nothing surfaced, because a short listing is indistinguishable from a small
+// one.
 func (b *s3Backend) list(ctx context.Context, prefix string) ([]objectInfo, error) {
-	out, err := b.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+	var infos []objectInfo
+	pages := s3.NewListObjectsV2Paginator(b.client, &s3.ListObjectsV2Input{
 		Bucket: aws.String(b.bucket),
 		Prefix: aws.String(prefix),
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list prefix %s: %w", prefix, err)
-	}
-	infos := make([]objectInfo, 0, len(out.Contents))
-	for _, obj := range out.Contents {
-		info := objectInfo{key: aws.ToString(obj.Key), size: aws.ToInt64(obj.Size)}
-		if obj.LastModified != nil {
-			info.lastModified = *obj.LastModified
+	for pages.HasMorePages() {
+		page, err := pages.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list prefix %s: %w", prefix, err)
 		}
-		infos = append(infos, info)
+		for _, obj := range page.Contents {
+			info := objectInfo{key: aws.ToString(obj.Key), size: aws.ToInt64(obj.Size)}
+			if obj.LastModified != nil {
+				info.lastModified = *obj.LastModified
+			}
+			infos = append(infos, info)
+		}
 	}
 	return infos, nil
 }
 
+// listApps paginates for the same reason list does: the 1000-key response cap
+// applies to CommonPrefixes too, so a bucket past that many sites would return
+// a truncated roster to the site registry — and the registry is what backs
+// routing and ownership, so a missing slug reads as a site that doesn't exist.
 func (b *s3Backend) listApps(ctx context.Context) ([]string, error) {
-	out, err := b.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+	var apps []string
+	pages := s3.NewListObjectsV2Paginator(b.client, &s3.ListObjectsV2Input{
 		Bucket:    aws.String(b.bucket),
 		Delimiter: aws.String("/"),
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list apps: %w", err)
-	}
-	apps := make([]string, 0, len(out.CommonPrefixes))
-	for _, cp := range out.CommonPrefixes {
-		apps = append(apps, strings.TrimSuffix(aws.ToString(cp.Prefix), "/"))
+	for pages.HasMorePages() {
+		page, err := pages.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list apps: %w", err)
+		}
+		for _, cp := range page.CommonPrefixes {
+			apps = append(apps, strings.TrimSuffix(aws.ToString(cp.Prefix), "/"))
+		}
 	}
 	return apps, nil
 }
