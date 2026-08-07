@@ -288,7 +288,7 @@ type configureSiteInput struct {
 func (s *Server) registerConfigureSite(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "configure_site",
-		Description: "Update settings on a site the caller owns: title, description, private, enable_functions, enable_public_api. Only the fields you pass are changed. (Custom domains, ownership transfer, and deletion stay in the web UI.)",
+		Description: "Update settings on a site the caller owns: title, description, private, enable_functions, enable_public_api. Only the fields you pass are changed. (Attaching a custom domain, ownership transfer, and deletion stay in the web UI — but get_domain_status reports the DNS and certificate state of a domain already attached, and check_domain retries issuance.)",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in configureSiteInput) (*mcp.CallToolResult, any, error) {
 		_, err := s.mcpUserAndAuthorize(ctx, in.Slug)
 		if err != nil {

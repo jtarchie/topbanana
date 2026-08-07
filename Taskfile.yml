@@ -119,6 +119,9 @@ tasks:
       - go test -run='^$' -fuzz=FuzzValidateSlug      -fuzztime={{.FUZZ_TIME}} ./internal/server/
       - go test -run='^$' -fuzz=FuzzIsTraversal       -fuzztime={{.FUZZ_TIME}} ./internal/server/
       - go test -run='^$' -fuzz=FuzzHTMLLint          -fuzztime={{.FUZZ_TIME}} ./internal/lint/
+      # The gate every MCP write and edit passes through — the widest path
+      # surface reaching store.Write, so traversal here is a cross-tenant write.
+      - go test -run='^$' -fuzz=FuzzValidateTextPath  -fuzztime={{.FUZZ_TIME}} ./internal/textedit/
 
   install:tools:
     desc: Install every Go CLI the quality tasks depend on. Run once after cloning, or whenever you upgrade Go.

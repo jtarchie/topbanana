@@ -305,8 +305,15 @@ func (s *Store) EnsureBucket(ctx context.Context) error {
 // Delete removes a single object at `{slug}/{path}`. Cache entry, if any, is
 // evicted so subsequent Reads don't return a phantom object.
 func (s *Store) Delete(ctx context.Context, slug, path string) error {
+	// Same gate Read and Write apply. Delete predated it, which left the one
+	// destructive operation in this package as the only one that would build a
+	// key from an unchecked caller-supplied path.
+	err := ValidateObjectPath(path)
+	if err != nil {
+		return err
+	}
 	key := slug + "/" + path
-	err := s.backend.remove(ctx, key)
+	err = s.backend.remove(ctx, key)
 	if err != nil {
 		return err
 	}

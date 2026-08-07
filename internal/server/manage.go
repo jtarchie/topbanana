@@ -48,8 +48,9 @@ type manageData struct {
 	TemplateLabel string
 	SetupNotes    template.HTML
 	// DNSCNAMETarget is the hostname a custom-domain CNAME record should point
-	// at — the configured CustomDomainCNAME, or the base domain when unset.
-	// Rendered verbatim into the copy-paste DNS instructions.
+	// at: this site's own subdomain (or the CustomDomainCNAME override when
+	// the deployment sets one). Rendered verbatim into the copy-paste DNS
+	// instructions — see Server.cnameTarget for why it's per-site.
 	DNSCNAMETarget string
 	// Guide* back the "Is my site complete?" card — a deterministic, per-type
 	// content checklist (internal/guide). GuideTotal == 0 hides the card (a
@@ -155,10 +156,7 @@ func (s *sitesController) manageHandler(c *echo.Context) error {
 		siteName = slug
 	}
 
-	cnameTarget := s.systemInfo.CustomDomainCNAME
-	if cnameTarget == "" {
-		cnameTarget = s.domain
-	}
+	cnameTarget := s.cnameTarget(slug)
 
 	// Event-photo-wall summary. base==nil falls back to no wall; the counts come
 	// from the same state blob as submissions, tallied once.

@@ -70,11 +70,12 @@ type Deps struct {
 	Domain     string
 	Port       string
 	SystemInfo SystemInfo
-	// PreWarmCert, when non-nil, is invoked in a goroutine for each newly-saved
-	// custom domain so the autocert manager can issue a Let's Encrypt cert
-	// before the first visitor arrives. Set by main when --acme-email is on;
-	// left nil in plain-HTTP / dev mode.
-	PreWarmCert func(host string)
+	// Certs is the TLS stack's certificate seam: it pre-warms a Let's Encrypt
+	// cert for each newly-saved custom domain (before the first visitor
+	// arrives) and backs the domain-status tools. Set by main when
+	// --acme-email is on; left nil in plain-HTTP / dev mode, where domain
+	// status reports "tls_disabled".
+	Certs CertProber
 
 	// Blobs is the keyed-document store the auth stack and the OAuth
 	// authorization server persist to. Separate from Store: that one carries
@@ -117,9 +118,10 @@ type Server struct {
 	// siteRegistry in site_registry.go.
 	registry *siteRegistry
 
-	// preWarmCert is the deps callback, captured here so settingsSubmitHandler
-	// can fire it without threading the function through every signature.
-	preWarmCert func(host string)
+	// certs is the deps cert seam, captured here so settingsSubmitHandler and
+	// the domain-status tools reach it without threading it through every
+	// signature. nil when the deployment doesn't terminate TLS.
+	certs CertProber
 
 	// mcpSecret signs MCP bearer tokens; empty leaves the MCP + OAuth routes
 	// unmounted. mcpOAuth is the auth/oauth authorization server, created in
@@ -200,7 +202,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		systemInfo:    d.SystemInfo,
 		htmlMinifier:  newHTMLMinifier(),
 		registry:      newSiteRegistry(d.Store, d.Build),
-		preWarmCert:   d.PreWarmCert,
+		certs:         d.Certs,
 		mcpSecret:     d.MCPSecret,
 		blobs:         d.Blobs,
 		quotaDefaults: d.QuotaDefaults,
@@ -937,10 +939,6 @@ func (s *sitesController) settingsSubmitHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "save settings", err)
 	}
 	s.registry.rebuildIndexesLogging(ctx)
-	if s.preWarmCert != nil {
-		for _, host := range added {
-			go s.preWarmCert(host)
-		}
-	}
+	s.preWarmCerts(added)
 	return c.Redirect(http.StatusSeeOther, "/manage/"+slug) //nolint:wrapcheck
 }

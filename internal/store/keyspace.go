@@ -29,6 +29,9 @@ const (
 
 	// DefaultACMEPrefix is the default home of the autocert account key and
 	// certificate cache (store.ACMECache); overridable via --acme-cache-prefix.
+	// The server's CertTracker shares it, writing per-host issuance outcomes
+	// under a nested `_status/` key so a failure diagnosis persists next to
+	// (and as long as) the certificate it explains.
 	DefaultACMEPrefix = "_acme/"
 
 	// StateDir is the in-slug directory for persisted form/KV data:

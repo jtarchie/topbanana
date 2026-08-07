@@ -3,12 +3,18 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"os/signal"
+	"slices"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -38,6 +44,11 @@ type TLSOpts struct {
 	// carries the visitor's real IP, which we restore to RemoteAddr so request
 	// logs and rate limits see the right thing.
 	ProxyProtocol bool
+
+	// Tracker, when non-nil, wraps the TLS listener's GetCertificate so
+	// on-demand issuance failures are recorded instead of vanishing into the
+	// handshake. Pass the same instance handed to Deps.Certs.
+	Tracker *CertTracker
 }
 
 // NewAutocertManager builds the autocert.Manager. Exported so callers can
@@ -73,6 +84,12 @@ func RunWithTLS(ctx context.Context, e *echo.Echo, m *autocert.Manager, opts TLS
 	// already includes acme.ALPNProto for TLS-ALPN-01 challenges; we add the
 	// app protocols on top so browsers get h2 and ACME validators still work.
 	tlsCfg.NextProtos = append([]string{"h2", "http/1.1"}, tlsCfg.NextProtos...)
+	// Route certificate lookups through the tracker so a failed on-demand
+	// issuance is retrievable afterwards. It delegates straight to the manager
+	// — including the ALPN challenge path — and only records the outcome.
+	if opts.Tracker != nil {
+		tlsCfg.GetCertificate = opts.Tracker.GetCertificate
+	}
 
 	httpsSrv := &http.Server{
 		Addr:              ":" + opts.TLSPort,
@@ -161,14 +178,354 @@ func listen(ctx context.Context, addr string, proxyProtocol bool) (net.Listener,
 	}, nil
 }
 
-// PreWarm asks the autocert manager to issue (or reuse) a cert for host. Safe
-// to call from a goroutine after a settings save; errors are logged but not
-// surfaced — the regular on-demand path will retry on the next visitor.
-func PreWarm(m *autocert.Manager, host string) {
-	_, err := m.GetCertificate(&tls.ClientHelloInfo{ServerName: host})
+// CertAttempt is the outcome of the most recent issuance attempt for a host.
+// Err is the ACME error verbatim — "no such host", a CAA rejection, an
+// unauthorized challenge — because the raw text is what identifies the
+// misconfiguration, and paraphrasing it has no upside for the reader. An empty
+// Err records a success, which is what clears a stale failure after a fix.
+type CertAttempt struct {
+	At  time.Time `json:"at"`
+	Err string    `json:"err,omitempty"`
+}
+
+// CertProber is what the domain-status tools need from the TLS stack. Narrow
+// on purpose: the server package holds a nil one in plain-HTTP/dev mode and
+// reports "tls_disabled" rather than pretending to know about certificates.
+type CertProber interface {
+	// CachedCert returns the already-issued leaf certificate for host without
+	// triggering issuance.
+	CachedCert(ctx context.Context, host string) (*x509.Certificate, bool)
+	// EnsureCert issues (or reuses) a certificate for host, returning the
+	// underlying ACME error unwrapped when it fails.
+	EnsureCert(ctx context.Context, host string) (*x509.Certificate, error)
+	// LastAttempt reports the most recent issuance outcome for host, across
+	// restarts and across instances.
+	LastAttempt(ctx context.Context, host string) (CertAttempt, bool)
+}
+
+// Attempt records live beside the certificates in the ACME cache, under a
+// prefix autocert never uses (its own keys are `{host}`, `{host}+rsa`,
+// `{host}+token`, and `acme_account+key`). Sharing the cache means they
+// inherit the same S3 backing and the same --acme-cache-prefix, so the
+// diagnosis of a domain travels with the certificate it describes.
+const certStatusKeyPrefix = "_status/"
+
+// certStatusRefresh bounds how often an unchanged outcome is re-persisted.
+// record() runs on every handshake for a host, so without coalescing a single
+// broken domain under load turns one diagnostic into a write per TLS
+// handshake. A changed error is always written immediately; an unchanged one
+// only refreshes its timestamp this often.
+const certStatusRefresh = 5 * time.Minute
+
+// CertTracker wraps the autocert manager to make issuance observable.
+// autocert issues lazily inside the TLS handshake and keeps no failure record,
+// so a domain that will never get a certificate is indistinguishable from one
+// nobody has visited yet — the single most expensive thing to diagnose about a
+// custom domain, and the reason this type exists.
+//
+// Outcomes persist to the ACME cache, so a "failed" domain still reads as
+// failed after a restart and reads the same from every instance — a certificate
+// issued on one machine was always visible everywhere (it's in S3), and now the
+// reason one *didn't* issue is too.
+type CertTracker struct {
+	mgr   *autocert.Manager
+	cache autocert.Cache
+
+	// attempts is the write-through cache over the persisted records: it
+	// absorbs the per-handshake write rate and answers the common status call
+	// without an S3 round-trip. Bounded by the set of hosts HostPolicy admits.
+	mu       sync.Mutex
+	attempts map[string]certAttemptState
+}
+
+// certAttemptState pairs an outcome with when it was last written down.
+// persistedAt is tracked separately from CertAttempt.At because At advances on
+// every handshake — comparing against it would mean an unchanged failure never
+// refreshed its timestamp again.
+type certAttemptState struct {
+	attempt     CertAttempt
+	persistedAt time.Time
+}
+
+var _ CertProber = (*CertTracker)(nil)
+
+// NewCertTracker wraps a manager and the cache backing it. The cache is passed
+// separately because autocert.Manager doesn't expose its own.
+func NewCertTracker(m *autocert.Manager, cache autocert.Cache) *CertTracker {
+	return &CertTracker{mgr: m, cache: cache, attempts: map[string]certAttemptState{}}
+}
+
+// GetCertificate is the TLS listener's hook. Delegates to the manager and
+// records the outcome per SNI host.
+func (t *CertTracker) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	cert, err := t.mgr.GetCertificate(hello)
+	if hello != nil && hello.ServerName != "" && !isACMEChallenge(hello) {
+		t.record(helloContext(hello), hello.ServerName, err)
+	}
 	if err != nil {
-		slog.Warn("acme.prewarm_failed", "host", host, "err", err)
+		return nil, fmt.Errorf("get certificate: %w", err)
+	}
+	return cert, nil
+}
+
+// isACMEChallenge reports whether this handshake is Let's Encrypt validating a
+// TLS-ALPN-01 challenge rather than a visitor fetching the site. Those succeed
+// by returning the short-lived challenge certificate, so recording them would
+// write a "success" in the middle of an issuance that may still fail — briefly
+// clearing the very error someone is trying to read.
+func isACMEChallenge(hello *tls.ClientHelloInfo) bool {
+	return slices.Contains(hello.SupportedProtos, acme.ALPNProto)
+}
+
+// helloContext prefers the handshake's own context so a recorded outcome is
+// cancelled with the connection. tls.ClientHelloInfo.Context() is nil unless a
+// real handshake populated it (EnsureCert and tests synthesize the struct), so
+// fall back rather than hand a nil context to the storage layer.
+func helloContext(hello *tls.ClientHelloInfo) context.Context {
+	if ctx := hello.Context(); ctx != nil {
+		return ctx
+	}
+	return context.Background()
+}
+
+// EnsureCert forces an issuance attempt for host, the same way a first visitor
+// would. Used by the settings-save pre-warm and by the check_domain tool.
+//
+// autocert runs issuance on its own background context, so ctx won't abort an
+// in-flight ACME round-trip — it only bounds the recording of the outcome.
+func (t *CertTracker) EnsureCert(ctx context.Context, host string) (*x509.Certificate, error) {
+	cert, err := t.mgr.GetCertificate(&tls.ClientHelloInfo{ServerName: host})
+	t.record(ctx, host, err)
+	if err != nil {
+		return nil, fmt.Errorf("issue certificate for %q: %w", host, err)
+	}
+	return leafOf(cert), nil
+}
+
+// CachedCert reads the issued certificate straight from the autocert cache, so
+// a status call never triggers an ACME round-trip. Returns false when nothing
+// has been issued for host yet.
+func (t *CertTracker) CachedCert(ctx context.Context, host string) (*x509.Certificate, bool) {
+	if t.cache == nil {
+		return nil, false
+	}
+	// autocert keys the cache by bare hostname for its default ECDSA cert, and
+	// normalizes the SNI the same way before doing so.
+	data, err := t.cache.Get(ctx, normalizeCertHost(host))
+	if err != nil || len(data) == 0 {
+		return nil, false
+	}
+	leaf := firstLeafFromPEM(data)
+	if leaf == nil {
+		return nil, false
+	}
+	return leaf, true
+}
+
+// LastAttempt returns the most recent recorded outcome for host, taking the
+// newer of this instance's memory and the shared persisted record. Reading
+// both is what makes the answer the same from every machine: another instance
+// may have attempted more recently than this one, and a local record may be
+// newer than what has been flushed.
+func (t *CertTracker) LastAttempt(ctx context.Context, host string) (CertAttempt, bool) {
+	host = normalizeCertHost(host)
+	local, haveLocal := t.localAttempt(host)
+	stored, haveStored := t.loadAttempt(ctx, host)
+	switch {
+	case haveLocal && haveStored:
+		if stored.At.After(local.At) {
+			return stored, true
+		}
+		return local, true
+	case haveLocal:
+		return local, true
+	case haveStored:
+		return stored, true
+	}
+	return CertAttempt{}, false
+}
+
+func (t *CertTracker) localAttempt(host string) (CertAttempt, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	st, ok := t.attempts[host]
+	return st.attempt, ok
+}
+
+// normalizeCertHost puts a host into the one form used for both the in-memory
+// map key and the cache key. SNI arrives straight off the wire and hostnames
+// are case-insensitive, so without this the same domain in two casings keeps
+// two independent records — each with its own coalescing clock, both writing
+// to the same (lowercased) object.
+func normalizeCertHost(host string) string {
+	return strings.ToLower(strings.TrimSuffix(host, "."))
+}
+
+// record notes the outcome of an issuance attempt, persisting it when the
+// result is new, changed, or stale enough to be worth a refresh.
+func (t *CertTracker) record(ctx context.Context, host string, err error) {
+	// Only record hosts this deployment is configured to serve. SNI is
+	// attacker-controlled and reaches here before any validation, so without
+	// this gate an unauthenticated scanner could grow the map without bound
+	// and drive one S3 write per novel hostname. HostPolicy is the same
+	// in-memory check autocert itself applies, so this costs a map lookup.
+	if !t.serves(ctx, host) {
 		return
 	}
-	slog.Info("acme.prewarm_ok", "host", host)
+	host = normalizeCertHost(host)
+	attempt := CertAttempt{At: time.Now().UTC()}
+	if err != nil {
+		attempt.Err = err.Error()
+		slog.Warn("acme.issue_failed", "host", host, "err", err)
+	} else {
+		slog.Info("acme.issue_ok", "host", host)
+	}
+
+	t.mu.Lock()
+	prev, had := t.attempts[host]
+	write := !had || prev.attempt.Err != attempt.Err ||
+		time.Since(prev.persistedAt) >= certStatusRefresh
+	// persistedAt carries over unchanged for now — it advances only once the
+	// write actually lands, so a failed write leaves this attempt eligible to
+	// be retried by the next one instead of being coalesced away.
+	t.attempts[host] = certAttemptState{attempt: attempt, persistedAt: prev.persistedAt}
+	t.mu.Unlock()
+
+	if !write {
+		return
+	}
+	perr := t.persistAttempt(ctx, host, attempt)
+	if perr != nil {
+		slog.Warn("acme.status_persist_failed", "host", host, "err", perr)
+		return
+	}
+	t.markPersisted(host, attempt)
+}
+
+// markPersisted advances the coalescing clock after a successful write. It
+// re-checks that the slot still holds the attempt we wrote: a newer attempt
+// may have replaced it while the write was in flight, and that one has its own
+// durability to earn.
+func (t *CertTracker) markPersisted(host string, attempt CertAttempt) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	cur, ok := t.attempts[host]
+	if !ok || !cur.attempt.At.Equal(attempt.At) {
+		return
+	}
+	cur.persistedAt = attempt.At
+	t.attempts[host] = cur
+}
+
+// serves reports whether the manager's HostPolicy admits host. A nil policy
+// means autocert would issue for anything, so there's nothing to filter on.
+func (t *CertTracker) serves(ctx context.Context, host string) bool {
+	if t.mgr == nil || t.mgr.HostPolicy == nil {
+		return true
+	}
+	return t.mgr.HostPolicy(ctx, host) == nil
+}
+
+// certStatusKey is the cache key holding host's last outcome. Hosts reaching
+// here have passed HostPolicy, which only admits the configured domain, its
+// slug subdomains, and registered custom domains — none of which can contain a
+// path separator. The explicit check keeps that a property of this function
+// rather than an inherited assumption, since the key concatenates into an S3
+// object key.
+func certStatusKey(host string) (string, bool) {
+	switch {
+	case host == "", len(host) > 253:
+		return "", false
+	case strings.ContainsAny(host, "/\\\x00"), strings.Contains(host, ".."):
+		return "", false
+	}
+	return certStatusKeyPrefix + strings.ToLower(host), true
+}
+
+// certStatusWriteTimeout bounds the durability write. It runs on a context
+// detached from the caller's: record() is reached from the TLS handshake, and
+// a client that sends ClientHello then immediately resets the connection —
+// exactly what a scanner does, and exactly when issuance fails — would
+// otherwise cancel the write of the error we most want to keep.
+const certStatusWriteTimeout = 5 * time.Second
+
+func (t *CertTracker) persistAttempt(ctx context.Context, host string, attempt CertAttempt) error {
+	if t.cache == nil {
+		return nil
+	}
+	key, ok := certStatusKey(host)
+	if !ok {
+		return fmt.Errorf("refusing to build a status key for host %q", host)
+	}
+	body, err := json.Marshal(attempt)
+	if err != nil {
+		return fmt.Errorf("encode cert attempt: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), certStatusWriteTimeout)
+	defer cancel()
+	err = t.cache.Put(ctx, key, body)
+	if err != nil {
+		return fmt.Errorf("persist cert attempt: %w", err)
+	}
+	return nil
+}
+
+func (t *CertTracker) loadAttempt(ctx context.Context, host string) (CertAttempt, bool) {
+	if t.cache == nil {
+		return CertAttempt{}, false
+	}
+	key, ok := certStatusKey(host)
+	if !ok {
+		return CertAttempt{}, false
+	}
+	data, err := t.cache.Get(ctx, key)
+	if err != nil || len(data) == 0 {
+		return CertAttempt{}, false
+	}
+	var attempt CertAttempt
+	err = json.Unmarshal(data, &attempt)
+	if err != nil {
+		slog.Warn("acme.status_decode_failed", "host", host, "err", err)
+		return CertAttempt{}, false
+	}
+	return attempt, true
+}
+
+// leafOf returns the parsed leaf of a tls.Certificate, parsing it on demand
+// when the handshake path didn't populate Leaf.
+func leafOf(cert *tls.Certificate) *x509.Certificate {
+	if cert == nil {
+		return nil
+	}
+	if cert.Leaf != nil {
+		return cert.Leaf
+	}
+	if len(cert.Certificate) == 0 {
+		return nil
+	}
+	leaf, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		return nil
+	}
+	return leaf
+}
+
+// firstLeafFromPEM pulls the leaf out of the PEM bundle autocert caches (the
+// private key comes first, then the certificate chain leaf-first).
+func firstLeafFromPEM(data []byte) *x509.Certificate {
+	for {
+		var block *pem.Block
+		block, data = pem.Decode(data)
+		if block == nil {
+			return nil
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		leaf, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil
+		}
+		return leaf
+	}
 }

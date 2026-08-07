@@ -246,11 +246,14 @@ func run() error {
 		return nil
 	}
 
-	// TLS path. Order matters: build the autocert manager first so we can
-	// wire its pre-warm callback into Deps; the manager's HostPolicy needs
-	// the *Server, so patch it after construction.
+	// TLS path. Order matters: build the autocert manager first so we can wire
+	// its cert seam into Deps; the manager's HostPolicy needs the *Server, so
+	// patch it after construction. The cert tracker goes to both Deps
+	// (pre-warm + domain status) and TLSOpts (so handshake-time issuance
+	// failures are recorded, not just logged).
+	acmeCache := store.NewACMECache(s, cli.ACMECachePrefix)
 	tlsOpts := server.TLSOpts{
-		Cache:         store.NewACMECache(s, cli.ACMECachePrefix),
+		Cache:         acmeCache,
 		Email:         cli.ACMEEmail,
 		HTTPPort:      cli.HTTPPort,
 		TLSPort:       cli.TLSPort,
@@ -258,7 +261,9 @@ func run() error {
 		ProxyProtocol: cli.ProxyProtocol,
 	}
 	mgr := server.NewAutocertManager(tlsOpts)
-	deps.PreWarmCert = func(host string) { server.PreWarm(mgr, host) }
+	certTracker := server.NewCertTracker(mgr, acmeCache)
+	tlsOpts.Tracker = certTracker
+	deps.Certs = certTracker
 
 	e, srv := server.New(deps)
 	mgr.HostPolicy = func(_ context.Context, host string) error {

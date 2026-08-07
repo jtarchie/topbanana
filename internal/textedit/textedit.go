@@ -302,14 +302,47 @@ func NumberLines(content string, startOffset int) string {
 // that the HTML write tools must not clobber.
 var reservedWritePrefixes = []string{"functions/", "assets/"}
 
-// reservedWritePaths are exact paths the HTML write tools must not touch
-// (e.g. the per-site sidecar persisted by the build service). Both the current
-// and legacy sidecar names are reserved so an agent on a legacy site can't
+// reservedWritePaths are exact paths the write tools must not touch (e.g. the
+// per-site sidecar persisted by the build service). Both the current and
+// legacy sidecar names are reserved so an agent on a legacy site can't
 // accidentally clobber pre-rebrand metadata.
+//
+// app.css is reserved for a different reason: it is *generated*. Every build
+// and every lint_site recompiles it from the site's markup and overwrites it
+// (build.Service.OptimizeCSS), so hand-authored content there is guaranteed to
+// be destroyed by the next lint — silently, since the write itself succeeds.
 var reservedWritePaths = map[string]bool{
 	".topbanana.json":   true,
 	".bloomhollow.json": true,
 	".buildabear.json":  true,
+	"app.css":           true,
+}
+
+// textAssetExts are the extensions ValidateTextPath accepts: HTML pages plus
+// the hand-maintainable text assets a site can legitimately link same-origin.
+// Binary images never come through here — they take the upload-ticket path.
+var textAssetExts = map[string]bool{
+	".html": true,
+	".css":  true,
+	".js":   true,
+	".svg":  true,
+	".md":   true,
+	".txt":  true,
+	".json": true,
+	".xml":  true,
+}
+
+// binaryAssetExts are the image types that reach a site through the upload
+// ticket rather than a text write. They can't be *written* here, but they can
+// be deleted — a delete gate that only knew about text would strand every
+// uploaded image on the site forever.
+var binaryAssetExts = map[string]bool{
+	".png":  true,
+	".jpg":  true,
+	".jpeg": true,
+	".gif":  true,
+	".webp": true,
+	".ico":  true,
 }
 
 // ValidateHTMLPath gates every tool that writes/edits HTML. Rejects anything
@@ -325,12 +358,64 @@ func ValidateHTMLPath(p string) error {
 	return nil
 }
 
+// ValidateTextPath gates the MCP write/edit tools, which author text assets
+// (css/js/svg/md/txt/json) alongside HTML pages. Same shape rules as
+// ValidateHTMLPath and the same platform-managed paths are off limits, with
+// two deliberate differences: the extension set is wider, and `assets/` is
+// allowed (an SVG or a stylesheet belongs there, and the whole point is that
+// an author can edit one in place rather than re-upload it). `functions/`
+// stays excluded — executable handlers have their own tools and their own
+// enable_functions gate, and must not be reachable by a generic file write.
+func ValidateTextPath(p string) error {
+	for _, check := range textPathChecks {
+		err := check(p)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ValidateDeletePath gates removing a file. Deletion needs its own gate rather
+// than reusing ValidateTextPath: the platform-managed paths must be just as
+// unreachable (deleting the sidecar orphans the site — no owner, no template,
+// no custom domains), but uploaded images have to stay removable, and those
+// never pass the text-write extension check.
+func ValidateDeletePath(p string) error {
+	for _, check := range deletePathChecks {
+		err := check(p)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 var htmlPathChecks = []func(string) error{
 	checkHTMLPathShape,
 	checkHTMLPathCharset,
 	checkHTMLPathSegments,
+	checkPathHiddenSegments,
 	checkHTMLPathExtension,
 	checkHTMLPathReserved,
+}
+
+var textPathChecks = []func(string) error{
+	checkHTMLPathShape,
+	checkHTMLPathCharset,
+	checkHTMLPathSegments,
+	checkPathHiddenSegments,
+	checkTextPathExtension,
+	checkTextPathReserved,
+}
+
+var deletePathChecks = []func(string) error{
+	checkHTMLPathShape,
+	checkHTMLPathCharset,
+	checkHTMLPathSegments,
+	checkPathHiddenSegments,
+	checkDeletePathExtension,
+	checkTextPathReserved,
 }
 
 func checkHTMLPathShape(p string) error {
@@ -372,9 +457,60 @@ func checkHTMLPathSegments(p string) error {
 	return nil
 }
 
+// checkPathHiddenSegments rejects any segment starting with "_" or "." —
+// the in-slug reserved directories (`_state/`, `_pending/`) and the dot-file
+// sidecars. The charset check permits both characters mid-name (`app_v2.html`),
+// so without this a write could land on platform-managed data: `_state/x.html`
+// would otherwise pass every other rule here.
+func checkPathHiddenSegments(p string) error {
+	for _, seg := range strings.Split(p, "/") {
+		if strings.HasPrefix(seg, "_") || strings.HasPrefix(seg, ".") {
+			return fmt.Errorf("path %q is under a reserved prefix", p)
+		}
+	}
+	return nil
+}
+
 func checkHTMLPathExtension(p string) error {
 	if !strings.HasSuffix(p, ".html") {
 		return fmt.Errorf("path %q must end with .html", p)
+	}
+	return nil
+}
+
+func checkTextPathExtension(p string) error {
+	ext := strings.ToLower(path.Ext(p))
+	if !textAssetExts[ext] {
+		return fmt.Errorf("path %q has unsupported extension %q (allowed: %s)", p, ext, textAssetExtList())
+	}
+	return nil
+}
+
+func checkDeletePathExtension(p string) error {
+	ext := strings.ToLower(path.Ext(p))
+	if !textAssetExts[ext] && !binaryAssetExts[ext] {
+		return fmt.Errorf("path %q has unsupported extension %q", p, ext)
+	}
+	return nil
+}
+
+// textAssetExtList renders the allowed extensions in a stable order for error
+// messages, so an agent that guesses wrong is told exactly what to use.
+func textAssetExtList() string {
+	exts := make([]string, 0, len(textAssetExts))
+	for ext := range textAssetExts {
+		exts = append(exts, ext)
+	}
+	sort.Strings(exts)
+	return strings.Join(exts, " ")
+}
+
+func checkTextPathReserved(p string) error {
+	if reservedWritePaths[p] {
+		return fmt.Errorf("path %q is reserved", p)
+	}
+	if strings.HasPrefix(p, "functions/") {
+		return fmt.Errorf("path %q is under reserved prefix %q — use write_function/edit_function", p, "functions/")
 	}
 	return nil
 }

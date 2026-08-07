@@ -49,6 +49,13 @@ func TestMCPContentType(t *testing.T) {
 		"favicon.svg": "image/svg+xml",
 		"logo.png":    "image/png",
 		"data.bin":    "application/octet-stream",
+		// Spelled out rather than left to the host's mime.types: Go has no
+		// builtin entry for .md or .txt, and the alpine runtime image ships no
+		// /etc/mime.types, so these would otherwise be stored (and served) as
+		// octet-stream — a robots.txt that downloads instead of rendering.
+		"readme.md":   "text/markdown; charset=utf-8",
+		"robots.txt":  "text/plain; charset=utf-8",
+		"sitemap.xml": "application/xml",
 	}
 	for path, want := range cases {
 		if got := mcpContentType(path); got != want {

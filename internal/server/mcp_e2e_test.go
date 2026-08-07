@@ -35,8 +35,10 @@ const mcpTestSecret = "mcp-e2e-test-secret"
 // Returns the blob store alongside the server: identity records used to live
 // in the same *store.Store as everything else, so helpers could each build
 // their own auth.Auth and still see one another's users. They no longer do, so
-// the sharing is threaded explicitly rather than left to coincidence.
-func buildMCPTestServer(t *testing.T, st *store.Store, slug, ownerEmail string) (*httptest.Server, blob.Blobs) {
+// the sharing is threaded explicitly rather than left to coincidence. The KV
+// state store comes back too, so a test can seed or assert on the submissions
+// the tools read and delete.
+func buildMCPTestServer(t *testing.T, st *store.Store, slug, ownerEmail string) (*httptest.Server, blob.Blobs, state.Store) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -57,12 +59,13 @@ func buildMCPTestServer(t *testing.T, st *store.Store, slug, ownerEmail string) 
 	}
 	t.Cleanup(func() { _ = authSvc.Close() })
 
+	kv := state.NewMemory()
 	e, _ := server.New(server.Deps{
 		Store:     st,
 		Build:     build.New(st, nil, tracker, snapshot.New(st, 0)),
 		Events:    tracker,
 		Sandbox:   sandbox.New(sandbox.Config{}),
-		State:     state.NewMemory(),
+		State:     kv,
 		Snapshot:  snapshot.New(st, 0),
 		Auth:      authSvc,
 		Blobs:     authBlobs,
@@ -72,7 +75,7 @@ func buildMCPTestServer(t *testing.T, st *store.Store, slug, ownerEmail string) 
 	})
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
-	return srv, authBlobs
+	return srv, authBlobs, kv
 }
 
 // bearerTransport injects the MCP bearer token on every request the SDK client
@@ -126,7 +129,7 @@ func TestMCP_ListAndEditFile_EndToEnd(t *testing.T) {
 	slug := freshSlug(t)
 	const owner = "owner@example.com"
 
-	srv, authBlobs := buildMCPTestServer(t, st, slug, owner)
+	srv, authBlobs, _ := buildMCPTestServer(t, st, slug, owner)
 
 	// The user record must exist for authorizeSlugOwner's lookup; the auth
 	// store is shared with the server through the same backing store.
@@ -180,7 +183,7 @@ func TestMCP_NonOwnerSeesNotFound(t *testing.T) {
 	const owner = "owner@example.com"
 	const stranger = "stranger@example.com"
 
-	srv, authBlobs := buildMCPTestServer(t, st, slug, owner)
+	srv, authBlobs, _ := buildMCPTestServer(t, st, slug, owner)
 	seedUser(t, authBlobs, owner)
 	seedUser(t, authBlobs, stranger)
 
@@ -215,7 +218,7 @@ func TestMCP_NonOwnerSeesNotFound(t *testing.T) {
 func TestMCP_BadTokenRejectedByBearerMiddleware(t *testing.T) {
 	st := minioStore(t)
 	slug := freshSlug(t)
-	srv, _ := buildMCPTestServer(t, st, slug, "owner@example.com")
+	srv, _, _ := buildMCPTestServer(t, st, slug, "owner@example.com")
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "e2e-test", Version: "0.0.1"}, nil)
 	_, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{
@@ -239,7 +242,7 @@ func TestMCP_FullToolSurfaceLifecycle(t *testing.T) {
 	slug := freshSlug(t)
 	const owner = "owner@example.com"
 
-	srv, authBlobs := buildMCPTestServer(t, st, slug, owner)
+	srv, authBlobs, _ := buildMCPTestServer(t, st, slug, owner)
 	seedUser(t, authBlobs, owner)
 	session := connectMCP(t, srv, owner)
 

@@ -2,9 +2,12 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"mime"
 	"net/http"
 	"path"
@@ -33,18 +36,27 @@ const (
 
 	mcpInstructions = "Tools for editing the static HTML sites a user already owns on Top " +
 		"Banana. Sites are created in the web UI — start by calling list_sites to find one, " +
-		"then get_site to see its pages. Read with read_file; change pages with edit_file " +
-		"(surgical find/replace — prefer it over rewriting a whole page), replace_lines, " +
-		"insert_at_line, or write_file (whole file; also for text assets like favicon.svg). " +
+		"then get_site to see its pages. Read with read_file; change pages and text assets " +
+		"with edit_file (surgical find/replace — prefer it over rewriting a whole file), " +
+		"replace_lines, insert_at_line, or write_file (whole file). Those tools all accept " +
+		"HTML plus text assets: .html .css .js .svg .md .txt .json .xml. " +
 		"For binary images (png/jpg/gif/webp), call create_upload_ticket and curl the file to " +
-		"the URL it returns — base64 through write_file does not work. " +
+		"the URL it returns — base64 through write_file does not work. Every write returns " +
+		"the sha256 and byte count of what was stored; on a large file pass expect_sha256 to " +
+		"write_file so a corrupted transfer is rejected instead of published. " +
 		"grep_files searches across a site; delete_file removes a page. Keep every page " +
-		"self-contained: inline any JS, no external CDNs, relative links between pages, an " +
-		"index.html entry point, and link the self-hosted stylesheet " +
+		"self-contained in the sense that matters: no third-party origins — no CDN scripts, " +
+		"stylesheets, fonts, or frameworks. Your own same-origin files are fine, so a shared " +
+		"`/fonts.css` or `/app.js` you author on the site is supported; relative links " +
+		"between pages, an index.html entry point, and the self-hosted stylesheet " +
 		"`<link rel=\"stylesheet\" href=\"/app.css\">` in <head> (Tailwind utility + daisyUI " +
 		"component classes; set the palette with <html data-theme>) — the platform compiles " +
 		"/app.css per site. Run lint_site when you finish: it compiles /app.css and reports " +
-		"anything to fix. For conventions read the resources topbanana://guide/authoring and " +
+		"anything to fix. If you create test rows while verifying a form, remove them with " +
+		"delete_submission — the owner's export can't tell them from real data. Custom " +
+		"domains are attached in the web UI; get_domain_status reports the DNS records a " +
+		"domain needs plus its live DNS and TLS certificate state, and check_domain retries " +
+		"issuance. For conventions read the resources topbanana://guide/authoring and " +
 		"topbanana://guide/design, and the site's template at topbanana://templates/{id}; the " +
 		"edit_page and add_function prompts scaffold common tasks. list_runs / " +
 		"get_run_transcript surface read-only build history. All tools are scoped to sites " +
@@ -95,6 +107,9 @@ func (s *Server) buildMCPServer() *mcp.Server {
 	s.registerTestFunction(srv)
 	s.registerConfigureSite(srv)
 	s.registerListSubmissions(srv)
+	s.registerDeleteSubmission(srv)
+	s.registerGetDomainStatus(srv)
+	s.registerCheckDomain(srv)
 
 	s.registerGuideResources(srv)
 	s.registerTemplateResources(srv)
@@ -198,15 +213,40 @@ func (s *Server) mcpPageURL(slug, p string) string {
 	return base + "/" + p
 }
 
+// mcpDigest is the sha256 of the bytes a tool stored, hex-encoded. Returned on
+// every read/write/edit so a client can verify the round-trip: pushing a large
+// file through JSON tool arguments corrupts silently otherwise (a stray space,
+// a transposed digit), and the only prior way to catch it was curl'ing the
+// published file and diffing. Pair it with expect_sha256 on write_file to make
+// the check server-side and mandatory.
+func mcpDigest(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(sum[:])
+}
+
 // mcpContentType picks a content type for a written file: HTML gets the
 // charset-tagged type the proxy expects; everything else falls back to the
 // stdlib extension table. store.Write still validates the path itself.
+// Types spelled out here rather than left to mime.TypeByExtension, which
+// answers from the host's /etc/mime.types for anything outside Go's small
+// builtin table. The runtime image is bare alpine with no mailcap package, so
+// .md and .txt resolve to "" there and would be stored — and then served — as
+// application/octet-stream, turning robots.txt into a download. Go's builtin
+// table does cover .css/.js/.json/.svg/.xml/.html.
+var mcpExplicitContentTypes = map[string]string{
+	".html": "text/html; charset=utf-8",
+	".htm":  "text/html; charset=utf-8",
+	".md":   "text/markdown; charset=utf-8",
+	".txt":  "text/plain; charset=utf-8",
+	".xml":  "application/xml",
+}
+
 func mcpContentType(p string) string {
-	switch strings.ToLower(path.Ext(p)) {
-	case ".html", ".htm":
-		return "text/html; charset=utf-8"
+	ext := strings.ToLower(path.Ext(p))
+	if ct, ok := mcpExplicitContentTypes[ext]; ok {
+		return ct
 	}
-	if ct := mime.TypeByExtension(strings.ToLower(path.Ext(p))); ct != "" {
+	if ct := mime.TypeByExtension(ext); ct != "" {
 		return ct
 	}
 	return "application/octet-stream"
@@ -269,7 +309,7 @@ type getSiteInput struct {
 func (s *Server) registerGetSite(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "get_site",
-		Description: "Get metadata (including any custom domains) and the file list for one site the caller owns.",
+		Description: "Get metadata and the file list for one site the caller owns. Includes any custom domains and, for each, the exact DNS record it needs. For whether a domain actually resolves here and has a TLS certificate, call get_domain_status.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getSiteInput) (*mcp.CallToolResult, any, error) {
 		_, err := s.mcpUserAndAuthorize(ctx, in.Slug)
 		if err != nil {
@@ -281,6 +321,13 @@ func (s *Server) registerGetSite(srv *mcp.Server) {
 			return nil, nil, fmt.Errorf("list files: %w", err)
 		}
 		sort.Strings(files)
+		// Custom domains ship with the DNS they require. Listing a hostname
+		// without saying what it must point at is what forced an agent to
+		// guess the target (and be told the wrong one) before this existed.
+		records := make(map[string][]dnsRecord, len(meta.Domains))
+		for _, host := range meta.Domains {
+			records[host] = s.expectedRecords(in.Slug, host)
+		}
 		return mcpJSON(map[string]any{
 			"slug":              in.Slug,
 			"title":             meta.Title,
@@ -290,6 +337,8 @@ func (s *Server) registerGetSite(srv *mcp.Server) {
 			"private":           meta.Private,
 			"enables_functions": meta.EnablesFunctions,
 			"domains":           meta.Domains,
+			"domain_records":    records,
+			"site_host":         s.cnameTarget(in.Slug),
 			"url":               s.mcpSiteURL(in.Slug),
 			"files":             files,
 		})
@@ -321,27 +370,43 @@ func (s *Server) registerReadFile(srv *mcp.Server) {
 			"path":         in.Path,
 			"content":      obj.Content,
 			"content_type": obj.ContentType,
+			"sha256":       mcpDigest(obj.Content),
+			"bytes":        len(obj.Content),
 		})
 	})
 }
 
 type writeFileInput struct {
-	Slug    string `json:"slug"    jsonschema:"The site slug"`
-	Path    string `json:"path"    jsonschema:"File path within the site, e.g. index.html, about.html, or an asset like favicon.svg. HTML pages must be self-contained (inline CSS/JS, no external CDNs); image assets (.svg/.png/.jpg/.gif/.webp) are also supported and served with the right content type."`
-	Content string `json:"content" jsonschema:"Full file contents to write (overwrites any existing file at this path)."`
+	Slug    string `json:"slug"                    jsonschema:"The site slug"`
+	Path    string `json:"path"                    jsonschema:"File path within the site, e.g. index.html, about.html, or a text asset like fonts.css or favicon.svg. Allowed extensions: .html .css .js .svg .md .txt .json .xml. app.css is generated by the platform and cannot be written here. HTML pages may link your own same-origin assets (/fonts.css); third-party origins and CDNs are not allowed. Binary images go through create_upload_ticket."`
+	Content string `json:"content"                 jsonschema:"Full file contents to write (overwrites any existing file at this path). Plain text — do not base64-encode."`
+	Expect  string `json:"expect_sha256,omitempty" jsonschema:"Optional hex sha256 of the exact bytes you intend to store. When set, the write is rejected unless the received content hashes to it — use this for large files, where JSON-argument transport can corrupt content silently."`
 }
 
 func (s *Server) registerWriteFile(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "write_file",
-		Description: "Create or overwrite a text file in a site the caller owns — HTML pages and text assets like favicon.svg (content type inferred from the extension). For binary images (png/jpg/gif/webp) use create_upload_ticket instead; base64 through write_file does not work.",
+		Description: "Create or overwrite a text file in a site the caller owns: HTML pages and text assets (.html .css .js .svg .md .txt .json .xml), content type inferred from the extension. Returns the sha256 and byte count of what was stored; pass expect_sha256 to have the server reject a corrupted transfer instead of storing it. For binary images (png/jpg/gif/webp) use create_upload_ticket instead; base64 through write_file does not work.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in writeFileInput) (*mcp.CallToolResult, any, error) {
 		_, err := s.mcpUserAndAuthorize(ctx, in.Slug)
 		if err != nil {
 			return nil, nil, err
 		}
+		err = textedit.ValidateTextPath(in.Path)
+		if err != nil {
+			return nil, nil, err
+		}
 		if len(in.Content) > mcpMaxFileBytes {
 			return nil, nil, fmt.Errorf("content too large: %d bytes (max %d)", len(in.Content), mcpMaxFileBytes)
+		}
+		digest := mcpDigest(in.Content)
+		// Verify before writing, so a mangled transfer never lands in the
+		// bucket at all — a rejected write leaves the prior file intact and
+		// the client simply retries.
+		if in.Expect != "" && !strings.EqualFold(in.Expect, digest) {
+			return nil, nil, fmt.Errorf(
+				"content sha256 mismatch: expected %s, received %s (%d bytes) — nothing was written; resend the file",
+				strings.ToLower(in.Expect), digest, len(in.Content))
 		}
 		// Snapshot the prior content (if any) so the transcript carries a real
 		// before/after diff for overwrites; best-effort, empty for a create.
@@ -353,6 +418,7 @@ func (s *Server) registerWriteFile(srv *mcp.Server) {
 		s.mcpRecordEdit(ctx, in.Slug, "write_file", in.Path, before, in.Content)
 		return mcpJSON(map[string]any{
 			"ok": true, "slug": in.Slug, "path": in.Path,
+			"sha256": digest, "bytes": len(in.Content),
 			"url": s.mcpPageURL(in.Slug, in.Path), "next": mcpLintNudge,
 		})
 	})
@@ -363,13 +429,14 @@ func (s *Server) registerWriteFile(srv *mcp.Server) {
 // These mirror the in-process build agent's edit tools (internal/agent) and
 // share their exact semantics via internal/textedit, so an external agent can
 // iterate on a large page without re-sending the whole file. Each gates on
-// ValidateHTMLPath (HTML pages only; functions have their own tools), reads
-// the current file, applies a pure transform, enforces the per-file cap, and
-// writes back — returning the page URL and the lint nudge.
+// ValidateTextPath (HTML pages and text assets; executable functions have
+// their own tools), reads the current file, applies a pure transform, enforces
+// the per-file cap, and writes back — returning the page URL, the sha256 of
+// the stored result, and the lint nudge.
 
 type editFileInput struct {
 	Slug       string `json:"slug"                  jsonschema:"The site slug"`
-	Path       string `json:"path"                  jsonschema:"HTML page path within the site, e.g. index.html"`
+	Path       string `json:"path"                  jsonschema:"File path within the site, e.g. index.html or fonts.css"`
 	OldText    string `json:"old_text"              jsonschema:"Exact text to find. Must be unique unless replace_all is true. Whitespace-tolerant fallback applies when no exact match is found."`
 	NewText    string `json:"new_text"              jsonschema:"Replacement text."`
 	ReplaceAll bool   `json:"replace_all,omitempty" jsonschema:"Replace every occurrence instead of requiring a unique match."`
@@ -378,11 +445,11 @@ type editFileInput struct {
 func (s *Server) registerEditFile(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "edit_file",
-		Description: "Surgically edit an HTML page in a site the caller owns: old_text must byte-match (and be unique unless replace_all=true). Prefer this over write_file for changes to an existing page — it's cheaper and won't clobber the rest of the file.",
+		Description: "Surgically edit an HTML page or text asset (.html .css .js .svg .md .txt .json .xml) in a site the caller owns: old_text must byte-match (and be unique unless replace_all=true). Prefer this over write_file for changes to an existing file — it's cheaper, won't clobber the rest of the file, and avoids re-sending bytes that can corrupt in transit.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in editFileInput) (*mcp.CallToolResult, any, error) {
 		var count int
 		var note string
-		_, err := s.mcpApplyToFile(ctx, in.Slug, "edit_file", in.Path, func(content string) (string, error) {
+		updated, err := s.mcpApplyToFile(ctx, in.Slug, "edit_file", in.Path, func(content string) (string, error) {
 			edit, aerr := textedit.ApplyEdit(content, in.OldText, in.NewText, in.ReplaceAll)
 			if aerr != nil {
 				return "", aerr
@@ -395,6 +462,7 @@ func (s *Server) registerEditFile(srv *mcp.Server) {
 		}
 		return mcpJSON(map[string]any{
 			"ok": true, "slug": in.Slug, "path": in.Path, "replacements": count, "note": note,
+			"sha256": mcpDigest(updated), "bytes": len(updated),
 			"url": s.mcpPageURL(in.Slug, in.Path), "next": mcpLintNudge,
 		})
 	})
@@ -402,7 +470,7 @@ func (s *Server) registerEditFile(srv *mcp.Server) {
 
 type replaceLinesInput struct {
 	Slug      string `json:"slug"       jsonschema:"The site slug"`
-	Path      string `json:"path"       jsonschema:"HTML page path within the site"`
+	Path      string `json:"path"       jsonschema:"File path within the site (HTML page or text asset)"`
 	StartLine int    `json:"start_line" jsonschema:"First line to replace (1-indexed, inclusive)."`
 	EndLine   int    `json:"end_line"   jsonschema:"Last line to replace (1-indexed, inclusive). Line numbers must reflect the current file — re-read between edits."`
 	NewText   string `json:"new_text"   jsonschema:"Replacement text for the range. Empty deletes the lines."`
@@ -411,9 +479,9 @@ type replaceLinesInput struct {
 func (s *Server) registerReplaceLines(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "replace_lines",
-		Description: "Replace lines start_line..end_line (1-indexed, inclusive) of an HTML page in a site the caller owns. Empty new_text deletes the range.",
+		Description: "Replace lines start_line..end_line (1-indexed, inclusive) of an HTML page or text asset in a site the caller owns. Empty new_text deletes the range.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in replaceLinesInput) (*mcp.CallToolResult, any, error) {
-		_, err := s.mcpApplyToFile(ctx, in.Slug, "replace_lines", in.Path, func(content string) (string, error) {
+		updated, err := s.mcpApplyToFile(ctx, in.Slug, "replace_lines", in.Path, func(content string) (string, error) {
 			return textedit.SpliceLines(content, in.StartLine, in.EndLine, in.NewText)
 		})
 		if err != nil {
@@ -421,6 +489,7 @@ func (s *Server) registerReplaceLines(srv *mcp.Server) {
 		}
 		return mcpJSON(map[string]any{
 			"ok": true, "slug": in.Slug, "path": in.Path,
+			"sha256": mcpDigest(updated), "bytes": len(updated),
 			"url": s.mcpPageURL(in.Slug, in.Path), "next": mcpLintNudge,
 		})
 	})
@@ -428,7 +497,7 @@ func (s *Server) registerReplaceLines(srv *mcp.Server) {
 
 type insertAtLineInput struct {
 	Slug      string `json:"slug"       jsonschema:"The site slug"`
-	Path      string `json:"path"       jsonschema:"HTML page path within the site"`
+	Path      string `json:"path"       jsonschema:"File path within the site (HTML page or text asset)"`
 	AfterLine int    `json:"after_line" jsonschema:"Insert after this line (1-indexed). 0 prepends; total_lines appends."`
 	Content   string `json:"content"    jsonschema:"Text to insert verbatim. Include a trailing newline if needed."`
 }
@@ -436,9 +505,9 @@ type insertAtLineInput struct {
 func (s *Server) registerInsertAtLine(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "insert_at_line",
-		Description: "Insert content after a given line in an HTML page in a site the caller owns, without replacing anything. after_line=0 prepends, after_line=total_lines appends.",
+		Description: "Insert content after a given line in an HTML page or text asset in a site the caller owns, without replacing anything. after_line=0 prepends, after_line=total_lines appends.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in insertAtLineInput) (*mcp.CallToolResult, any, error) {
-		_, err := s.mcpApplyToFile(ctx, in.Slug, "insert_at_line", in.Path, func(content string) (string, error) {
+		updated, err := s.mcpApplyToFile(ctx, in.Slug, "insert_at_line", in.Path, func(content string) (string, error) {
 			return textedit.InsertAfterLine(content, in.AfterLine, in.Content)
 		})
 		if err != nil {
@@ -446,6 +515,7 @@ func (s *Server) registerInsertAtLine(srv *mcp.Server) {
 		}
 		return mcpJSON(map[string]any{
 			"ok": true, "slug": in.Slug, "path": in.Path,
+			"sha256": mcpDigest(updated), "bytes": len(updated),
 			"url": s.mcpPageURL(in.Slug, in.Path), "next": mcpLintNudge,
 		})
 	})
@@ -476,7 +546,7 @@ func (s *Server) mcpRecordEdit(ctx context.Context, slug, tool, path, before, af
 }
 
 // mcpApplyToFile is the shared read-modify-write the surgical edit tools run:
-// authorize, validate the HTML path, read the current file (error if missing),
+// authorize, validate the path, read the current file (error if missing),
 // apply the caller's pure transform, enforce the per-file cap, and write back
 // preserving the stored content type. Returns the updated content; edit_file
 // captures its replacement count/note through the transform closure. tool names
@@ -486,7 +556,7 @@ func (s *Server) mcpApplyToFile(ctx context.Context, slug, tool, p string, trans
 	if err != nil {
 		return "", err
 	}
-	err = textedit.ValidateHTMLPath(p)
+	err = textedit.ValidateTextPath(p)
 	if err != nil {
 		return "", err
 	}
@@ -504,9 +574,12 @@ func (s *Server) mcpApplyToFile(ctx context.Context, slug, tool, p string, trans
 	if len(updated) > mcpMaxFileBytes {
 		return "", fmt.Errorf("content too large after edit: %d bytes (max %d)", len(updated), mcpMaxFileBytes)
 	}
+	// Preserve whatever the file was stored as; fall back to the extension's
+	// type rather than assuming HTML, so editing a .css that predates a
+	// content type doesn't get re-labelled as a page.
 	contentType := obj.ContentType
 	if contentType == "" {
-		contentType = "text/html; charset=utf-8"
+		contentType = mcpContentType(p)
 	}
 	err = s.store.Write(ctx, slug, p, updated, contentType, obj.Metadata)
 	if err != nil {
@@ -583,9 +656,16 @@ type deleteFileInput struct {
 func (s *Server) registerDeleteFile(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "delete_file",
-		Description: "Delete a file from a site the caller owns.",
+		Description: "Delete a page or asset from a site the caller owns. Platform-managed paths (the site sidecar, generated app.css, stored form data) and server-side functions are not deletable here — functions have delete_function. Irreversible.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in deleteFileInput) (*mcp.CallToolResult, any, error) {
 		_, err := s.mcpUserAndAuthorize(ctx, in.Slug)
+		if err != nil {
+			return nil, nil, err
+		}
+		// Deletion needs the same gate as writing, and for a sharper reason:
+		// removing the sidecar orphans the site (no owner, so the owner loses
+		// access), and removing the state blob destroys every submission.
+		err = textedit.ValidateDeletePath(in.Path)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -664,7 +744,7 @@ func mcpLintProblems(errs []lint.Error) (problems []map[string]any, msgs []strin
 	return problems, msgs
 }
 
-// --- form submissions (read-only) -------------------------------------------
+// --- form submissions -------------------------------------------------------
 
 const mcpSubmissionsMax = 100
 
@@ -707,10 +787,51 @@ func (s *Server) registerListSubmissions(srv *mcp.Server) {
 			return nil, nil, fmt.Errorf("load submissions: %w", err)
 		}
 		out, truncated := mcpSubmissionRows(cols, rows, mcpSubmissionsMax)
-		return mcpJSON(map[string]any{
+		res := map[string]any{
 			"slug": in.Slug, "columns": cols, "submissions": out,
 			"truncated": truncated,
-		})
+		}
+		if len(out) > 0 {
+			res["next"] = "any test rows you created are indistinguishable from real ones in the owner's export — remove them with delete_submission using the _key value"
+		}
+		return mcpJSON(res)
+	})
+}
+
+type deleteSubmissionInput struct {
+	Slug string `json:"slug" jsonschema:"The site slug the submission belongs to"`
+	Key  string `json:"key"  jsonschema:"The submission's _key, as returned by list_submissions"`
+}
+
+// registerDeleteSubmission exists so an agent can clean up after itself. An
+// agent that tests a form it just built leaves rows behind that are
+// indistinguishable from real ones in the owner's CSV/JSON export, and until
+// now only the owner could remove them by hand. Deletes one key at a time and
+// refuses anything that isn't a submission — same guarantees as the manage
+// page's row delete, which it shares an implementation with.
+func (s *Server) registerDeleteSubmission(srv *mcp.Server) {
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "delete_submission",
+		Description: "Delete one form submission from a site the caller owns, by the _key returned from list_submissions. Use this to remove test rows you created while verifying a form — they are otherwise permanent and interleaved with the owner's real data. Irreversible.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in deleteSubmissionInput) (*mcp.CallToolResult, any, error) {
+		_, err := s.mcpUserAndAuthorize(ctx, in.Slug)
+		if err != nil {
+			return nil, nil, err
+		}
+		if in.Key == "" {
+			return nil, nil, errors.New("key is required (use the _key field from list_submissions)")
+		}
+		err = s.deleteSubmissionKey(ctx, in.Slug, in.Key)
+		switch {
+		case errors.Is(err, errSubmissionNotFound):
+			return nil, nil, fmt.Errorf("submission %q not found", in.Key)
+		case errors.Is(err, errNotSubmissionKey):
+			return nil, nil, fmt.Errorf("%q is not a form submission", in.Key)
+		case err != nil:
+			return nil, nil, fmt.Errorf("delete submission: %w", err)
+		}
+		slog.Info("submission.delete", "slug", in.Slug, "key", in.Key, "via", "mcp")
+		return mcpJSON(map[string]any{"ok": true, "slug": in.Slug, "key": in.Key})
 	})
 }
 

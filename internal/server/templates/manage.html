@@ -256,6 +256,7 @@
                   <button type="button" class="btn btn-ghost btn-xs js-copy shrink-0" data-copy="{{ .DNSCNAMETarget }}" data-copied-label="Copied!" aria-label="Copy CNAME target">Copy</button>
                 </dd>
               </dl>
+              <p class="text-xs text-base-content/60 mt-2">That value is this site's own address — you can open it in a browser to check it before pointing your domain at it.</p>
             </div>
             <p class="text-xs text-base-content/70 mt-2">A TLS certificate is issued automatically on the first visit. For a root/apex domain (<span class="font-mono">example.com</span>), use your provider's CNAME flattening / ALIAS record. On Cloudflare, set the record to <code class="font-mono bg-base-200 px-1 rounded">DNS only</code> (grey cloud) or certificate issuance will fail.</p>
           </div>
