@@ -14,7 +14,7 @@ import (
 	adkmodel "google.golang.org/adk/v2/model"
 
 	"github.com/jtarchie/topbanana/auth"
-	"github.com/jtarchie/topbanana/internal/blobs"
+	"github.com/jtarchie/topbanana/auth/blob/s3blob"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/model"
@@ -175,8 +175,15 @@ func run() error {
 	sb := sandbox.New(sandbox.Config{})
 	stateStore := state.NewS3(s3Client, cli.S3Bucket)
 
+	// One blob store for identity, shared with the server so the OAuth
+	// authorization server writes alongside it. Deliberately the direct S3
+	// implementation rather than the site store: auth records are plain JSON
+	// at reserved keys, with none of the compression, caching, or slug rules
+	// store.Store exists to apply.
+	authBlobs := s3blob.New(s3Client, cli.S3Bucket)
+
 	authSvc, err := auth.New(auth.Config{
-		Blobs:           blobs.FromStore(s),
+		Blobs:           authBlobs,
 		Domain:          cli.Domain,
 		SuperAdminEmail: cli.SuperAdminEmail,
 		InsecureCookies: cli.InsecureCookies,
@@ -199,6 +206,7 @@ func run() error {
 	}
 
 	deps := server.Deps{
+		Blobs: authBlobs,
 		// Quota policy is the product's, not the identity layer's — it is wired
 		// into the HTTP layer that enforces it.
 		QuotaDefaults: quotas.Defaults{

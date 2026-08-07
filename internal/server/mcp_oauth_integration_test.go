@@ -16,7 +16,6 @@ import (
 	"github.com/jtarchie/topbanana/auth"
 	"github.com/jtarchie/topbanana/auth/blob"
 	"github.com/jtarchie/topbanana/auth/oauth"
-	"github.com/jtarchie/topbanana/internal/blobs"
 	"github.com/jtarchie/topbanana/internal/storetest"
 )
 
@@ -29,7 +28,7 @@ func TestOAuthIntegration_PasskeySessionSatisfiesCurrentUser(t *testing.T) {
 	ctx := context.Background()
 	backing := storetest.New(t, 0)
 	a, err := auth.New(auth.Config{
-		Blobs:           blobs.FromStore(backing),
+		Blobs:           blob.NewMemory(),
 		Domain:          "localhost",
 		SuperAdminEmail: "admin@example.com",
 		InsecureCookies: true,

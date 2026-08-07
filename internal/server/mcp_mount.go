@@ -9,7 +9,6 @@ import (
 
 	"github.com/jtarchie/topbanana/auth"
 	"github.com/jtarchie/topbanana/auth/oauth"
-	"github.com/jtarchie/topbanana/internal/blobs"
 )
 
 // The OAuth authorization server lives in auth/oauth. What stays here is the
@@ -39,7 +38,7 @@ func (s *Server) mcpBaseURL() string {
 // is, it just asks whether this browser is signed in.
 func (s *Server) newOAuthServer() (*oauth.Server, error) {
 	oa, err := oauth.New(oauth.Config{
-		Blobs:       blobs.FromStore(s.store),
+		Blobs:       s.blobs,
 		BaseURL:     s.mcpBaseURL(),
 		Secret:      s.mcpSecret,
 		CurrentUser: s.currentSessionEmail,

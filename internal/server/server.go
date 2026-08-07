@@ -21,6 +21,7 @@ import (
 	"github.com/tdewolff/minify/v2"
 
 	"github.com/jtarchie/topbanana/auth"
+	"github.com/jtarchie/topbanana/auth/blob"
 	"github.com/jtarchie/topbanana/auth/oauth"
 	"github.com/jtarchie/topbanana/internal/assets"
 	"github.com/jtarchie/topbanana/internal/build"
@@ -75,6 +76,12 @@ type Deps struct {
 	// left nil in plain-HTTP / dev mode.
 	PreWarmCert func(host string)
 
+	// Blobs is the keyed-document store the auth stack and the OAuth
+	// authorization server persist to. Separate from Store: that one carries
+	// this platform's site conventions (compression, cache, slug prefixes),
+	// none of which the auth packages know or need.
+	Blobs blob.Blobs
+
 	// MCPSecret signs MCP bearer tokens. When non-empty it enables the MCP
 	// server plus its OAuth endpoints at /mcp and /oauth/*; empty leaves the
 	// whole surface unmounted. Wired from --mcp-secret.
@@ -119,6 +126,9 @@ type Server struct {
 	// New only when the secret is set.
 	mcpSecret string
 	mcpOAuth  *oauth.Server
+
+	// blobs backs the auth stack + OAuth server; see Deps.Blobs.
+	blobs blob.Blobs
 
 	// photoLimiter throttles the unauthenticated /_photos upload endpoint per
 	// (slug, client IP) so an open QR upload link can't be flooded.
@@ -192,6 +202,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		registry:      newSiteRegistry(d.Store, d.Build),
 		preWarmCert:   d.PreWarmCert,
 		mcpSecret:     d.MCPSecret,
+		blobs:         d.Blobs,
 		quotaDefaults: d.QuotaDefaults,
 		// ~1 upload / 5s sustained with a burst of 5 per (slug, IP): enough for
 		// a person snapping a few shots in a row, tight enough to blunt a script
@@ -202,9 +213,10 @@ func New(d Deps) (*echo.Echo, *Server) {
 	if s.mcpSecret != "" {
 		oa, err := s.newOAuthServer()
 		if err != nil {
-			// Config error, not a runtime one: the secret is set, so every
-			// input here is present by construction.
-			panic("server: build oauth server: " + err.Error())
+			// A wiring error, not a runtime one: MCPSecret is set, so the
+			// caller asked for the MCP surface and left out something it
+			// needs. Failing at construction beats a nil handler later.
+			panic(err.Error())
 		}
 		s.mcpOAuth = oa
 	}

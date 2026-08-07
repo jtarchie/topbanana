@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/jtarchie/topbanana/auth"
-	"github.com/jtarchie/topbanana/internal/blobs"
+	"github.com/jtarchie/topbanana/auth/blob"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/server"
@@ -32,7 +32,7 @@ type privateTestRig struct {
 func newPrivateRig(t *testing.T, st *store.Store, snapSvc *snapshot.Service) *privateTestRig {
 	t.Helper()
 	authSvc, err := auth.New(auth.Config{
-		Blobs:           blobs.FromStore(st),
+		Blobs:           blob.NewMemory(),
 		Domain:          "localhost",
 		SuperAdminEmail: testAdminUser,
 		InsecureCookies: true,

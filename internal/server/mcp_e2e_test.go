@@ -11,7 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/jtarchie/topbanana/auth"
-	"github.com/jtarchie/topbanana/internal/blobs"
+	"github.com/jtarchie/topbanana/auth/blob"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/sandbox"
@@ -32,7 +32,11 @@ const mcpTestSecret = "mcp-e2e-test-secret"
 // buildMCPTestServer seeds a site owned by ownerEmail, then stands up the full
 // server with the MCP surface enabled. Seeding happens before server.New so
 // the registry's initial index rebuild records the ownership.
-func buildMCPTestServer(t *testing.T, st *store.Store, slug, ownerEmail string) *httptest.Server {
+// Returns the blob store alongside the server: identity records used to live
+// in the same *store.Store as everything else, so helpers could each build
+// their own auth.Auth and still see one another's users. They no longer do, so
+// the sharing is threaded explicitly rather than left to coincidence.
+func buildMCPTestServer(t *testing.T, st *store.Store, slug, ownerEmail string) (*httptest.Server, blob.Blobs) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -41,8 +45,9 @@ func buildMCPTestServer(t *testing.T, st *store.Store, slug, ownerEmail string) 
 
 	tracker := events.NewTracker()
 	t.Cleanup(tracker.Close)
+	authBlobs := blob.NewMemory()
 	authSvc, err := auth.New(auth.Config{
-		Blobs:           blobs.FromStore(st),
+		Blobs:           authBlobs,
 		Domain:          "localhost",
 		SuperAdminEmail: "super@example.com",
 		InsecureCookies: true,
@@ -60,13 +65,14 @@ func buildMCPTestServer(t *testing.T, st *store.Store, slug, ownerEmail string) 
 		State:     state.NewMemory(),
 		Snapshot:  snapshot.New(st, 0),
 		Auth:      authSvc,
+		Blobs:     authBlobs,
 		Domain:    "localhost",
 		Port:      "8080",
 		MCPSecret: mcpTestSecret,
 	})
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
-	return srv
+	return srv, authBlobs
 }
 
 // bearerTransport injects the MCP bearer token on every request the SDK client
@@ -120,12 +126,12 @@ func TestMCP_ListAndEditFile_EndToEnd(t *testing.T) {
 	slug := freshSlug(t)
 	const owner = "owner@example.com"
 
-	srv := buildMCPTestServer(t, st, slug, owner)
+	srv, authBlobs := buildMCPTestServer(t, st, slug, owner)
 
 	// The user record must exist for authorizeSlugOwner's lookup; the auth
 	// store is shared with the server through the same backing store.
 	session := connectMCP(t, srv, owner)
-	seedUser(t, srv, st, owner)
+	seedUser(t, authBlobs, owner)
 
 	// list_files sees the seeded page.
 	res, err := session.CallTool(ctx, &mcp.CallToolParams{
@@ -174,9 +180,9 @@ func TestMCP_NonOwnerSeesNotFound(t *testing.T) {
 	const owner = "owner@example.com"
 	const stranger = "stranger@example.com"
 
-	srv := buildMCPTestServer(t, st, slug, owner)
-	seedUser(t, srv, st, owner)
-	seedUser(t, srv, st, stranger)
+	srv, authBlobs := buildMCPTestServer(t, st, slug, owner)
+	seedUser(t, authBlobs, owner)
+	seedUser(t, authBlobs, stranger)
 
 	session := connectMCP(t, srv, stranger)
 	res, err := session.CallTool(ctx, &mcp.CallToolParams{
@@ -209,7 +215,7 @@ func TestMCP_NonOwnerSeesNotFound(t *testing.T) {
 func TestMCP_BadTokenRejectedByBearerMiddleware(t *testing.T) {
 	st := minioStore(t)
 	slug := freshSlug(t)
-	srv := buildMCPTestServer(t, st, slug, "owner@example.com")
+	srv, _ := buildMCPTestServer(t, st, slug, "owner@example.com")
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "e2e-test", Version: "0.0.1"}, nil)
 	_, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{
@@ -233,8 +239,8 @@ func TestMCP_FullToolSurfaceLifecycle(t *testing.T) {
 	slug := freshSlug(t)
 	const owner = "owner@example.com"
 
-	srv := buildMCPTestServer(t, st, slug, owner)
-	seedUser(t, srv, st, owner)
+	srv, authBlobs := buildMCPTestServer(t, st, slug, owner)
+	seedUser(t, authBlobs, owner)
 	session := connectMCP(t, srv, owner)
 
 	mustOK := func(name string, args map[string]any) string {
@@ -318,10 +324,10 @@ func TestMCP_FullToolSurfaceLifecycle(t *testing.T) {
 // seedUser creates a user record (via the auth store the server shares) so
 // authorizeSlugOwner's lookup resolves. Uses InjectTestSession's user-creation
 // side effect rather than reaching into unexported stores.
-func seedUser(t *testing.T, _ *httptest.Server, st *store.Store, email string) {
+func seedUser(t *testing.T, blobs blob.Blobs, email string) {
 	t.Helper()
 	a, err := auth.New(auth.Config{
-		Blobs:           blobs.FromStore(st),
+		Blobs:           blobs,
 		Domain:          "localhost",
 		SuperAdminEmail: "super@example.com",
 		InsecureCookies: true,
