@@ -1,4 +1,4 @@
-package server
+package oauth
 
 import (
 	"context"
@@ -12,44 +12,44 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
-	"github.com/labstack/echo/v5/middleware"
-	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 
 	"github.com/jtarchie/topbanana/auth"
-	"github.com/jtarchie/topbanana/internal/photowall"
-	"github.com/jtarchie/topbanana/internal/store"
+	"github.com/jtarchie/topbanana/auth/blob"
+	"github.com/jtarchie/topbanana/auth/internal/ratelimit"
 )
 
-// This file is a minimal OAuth 2.1 authorization server that fronts the MCP
-// endpoint. An MCP client (Claude Code) discovers it via the well-known
+// Package oauth is a minimal OAuth 2.1 authorization server for fronting an
+// MCP endpoint. An MCP client (Claude Code) discovers it via the well-known
 // metadata, dynamically registers, then runs the authorization-code + PKCE
-// flow. The human-authentication step reuses the existing passkey session:
-// /oauth/authorize only issues a code once the browser carries a logged-in
-// session, so no second login system is introduced. Tokens are the JWTs minted
-// by internal/auth/mcp.go and verified by the bearer middleware on /mcp.
+// flow. Tokens are the JWTs minted by the parent auth package.
 //
-// Both halves of the flow's state are persisted to S3, because both outlive a
-// single request and neither survives being process-local:
+// It does not own human authentication. Config.CurrentUser hands that back to
+// whatever session system the host application already has, so adopting this
+// introduces no second login: /oauth/authorize issues a code only once
+// CurrentUser reports a signed-in browser.
 //
-//   - Client registrations (mcpOAuthClientPrefix). An MCP client registers once
-//     and reuses its client_id indefinitely, so a map meant every restart or
-//     redeploy broke returning clients with "unknown client_id".
-//   - Authorization codes (mcpOAuthCodePrefix), so the /oauth/token POST can
-//     land on a different instance than the /oauth/authorize that issued it.
-//     Without this a two-instance deployment fails roughly half of all
-//     connects, and retrying is a coin flip rather than a fix. There is
-//     deliberately no in-memory copy — see newCode.
+// Both halves of the flow's state are persisted through blob.Blobs, because
+// both outlive a single request and neither survives being process-local:
+//
+//   - Client registrations. An MCP client registers once and reuses its
+//     client_id indefinitely, so a map meant every restart or redeploy broke
+//     returning clients with "unknown client_id".
+//   - Authorization codes, so the /oauth/token POST can land on a different
+//     instance than the /oauth/authorize that issued it. Without this a
+//     two-instance deployment fails roughly half of all connects, and retrying
+//     is a coin flip rather than a fix. There is deliberately no in-memory
+//     copy — see newCode.
 //
 // Single use is enforced by a compare-and-set on the stored code, not by the
 // delete that follows it — see takeCode. Two redemptions racing on the same
 // code both read the same version and exactly one write can win; the loser is
 // refused. Read-then-delete would give both a token, since neither can tell it
 // lost.
-
 const mcpAuthCodeTTL = 10 * time.Minute
 
 // mcpOAuthPrefix is the bucket namespace the authorization server owns:
@@ -100,20 +100,18 @@ func mcpRedirect(c *echo.Context, dest string) error {
 // codes live in the store and nowhere else; the only process-local state is the
 // registration rate limiter, which is advisory and fine to keep per-instance.
 type mcpOAuthState struct {
-	store *store.Store
+	store blob.Blobs
 
 	// prefix is the bucket namespace this instance owns; see mcpOAuthPrefix.
 	prefix string
 
 	// registerLimiter throttles /oauth/register per client IP. RFC 7591
-	// registration is necessarily unauthenticated — Claude Code registers
+	// registration is necessarily unauthenticated — an MCP client registers
 	// before any human signs in — so without this an anonymous loop writes
-	// bucket objects and cache entries without bound. Nothing is exposed by
-	// the spam (a client_id is inert until /oauth/authorize sees a passkey
-	// session); this caps the junk and the PUT bill. The type lives in
-	// internal/photowall because that's where the first per-key token bucket
-	// was needed; it carries no photo-specific behaviour.
-	registerLimiter *photowall.Limiter
+	// stored objects without bound. Nothing is exposed by the spam (a
+	// client_id is inert until /oauth/authorize sees a signed-in session);
+	// this caps the junk and the storage bill.
+	registerLimiter *ratelimit.Limiter
 }
 
 type mcpOAuthClient struct {
@@ -139,20 +137,73 @@ type mcpAuthCode struct {
 	Consumed bool `json:"consumed,omitempty"`
 }
 
-func newMCPOAuthState(s *store.Store) *mcpOAuthState {
-	return newMCPOAuthStateAt(s, mcpOAuthPrefix)
+// Config wires the authorization server. Blobs, Secret, and CurrentUser are
+// required; everything else has a working default.
+type Config struct {
+	// Blobs stores registrations and pending codes.
+	Blobs blob.Blobs
+
+	// BaseURL is the externally-reachable origin the metadata advertises. It
+	// must match what clients actually dial, because the bearer middleware
+	// pins the resource-metadata URL against it.
+	BaseURL string
+
+	// Secret signs the bearer tokens minted at the token endpoint. The same
+	// secret must be given to auth.MCPTokenVerifier on the protected endpoint.
+	Secret string
+
+	// CurrentUser reports the signed-in user's email for the browser making
+	// this request. This is the human-authentication step: the authorization
+	// endpoint refuses to issue a code without one, and bounces to LoginPath
+	// instead. Delegating it is what keeps this package from introducing a
+	// second login system.
+	CurrentUser func(c *echo.Context) (string, bool)
+
+	// LoginPath is where an unauthenticated browser is sent, with the original
+	// URL in a `return` query parameter. Defaults to /login.
+	LoginPath string
+
+	// Prefix namespaces stored registrations and codes. Defaults to
+	// _auth/oauth/. Give separate instances separate prefixes; the listing
+	// paths treat everything under it as theirs.
+	Prefix string
 }
 
-// newMCPOAuthStateAt is newMCPOAuthState with an explicit namespace. Tests use
-// it to get a prefix of their own so they don't read each other's records.
-func newMCPOAuthStateAt(s *store.Store, prefix string) *mcpOAuthState {
+// Server is the authorization server. Construct with New, publish with Mount.
+type Server struct {
+	st  *mcpOAuthState
+	cfg Config
+}
+
+// New validates cfg and returns the authorization server.
+func New(cfg Config) (*Server, error) {
+	switch {
+	case cfg.Blobs == nil:
+		return nil, errors.New("oauth: Blobs required")
+	case cfg.Secret == "":
+		return nil, errors.New("oauth: Secret required")
+	case cfg.CurrentUser == nil:
+		return nil, errors.New("oauth: CurrentUser required — this package does not authenticate humans itself")
+	case cfg.BaseURL == "":
+		return nil, errors.New("oauth: BaseURL required")
+	}
+	if cfg.LoginPath == "" {
+		cfg.LoginPath = "/login"
+	}
+	if cfg.Prefix == "" {
+		cfg.Prefix = mcpOAuthPrefix
+	}
+	return &Server{st: newState(cfg.Blobs, cfg.Prefix), cfg: cfg}, nil
+}
+
+func newState(b blob.Blobs, prefix string) *mcpOAuthState {
 	return &mcpOAuthState{
-		store:  s,
+		store:  b,
 		prefix: prefix,
 		// Registering is a once-per-tool-install event, so this is far above
 		// any legitimate rate while still blunting a script: ~1 per 5s
 		// sustained per IP, burst 5 for a shared NAT.
-		registerLimiter: photowall.NewLimiter(0.2, 5),
+		registerLimiter: ratelimit.New(0.2, 5),
 	}
 }
 
@@ -174,11 +225,11 @@ func (st *mcpOAuthState) registerClient(ctx context.Context, redirectURIs []stri
 	}
 	body, err := json.Marshal(client)
 	if err != nil {
-		return "", fmt.Errorf("server: marshal oauth client: %w", err)
+		return "", fmt.Errorf("oauth: marshal oauth client: %w", err)
 	}
-	err = st.store.WriteRaw(ctx, st.clientKey(id), string(body), "application/json", nil)
+	err = st.store.Put(ctx, st.clientKey(id), string(body))
 	if err != nil {
-		return "", fmt.Errorf("server: write oauth client: %w", err)
+		return "", fmt.Errorf("oauth: write oauth client: %w", err)
 	}
 	return id, nil
 }
@@ -198,9 +249,9 @@ func (st *mcpOAuthState) client(ctx context.Context, id string) (mcpOAuthClient,
 	if !mcpTokenPattern.MatchString(id) {
 		return mcpOAuthClient{}, false, nil
 	}
-	obj, err := st.store.ReadRaw(ctx, st.clientKey(id))
+	obj, err := st.store.Get(ctx, st.clientKey(id))
 	if err != nil {
-		return mcpOAuthClient{}, false, fmt.Errorf("server: read oauth client: %w", err)
+		return mcpOAuthClient{}, false, fmt.Errorf("oauth: read oauth client: %w", err)
 	}
 	if obj.Content == "" {
 		return mcpOAuthClient{}, false, nil
@@ -208,7 +259,7 @@ func (st *mcpOAuthState) client(ctx context.Context, id string) (mcpOAuthClient,
 	c := mcpOAuthClient{}
 	err = json.Unmarshal([]byte(obj.Content), &c)
 	if err != nil {
-		return mcpOAuthClient{}, false, fmt.Errorf("server: parse oauth client: %w", err)
+		return mcpOAuthClient{}, false, fmt.Errorf("oauth: parse oauth client: %w", err)
 	}
 	return c, true, nil
 }
@@ -225,9 +276,9 @@ type registeredClient struct {
 // runs at (one record per tool install). Unparseable records are skipped rather
 // than failing the page: one bad blob shouldn't hide the rest.
 func (st *mcpOAuthState) listClients(ctx context.Context) ([]registeredClient, error) {
-	keys, err := st.store.ListPrefix(ctx, st.clientsPrefix())
+	keys, err := st.store.List(ctx, st.clientsPrefix())
 	if err != nil {
-		return nil, fmt.Errorf("server: list oauth clients: %w", err)
+		return nil, fmt.Errorf("oauth: list oauth clients: %w", err)
 	}
 	out := make([]registeredClient, 0, len(keys))
 	for _, key := range keys {
@@ -239,7 +290,7 @@ func (st *mcpOAuthState) listClients(ctx context.Context) ([]registeredClient, e
 		if !mcpTokenPattern.MatchString(id) {
 			continue
 		}
-		obj, err := st.store.ReadRaw(ctx, key)
+		obj, err := st.store.Get(ctx, key)
 		if err != nil || obj.Content == "" {
 			continue
 		}
@@ -255,22 +306,22 @@ func (st *mcpOAuthState) listClients(ctx context.Context) ([]registeredClient, e
 
 // revokeClient deletes a registration. Because client() reads through to the
 // store on every authorize, the delete takes effect immediately and on every
-// instance. Returns ErrMCPClientNotFound for an id that was never a valid
+// instance. Returns ErrClientNotFound for an id that was never a valid
 // registration, so the console doesn't report a revocation that didn't happen.
 func (st *mcpOAuthState) revokeClient(ctx context.Context, id string) error {
 	if !mcpTokenPattern.MatchString(id) {
-		return ErrMCPClientNotFound
+		return ErrClientNotFound
 	}
-	err := st.store.DeleteRaw(ctx, st.clientKey(id))
+	err := st.store.Delete(ctx, st.clientKey(id))
 	if err != nil {
-		return fmt.Errorf("server: revoke oauth client: %w", err)
+		return fmt.Errorf("oauth: revoke oauth client: %w", err)
 	}
 	return nil
 }
 
-// ErrMCPClientNotFound is returned when a revoke targets an id that could never
+// ErrClientNotFound is returned when a revoke targets an id that could never
 // name a registration.
-var ErrMCPClientNotFound = errors.New("mcp client not found")
+var ErrClientNotFound = errors.New("oauth: client not found")
 
 // newCode issues an authorization code. The stored object is the code — there
 // is deliberately no in-memory copy. A local map looks like a free fast path
@@ -287,11 +338,11 @@ func (st *mcpOAuthState) newCode(ctx context.Context, email, clientID, redirectU
 		Expires:       time.Now().Add(mcpAuthCodeTTL),
 	})
 	if err != nil {
-		return "", fmt.Errorf("server: marshal auth code: %w", err)
+		return "", fmt.Errorf("oauth: marshal auth code: %w", err)
 	}
-	err = st.store.WriteRaw(ctx, st.codeKey(code), string(body), "application/json", nil)
+	err = st.store.Put(ctx, st.codeKey(code), string(body))
 	if err != nil {
-		return "", fmt.Errorf("server: write auth code: %w", err)
+		return "", fmt.Errorf("oauth: write auth code: %w", err)
 	}
 	st.sweepStoredCodes(ctx)
 	return code, nil
@@ -307,9 +358,9 @@ func (st *mcpOAuthState) takeCode(ctx context.Context, code string) (mcpAuthCode
 	if !mcpTokenPattern.MatchString(code) {
 		return mcpAuthCode{}, false, nil
 	}
-	obj, err := st.store.ReadRaw(ctx, st.codeKey(code))
+	obj, err := st.store.Get(ctx, st.codeKey(code))
 	if err != nil {
-		return mcpAuthCode{}, false, fmt.Errorf("server: read auth code: %w", err)
+		return mcpAuthCode{}, false, fmt.Errorf("oauth: read auth code: %w", err)
 	}
 	if obj.Content == "" {
 		return mcpAuthCode{}, false, nil
@@ -334,15 +385,15 @@ func (st *mcpOAuthState) takeCode(ctx context.Context, code string) (mcpAuthCode
 	stored.Consumed = true
 	consumed, err := json.Marshal(stored)
 	if err != nil {
-		return mcpAuthCode{}, false, fmt.Errorf("server: marshal consumed auth code: %w", err)
+		return mcpAuthCode{}, false, fmt.Errorf("oauth: marshal consumed auth code: %w", err)
 	}
-	_, err = st.store.WriteRawIfMatch(ctx, st.codeKey(code), string(consumed), "application/json", nil, obj.ETag)
-	if errors.Is(err, store.ErrPrecondition) {
+	err = st.store.PutIfMatch(ctx, st.codeKey(code), string(consumed), obj.ETag)
+	if errors.Is(err, blob.ErrPrecondition) {
 		// Someone else claimed it first, or it was swept out from under us.
 		return mcpAuthCode{}, false, nil
 	}
 	if err != nil {
-		return mcpAuthCode{}, false, fmt.Errorf("server: claim auth code: %w", err)
+		return mcpAuthCode{}, false, fmt.Errorf("oauth: claim auth code: %w", err)
 	}
 
 	// We hold the claim, so the code can no longer be redeemed by anyone even
@@ -357,7 +408,7 @@ func (st *mcpOAuthState) takeCode(ctx context.Context, code string) (mcpAuthCode
 // caller holds the claim, so a failure is cosmetic: the stored record already
 // says Consumed and the sweeper will collect it.
 func (st *mcpOAuthState) deleteStoredCode(ctx context.Context, code string) {
-	err := st.store.DeleteRaw(ctx, st.codeKey(code))
+	err := st.store.Delete(ctx, st.codeKey(code))
 	if err != nil {
 		slog.Warn("mcp.oauth.code_delete_failed", "err", err)
 	}
@@ -370,14 +421,14 @@ func (st *mcpOAuthState) deleteStoredCode(ctx context.Context, code string) {
 // already doing a write; the listing only ever holds codes from the last ten
 // minutes plus abandoned ones, which this is in the business of removing.
 func (st *mcpOAuthState) sweepStoredCodes(ctx context.Context) {
-	keys, err := st.store.ListPrefix(ctx, st.codesPrefix())
+	keys, err := st.store.List(ctx, st.codesPrefix())
 	if err != nil {
 		slog.Warn("mcp.oauth.code_sweep_failed", "err", err)
 		return
 	}
 	now := time.Now()
 	for _, key := range keys {
-		obj, err := st.store.ReadRaw(ctx, key)
+		obj, err := st.store.Get(ctx, key)
 		if err != nil || obj.Content == "" {
 			continue
 		}
@@ -387,7 +438,7 @@ func (st *mcpOAuthState) sweepStoredCodes(ctx context.Context) {
 		if parseErr == nil && !now.After(stored.Expires) {
 			continue
 		}
-		err = st.store.DeleteRaw(ctx, key)
+		err = st.store.Delete(ctx, key)
 		if err != nil {
 			slog.Warn("mcp.oauth.code_sweep_delete_failed", "key", key, "err", err)
 		}
@@ -403,50 +454,66 @@ func (c mcpOAuthClient) allows(redirectURI string) bool {
 	return false
 }
 
-// mcpBaseURL is the externally-reachable origin the OAuth metadata advertises.
-// Derived from the configured domain/port so it matches what the bearer
-// middleware pins as the resource metadata URL. Local-dev (loopback) domains
-// get http; everything else https.
-func (s *Server) mcpBaseURL() string {
-	host := stripPort(s.domain)
-	if fallThroughHosts[host] {
-		base := "http://" + s.domain
-		if s.port != "" && s.port != "80" {
-			base += ":" + s.port
-		}
-		return base
-	}
-	return "https://" + s.domain
+// Mount publishes the metadata and OAuth endpoints on e. The protected
+// resource itself (/mcp) is the host application's to mount — this package
+// issues the tokens, it does not serve the tools. Pair it with
+// auth.MCPTokenVerifier over the same Secret, and advertise
+// BaseURL + "/.well-known/oauth-protected-resource" as the resource metadata
+// URL so discovery points back here.
+func (s *Server) Mount(e *echo.Echo) {
+	e.GET("/.well-known/oauth-protected-resource", s.protectedResourceHandler)
+	e.GET("/.well-known/oauth-authorization-server", s.authServerMetadataHandler)
+	e.POST("/oauth/register", s.registerHandler)
+	e.GET("/oauth/authorize", s.authorizeHandler)
+	e.POST("/oauth/token", s.tokenHandler)
 }
 
-// mountMCP registers the OAuth endpoints, the well-known metadata, and the
-// bearer-protected MCP endpoint. Called from New only when an MCP secret is set.
-func (s *Server) mountMCP(e *echo.Echo) {
-	e.GET("/.well-known/oauth-protected-resource", s.mcpProtectedResourceHandler)
-	e.GET("/.well-known/oauth-authorization-server", s.mcpAuthServerMetadataHandler)
-	e.POST("/oauth/register", s.mcpRegisterHandler)
-	e.GET("/oauth/authorize", s.mcpAuthorizeHandler)
-	e.POST("/oauth/token", s.mcpTokenHandler)
+// ResourceMetadataURL is what the bearer middleware on the protected endpoint
+// should advertise, so a 401 tells the client where to authorize.
+func (s *Server) ResourceMetadataURL() string {
+	return s.cfg.BaseURL + "/.well-known/oauth-protected-resource"
+}
 
-	verifier := auth.MCPTokenVerifier(s.mcpSecret)
-	protected := mcpauth.RequireBearerToken(verifier, &mcpauth.RequireBearerTokenOptions{
-		ResourceMetadataURL: s.mcpBaseURL() + "/.well-known/oauth-protected-resource",
-		Scopes:              []string{auth.MCPScope},
-	})(s.newMCPHandler())
-	e.Any("/mcp", echo.WrapHandler(protected))
-	e.Any("/mcp/*", echo.WrapHandler(protected))
+// Client is one registration, as the admin surface sees it.
+type Client struct {
+	ID           string
+	Name         string
+	RedirectURIs []string
+	Created      time.Time
+}
 
-	// Binary upload endpoint for create_upload_ticket. Auth lives in the signed
-	// ticket carried in the path (the agent can't read its MCP bearer token to
-	// set a header), so this route is outside the bearer middleware; BodyLimit
-	// is a first-line cap before the handler re-checks the size.
-	e.POST("/upload/ticket/:token", s.uploadTicketHandler, middleware.BodyLimit(maxUploadBytes+1024))
+// Clients lists every registration, newest first. O(N) reads over the prefix;
+// fine at the scale this runs at (one record per tool install).
+func (s *Server) Clients(ctx context.Context) ([]Client, error) {
+	stored, err := s.st.listClients(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Client, 0, len(stored))
+	for _, c := range stored {
+		out = append(out, Client{
+			ID:           c.ID,
+			Name:         c.ClientName,
+			RedirectURIs: c.RedirectURIs,
+			Created:      c.Created,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Created.After(out[j].Created) })
+	return out, nil
+}
+
+// RevokeClient deletes a registration. Because the authorize path reads
+// through to the store on every request, this takes effect immediately and on
+// every instance. Returns ErrClientNotFound for an id that could never name a
+// registration, so a caller doesn't report a revocation that didn't happen.
+func (s *Server) RevokeClient(ctx context.Context, id string) error {
+	return s.st.revokeClient(ctx, id)
 }
 
 // --- well-known metadata ----------------------------------------------------
 
-func (s *Server) mcpProtectedResourceHandler(c *echo.Context) error {
-	base := s.mcpBaseURL()
+func (s *Server) protectedResourceHandler(c *echo.Context) error {
+	base := s.cfg.BaseURL
 	return mcpRespJSON(c, http.StatusOK, map[string]any{
 		"resource":                 base + "/mcp",
 		"authorization_servers":    []string{base},
@@ -455,8 +522,8 @@ func (s *Server) mcpProtectedResourceHandler(c *echo.Context) error {
 	})
 }
 
-func (s *Server) mcpAuthServerMetadataHandler(c *echo.Context) error {
-	base := s.mcpBaseURL()
+func (s *Server) authServerMetadataHandler(c *echo.Context) error {
+	base := s.cfg.BaseURL
 	return mcpRespJSON(c, http.StatusOK, map[string]any{
 		"issuer":                                base,
 		"authorization_endpoint":                base + "/oauth/authorize",
@@ -472,8 +539,8 @@ func (s *Server) mcpAuthServerMetadataHandler(c *echo.Context) error {
 
 // --- dynamic client registration (RFC 7591, minimal) ------------------------
 
-func (s *Server) mcpRegisterHandler(c *echo.Context) error {
-	if !s.mcpOAuth.registerLimiter.Allow(c.RealIP()) {
+func (s *Server) registerHandler(c *echo.Context) error {
+	if !s.st.registerLimiter.Allow(c.RealIP()) {
 		return mcpRespJSON(c, http.StatusTooManyRequests, map[string]string{
 			"error":             "temporarily_unavailable",
 			"error_description": "too many registration attempts — please retry shortly",
@@ -490,7 +557,7 @@ func (s *Server) mcpRegisterHandler(c *echo.Context) error {
 	if len(req.RedirectURIs) == 0 {
 		return mcpRespJSON(c, http.StatusBadRequest, map[string]string{"error": "invalid_redirect_uri"})
 	}
-	clientID, err := s.mcpOAuth.registerClient(c.Request().Context(), req.RedirectURIs, req.ClientName)
+	clientID, err := s.st.registerClient(c.Request().Context(), req.RedirectURIs, req.ClientName)
 	if err != nil {
 		return mcpRespJSON(c, http.StatusInternalServerError, map[string]string{"error": "server_error"})
 	}
@@ -506,7 +573,7 @@ func (s *Server) mcpRegisterHandler(c *echo.Context) error {
 
 // --- authorization endpoint -------------------------------------------------
 
-func (s *Server) mcpAuthorizeHandler(c *echo.Context) error {
+func (s *Server) authorizeHandler(c *echo.Context) error {
 	q := c.Request().URL.Query()
 	if q.Get("response_type") != "code" {
 		return mcpRespString(c, http.StatusBadRequest, "unsupported response_type (want code)")
@@ -519,7 +586,7 @@ func (s *Server) mcpAuthorizeHandler(c *echo.Context) error {
 		return mcpRespString(c, http.StatusBadRequest, "code_challenge is required")
 	}
 	clientID := q.Get("client_id")
-	client, ok, err := s.mcpOAuth.client(c.Request().Context(), clientID)
+	client, ok, err := s.st.client(c.Request().Context(), clientID)
 	if err != nil {
 		return mcpRespString(c, http.StatusInternalServerError, "client lookup failed")
 	}
@@ -534,12 +601,12 @@ func (s *Server) mcpAuthorizeHandler(c *echo.Context) error {
 	// Reuse the passkey session for human authentication. If the browser
 	// isn't signed in, bounce to /login; the user signs in and re-initiates
 	// the connection (their session cookie then satisfies this check).
-	email, ok := s.currentSessionEmail(c)
+	email, ok := s.cfg.CurrentUser(c)
 	if !ok {
-		return mcpRedirect(c, "/login?return="+url.QueryEscape(c.Request().URL.String()))
+		return mcpRedirect(c, s.cfg.LoginPath+"?return="+url.QueryEscape(c.Request().URL.String()))
 	}
 
-	code, err := s.mcpOAuth.newCode(c.Request().Context(), email, clientID, redirectURI, challenge)
+	code, err := s.st.newCode(c.Request().Context(), email, clientID, redirectURI, challenge)
 	if err != nil {
 		// Failing here is better than redirecting with a code the token
 		// endpoint can never resolve: the user sees the problem now instead of
@@ -561,11 +628,11 @@ func (s *Server) mcpAuthorizeHandler(c *echo.Context) error {
 
 // --- token endpoint ---------------------------------------------------------
 
-func (s *Server) mcpTokenHandler(c *echo.Context) error {
+func (s *Server) tokenHandler(c *echo.Context) error {
 	if c.FormValue("grant_type") != "authorization_code" {
 		return mcpRespJSON(c, http.StatusBadRequest, map[string]string{"error": "unsupported_grant_type"})
 	}
-	ac, ok, err := s.mcpOAuth.takeCode(c.Request().Context(), c.FormValue("code"))
+	ac, ok, err := s.st.takeCode(c.Request().Context(), c.FormValue("code"))
 	if err != nil {
 		// The store failed, so we never learned whether the code was good.
 		// Saying invalid_grant would be a terminal verdict the client acts on
@@ -586,7 +653,7 @@ func (s *Server) mcpTokenHandler(c *echo.Context) error {
 			"error_description": "PKCE verification failed",
 		})
 	}
-	token, err := auth.MintMCPToken(s.mcpSecret, ac.Email, auth.MCPTokenTTL)
+	token, err := auth.MintMCPToken(s.cfg.Secret, ac.Email, auth.MCPTokenTTL)
 	if err != nil {
 		return mcpRespJSON(c, http.StatusInternalServerError, map[string]string{"error": "server_error"})
 	}

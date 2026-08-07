@@ -21,6 +21,7 @@ import (
 	"github.com/tdewolff/minify/v2"
 
 	"github.com/jtarchie/topbanana/auth"
+	"github.com/jtarchie/topbanana/auth/oauth"
 	"github.com/jtarchie/topbanana/internal/assets"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/editrec"
@@ -114,11 +115,10 @@ type Server struct {
 	preWarmCert func(host string)
 
 	// mcpSecret signs MCP bearer tokens; empty leaves the MCP + OAuth routes
-	// unmounted. mcpOAuth holds the OAuth authorization-server state
-	// (S3-backed client registrations + in-memory authorization codes),
-	// created in New only when the secret is set.
+	// unmounted. mcpOAuth is the auth/oauth authorization server, created in
+	// New only when the secret is set.
 	mcpSecret string
-	mcpOAuth  *mcpOAuthState
+	mcpOAuth  *oauth.Server
 
 	// photoLimiter throttles the unauthenticated /_photos upload endpoint per
 	// (slug, client IP) so an open QR upload link can't be flooded.
@@ -200,7 +200,13 @@ func New(d Deps) (*echo.Echo, *Server) {
 	}
 	s.registry.initialRebuildIndexes(context.Background())
 	if s.mcpSecret != "" {
-		s.mcpOAuth = newMCPOAuthState(d.Store)
+		oa, err := s.newOAuthServer()
+		if err != nil {
+			// Config error, not a runtime one: the secret is set, so every
+			// input here is present by construction.
+			panic("server: build oauth server: " + err.Error())
+		}
+		s.mcpOAuth = oa
 	}
 
 	e := echo.New()

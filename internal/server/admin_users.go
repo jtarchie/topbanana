@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/jtarchie/topbanana/auth"
+	"github.com/jtarchie/topbanana/auth/oauth"
 	"github.com/jtarchie/topbanana/internal/model"
 	"github.com/jtarchie/topbanana/internal/quotas"
 )
@@ -182,9 +183,9 @@ func (s *adminController) mcpClientRows(ctx context.Context) ([]adminMCPClientRo
 	if s.mcpOAuth == nil {
 		return nil, nil
 	}
-	clients, err := s.mcpOAuth.listClients(ctx)
+	clients, err := s.mcpOAuth.Clients(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list oauth clients: %w", err)
 	}
 	rows := make([]adminMCPClientRow, 0, len(clients))
 	for _, cl := range clients {
@@ -194,15 +195,12 @@ func (s *adminController) mcpClientRows(ctx context.Context) ([]adminMCPClientRo
 		}
 		rows = append(rows, adminMCPClientRow{
 			ID:           cl.ID,
-			Name:         cl.ClientName,
+			Name:         cl.Name,
 			Created:      created,
 			RedirectURIs: cl.RedirectURIs,
 		})
 	}
-	// Newest first: the row an operator is looking for right after connecting a
-	// tool is the one they just created. Blank Created (pre-upgrade records)
-	// sorts last.
-	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Created > rows[j].Created })
+	// Clients already returns newest first.
 	return rows, nil
 }
 
@@ -218,8 +216,8 @@ func (s *adminController) adminMCPClientRevokeHandler(c *echo.Context) error {
 	if id == "" {
 		return notFound()
 	}
-	err := s.mcpOAuth.revokeClient(c.Request().Context(), id)
-	if errors.Is(err, ErrMCPClientNotFound) {
+	err := s.mcpOAuth.RevokeClient(c.Request().Context(), id)
+	if errors.Is(err, oauth.ErrClientNotFound) {
 		return notFound()
 	}
 	if err != nil {

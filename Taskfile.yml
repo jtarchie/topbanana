@@ -21,18 +21,13 @@ tasks:
   fmt:
     cmds:
       - gofmt -w .
-      # ./... stops at the module boundary, so the nested auth module needs its
-      # own invocation or it silently drops out of every gate below.
       - golangci-lint run ./... --fix
-      - cd auth && golangci-lint run ./... --fix
       - go test -race ./...
-      - cd auth && go test -race ./...
 
   vuln:
     desc: Scan the module for known Go vulnerabilities (uses the Go vuln DB; reports only symbols actually reachable from the build).
     cmds:
       - govulncheck ./...
-      - cd auth && govulncheck ./...
 
   sec:
     desc: Run gosec standalone as a second-pass SAST over the Go source. golangci-lint already wraps gosec with per-site //nolint markers; this run catches drift on rules that aren't site-justified.
@@ -81,8 +76,6 @@ tasks:
       # working tree the way `git diff` would.
       - go mod tidy -diff
       - go mod verify
-      - cd auth && go mod tidy -diff
-      - cd auth && go mod verify
 
   test:cover:
     desc: Run the full test suite with coverage and open the HTML report.

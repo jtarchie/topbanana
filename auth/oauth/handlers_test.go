@@ -1,4 +1,4 @@
-package server
+package oauth
 
 import (
 	"context"
@@ -9,43 +9,58 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/jtarchie/topbanana/auth"
-	"github.com/jtarchie/topbanana/internal/blobs"
-	"github.com/jtarchie/topbanana/internal/storetest"
+	"github.com/jtarchie/topbanana/auth/blob"
 )
 
-// newOAuthTestServer builds the minimal *Server the OAuth handlers touch:
-// the in-memory authorization-server state, a signing secret, and a real
-// auth.Auth (in-memory store) so the authorize handler's session check can be
-// driven both unauthenticated and with an injected session cookie.
+// newOAuthTestServer builds an authorization server whose human-auth step is a
+// settable stub. That is the whole point of Config.CurrentUser: this package
+// never learns what a passkey is, so its tests don't need one either. The
+// real-session wiring is covered by an integration test in the host app.
 func newOAuthTestServer(t *testing.T) *Server {
 	t.Helper()
-	backing := storetest.New(t, 0)
-	oauthPrefix := oauthTestPrefix(t)
-	a, err := auth.New(auth.Config{
-		Blobs:           blobs.FromStore(backing),
-		Domain:          "localhost",
-		SuperAdminEmail: "admin@example.com",
-		InsecureCookies: true,
+	s, err := New(Config{
+		Blobs:   blob.NewMemory(),
+		BaseURL: "https://app.example",
+		Secret:  "test-oauth-secret",
+		CurrentUser: func(*echo.Context) (string, bool) {
+			return currentUser.Load().(userResult).email, currentUser.Load().(userResult).ok
+		},
+		Prefix: oauthTestPrefix(t),
 	})
 	if err != nil {
-		t.Fatalf("auth.New: %v", err)
+		t.Fatalf("oauth.New: %v", err)
 	}
-	t.Cleanup(func() { _ = a.Close() })
-	return &Server{
-		auth:      a,
-		mcpOAuth:  newMCPOAuthStateAt(backing, oauthPrefix),
-		mcpSecret: "test-oauth-secret",
-	}
+	t.Cleanup(func() { signOut() })
+	return s
 }
+
+type userResult struct {
+	email string
+	ok    bool
+}
+
+// currentUser backs the stub above. Package-level because the handler
+// signature has nowhere to thread it; the tests using it don't run in
+// parallel. Seeded signed-out so a test that never calls signIn sees the
+// unauthenticated path.
+var currentUser = func() *atomic.Value {
+	v := &atomic.Value{}
+	v.Store(userResult{})
+	return v
+}()
+
+func signIn(email string) { currentUser.Store(userResult{email: email, ok: true}) }
+func signOut()            { currentUser.Store(userResult{}) }
 
 func registerTestClient(t *testing.T, s *Server) string {
 	t.Helper()
-	id, err := s.mcpOAuth.registerClient(context.Background(), []string{"https://cb.example/done"}, "Test Client")
+	id, err := s.st.registerClient(context.Background(), []string{"https://cb.example/done"}, "Test Client")
 	if err != nil {
 		t.Fatalf("registerClient: %v", err)
 	}
@@ -107,7 +122,7 @@ func TestMCPTokenHandler_ErrorPaths(t *testing.T) {
 	clientID := registerTestClient(t, s)
 
 	seedCode := func() string {
-		code, err := s.mcpOAuth.newCode(context.Background(), "user@example.com", clientID, "https://cb.example/done", challenge)
+		code, err := s.st.newCode(context.Background(), "user@example.com", clientID, "https://cb.example/done", challenge)
 		if err != nil {
 			t.Fatalf("newCode: %v", err)
 		}
@@ -159,7 +174,7 @@ func TestMCPTokenHandler_ErrorPaths(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			rec := oauthPOSTForm(t, s, s.mcpTokenHandler, tc.form)
+			rec := oauthPOSTForm(t, s, s.tokenHandler, tc.form)
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("status = %d, want 400", rec.Code)
 			}
@@ -177,7 +192,7 @@ func TestMCPTokenHandler_SuccessAndReplay(t *testing.T) {
 	s := newOAuthTestServer(t)
 	verifier, challenge := pkcePair()
 	clientID := registerTestClient(t, s)
-	code, err := s.mcpOAuth.newCode(context.Background(), "user@example.com", clientID, "https://cb.example/done", challenge)
+	code, err := s.st.newCode(context.Background(), "user@example.com", clientID, "https://cb.example/done", challenge)
 	if err != nil {
 		t.Fatalf("newCode: %v", err)
 	}
@@ -186,7 +201,7 @@ func TestMCPTokenHandler_SuccessAndReplay(t *testing.T) {
 		"grant_type": {"authorization_code"}, "code": {code},
 		"client_id": {clientID}, "redirect_uri": {"https://cb.example/done"}, "code_verifier": {verifier},
 	}
-	rec := oauthPOSTForm(t, s, s.mcpTokenHandler, form)
+	rec := oauthPOSTForm(t, s, s.tokenHandler, form)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body.String())
 	}
@@ -204,7 +219,7 @@ func TestMCPTokenHandler_SuccessAndReplay(t *testing.T) {
 	}
 
 	// The minted token must verify with the same secret and carry the email.
-	info, err := auth.MCPTokenVerifier(s.mcpSecret)(context.Background(), resp.AccessToken, nil)
+	info, err := auth.MCPTokenVerifier(s.cfg.Secret)(context.Background(), resp.AccessToken, nil)
 	if err != nil {
 		t.Fatalf("minted token failed verification: %v", err)
 	}
@@ -213,7 +228,7 @@ func TestMCPTokenHandler_SuccessAndReplay(t *testing.T) {
 	}
 
 	// Replay: the code was consumed; an identical second exchange must fail.
-	rec = oauthPOSTForm(t, s, s.mcpTokenHandler, form)
+	rec = oauthPOSTForm(t, s, s.tokenHandler, form)
 	if rec.Code != http.StatusBadRequest || oauthErrField(t, rec.Body.Bytes()) != "invalid_grant" {
 		t.Fatalf("code replay: status=%d body=%s, want 400 invalid_grant", rec.Code, rec.Body.String())
 	}
@@ -255,7 +270,7 @@ func TestMCPAuthorizeHandler_Rejections(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			rec := oauthGET(t, s, s.mcpAuthorizeHandler, tc.rawQuery)
+			rec := oauthGET(t, s, s.authorizeHandler, tc.rawQuery)
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("status = %d, want 400 (%s)", rec.Code, rec.Body.String())
 			}
@@ -280,7 +295,7 @@ func TestMCPAuthorizeHandler_SessionFlow(t *testing.T) {
 	}.Encode()
 
 	// Unauthenticated: bounce to /login carrying the return URL.
-	rec := oauthGET(t, s, s.mcpAuthorizeHandler, query)
+	rec := oauthGET(t, s, s.authorizeHandler, query)
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("unauthenticated status = %d, want 303", rec.Code)
 	}
@@ -288,13 +303,9 @@ func TestMCPAuthorizeHandler_SessionFlow(t *testing.T) {
 		t.Fatalf("unauthenticated redirect = %q, want /login?return=...", loc)
 	}
 
-	// Authenticated: inject a session and present its cookie.
-	token, err := s.auth.InjectTestSession(context.Background(), "owner@example.com", auth.RoleAdmin)
-	if err != nil {
-		t.Fatalf("inject session: %v", err)
-	}
-	rec = oauthGET(t, s, s.mcpAuthorizeHandler, query,
-		&http.Cookie{Name: s.auth.SessionCookieName(), Value: token})
+	// Authenticated: the host app now reports a signed-in browser.
+	signIn("owner@example.com")
+	rec = oauthGET(t, s, s.authorizeHandler, query)
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("authenticated status = %d, want 303 (%s)", rec.Code, rec.Body.String())
 	}
@@ -314,7 +325,7 @@ func TestMCPAuthorizeHandler_SessionFlow(t *testing.T) {
 	}
 
 	// The issued code redeems at the token endpoint with the matching verifier.
-	tokenRec := oauthPOSTForm(t, s, s.mcpTokenHandler, url.Values{
+	tokenRec := oauthPOSTForm(t, s, s.tokenHandler, url.Values{
 		"grant_type": {"authorization_code"}, "code": {code},
 		"client_id": {clientID}, "redirect_uri": {"https://cb.example/done"}, "code_verifier": {verifier},
 	})
@@ -352,7 +363,7 @@ func TestMCPRegisterHandler_RateLimited(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/oauth/register", body)
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 		rec := httptest.NewRecorder()
-		err := s.mcpRegisterHandler(echo.New().NewContext(req, rec))
+		err := s.registerHandler(echo.New().NewContext(req, rec))
 		if err != nil {
 			t.Fatalf("register handler: %v", err)
 		}
@@ -370,7 +381,7 @@ func TestMCPRegisterHandler_RateLimited(t *testing.T) {
 	}
 
 	// The refused attempt must not have created a registration.
-	keys, err := s.mcpOAuth.store.ListPrefix(context.Background(), s.mcpOAuth.clientsPrefix())
+	keys, err := s.st.store.List(context.Background(), s.st.clientsPrefix())
 	if err != nil {
 		t.Fatalf("list registrations: %v", err)
 	}
