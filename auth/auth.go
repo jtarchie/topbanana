@@ -22,16 +22,31 @@ import (
 // so renames stay in lockstep with the write side.
 const defaultCookieNamePrefix = "bh"
 
+// defaultRPDisplayName is the relying-party name shown in the platform
+// credential picker when a consumer doesn't set one. Defaulted rather than
+// required so this package's first consumer keeps its existing prompt.
+const defaultRPDisplayName = "Top Banana"
+
 // Config wires the auth subsystem at server startup. Domain is the parent
 // the cookies are scoped to and the WebAuthn RPID — every admin route is
 // served from the same parent so RPID and Origin can be derived from it.
 type Config struct {
 	// Blobs is the keyed-document store every subsystem here persists to.
 	// An interface, not a concrete store: see blobs.go for why.
-	Blobs            blob.Blobs
-	Domain           string
-	SuperAdminEmail  string
-	UserSessionTTL   time.Duration
+	Blobs           blob.Blobs
+	Domain          string
+	SuperAdminEmail string
+	UserSessionTTL  time.Duration
+	// RPDisplayName is the relying-party name the platform shows the user
+	// during the passkey ceremony — the product name in the Face ID / Windows
+	// Hello prompt, and in the saved-credential list afterwards. It is the one
+	// piece of consumer branding this package can't derive, and getting it
+	// wrong means one product's users see another product's name every time
+	// they sign in. Defaults to defaultRPDisplayName.
+	//
+	// Unlike Domain (the RPID), this is display-only: changing it later
+	// re-labels existing credentials rather than invalidating them.
+	RPDisplayName    string
 	CookieNamePrefix string
 	// InsecureCookies forces Secure=false on the library's cookies for
 	// local dev (the library refuses to set them on http:// otherwise).
@@ -97,6 +112,9 @@ func New(cfg Config) (*Auth, error) {
 	if cfg.CookieNamePrefix == "" {
 		cfg.CookieNamePrefix = defaultCookieNamePrefix
 	}
+	if cfg.RPDisplayName == "" {
+		cfg.RPDisplayName = defaultRPDisplayName
+	}
 
 	users, err := NewUserStore(cfg.Blobs)
 	if err != nil {
@@ -120,7 +138,7 @@ func New(cfg Config) (*Auth, error) {
 	authStore, stopAuthStore := NewMemAuthSessionStore()
 	pkey, err := passkey.New(passkey.Config{
 		WebauthnConfig: &webauthn.Config{
-			RPDisplayName: "Top Banana",
+			RPDisplayName: cfg.RPDisplayName,
 			RPID:          cfg.Domain,
 			RPOrigins:     buildRPOrigins(cfg.Domain, cfg.Port, cfg.InsecureCookies),
 		},
