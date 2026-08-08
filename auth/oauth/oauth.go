@@ -1,28 +1,3 @@
-package oauth
-
-import (
-	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"log/slog"
-	"net/http"
-	"net/url"
-	"regexp"
-	"sort"
-	"strings"
-	"time"
-
-	"github.com/labstack/echo/v5"
-
-	"github.com/jtarchie/topbanana/auth"
-	"github.com/jtarchie/topbanana/auth/blob"
-	"github.com/jtarchie/topbanana/auth/internal/ratelimit"
-)
-
 // Package oauth is a minimal OAuth 2.1 authorization server for fronting an
 // MCP endpoint. An MCP client (Claude Code) discovers it via the well-known
 // metadata, dynamically registers, then runs the authorization-code + PKCE
@@ -50,6 +25,31 @@ import (
 // code both read the same version and exactly one write can win; the loser is
 // refused. Read-then-delete would give both a token, since neither can tell it
 // lost.
+package oauth
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"regexp"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/labstack/echo/v5"
+
+	"github.com/jtarchie/topbanana/auth"
+	"github.com/jtarchie/topbanana/auth/blob"
+	"github.com/jtarchie/topbanana/auth/internal/ratelimit"
+)
+
 const mcpAuthCodeTTL = 10 * time.Minute
 
 // mcpOAuthPrefix is the bucket namespace the authorization server owns:
@@ -302,6 +302,17 @@ func (st *mcpOAuthState) listClients(ctx context.Context) ([]registeredClient, e
 		out = append(out, registeredClient{ID: id, mcpOAuthClient: c})
 	}
 	return out, nil
+}
+
+// countClients reports how many registrations exist, for the diagnostic log on
+// the unknown-client path. Returns -1 rather than an error: it is telemetry on
+// a path that is already failing, and must never become a second failure.
+func (st *mcpOAuthState) countClients(ctx context.Context) int {
+	keys, err := st.store.List(ctx, st.clientsPrefix())
+	if err != nil {
+		return -1
+	}
+	return len(keys)
 }
 
 // revokeClient deletes a registration. Because client() reads through to the
@@ -588,9 +599,21 @@ func (s *Server) authorizeHandler(c *echo.Context) error {
 	clientID := q.Get("client_id")
 	client, ok, err := s.st.client(c.Request().Context(), clientID)
 	if err != nil {
+		slog.Warn("mcp.oauth.client_lookup_failed", "client_id", clientID, "err", err)
 		return mcpRespString(c, http.StatusInternalServerError, "client lookup failed")
 	}
 	if !ok {
+		// Logged because this is the one failure an operator cannot diagnose
+		// from the outside: the browser shows "unknown client_id" and nothing
+		// says which id, or whether any registration exists at all. A client
+		// that registered before registrations were persisted caches its id
+		// forever and presents a dead one on every attempt — indistinguishable
+		// from a typo without this line. client_id is a public identifier, not
+		// a credential, so it is safe to log.
+		slog.Warn("mcp.oauth.unknown_client",
+			"client_id", clientID,
+			"registered_clients", s.st.countClients(c.Request().Context()),
+			"hint", "if this is nonzero but yours is missing, the client cached an id from before registrations were stored; re-add the MCP server to force it to register again")
 		return mcpRespString(c, http.StatusBadRequest, "unknown client_id")
 	}
 	redirectURI := q.Get("redirect_uri")
