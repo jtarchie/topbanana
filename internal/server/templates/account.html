@@ -71,7 +71,7 @@
         <p class="text-xs text-base-content/70 mt-0.5">Let Claude Code edit your sites straight from your terminal.</p>
       </div>
       <span class="badge badge-sm shrink-0 {{ if .MCPEnabled }}badge-ghost{{ else }}badge-warning{{ end }}">{{ if .MCPEnabled }}available{{ else }}off{{ end }}</span>
-      <svg viewBox="0 0 24 24" class="h-4 w-4 shrink-0 text-base-content/50 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      <svg viewBox="0 0 24 24" class="h-4 w-4 shrink-0 text-base-content/70 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
     </summary>
 
     <div class="border-t border-base-300 p-4 sm:p-6" aria-labelledby="mcp-heading">
@@ -146,55 +146,61 @@
     </div>
   </details>
 
-  {{/* Signing out is routine, so it sits outside the danger zone. A red
-       region that contains an action people take every day stops reading as
-       a warning, which is exactly when it needs to. */}}
-  <div class="flex items-center justify-between gap-4 flex-wrap rounded-box border border-base-300 bg-base-100 px-4 py-3.5 mb-6">
-    <div class="flex-1 min-w-[15rem]">
-      <p class="text-sm font-medium">Sign out</p>
-      <p class="text-xs text-base-content/70 mt-1.5">Ends this browser's session. Your other devices stay signed in.</p>
-    </div>
-    <form method="POST" action="/logout">
-      <button type="submit" class="btn btn-outline btn-sm">Sign out</button>
-    </form>
-  </div>
+  {{/* Both of these end sessions and both are undone by signing back in with
+       a passkey, so they belong together and neither belongs under a heading
+       that says "irreversible". Losing a laptop is the reason the second one
+       exists, which is why it reads as a tool rather than a threat. */}}
+  <section aria-labelledby="sessions-heading" class="mb-6">
+    <h2 id="sessions-heading" class="text-sm font-semibold uppercase tracking-wide text-base-content/70 px-1 mb-2">Sessions</h2>
+    <div class="action-group">
+      <div class="danger-row">
+        <div class="flex-1 min-w-[15rem]">
+          <p class="text-sm font-medium">Sign out</p>
+          <p class="text-xs text-base-content/70 mt-1.5">Ends this browser's session. Your other devices stay signed in.</p>
+        </div>
+        <form method="POST" action="/logout">
+          <button type="submit" class="btn btn-outline btn-sm">Sign out</button>
+        </form>
+      </div>
 
-  {{/* Same danger-zone component as /manage — see the "danger_heading"
-       partial. Ordered by blast radius: every device, then the account
-       itself. */}}
-  <section aria-labelledby="danger-heading" class="danger-zone mb-6">
+      <div class="danger-row">
+        <div class="flex-1 min-w-[15rem]">
+          <p class="text-sm font-medium">Sign out everywhere</p>
+          <p class="text-xs text-base-content/70 mt-1.5">Revokes every active session on every device, including this one. Use this if you lost a laptop or phone; you'll sign back in with your passkey.</p>
+        </div>
+        <form method="POST" action="/account/sessions" class="js-confirm"
+              data-confirm-title="Sign out everywhere?"
+              data-confirm="Every device, including this one, will be signed out. You'll sign back in with your passkey."
+              data-confirm-ok="Sign out everywhere" data-confirm-tone="primary">
+          <input type="hidden" name="_method" value="DELETE">
+          <button type="submit" class="btn btn-outline btn-sm">Sign out everywhere</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  {{/* One action, because only one thing here is actually unrecoverable.
+       Same component as /manage — see the "danger_heading" partial. */}}
+  <section aria-labelledby="danger-heading" class="mb-6">
     {{ template "danger_heading" . }}
-
-    <div class="danger-row">
-      <div class="flex-1 min-w-[15rem]">
-        <p class="text-sm font-medium">Sign out everywhere</p>
-        <p class="text-xs text-base-content/70 mt-1.5">Revokes every active session on every device, including this one. Use this if you lost a laptop or phone — you'll sign back in with your passkey.</p>
+    <div class="danger-zone">
+      <div class="danger-row">
+        <div class="flex-1 min-w-[15rem]">
+          <p class="text-sm font-medium">Delete account</p>
+          <p class="text-xs text-base-content/70 mt-1.5">Permanently removes your account and every site you own. <strong>There's no undo.</strong></p>
+        </div>
+        {{ if .IsSuperAdmin }}
+        <span class="text-xs text-base-content/70 max-w-[16rem]">Operator accounts can't be self-deleted. Ask another super admin to remove you.</span>
+        {{ else }}
+        <form method="POST" action="/account/delete" class="js-confirm"
+              data-confirm-title="Delete your account?"
+              data-confirm="This permanently deletes your account and every site you own. There is no undo."
+              data-confirm-ok="Delete account" data-confirm-slug="{{ .Email }}">
+          <input type="hidden" name="confirm" value="">
+          <button type="submit" class="btn btn-error btn-sm">Delete account</button>
+        </form>
+        {{ end }}
       </div>
-      <form method="POST" action="/account/sessions" class="js-confirm"
-            data-confirm-title="Sign out everywhere?"
-            data-confirm="Every device, including this one, will be signed out. You'll sign back in with your passkey."
-            data-confirm-ok="Sign out everywhere" data-confirm-tone="primary">
-        <input type="hidden" name="_method" value="DELETE">
-        <button type="submit" class="btn btn-outline btn-sm">Sign out everywhere</button>
-      </form>
-    </div>
-
-    <div class="danger-row danger-row-terminal">
-      <div class="flex-1 min-w-[15rem]">
-        <p class="text-sm font-medium text-error">Delete account</p>
-        <p class="text-xs text-base-content/70 mt-1.5">Permanently removes your account and every site you own. <strong>There's no undo.</strong></p>
-      </div>
-      {{ if .IsSuperAdmin }}
-      <span class="text-xs text-base-content/70 max-w-[16rem]">Operator accounts can't be self-deleted. Ask another super admin to remove you.</span>
-      {{ else }}
-      <form method="POST" action="/account/delete" class="js-confirm"
-            data-confirm-title="Delete your account?"
-            data-confirm="This permanently deletes your account and every site you own. There is no undo."
-            data-confirm-ok="Delete account" data-confirm-slug="{{ .Email }}">
-        <input type="hidden" name="confirm" value="">
-        <button type="submit" class="btn btn-outline btn-error btn-sm">Delete account</button>
-      </form>
-      {{ end }}
     </div>
   </section>
 </main>

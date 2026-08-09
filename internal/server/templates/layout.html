@@ -47,7 +47,7 @@
       <span>Top Banana</span>
     </a>
     {{ if .SiteName -}}
-    <span class="text-base-content/30 shrink-0" aria-hidden="true">/</span>
+    <span class="text-base-content/50 shrink-0" aria-hidden="true">/</span>
     <a href="/workspace/{{ .Slug }}" class="font-mono text-sm font-medium truncate min-w-0 text-base-content/80 hover:text-base-content">{{ .SiteName }}</a>
     {{- end }}
   </div>
@@ -188,15 +188,15 @@
 {{- end }}
 
 {{ define "danger_heading" -}}
-{{/* The one danger-zone header. /manage and /account previously drew their
-     own — one a tinted bar inside a red-bordered box, the other a bare
-     heading over a top border — so the same class of irreversible action
-     looked like two different features. Structure carries the warning
-     alongside colour (bordered region + icon + label), so the region still
-     reads as dangerous without relying on red. */}}
-<h2 id="danger-heading" class="text-xs font-semibold uppercase tracking-wide text-error bg-error/10 border-b border-error/30 px-5 py-3 flex items-center gap-2">
-  <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
-  Danger zone
+{{/* The one heading for irreversible actions, on /manage and /account alike.
+     "Irreversible actions" rather than "Danger zone": it says exactly what
+     the group has in common, and it stops sounding like a console warning at
+     a hobbyist who came here to rename their book-club site. The label sits
+     outside the box in the same small-caps style as the "Advanced tools"
+     list it sits below, so neighbouring regions share one grammar instead of
+     inventing a tinted header bar for this one. */}}
+<h2 id="danger-heading" class="text-sm font-semibold uppercase tracking-wide text-base-content/70 px-1 mb-2">
+  Irreversible actions
 </h2>
 {{- end }}
 

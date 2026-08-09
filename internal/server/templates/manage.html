@@ -105,7 +105,7 @@
         <h2 id="settings-heading" class="card-title text-lg">Site settings</h2>
 
         <div class="mt-1" role="group" aria-label="Permissions">
-          <p class="text-xs font-medium uppercase tracking-wide text-base-content/50 mb-1">Permissions</p>
+          <p class="text-xs font-medium uppercase tracking-wide text-base-content/70 mb-1">Permissions</p>
 
           {{ if .FunctionsByTmpl }}
             <label class="flex items-start gap-3 cursor-not-allowed opacity-70 py-2" title="Always on for this template">
@@ -186,7 +186,7 @@
        too; it was the same drawer the editor already ships, so browsing and
        captioning images now happens in one place: Edit. */}}
   <section aria-labelledby="advanced-heading">
-    <h2 id="advanced-heading" class="text-sm font-semibold uppercase tracking-wide text-base-content/50 px-1 mb-2">Advanced tools</h2>
+    <h2 id="advanced-heading" class="text-sm font-semibold uppercase tracking-wide text-base-content/70 px-1 mb-2">Advanced tools</h2>
     <ul class="divide-y divide-base-300 border border-base-300 rounded-box overflow-hidden bg-base-100">
       <li>
         <a href="/files/{{ .Slug }}" class="flex items-center gap-3 px-4 py-3 hover:bg-base-200 transition">
@@ -194,7 +194,7 @@
             <div class="text-sm font-medium">All files</div>
             <p class="text-xs text-base-content/70 mt-0.5">Every object stored for this site: pages, images, server logic, state.</p>
           </div>
-          <span class="text-base-content/40" aria-hidden="true">→</span>
+          <span class="text-base-content/60" aria-hidden="true">→</span>
         </a>
       </li>
       <li>
@@ -203,7 +203,7 @@
             <div class="text-sm font-medium">Build transcripts</div>
             <p class="text-xs text-base-content/70 mt-0.5">Per-edit tool calls and file diffs from the agent.</p>
           </div>
-          <span class="text-base-content/40" aria-hidden="true">→</span>
+          <span class="text-base-content/60" aria-hidden="true">→</span>
         </a>
       </li>
       <li>
@@ -212,69 +212,75 @@
             <div class="text-sm font-medium">Export site</div>
             <p class="text-xs text-base-content/70 mt-0.5">Download every page and file as one archive you keep.</p>
           </div>
-          <span class="text-base-content/40" aria-hidden="true">→</span>
+          <span class="text-base-content/60" aria-hidden="true">→</span>
         </a>
       </li>
     </ul>
   </section>
 
-  {{/* Danger zone — same component as the one on /account, escalating from
-       reversible (Duplicate) to irreversible (Delete). */}}
-  <section aria-labelledby="danger-heading" class="danger-zone">
+  {{/* Duplicating a site is not destructive — it copies files into a new app
+       and leaves this one untouched — so it gets a plain row of its own
+       rather than sitting at the top of a region headed "irreversible".
+       Having it there was what made that region read as arbitrary. */}}
+  <div class="action-row">
+    <div class="flex-1 min-w-[15rem]">
+      <div class="text-sm font-medium">Duplicate this site</div>
+      <p class="text-xs text-base-content/70 mt-1.5">Copies every file into a new app you own. The original is untouched. Custom domains and the private flag do not carry over.</p>
+    </div>
+    <form method="POST" action="/apps/{{ .Slug }}/remix"
+          class="js-confirm"
+          data-confirm-title="Duplicate this site?"
+          data-confirm="A new app will be created with the same files. You'll own both, and your quota counts the copy."
+          data-confirm-ok="Duplicate"
+          data-confirm-tone="primary">
+      <button type="submit" class="btn btn-outline btn-sm">Duplicate</button>
+    </form>
+  </div>
+
+  {{/* Everything here permanently changes who owns this site or whether it
+       exists at all. Same component as /account — see the danger_heading
+       partial for why it's quiet rather than red-washed. */}}
+  <section aria-labelledby="danger-heading">
     {{ template "danger_heading" . }}
-
-    <div class="danger-row">
-      <div class="flex-1 min-w-[15rem]">
-        <div class="text-sm font-medium">Duplicate this site</div>
-        <p class="text-xs text-base-content/70 mt-1.5">Copies every file into a new app you own. The original is untouched. Custom domains and the private flag do not carry over.</p>
+    <div class="danger-zone">
+      <div class="danger-row">
+        <div class="flex-1 min-w-[15rem]">
+          <div class="text-sm font-medium">Transfer ownership</div>
+          <p class="text-xs text-base-content/70 mt-1.5">Hand this app off to another user by email. They take over editing immediately; you lose access (unless you're a super admin) and can't take it back yourself.</p>
+        </div>
+        <form method="POST" action="/apps/{{ .Slug }}/transfer"
+              class="js-confirm flex flex-wrap gap-2 items-start"
+              data-confirm-title="Transfer this app?"
+              data-confirm="The new owner takes over editing immediately. You'll lose access unless you're a super admin."
+              data-confirm-ok="Transfer">
+          <label class="flex flex-col">
+            <span class="sr-only">New owner email</span>
+            <input type="email" name="new_owner_email" required class="input input-sm" placeholder="them@example.com">
+          </label>
+          <button type="submit" class="btn btn-error btn-outline btn-sm">Transfer</button>
+        </form>
       </div>
-      <form method="POST" action="/apps/{{ .Slug }}/remix"
-            class="js-confirm"
-            data-confirm-title="Duplicate this site?"
-            data-confirm="A new app will be created with the same files. You'll own both, and your quota counts the copy."
-            data-confirm-ok="Duplicate"
-            data-confirm-tone="primary">
-        <button type="submit" class="btn btn-outline btn-sm">Duplicate</button>
-      </form>
-    </div>
 
-    <div class="danger-row">
-      <div class="flex-1 min-w-[15rem]">
-        <div class="text-sm font-medium">Transfer ownership</div>
-        <p class="text-xs text-base-content/70 mt-1.5">Hand this app off to another user by email. They take over editing immediately; you lose access (unless you're a super admin).</p>
+      <div class="danger-row">
+        <div class="flex-1 min-w-[15rem]">
+          <div class="text-sm font-medium">Delete this app</div>
+          <p class="text-xs text-base-content/70 mt-1.5">Permanently removes every page, file, and the entire version history. Custom domains attached to this site are released back to the pool. <strong>This cannot be undone.</strong></p>
+        </div>
+        <form method="POST" action="/apps/{{ .Slug }}"
+              class="js-confirm"
+              data-confirm-title="Delete this app permanently?"
+              data-confirm="Every page, file, and version is removed. Custom domains are released back to the pool. This cannot be undone."
+              data-confirm-ok="Delete permanently"
+              data-confirm-slug="{{ .Slug }}">
+          <input type="hidden" name="_method" value="DELETE">
+          {{/* The typed-slug ceremony lives in the confirm dialog (data-confirm-slug),
+               which writes the typed value back into this hidden field before
+               submitting. Asking for it twice — inline and again in the dialog —
+               was the old behaviour and taught users to ignore the second one. */}}
+          <input type="hidden" name="confirm" value="">
+          <button type="submit" class="btn btn-error btn-sm">Delete permanently</button>
+        </form>
       </div>
-      <form method="POST" action="/apps/{{ .Slug }}/transfer"
-            class="js-confirm flex flex-wrap gap-2 items-end"
-            data-confirm-title="Transfer this app?"
-            data-confirm="The new owner takes over editing immediately. You'll lose access unless you're a super admin."
-            data-confirm-ok="Transfer">
-        <label class="flex flex-col">
-          <span class="sr-only">New owner email</span>
-          <input type="email" name="new_owner_email" required class="input input-sm" placeholder="them@example.com">
-        </label>
-        <button type="submit" class="btn btn-error btn-outline btn-sm">Transfer</button>
-      </form>
-    </div>
-
-    <div class="danger-row danger-row-terminal">
-      <div class="flex-1 min-w-[15rem]">
-        <div class="text-sm font-medium text-error">Delete this app</div>
-        <p class="text-xs text-base-content/70 mt-1.5">Permanently removes every page, file, and the entire version history. Custom domains attached to this site are released back to the pool. <strong>This cannot be undone.</strong></p>
-      </div>
-      <form method="POST" action="/apps/{{ .Slug }}"
-            class="js-confirm"
-            data-confirm-title="Delete this app permanently?"
-            data-confirm="Every page, file, and version is removed. Custom domains are released back to the pool. This cannot be undone."
-            data-confirm-ok="Delete permanently"
-            data-confirm-slug="{{ .Slug }}">
-        <input type="hidden" name="_method" value="DELETE">
-        {{/* The typed-slug ceremony lives in the confirm dialog (data-confirm-slug),
-             which writes the typed value back into this hidden field before
-             submitting. Asking for it twice — inline and again in the dialog —
-             was the old behaviour and taught users to ignore the second one. */}}
-        <input type="hidden" name="confirm" value="">
-        <button type="submit" class="btn btn-error btn-sm">Delete permanently</button>
-      </form>
     </div>
   </section>
 </main>

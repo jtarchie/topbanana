@@ -151,38 +151,49 @@ body { font-family: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Aria
   overflow-wrap: anywhere;
 }
 
-/* The one danger-zone component, paired with the "danger_heading" partial in
-   layout.html. Every surface that offers an irreversible action (site
-   settings, account) renders the same bordered region and the same row
-   rhythm, so "this is the part that can't be undone" looks identical
-   wherever the user meets it. `danger-row-terminal` marks the single worst
-   action in a region — the one that destroys data rather than moving it. */
+/* Action rows, in two weights.
+ *
+ * `.action-row` is a single routine action that needs its own row (Duplicate
+ * a site, Sign out) — same rhythm as the danger rows so the surfaces read as
+ * one vocabulary, no warning treatment because nothing is at stake.
+ *
+ * `.danger-zone` groups the irreversible ones and is deliberately quiet: a
+ * hairline error-tinted border and nothing else. The previous version stacked
+ * five red signals on one region — a tinted `DANGER ZONE` header bar, a red
+ * container border, a tinted final row, red row titles, and red buttons — so
+ * everything shouted at once and nothing escalated. Red now means one thing
+ * here: the control that performs the destruction. The heading sits outside
+ * the box, matching the "Advanced tools" list directly above it on /manage,
+ * so two adjacent regions stop using two different grammars.
+ *
+ * Rows are roomy on purpose: each is a title, a two-to-three-line
+ * consequence, and a button you cannot take back. `align-items: start` keeps
+ * the button level with the title rather than floating to the middle of a
+ * wrapped paragraph. */
+.action-row,
+.action-group,
 .danger-zone {
   border-radius: var(--radius-box);
-  border: 1px solid color-mix(in oklab, var(--color-error) 40%, transparent);
+  border: 1px solid var(--color-base-300);
   background-color: var(--color-base-100);
   overflow: hidden;
 }
-/* Rows are roomy on purpose. Each one is a title, a two-to-three-line
-   consequence, and a button that does something irreversible — at tighter
-   padding the description crowds its own borders and the whole region reads
-   as a dense settings list you skim, which is the opposite of what a danger
-   zone is for. `align-items: start` keeps the button level with the title
-   instead of floating to the middle of a wrapped paragraph. */
+/* The only thing that distinguishes the irreversible group from an ordinary
+   one: a hairline in the error hue. */
+.danger-zone { border-color: color-mix(in oklab, var(--color-error) 30%, transparent); }
+
+.action-row,
 .danger-row {
   display: flex;
   flex-wrap: wrap;
   align-items: start;
   gap: 1rem 1.5rem;
-  padding: 1.25rem 1.25rem;
+  padding: 1.25rem;
 }
+.action-row > form,
 .danger-row > form,
 .danger-row > span { margin-top: 0.125rem; }
 .danger-row + .danger-row { border-top: 1px solid var(--color-base-300); }
-.danger-row-terminal {
-  border-top: 1px solid color-mix(in oklab, var(--color-error) 30%, transparent);
-  background-color: color-mix(in oklab, var(--color-error) 5%, transparent);
-}
 
 /* Readable status ramp for the light theme.
  *
@@ -238,8 +249,15 @@ body { font-family: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Aria
   --color-success-content: oklch(95% 0.005 157.85);
   --color-warning: oklch(70% 0.14 102.15);
   --color-warning-content: oklch(15% 0.04 102.15);
-  --color-error: oklch(60% 0.18 25.85);
-  --color-error-content: oklch(95% 0.005 25.85);
+  /* Error has to satisfy two opposing readings in dark mode: `btn-error
+     btn-outline` puts the hue on a dark surface as *text* (wants it light),
+     while solid `btn-error` puts `error-content` on the hue (wants a wide
+     gap). Measured, 60%/95% gave 4.19 and 3.89 — both under AA. Lifting the
+     hue to 64% and flipping the content to near-black satisfies both: the
+     outline text gets brighter, and the solid button becomes dark-on-red
+     instead of two light values against each other. */
+  --color-error: oklch(64% 0.19 25.85);
+  --color-error-content: oklch(12% 0.03 25.85);
   --radius-selector: 1rem;
   --radius-field: 0.5rem;
   --radius-box: 1rem;
