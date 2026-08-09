@@ -74,20 +74,15 @@ type accountData struct {
 	Email       string
 	Role        string
 	Credentials []accountCredential
-	// MCPEnabled reports whether the MCP endpoint is mounted on this deploy
-	// (mcpSecret set). Drives which state the "Connect Claude Code" card
-	// renders: the copy-paste command when true, a disabled-state note when
-	// false.
-	MCPEnabled bool
 	// MCPCommand is the full `claude mcp add ...` line, prebuilt with this
 	// server's public URL so the user can copy-paste verbatim. Empty when
 	// MCP is disabled on this deploy (mcpSecret unset).
+	//
+	// The matching MCPEnabled / IsSuperAdmin flags this page reads come from
+	// the embedded Chrome, which render() fills in. They used to be declared
+	// here too, shadowing Chrome's copies with a second derivation of the
+	// same fact — one field per fact, set in one place.
 	MCPCommand string
-	// IsSuperAdmin gates the operator-facing "set MCP_SECRET to enable" hint
-	// shown in the disabled state — only an operator can change server config,
-	// so regular users just see that MCP isn't enabled. Also hides the
-	// self-delete control: super admins can't delete their own account.
-	IsSuperAdmin bool
 	// Flash / Error surface the outcome of a danger-zone POST (passkey removed,
 	// or a refused self-delete) after the handler redirects back to /account.
 	Flash string
@@ -203,15 +198,13 @@ func (s *accountController) accountHandler(c *echo.Context) error {
 		mcpCmd = "claude mcp add --transport http topbanana " + s.adminURL(c, "/mcp")
 	}
 	return s.render(c, "account", accountData{
-		Chrome:       Chrome{Active: "account"},
-		Email:        user.Email,
-		Role:         string(user.Role),
-		Credentials:  creds,
-		MCPEnabled:   mcpEnabled,
-		MCPCommand:   mcpCmd,
-		IsSuperAdmin: user.Role == auth.RoleSuperAdmin,
-		Flash:        c.QueryParam("flash"),
-		Error:        c.QueryParam("error"),
+		Chrome:      Chrome{Active: "account"},
+		Email:       user.Email,
+		Role:        string(user.Role),
+		Credentials: creds,
+		MCPCommand:  mcpCmd,
+		Flash:       c.QueryParam("flash"),
+		Error:       c.QueryParam("error"),
 	})
 }
 

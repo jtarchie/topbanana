@@ -221,18 +221,20 @@ func TestPhotoWall_QueueAndManageRender(t *testing.T) {
 		t.Errorf("queue page missing preview link for pending photo %s", id)
 	}
 
-	// Manage page renders the photo-wall card with the pending count + queue link.
-	mReq := httptest.NewRequest(http.MethodGet, "/manage/"+slug, nil)
+	// Inbox renders the photo-wall card with the pending count + queue link.
+	// It lives there rather than on Settings because a queue awaiting the
+	// owner's approval is arriving work, not configuration.
+	mReq := httptest.NewRequest(http.MethodGet, "/inbox/"+slug, nil)
 	mReq.Host = "localhost"
 	mReq.AddCookie(cookie)
 	mRec := httptest.NewRecorder()
 	handler.ServeHTTP(mRec, mReq)
 	if mRec.Code != http.StatusOK {
-		t.Fatalf("GET /manage/%s = %d want 200", slug, mRec.Code)
+		t.Fatalf("GET /inbox/%s = %d want 200", slug, mRec.Code)
 	}
 	for _, want := range []string{"Photo wall", "/photos/" + slug} {
 		if !strings.Contains(mRec.Body.String(), want) {
-			t.Errorf("manage page missing %q", want)
+			t.Errorf("inbox page missing %q", want)
 		}
 	}
 }

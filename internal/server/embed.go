@@ -29,6 +29,9 @@ var workspaceTemplate string
 //go:embed templates/manage.html
 var manageTemplate string
 
+//go:embed templates/inbox.html
+var inboxTemplate string
+
 //go:embed templates/photo_queue.html
 var photoQueueTemplate string
 
@@ -58,6 +61,9 @@ var accountTemplate string
 
 //go:embed templates/admin_users.html
 var adminUsersTemplate string
+
+//go:embed templates/admin_clients.html
+var adminClientsTemplate string
 
 //go:embed templates/error.html
 var errorTemplate string

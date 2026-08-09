@@ -20,19 +20,14 @@ import (
 // tool for bulk analysis anyway.
 const manageSubmissionLimit = 25
 
-// manageData is the single struct backing the consolidated /manage/:slug page.
-// It carries everything that was previously split across the settings page and
-// the form-submissions page so the user sees one config surface, not three.
-type manageData struct {
+// inboxData backs /inbox/:slug — the visitor-submitted side of a site: form
+// rows and the photo-wall moderation queue. Split from manageData because the
+// two answer different questions ("what came in?" versus "how is this site
+// configured?") and reading one should never require scrolling the other.
+type inboxData struct {
 	Chrome
-	Title            string
-	Domains          string
-	FunctionsEnabled bool
-	FunctionsByTmpl  bool
-	PublicAPIEnabled bool
-	Private          bool
-	Columns          []string
-	Rows             []dataRow // capped at manageSubmissionLimit
+	Columns []string
+	Rows    []dataRow // capped at manageSubmissionLimit
 	// TotalRows is the unsliced count so the template can render
 	// "+ N more, download CSV for all".
 	TotalRows int
@@ -42,6 +37,32 @@ type manageData struct {
 	CSVURL    string
 	JSONURL   string
 	Flash     string
+	// FormsEnabled distinguishes the two empty states: a site that accepts
+	// visitor input and has had none yet ("nothing has arrived") versus one
+	// where the feature is off ("turn it on in Settings"). Without it the
+	// empty inbox reads as broken to an owner who never enabled forms.
+	FormsEnabled bool
+	// PhotoWall gates the event-photo-wall queue summary. When true,
+	// PendingPhotos / ApprovedPhotos hold the counts and PhotoQueueURL links
+	// the owner to the moderation queue.
+	PhotoWall      bool
+	PendingPhotos  int
+	ApprovedPhotos int
+	PhotoQueueURL  string
+}
+
+// manageData backs the Settings tab at /manage/:slug: identity, the
+// completeness checklist, the one settings form, the advanced links, and the
+// danger zone.
+type manageData struct {
+	Chrome
+	Title            string
+	Domains          string
+	FunctionsEnabled bool
+	FunctionsByTmpl  bool
+	PublicAPIEnabled bool
+	Private          bool
+	Flash            string
 	// TemplateLabel + SetupNotes surface end-user "you picked this template,
 	// here's what to set up" guidance. Notes are pre-rendered to HTML in the
 	// handler so the manage template can drop them in without escaping logic.
@@ -59,13 +80,6 @@ type manageData struct {
 	GuidePresent  int
 	GuideTotal    int
 	GuideComplete bool
-	// PhotoWall gates the event-photo-wall summary card. When true, PendingPhotos
-	// / ApprovedPhotos hold the queue counts and PhotoQueueURL links the owner to
-	// the moderation queue.
-	PhotoWall      bool
-	PendingPhotos  int
-	ApprovedPhotos int
-	PhotoQueueURL  string
 }
 
 // urlPattern matches bare http/https URLs anywhere in setup-notes text. Kept
@@ -114,6 +128,29 @@ func renderSetupNotes(notes string) template.HTML {
 	return template.HTML(b.String()) //nolint:gosec // G203: see comment.
 }
 
+// siteChrome builds the per-site nav chrome (breadcrumb name, slug, live
+// URL) shared by every tab of one site. Kept here rather than duplicated per
+// handler so the breadcrumb can't say one thing on Settings and another on
+// Inbox.
+func (s *sitesController) siteChrome(c *echo.Context, slug, title, active string) Chrome {
+	siteName := title
+	if siteName == "" {
+		siteName = slug
+	}
+
+	return Chrome{
+		Slug:     slug,
+		SiteName: siteName,
+		SiteURL:  s.siteURL(c, slug, "/"),
+		Active:   active,
+	}
+}
+
+// manageHandler renders the Settings tab: what the site is, the completeness
+// checklist, how it behaves, where it can be reached, and the destructive
+// actions. Visitor-submitted data lives on the Inbox tab instead — mixing an
+// inbox into a settings page meant the owner scrolled a submissions table to
+// reach a toggle, and read "delete this app permanently" on the way.
 func (s *sitesController) manageHandler(c *echo.Context) error {
 	slug, err := slugParam(c)
 	if err != nil {
@@ -138,6 +175,39 @@ func (s *sitesController) manageHandler(c *echo.Context) error {
 	// describe the site type, not its runtime capabilities.
 	report := guide.Evaluate(ctx, s.store, slug, base)
 
+	return s.render(c, "manage", manageData{
+		Chrome:           s.siteChrome(c, slug, meta.Title, "manage"),
+		Title:            meta.Title,
+		Domains:          strings.Join(meta.Domains, "\n"),
+		FunctionsEnabled: tmpl != nil && tmpl.EnablesFunctions,
+		FunctionsByTmpl:  byTmpl,
+		PublicAPIEnabled: meta.EnablesPublicAPI,
+		Private:          meta.Private,
+		Flash:            c.QueryParam("flash"),
+		TemplateLabel:    tmplLabel,
+		SetupNotes:       setupNotes,
+		DNSCNAMETarget:   s.cnameTarget(slug),
+		GuideResults:     report.Results,
+		GuidePresent:     report.Present,
+		GuideTotal:       report.Total,
+		GuideComplete:    report.Complete(),
+	})
+}
+
+// inboxHandler renders the Inbox tab: everything visitors sent this site.
+// Form submissions and the photo-wall moderation queue are the same job
+// ("something arrived, deal with it"), so they share one destination.
+func (s *sitesController) inboxHandler(c *echo.Context) error {
+	slug, err := slugParam(c)
+	if err != nil {
+		return err
+	}
+
+	ctx := c.Request().Context()
+	meta := s.build.ReadMeta(ctx, slug)
+	base := templates.Get(meta.Template)
+	tmpl := build.EffectiveTemplate(meta)
+
 	cols, rows, err := s.collectSubmissions(ctx, slug)
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "load submissions", err)
@@ -149,14 +219,6 @@ func (s *sitesController) manageHandler(c *echo.Context) error {
 	if total > manageSubmissionLimit {
 		rows = rows[:manageSubmissionLimit] //nolint:nilaway // see comment.
 	}
-	more := total - len(rows)
-
-	siteName := meta.Title
-	if siteName == "" {
-		siteName = slug
-	}
-
-	cnameTarget := s.cnameTarget(slug)
 
 	// Event-photo-wall summary. base==nil falls back to no wall; the counts come
 	// from the same state blob as submissions, tallied once.
@@ -167,36 +229,19 @@ func (s *sitesController) manageHandler(c *echo.Context) error {
 		pendingPhotos, approvedPhotos = len(pending), approved
 	}
 
-	return s.render(c, "manage", manageData{
-		Chrome: Chrome{
-			Slug:     slug,
-			SiteName: siteName,
-			SiteURL:  s.siteURL(c, slug, "/"),
-			Active:   "manage",
-		},
-		Title:            meta.Title,
-		Domains:          strings.Join(meta.Domains, "\n"),
-		FunctionsEnabled: tmpl != nil && tmpl.EnablesFunctions,
-		FunctionsByTmpl:  byTmpl,
-		PublicAPIEnabled: meta.EnablesPublicAPI,
-		Private:          meta.Private,
-		Columns:          cols,
-		Rows:             rows,
-		TotalRows:        total,
-		MoreCount:        more,
-		CSVURL:           "/data/" + slug + "?format=csv",
-		JSONURL:          "/data/" + slug + "?format=json",
-		Flash:            c.QueryParam("flash"),
-		TemplateLabel:    tmplLabel,
-		SetupNotes:       setupNotes,
-		DNSCNAMETarget:   cnameTarget,
-		GuideResults:     report.Results,
-		GuidePresent:     report.Present,
-		GuideTotal:       report.Total,
-		GuideComplete:    report.Complete(),
-		PhotoWall:        photoWall,
-		PendingPhotos:    pendingPhotos,
-		ApprovedPhotos:   approvedPhotos,
-		PhotoQueueURL:    "/photos/" + slug,
+	return s.render(c, "inbox", inboxData{
+		Chrome:         s.siteChrome(c, slug, meta.Title, "inbox"),
+		Columns:        cols,
+		Rows:           rows,
+		TotalRows:      total,
+		MoreCount:      total - len(rows),
+		CSVURL:         "/data/" + slug + "?format=csv",
+		JSONURL:        "/data/" + slug + "?format=json",
+		Flash:          c.QueryParam("flash"),
+		FormsEnabled:   tmpl != nil && tmpl.EnablesFunctions,
+		PhotoWall:      photoWall,
+		PendingPhotos:  pendingPhotos,
+		ApprovedPhotos: approvedPhotos,
+		PhotoQueueURL:  "/photos/" + slug,
 	})
 }

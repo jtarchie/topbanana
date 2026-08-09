@@ -51,12 +51,24 @@
     <a href="/workspace/{{ .Slug }}" class="font-mono text-sm font-medium truncate min-w-0 text-base-content/80 hover:text-base-content">{{ .SiteName }}</a>
     {{- end }}
   </div>
+  {{/* Two audiences, two ranks. "Your apps" and "Account" are what every
+       signed-in person does with their own stuff. The operator surfaces
+       (people, connections, the instance dashboard) collapse into a single
+       "Admin" entry that only super admins see and that opens its own
+       section with its own sub-nav — so a hobbyist's nav never grows a
+       control they can't use, and an operator always knows which mode
+       they're in. */}}
   <div class="flex-none flex items-center gap-1">
     <nav class="hidden sm:flex items-center gap-1" aria-label="Main">
       <a href="/apps" class="btn btn-ghost btn-sm{{ if eq .Active `apps` }} btn-active{{ end }}">Your apps</a>
-      {{ if .IsSuperAdmin }}<a href="/admin/users" class="btn btn-ghost btn-sm{{ if eq .Active `admin_users` }} btn-active{{ end }}">Users</a>{{ end }}
-      <a href="/system" class="btn btn-ghost btn-sm{{ if eq .Active `system` }} btn-active{{ end }}">System</a>
       <a href="/account" class="btn btn-ghost btn-sm{{ if eq .Active `account` }} btn-active{{ end }}">Account</a>
+      {{ if .IsSuperAdmin }}
+      <a href="/admin/users"
+         class="btn btn-ghost btn-sm gap-1.5{{ if .InAdmin }} btn-active{{ end }}">
+        <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.7 4.5 5.6v5.6c0 4.5 3.2 8.7 7.5 9.9 4.3-1.2 7.5-5.4 7.5-9.9V5.6Z"/></svg>
+        Admin
+      </a>
+      {{ end }}
     </nav>
     {{ template "theme_toggle" . }}
     {{/* Below sm the inline nav would run off-screen, so it collapses into this
@@ -73,9 +85,16 @@
       </div>
       <ul tabindex="0" class="dropdown-content menu menu-lg fixed inset-x-2 top-16 w-auto gap-1 bg-base-100 rounded-box z-dropdown p-2 shadow-lg border border-base-300">
         <li><a href="/apps" class="py-3{{ if eq .Active `apps` }} active{{ end }}">Your apps</a></li>
-        {{ if .IsSuperAdmin }}<li><a href="/admin/users" class="py-3{{ if eq .Active `admin_users` }} active{{ end }}">Users</a></li>{{ end }}
-        <li><a href="/system" class="py-3{{ if eq .Active `system` }} active{{ end }}">System</a></li>
         <li><a href="/account" class="py-3{{ if eq .Active `account` }} active{{ end }}">Account</a></li>
+        {{ if .IsSuperAdmin }}
+        {{/* The operator entries are named individually here rather than
+             nested behind "Admin": a phone menu has the room, and one less
+             tap beats one less line. */}}
+        <li class="menu-title text-xs pt-2">Admin</li>
+        <li><a href="/admin/users" class="py-3{{ if eq .Active `admin_users` }} active{{ end }}">People</a></li>
+        {{ if .MCPEnabled }}<li><a href="/admin/clients" class="py-3{{ if eq .Active `admin_clients` }} active{{ end }}">Connections</a></li>{{ end }}
+        <li><a href="/admin/system" class="py-3{{ if eq .Active `system` }} active{{ end }}">Instance</a></li>
+        {{ end }}
       </ul>
     </div>
   </div>
@@ -127,18 +146,58 @@
 </script>
 {{- end }}
 
+{{ define "admin_subnav" -}}
+{{/* Operator section header. The section gets a name and a one-line scope
+     statement because these pages act on the whole instance, not on the
+     signed-in person's own things — the boundary should be stated, not
+     inferred from a URL. Tabs are named for their subject: who has an
+     account, which machines authorized, how the server itself is doing. */}}
+<div class="bg-base-100 border-b border-base-300">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 pt-5">
+    <div class="flex items-baseline gap-3 flex-wrap">
+      <h1 class="text-xl font-semibold tracking-tight">Admin</h1>
+      <p class="text-sm text-base-content/70">Everything on this Top Banana instance, across all accounts.</p>
+    </div>
+    <nav role="tablist" class="tabs tabs-bordered inline-flex flex-wrap -mb-px gap-1 mt-3" aria-label="Admin sections">
+      <a href="/admin/users" role="tab" class="tab{{ if eq .Active `admin_users` }} tab-active{{ end }}">People</a>
+      {{ if .MCPEnabled }}<a href="/admin/clients" role="tab" class="tab{{ if eq .Active `admin_clients` }} tab-active{{ end }}">Connections</a>{{ end }}
+      <a href="/admin/system" role="tab" class="tab{{ if eq .Active `system` }} tab-active{{ end }}">Instance</a>
+    </nav>
+  </div>
+</div>
+{{- end }}
+
 {{ define "site_subnav" -}}
 {{ if .Slug -}}
+{{/* Three tabs, one verb each: Edit is where you change the site, Inbox is
+     what visitors sent you, Settings is how the site behaves and who can
+     reach it. The old Workspace/Manage pair split those three jobs by no
+     rule anyone could state — form submissions and the completeness
+     checklist both lived under "Manage" next to the delete button. */}}
 <nav class="bg-base-100 border-b border-base-300" aria-label="This site">
   <div class="max-w-6xl mx-auto px-4 sm:px-6">
     <div role="tablist" class="tabs tabs-bordered inline-flex flex-wrap -mb-px gap-1">
-      <a href="/workspace/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `workspace` }} tab-active{{ end }}">Workspace</a>
-      <a href="/manage/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `manage` }} tab-active{{ end }}">Manage</a>
+      <a href="/workspace/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `workspace` }} tab-active{{ end }}">Edit</a>
+      <a href="/inbox/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `inbox` }} tab-active{{ end }}">Inbox</a>
+      <a href="/manage/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `manage` }} tab-active{{ end }}">Settings</a>
       {{ if .SiteURL }}<a class="tab tab-disabled-link ml-auto text-sm link link-hover font-medium" href="{{ .SiteURL }}" target="_blank" rel="noopener">View site →</a>{{ end }}
     </div>
   </div>
 </nav>
 {{- end }}
+{{- end }}
+
+{{ define "danger_heading" -}}
+{{/* The one danger-zone header. /manage and /account previously drew their
+     own — one a tinted bar inside a red-bordered box, the other a bare
+     heading over a top border — so the same class of irreversible action
+     looked like two different features. Structure carries the warning
+     alongside colour (bordered region + icon + label), so the region still
+     reads as dangerous without relying on red. */}}
+<h2 id="danger-heading" class="text-xs font-semibold uppercase tracking-wide text-error bg-error/10 border-b border-error/30 px-4 py-2.5 flex items-center gap-2">
+  <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+  Danger zone
+</h2>
 {{- end }}
 
 {{ define "footer" -}}

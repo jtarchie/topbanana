@@ -16,7 +16,7 @@
         <span class="font-medium text-error">Reject</span> to discard it. Keyboard: <kbd class="kbd kbd-sm">A</kbd> approve, <kbd class="kbd kbd-sm">R</kbd> reject.
       </p>
     </div>
-    <a href="/manage/{{ .Slug }}" class="text-sm link link-hover font-medium whitespace-nowrap">Back to Manage</a>
+    <a href="/inbox/{{ .Slug }}" class="text-sm link link-hover font-medium whitespace-nowrap">Back to Inbox</a>
   </header>
 
   {{ if .Flash }}
@@ -51,7 +51,7 @@
       </svg>
       <h2 class="card-title mt-2">All caught up</h2>
       <p class="text-sm text-base-content/70">No photos waiting. New uploads will appear here — reload to check.</p>
-      <a href="/manage/{{ .Slug }}" class="btn btn-sm btn-ghost mt-2">Back to Manage</a>
+      <a href="/inbox/{{ .Slug }}" class="btn btn-sm btn-ghost mt-2">Back to Inbox</a>
     </div>
   </div>
 </main>

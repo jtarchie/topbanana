@@ -146,6 +146,7 @@ func fileOpsNextURL(c *echo.Context, slug, flash string) string {
 		"/files/" + slug,
 		"/workspace/" + slug,
 		"/manage/" + slug,
+		"/inbox/" + slug,
 	}
 	for _, prefix := range allowed {
 		if next == prefix || strings.HasPrefix(next, prefix+"?") || strings.HasPrefix(next, prefix+"/") {

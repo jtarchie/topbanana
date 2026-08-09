@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="lemonade">
+<head>
+<title>Connections — Admin — Top Banana</title>
+{{ template "head" . }}
+</head>
+<body class="min-h-screen flex flex-col bg-base-100">
+{{ template "brand" . }}
+{{ template "admin_subnav" . }}
+<main class="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8">
+
+  {{ if .Flash }}<div class="alert alert-success mb-4" role="status"><span>{{ .Flash }}</span></div>{{ end }}
+  {{ if .Error }}<div class="alert alert-error mb-4" role="alert"><span>{{ .Error }}</span></div>{{ end }}
+
+  <header class="mb-4">
+    <h2 class="text-lg font-semibold tracking-tight">
+      Connected MCP clients <span class="text-sm font-normal text-base-content/70 ml-1">· {{ len .MCPClients }}</span>
+    </h2>
+    <p class="text-sm text-base-content/70 mt-1 max-w-prose">
+      External tools (e.g. Claude Code) that registered to edit sites over MCP. Registration is open by
+      design, so a row here is not proof of access — every connection still requires a passkey sign-in.
+      Revoking forces the tool to register and authorize again; tokens it already holds keep working until they expire.
+    </p>
+  </header>
+
+  {{ if .MCPClients }}
+  <div class="overflow-x-auto rounded-box border border-base-300">
+    <table class="table table-zebra">
+      <thead><tr><th scope="col">Name</th><th scope="col">Registered</th><th scope="col">Redirect URIs</th><th scope="col">Client ID</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody>
+        {{ range .MCPClients }}
+        <tr>
+          <td>{{ if .Name }}{{ .Name }}{{ else }}<span class="text-base-content/70 italic">unnamed</span>{{ end }}</td>
+          <td>{{ if .Created }}{{ .Created }}{{ else }}<span class="text-base-content/70">unknown</span>{{ end }}</td>
+          <td><div class="flex flex-col gap-0.5">{{ range .RedirectURIs }}<code class="text-xs break-all">{{ . }}</code>{{ end }}</div></td>
+          <td><code class="text-xs break-all">{{ .ID }}</code></td>
+          <td>
+            <form method="POST" action="/admin/mcp-clients/{{ .ID }}/revoke" class="js-confirm"
+                  data-confirm-title="Revoke this MCP client?" data-confirm="The tool will have to register and sign in again to reconnect." data-confirm-ok="Revoke">
+              <button class="btn btn-ghost btn-sm text-error">Revoke</button>
+            </form>
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </div>
+  {{ else }}
+  {{/* Empty state that teaches the surface rather than reporting a zero:
+       nothing has registered, and here is what registering looks like. */}}
+  <div class="rounded-box border border-dashed border-base-300 px-6 py-12 text-center">
+    <h3 class="text-base font-semibold">No tools have connected yet</h3>
+    <p class="text-sm text-base-content/70 mt-1 max-w-md mx-auto">
+      A row appears here the first time someone runs the connect command from their
+      <a href="/account" class="link link-primary">Account</a> page and authorizes with a passkey.
+    </p>
+  </div>
+  {{ end }}
+</main>
+{{ template "footer" . }}
+{{ template "confirm_dialog" . }}
+</body>
+</html>

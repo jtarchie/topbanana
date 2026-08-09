@@ -117,7 +117,7 @@ func (s *Server) fileActionsFor(c *echo.Context, slug, path string) FileActions 
 		name := strings.TrimSuffix(strings.TrimPrefix(path, "functions/"), ".js")
 		return FileActions{EditURL: "/edit/" + slug + "/function/" + name}
 	case strings.HasPrefix(path, store.StateDir):
-		return FileActions{OpenURL: "/manage/" + slug, OpenLabel: "view data"}
+		return FileActions{OpenURL: "/inbox/" + slug, OpenLabel: "view data"}
 	case strings.HasSuffix(path, ".html"):
 		return FileActions{EditURL: "/workspace/" + slug + "?page=" + url.QueryEscape(path), OpenURL: s.siteURL(c, slug, "/"+path), OpenLabel: "open"}
 	case strings.HasPrefix(path, "assets/"):

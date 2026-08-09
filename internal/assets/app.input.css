@@ -81,6 +81,60 @@ body { font-family: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Aria
 .row-stack { position: relative; }
 .row-stack:has(.dropdown:focus-within) { z-index: var(--z-dropdown); }
 
+/* The one danger-zone component, paired with the "danger_heading" partial in
+   layout.html. Every surface that offers an irreversible action (site
+   settings, account) renders the same bordered region and the same row
+   rhythm, so "this is the part that can't be undone" looks identical
+   wherever the user meets it. `danger-row-terminal` marks the single worst
+   action in a region — the one that destroys data rather than moving it. */
+.danger-zone {
+  border-radius: var(--radius-box);
+  border: 1px solid color-mix(in oklab, var(--color-error) 40%, transparent);
+  background-color: var(--color-base-100);
+  overflow: hidden;
+}
+.danger-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.875rem 1rem;
+}
+.danger-row + .danger-row { border-top: 1px solid var(--color-base-300); }
+.danger-row-terminal {
+  border-top: 1px solid color-mix(in oklab, var(--color-error) 30%, transparent);
+  background-color: color-mix(in oklab, var(--color-error) 5%, transparent);
+}
+
+/* Readable status ramp for the light theme.
+ *
+ * Stock lemonade ships info/success/warning/error all at L≈86% with C≈0.047 —
+ * four near-identical pastels. Against base-100 (L 98.7%) that measures about
+ * 1.5:1, so every `text-error` / `text-success` in the admin UI (the danger
+ * zone's heading and Delete label, the per-row `delete` links on the inbox
+ * table, the ✗ markers on the completeness checklist) was effectively
+ * invisible, and the four states were indistinguishable from one another.
+ * PRODUCT.md commits to WCAG 2.2 AA on both themes and says daisyUI defaults
+ * must be checked rather than trusted; this is that check.
+ *
+ * Each pair is darkened to L≈50-58% so `text-*` clears 4.5:1 on base-100/200,
+ * with a near-white `*-content` so the filled variants (btn-error, alert-*,
+ * badge-*) clear it in the other direction. Hues stay where lemonade put them
+ * except warning, which moves from 102 (yellow-olive, easy to confuse with the
+ * brand's own green-yellow) to 80 (amber) so a warning never reads as
+ * decoration. lemonade-dark below already carried a ramp like this — the light
+ * theme was the one still on stock pastels. */
+[data-theme="lemonade"] {
+  --color-info: oklch(52% 0.13 224.14);
+  --color-info-content: oklch(98% 0.008 224.14);
+  --color-success: oklch(50% 0.13 157.85);
+  --color-success-content: oklch(98% 0.008 157.85);
+  --color-warning: oklch(56% 0.13 80);
+  --color-warning-content: oklch(98% 0.008 80);
+  --color-error: oklch(52% 0.19 25.85);
+  --color-error-content: oklch(98% 0.008 25.85);
+}
+
 /* Custom brand dark variant of lemonade. Inverts the base ladder, keeps
    Lemonade Pulp as the primary verb-color, and stays flat (--depth: 0)
    with hairline borders. Used when prefers-color-scheme: dark; cyberpunk

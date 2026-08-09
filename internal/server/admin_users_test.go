@@ -51,19 +51,30 @@ func TestAdminUsers_DeleteControls(t *testing.T) {
 	}
 }
 
-// TestAdminUsers_MCPClientsSection: the MCP table only appears when the MCP
-// surface is mounted, renders a revoke control per registration, and degrades
-// to a readable placeholder for records written before name/created existed.
-func TestAdminUsers_MCPClientsSection(t *testing.T) {
+// renderAdminClients mirrors renderAdminUsers for the Connections page, which
+// the MCP client table moved to when the operator surfaces were split by
+// subject (people vs machines).
+func renderAdminClients(t *testing.T, data adminClientsData) string {
+	t.Helper()
+	tpl := template.New("")
+	template.Must(tpl.Parse(layoutTemplate))
+	template.Must(tpl.New("admin_clients").Parse(adminClientsTemplate))
+	var buf bytes.Buffer
+	err := tpl.ExecuteTemplate(&buf, "admin_clients", data)
+	if err != nil {
+		t.Fatalf("execute admin_clients template: %v", err)
+	}
+	return buf.String()
+}
+
+// TestAdminClients_Table: the Connections page renders a revoke control per
+// registration and degrades to a readable placeholder for records written
+// before name/created existed.
+func TestAdminClients_Table(t *testing.T) {
 	t.Parallel()
 
-	off := renderAdminUsers(t, adminUsersData{MCPEnabled: false})
-	if strings.Contains(off, "Connected MCP clients") {
-		t.Error("MCP section must stay hidden when --mcp-secret is unset")
-	}
-
-	html := renderAdminUsers(t, adminUsersData{
-		MCPEnabled: true,
+	html := renderAdminClients(t, adminClientsData{
+		Chrome: Chrome{MCPEnabled: true},
 		MCPClients: []adminMCPClientRow{
 			{ID: "abc123", Name: "Claude Code", Created: "2026-08-06 10:00", RedirectURIs: []string{"https://cb.example/done"}},
 			{ID: "legacy1"},
@@ -79,13 +90,30 @@ func TestAdminUsers_MCPClientsSection(t *testing.T) {
 		">unknown<",
 	} {
 		if !strings.Contains(html, want) {
-			t.Errorf("MCP section missing %q", want)
+			t.Errorf("connections page missing %q", want)
 		}
 	}
 
-	empty := renderAdminUsers(t, adminUsersData{MCPEnabled: true})
-	if !strings.Contains(empty, "No tools have registered yet.") {
-		t.Error("empty MCP list should render its placeholder")
+	empty := renderAdminClients(t, adminClientsData{Chrome: Chrome{MCPEnabled: true}})
+	if !strings.Contains(empty, "No tools have connected yet") {
+		t.Error("empty client list should render its placeholder")
+	}
+}
+
+// TestAdminSubnav_ConnectionsGatedOnMCP: with no --mcp-secret there is no
+// client registry, so the Connections tab must not appear in the operator
+// sub-nav — otherwise it advertises a destination that is always empty.
+func TestAdminSubnav_ConnectionsGatedOnMCP(t *testing.T) {
+	t.Parallel()
+
+	on := renderAdminUsers(t, adminUsersData{Chrome: Chrome{MCPEnabled: true}})
+	if !strings.Contains(on, `href="/admin/clients"`) {
+		t.Error("Connections tab should appear when MCP is enabled")
+	}
+
+	off := renderAdminUsers(t, adminUsersData{Chrome: Chrome{MCPEnabled: false}})
+	if strings.Contains(off, `href="/admin/clients"`) {
+		t.Error("Connections tab must stay hidden when --mcp-secret is unset")
 	}
 }
 

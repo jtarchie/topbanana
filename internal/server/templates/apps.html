@@ -80,7 +80,9 @@
               </svg>
             </div>
             <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-10 w-44 p-2 shadow border border-base-300">
-              <li><a href="/manage/{{ .Name }}">Manage</a></li>
+              <li><a href="/workspace/{{ .Name }}">Edit</a></li>
+              <li><a href="/inbox/{{ .Name }}">Inbox</a></li>
+              <li><a href="/manage/{{ .Name }}">Settings</a></li>
               <li>
                 <form method="POST" action="/apps/{{ .Name }}"
                       class="js-confirm"

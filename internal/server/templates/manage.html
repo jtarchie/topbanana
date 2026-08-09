@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="lemonade">
 <head>
-<title>Manage {{ .SiteName }} — Top Banana</title>
+<title>Settings: {{ .SiteName }} — Top Banana</title>
 {{ template "head" . }}
 </head>
 <body class="min-h-screen flex flex-col bg-base-200">
@@ -13,16 +13,13 @@
     <div class="alert alert-success" role="status"><span>{{ .Flash }}</span></div>
   {{ end }}
 
-  {{/* ── Tier 1 · Read ─────────────────────────────────────────────
-       Identity band: what this site is, where it lives, its status, and
-       how close it is to done — the summary you read, not a task. Replaces
-       the old <h1>Manage</h1> header plus the "General" card's name/address
-       list, so the everyday facts sit together at the top. */}}
-  <section class="card bg-base-100 border border-base-300" aria-labelledby="site-name">
-    <div class="card-body gap-3 sm:flex-row sm:items-center sm:justify-between">
+  {{/* Identity band: what this site is, where it lives, and how close it is
+       to done. A summary you read, not a task — so it is deliberately not a
+       card like the ones below it. */}}
+  <header aria-labelledby="site-name">
+    <div class="flex gap-3 items-start sm:items-center justify-between flex-wrap">
       <div class="min-w-0">
-        <p class="text-xs font-medium uppercase tracking-wide text-base-content/50">Manage</p>
-        <h1 id="site-name" class="text-2xl font-semibold tracking-tight mt-0.5 break-words">
+        <h1 id="site-name" class="text-2xl font-semibold tracking-tight break-words">
           {{ if .Title }}{{ .Title }}{{ else }}<span class="font-mono">{{ .Slug }}</span>{{ end }}
         </h1>
         <div class="flex items-center flex-wrap gap-2 mt-2">
@@ -46,18 +43,13 @@
       </div>
       {{ if gt .GuideTotal 0 }}
       <a href="#guide-heading"
-         class="badge badge-lg shrink-0 self-start sm:self-center whitespace-nowrap {{ if .GuideComplete }}badge-success{{ else }}badge-warning{{ end }}"
+         class="badge badge-lg shrink-0 whitespace-nowrap {{ if .GuideComplete }}badge-success{{ else }}badge-warning{{ end }}"
          aria-label="{{ .GuidePresent }} of {{ .GuideTotal }} essentials present">
         {{ if .GuideComplete }}✓ {{ end }}{{ .GuidePresent }} of {{ .GuideTotal }} essentials
       </a>
       {{ end }}
     </div>
-  </section>
-
-  {{/* ── Tier 2 · Do ───────────────────────────────────────────────
-       The everyday work, in frequency order: finish setup, watch
-       submissions, moderate photos, then the occasional settings change.
-       Every panel is the same quiet bordered card. */}}
+  </header>
 
   {{ if gt .GuideTotal 0 }}
     <section class="card bg-base-100 border border-base-300" aria-labelledby="guide-heading">
@@ -91,26 +83,6 @@
     </section>
   {{ end }}
 
-  {{ if .PhotoWall }}
-    <section class="card bg-base-100 border border-base-300" aria-labelledby="photowall-heading">
-      <div class="card-body">
-        <div class="flex items-center justify-between flex-wrap gap-3">
-          <h2 id="photowall-heading" class="card-title text-lg">Photo wall</h2>
-          <a href="{{ .PhotoQueueURL }}" class="btn btn-primary btn-sm{{ if gt .PendingPhotos 0 }}{{ else }} btn-outline{{ end }}">
-            Open moderation queue{{ if gt .PendingPhotos 0 }} <span class="badge badge-sm badge-neutral">{{ .PendingPhotos }}</span>{{ end }}
-          </a>
-        </div>
-        <p class="text-sm text-base-content/70">
-          Visitors upload photos from your site; each one waits for your approval before it appears on the display.
-        </p>
-        <div class="flex items-center gap-2 text-sm mt-1">
-          <span class="badge badge-lg {{ if gt .PendingPhotos 0 }}badge-warning{{ else }}badge-ghost{{ end }}">{{ .PendingPhotos }} awaiting review</span>
-          <span class="badge badge-lg badge-ghost">{{ .ApprovedPhotos }} on the display</span>
-        </div>
-      </div>
-    </section>
-  {{ end }}
-
   {{ if .SetupNotes }}
     <section class="card bg-base-100 border border-base-300" aria-labelledby="setup-heading">
       <div class="card-body">
@@ -120,73 +92,13 @@
     </section>
   {{ end }}
 
-  <section class="card bg-base-100 border border-base-300" aria-labelledby="submissions-heading">
-    <div class="card-body">
-      <div class="flex items-center justify-between flex-wrap gap-3">
-        <h2 id="submissions-heading" class="card-title text-lg">Form submissions</h2>
-        {{ if .Rows }}
-        <div class="join">
-          <a href="{{ .CSVURL }}" class="btn btn-ghost btn-sm join-item">Download CSV</a>
-          <a href="{{ .JSONURL }}" class="btn btn-ghost btn-sm join-item">JSON</a>
-        </div>
-        {{ end }}
-      </div>
-      {{ if .Rows }}
-      <p class="text-sm text-base-content/60">
-        {{ if gt .MoreCount 0 }}
-          Showing the {{ len .Rows }} most recent of {{ .TotalRows }} submissions
-        {{ else }}
-          {{ .TotalRows }} {{ if eq .TotalRows 1 }}submission{{ else }}submissions{{ end }}
-        {{ end }}
-      </p>
-      <div class="overflow-x-auto rounded-box border border-base-300 mt-2">
-        <table class="table table-zebra table-sm">
-          <thead>
-            <tr>
-              <th>id</th>
-              {{ range .Columns }}<th>{{ . }}</th>{{ end }}
-              <th class="w-12"><span class="sr-only">actions</span></th>
-            </tr>
-          </thead>
-          <tbody>
-            {{ range .Rows }}
-            <tr>
-              <td class="font-mono text-xs">{{ .Key }}</td>
-              {{ range .Values }}<td>{{ . }}</td>{{ end }}
-              <td class="text-right">
-                <form method="POST" action="/data/{{ $.Slug }}" class="inline js-confirm"
-                      data-confirm-title="Delete this submission?"
-                      data-confirm="This permanently removes {{ .Key }}. There's no undo."
-                      data-confirm-ok="Delete">
-                  <input type="hidden" name="_method" value="DELETE">
-                  <input type="hidden" name="key" value="{{ .Key }}">
-                  <input type="hidden" name="confirm" value="{{ .Key }}">
-                  <button type="submit" class="btn btn-ghost btn-xs text-error" aria-label="Delete {{ .Key }}">delete</button>
-                </form>
-              </td>
-            </tr>
-            {{ end }}
-          </tbody>
-        </table>
-      </div>
-      {{ if gt .MoreCount 0 }}
-        <p class="text-sm text-base-content/70 mt-3">
-          <strong>{{ .MoreCount }} more</strong> not shown. Download the full set as
-          <a href="{{ .CSVURL }}" class="link link-primary font-medium">CSV</a>
-          or
-          <a href="{{ .JSONURL }}" class="link link-primary font-medium">JSON</a>.
-        </p>
-      {{ end }}
-      {{ else }}
-      <p class="text-sm text-base-content/60">No form submissions yet. When your site collects form data, it shows up here.</p>
-      {{ end }}
-    </div>
-  </section>
-
   {{/* Site settings — one form, one Save. The toggles ("Permissions") and
        the custom domain live on a single card; the Save button sits directly
        below the controls it saves, and the heavy DNS instructions fold away
-       so a first-timer isn't scrolling past them. */}}
+       so a first-timer isn't scrolling past them. Splitting these onto
+       separate pages would mean separate forms, and a form that posts only
+       its own fields would blank the others — one page, one POST, is both
+       the simpler UI and the safer handler contract. */}}
   <form method="POST" action="/settings/{{ .Slug }}">
     <section class="card bg-base-100 border border-base-300" aria-labelledby="settings-heading">
       <div class="card-body">
@@ -200,7 +112,7 @@
               <input type="checkbox" checked disabled class="toggle toggle-primary shrink-0 mt-0.5">
               <span class="text-sm min-w-0">
                 <span class="font-medium">Accept visitor input</span>
-                <span class="block text-xs text-base-content/60">Built into this template (forms, RSVPs, counters). Always on.</span>
+                <span class="block text-xs text-base-content/60">Built into this template (forms, RSVPs, counters). Always on. Anything visitors send arrives in your <a href="/inbox/{{ .Slug }}" class="link">Inbox</a>.</span>
               </span>
             </label>
             <input type="hidden" name="enable_functions" value="on">
@@ -209,7 +121,7 @@
               <input type="checkbox" name="enable_functions" {{ if .FunctionsEnabled }}checked{{ end }} class="toggle toggle-primary shrink-0 mt-0.5">
               <span class="text-sm min-w-0">
                 <span class="font-medium">Accept visitor input</span>
-                <span class="block text-xs text-base-content/60">Allows forms, RSVPs, counters, and other submissions on your site.</span>
+                <span class="block text-xs text-base-content/60">Allows forms, RSVPs, counters, and other submissions. Anything visitors send arrives in your <a href="/inbox/{{ .Slug }}" class="link">Inbox</a>.</span>
               </span>
             </label>
           {{ end }}
@@ -269,22 +181,13 @@
     </section>
   </form>
 
-  {{/* ── Tier 3 · Rarely ───────────────────────────────────────────
-       Diagnostics and account-level actions. Quiet by default; the
-       irreversible ones share one clearly-marked danger region. */}}
-
+  {{/* Diagnostics. Quiet by default — a list, not a card, because these are
+       destinations rather than settings. The image drawer used to live here
+       too; it was the same drawer the editor already ships, so browsing and
+       captioning images now happens in one place: Edit. */}}
   <section aria-labelledby="advanced-heading">
     <h2 id="advanced-heading" class="text-sm font-semibold uppercase tracking-wide text-base-content/50 px-1 mb-2">Advanced tools</h2>
     <ul class="divide-y divide-base-300 border border-base-300 rounded-box overflow-hidden bg-base-100">
-      <li>
-        <button type="button" id="open-image-drawer" class="w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-base-200 transition">
-          <div class="flex-1">
-            <div class="text-sm font-medium">Images</div>
-            <p class="text-xs text-base-content/70 mt-0.5">Browse uploaded images, edit their alt text and descriptions, upload more.</p>
-          </div>
-          <span class="text-base-content/40" aria-hidden="true">→</span>
-        </button>
-      </li>
       <li>
         <a href="/files/{{ .Slug }}" class="flex items-center gap-3 px-4 py-3 hover:bg-base-200 transition">
           <div class="flex-1">
@@ -303,18 +206,24 @@
           <span class="text-base-content/40" aria-hidden="true">→</span>
         </a>
       </li>
+      <li>
+        <a href="/export/{{ .Slug }}" class="flex items-center gap-3 px-4 py-3 hover:bg-base-200 transition">
+          <div class="flex-1">
+            <div class="text-sm font-medium">Export site</div>
+            <p class="text-xs text-base-content/70 mt-0.5">Download every page and file as one archive you keep.</p>
+          </div>
+          <span class="text-base-content/40" aria-hidden="true">→</span>
+        </a>
+      </li>
     </ul>
   </section>
 
-  {{/* Danger zone — the three account-level actions in one region,
-       escalating from reversible (Duplicate) to irreversible (Delete). */}}
-  <section aria-labelledby="danger-heading" class="rounded-box border border-error/40 overflow-hidden bg-base-100">
-    <h2 id="danger-heading" class="text-xs font-semibold uppercase tracking-wide text-error bg-error/10 border-b border-error/30 px-4 py-2.5 flex items-center gap-2">
-      <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
-      Danger zone
-    </h2>
+  {{/* Danger zone — same component as the one on /account, escalating from
+       reversible (Duplicate) to irreversible (Delete). */}}
+  <section aria-labelledby="danger-heading" class="danger-zone">
+    {{ template "danger_heading" . }}
 
-    <div class="flex items-center gap-4 flex-wrap px-4 py-3.5">
+    <div class="danger-row">
       <div class="flex-1 min-w-[15rem]">
         <div class="text-sm font-medium">Duplicate this site</div>
         <p class="text-xs text-base-content/70 mt-0.5">Copies every file into a new app you own. The original is untouched. Custom domains and the private flag do not carry over.</p>
@@ -329,7 +238,7 @@
       </form>
     </div>
 
-    <div class="flex items-center gap-4 flex-wrap px-4 py-3.5 border-t border-base-300">
+    <div class="danger-row">
       <div class="flex-1 min-w-[15rem]">
         <div class="text-sm font-medium">Transfer ownership</div>
         <p class="text-xs text-base-content/70 mt-0.5">Hand this app off to another user by email. They take over editing immediately; you lose access (unless you're a super admin).</p>
@@ -347,80 +256,30 @@
       </form>
     </div>
 
-    <div class="px-4 py-3.5 border-t border-error/30 bg-error/5">
-      <div class="flex items-start justify-between gap-3 flex-wrap">
-        <div class="flex-1 min-w-[15rem]">
-          <div class="text-sm font-medium text-error">Delete this app</div>
-          <p class="text-xs text-base-content/70 mt-0.5">Permanently removes every page, file, and the entire version history. Custom domains attached to this site are released back to the pool. <strong>This cannot be undone.</strong></p>
-        </div>
+    <div class="danger-row danger-row-terminal">
+      <div class="flex-1 min-w-[15rem]">
+        <div class="text-sm font-medium text-error">Delete this app</div>
+        <p class="text-xs text-base-content/70 mt-0.5">Permanently removes every page, file, and the entire version history. Custom domains attached to this site are released back to the pool. <strong>This cannot be undone.</strong></p>
       </div>
       <form method="POST" action="/apps/{{ .Slug }}"
-            class="js-confirm flex flex-wrap items-end gap-3 mt-3"
+            class="js-confirm"
             data-confirm-title="Delete this app permanently?"
             data-confirm="Every page, file, and version is removed. Custom domains are released back to the pool. This cannot be undone."
-            data-confirm-ok="Delete permanently">
+            data-confirm-ok="Delete permanently"
+            data-confirm-slug="{{ .Slug }}">
         <input type="hidden" name="_method" value="DELETE">
-        <div class="grow">
-          <label for="confirm" class="label pb-1"><span class="text-sm">Type <code class="font-mono">{{ .Slug }}</code> to confirm</span></label>
-          <input type="text" name="confirm" id="confirm" autocomplete="off" required class="input input-sm w-full max-w-xs" placeholder="{{ .Slug }}">
-        </div>
+        {{/* The typed-slug ceremony lives in the confirm dialog (data-confirm-slug),
+             which writes the typed value back into this hidden field before
+             submitting. Asking for it twice — inline and again in the dialog —
+             was the old behaviour and taught users to ignore the second one. */}}
+        <input type="hidden" name="confirm" value="">
         <button type="submit" class="btn btn-error btn-sm">Delete permanently</button>
       </form>
     </div>
   </section>
 </main>
-{{ template "image_drawer" . }}
 {{ template "footer" . }}
 {{ template "confirm_dialog" . }}
-<script>
-  // Copy-to-clipboard for the DNS CNAME target. Buttons opt in with `.js-copy`
-  // + `data-copy="<text>"`; on success we flash `data-copied-label` for ~1.5s.
-  // Falls back to a hidden <textarea> + execCommand where navigator.clipboard
-  // is unavailable (non-secure contexts). Mirrors admin_users.html.
-  (function () {
-    function flash(btn) {
-      var original = btn.textContent;
-      btn.textContent = btn.dataset.copiedLabel || 'Copied!';
-      btn.disabled = true;
-      setTimeout(function () {
-        btn.textContent = original;
-        btn.disabled = false;
-      }, 1500);
-    }
-    function legacyCopy(text) {
-      var ta = document.createElement('textarea');
-      ta.value = text;
-      ta.setAttribute('readonly', '');
-      ta.style.position = 'absolute';
-      ta.style.left = '-9999px';
-      document.body.appendChild(ta);
-      ta.select();
-      try { document.execCommand('copy'); } catch (e) { /* best effort */ }
-      document.body.removeChild(ta);
-    }
-    document.querySelectorAll('.js-copy').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var text = btn.dataset.copy || '';
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(text).then(function () { flash(btn); }, function () { legacyCopy(text); flash(btn); });
-        } else {
-          legacyCopy(text);
-          flash(btn);
-        }
-      });
-    });
-  })();
-</script>
-<script>
-  // Image drawer wiring for the manage page — view-only (no Insert button).
-  // Users come here to browse uploads and edit alt/description, not to drop
-  // an image into a page or prompt.
-  (function () {
-    if (!window.TBImageDrawer) return;
-    TBImageDrawer.init({ slug: "{{ .Slug }}", mode: "view" });
-    var btn = document.getElementById('open-image-drawer');
-    if (btn) btn.addEventListener('click', function () { TBImageDrawer.open(); });
-  })();
-</script>
+{{ template "copy_js" . }}
 </body>
 </html>

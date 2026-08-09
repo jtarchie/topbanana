@@ -29,6 +29,14 @@ type adminController struct{ *Server }
 
 func (s *adminController) register(e *echo.Echo, super echo.MiddlewareFunc) {
 	e.GET("/admin/users", s.adminUsersHandler, super)
+	e.GET("/admin/clients", s.adminClientsHandler, super)
+	e.GET("/admin/system", s.systemHandler, super)
+	// Pre-split bookmark. /system used to be the operator dashboard on the
+	// plain requireUser group; keep the path alive but behind the same
+	// super-admin gate its content always needed.
+	e.GET("/system", func(c *echo.Context) error {
+		return c.Redirect(http.StatusMovedPermanently, "/admin/system")
+	}, super)
 	e.POST("/admin/users/invite", s.adminInviteCreateHandler, super)
 	e.POST("/admin/invites/:token/revoke", s.adminInviteRevokeHandler, super)
 	e.POST("/admin/mcp-clients/:id/revoke", s.adminMCPClientRevokeHandler, super)
@@ -77,14 +85,26 @@ type adminMCPClientRow struct {
 // adminUsersData backs templates/admin_users.html.
 type adminUsersData struct {
 	Chrome
-	Users           []adminUserRow
-	Invites         []adminInviteRow
-	MCPClients      []adminMCPClientRow
-	MCPEnabled      bool
-	Flash           string
-	Error           string
-	Roles           []string
+	Users   []adminUserRow
+	Invites []adminInviteRow
+	Flash   string
+	Error   string
+	Roles   []string
+	// PendingInvites is len(Invites), pre-computed because the template
+	// renders it inside the tab label where html/template can't call len
+	// on a ranged-over slice without repeating the expression.
+	PendingInvites  int
 	SuggestedModels []string
+}
+
+// adminClientsData backs templates/admin_clients.html — the registered MCP
+// clients, split off the user page because they are a different subject
+// (machines that authorized, not people with accounts).
+type adminClientsData struct {
+	Chrome
+	MCPClients []adminMCPClientRow
+	Flash      string
+	Error      string
 }
 
 // suggestedModels feeds the <datalist> on the Quotas panel's per-tier
@@ -158,21 +178,32 @@ func (s *adminController) adminUsersHandler(c *echo.Context) error {
 	}
 	sort.SliceStable(inviteRows, func(i, j int) bool { return inviteRows[i].Email < inviteRows[j].Email })
 
-	mcpRows, err := s.mcpClientRows(ctx)
-	if err != nil {
-		return httpErr(http.StatusInternalServerError, "list mcp clients", err)
-	}
-
 	return s.render(c, "admin_users", adminUsersData{
 		Chrome:          Chrome{Active: "admin_users"},
 		Users:           rows,
 		Invites:         inviteRows,
-		MCPClients:      mcpRows,
-		MCPEnabled:      s.mcpOAuth != nil,
+		PendingInvites:  len(inviteRows),
 		Flash:           c.QueryParam("flash"),
 		Error:           c.QueryParam("error"),
 		Roles:           []string{string(auth.RoleAdmin), string(auth.RoleSuperAdmin)},
 		SuggestedModels: suggestedModels,
+	})
+}
+
+// adminClientsHandler renders the registered MCP clients. Split from
+// adminUsersHandler so each operator page answers one question: who has an
+// account (People) versus which machines authorized (Connections).
+func (s *adminController) adminClientsHandler(c *echo.Context) error {
+	mcpRows, err := s.mcpClientRows(c.Request().Context())
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "list mcp clients", err)
+	}
+
+	return s.render(c, "admin_clients", adminClientsData{
+		Chrome:     Chrome{Active: "admin_clients"},
+		MCPClients: mcpRows,
+		Flash:      c.QueryParam("flash"),
+		Error:      c.QueryParam("error"),
 	})
 }
 
@@ -223,7 +254,7 @@ func (s *adminController) adminMCPClientRevokeHandler(c *echo.Context) error {
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "revoke mcp client", err)
 	}
-	return c.Redirect(http.StatusSeeOther, "/admin/users?flash=mcp+client+revoked") //nolint:wrapcheck
+	return c.Redirect(http.StatusSeeOther, "/admin/clients?flash=mcp+client+revoked") //nolint:wrapcheck
 }
 
 // adminInviteCreateHandler accepts a form post to issue a new invite.

@@ -74,9 +74,10 @@ it. **Theme Studio** restyles the whole site with one click across 30+ themes.
 ## Manage everything in one place
 
 Your apps list shows everything you've built, last-edited at a glance. Each site
-has a **Manage** surface for custom domains (with copy-paste DNS), a private
-toggle, exports, and — for sites with a form — a table of submissions you can
-download as CSV or JSON.
+opens on three tabs: **Edit** to change it, **Inbox** for whatever visitors sent
+(form submissions you can download as CSV or JSON, plus the photo-wall queue),
+and **Settings** for custom domains with copy-paste DNS, a private toggle,
+exports, and a completeness checklist.
 
 <div align="center">
 
@@ -84,19 +85,20 @@ download as CSV or JSON.
 
 <br><br>
 
-<img src="docs/screenshots/manage-submissions.png" alt="The Manage page: a form-submissions table, custom-domain DNS instructions, and site settings" width="640">
+<img src="docs/screenshots/manage-submissions.png" alt="The Settings tab: a completeness checklist, site permissions, custom-domain DNS instructions, and the danger zone" width="640">
 
 </div>
 
 ## Run it as a platform
 
 Top Banana is multi-tenant from the ground up: passkey sign-in, per-user app
-quotas, one-time invite links, and a super-admin **System** dashboard for
-storage, build success rates, and recent activity.
+quotas, one-time invite links, and a super-admin **Admin** section — People for
+accounts and invites, Connections for MCP clients, and Instance for storage,
+build success rates, and recent activity.
 
 <div align="center">
 
-<img src="docs/screenshots/system.png" alt="The System dashboard with at-a-glance cards, an apps table, recent builds, and storage breakdown" width="820">
+<img src="docs/screenshots/system.png" alt="Admin → Instance: at-a-glance cards, an apps table, recent builds, and storage breakdown" width="820">
 
 <br><br>
 
@@ -219,14 +221,14 @@ a model by hand, give it at least a 16K context.
 ## Custom Domains with Cloudflare
 
 A Top Banana site can be served on any external domain (e.g. `myblog.com`) by
-attaching the hostname under **Manage → Custom domains** and pointing DNS at
+attaching the hostname under **Settings → Custom web address** and pointing DNS at
 your origin. Putting Cloudflare in front gives you free TLS and a global cache;
 Top Banana already emits the right cache headers, so the Cloudflare config is
 small.
 
 ### 1. Add the domain in Top Banana
 
-Open **Manage** for the site and add the hostnames you'll be using — one per
+Open **Settings** for the site and add the hostnames you'll be using — one per
 line:
 
 ```

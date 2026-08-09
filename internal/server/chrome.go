@@ -20,20 +20,44 @@ type Chrome struct {
 	SiteURL  string
 
 	// Active is the nav-highlight key. Compared against the literal
-	// strings in the brand partial ("admin_users", "system", "account",
-	// "workspace", "manage") to decide which tab gets `btn-active` /
-	// `tab-active`.
+	// strings in the brand + admin_subnav + site_subnav partials
+	// ("apps", "account", "admin_users", "admin_clients", "system",
+	// "workspace", "inbox", "manage") to decide which tab gets
+	// `btn-active` / `tab-active`.
 	Active string
 
-	// IsSuperAdmin gates the "Users" nav link. Populated by render()
-	// from the session role; handlers should NOT set it themselves —
-	// any value they pass gets overwritten.
+	// IsSuperAdmin gates the "Admin" nav link and the whole operator
+	// section. Populated by render() from the session role; handlers
+	// should NOT set it themselves — any value they pass gets
+	// overwritten.
 	IsSuperAdmin bool
+
+	// InAdmin is true on the super-admin-only operator surfaces, derived
+	// from Active by render() via adminActive below. The brand partial
+	// highlights its single "Admin" entry from this, so the highlight can't
+	// drift out of sync with which pages the section actually contains.
+	InAdmin bool
+
+	// MCPEnabled gates the admin sub-nav's "Connections" tab: with no
+	// --mcp-secret there is no OAuth client registry to show, so the
+	// destination would always be empty. Injected by render() for the
+	// same reason as IsSuperAdmin — every admin page needs it for the
+	// shared sub-nav, and none of them should have to remember to set it.
+	MCPEnabled bool
 
 	// Year is the current calendar year, injected by render() so the
 	// shared footer can render `© {{ .Year }} Top Banana` without each
 	// handler threading time.Now() through its page-data struct.
 	Year int
+}
+
+// adminActive is the set of Active keys that belong to the operator
+// section. Single source of truth so the "Admin" nav item and the admin
+// sub-nav can never disagree about which pages are in that section.
+var adminActive = map[string]bool{
+	"admin_users":   true,
+	"admin_clients": true,
+	"system":        true,
 }
 
 // chromePtr exposes the embedded Chrome for in-place mutation. Defined

@@ -169,6 +169,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		{"apps", appsTemplate},
 		{"workspace", workspaceTemplate},
 		{"manage", manageTemplate},
+		{"inbox", inboxTemplate},
 		{"photo_queue", photoQueueTemplate},
 		{"system", systemTemplate},
 		{"toolbar", editToolbarTemplate},
@@ -181,6 +182,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		{"register", registerTemplate},
 		{"account", accountTemplate},
 		{"admin_users", adminUsersTemplate},
+		{"admin_clients", adminClientsTemplate},
 		{"error", errorTemplate},
 		{"privacy", privacyTemplate},
 		{"terms", termsTemplate},
@@ -390,6 +392,8 @@ func (s *Server) injectChrome(c *echo.Context, data any) any {
 	if ch, ok := data.(chromed); ok {
 		cp := ch.chromePtr()
 		cp.IsSuperAdmin = isSuper
+		cp.MCPEnabled = s.mcpOAuth != nil
+		cp.InAdmin = adminActive[cp.Active]
 		cp.Year = time.Now().Year()
 	}
 	return data

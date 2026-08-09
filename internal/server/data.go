@@ -25,7 +25,7 @@ type dataRow struct {
 }
 
 // dataHandler serves the CSV download for a site's KV submissions. The HTML
-// rendering of the same data lives inline on /manage/:slug; legacy GETs to
+// rendering of the same data lives inline on /inbox/:slug; legacy GETs to
 // /data/:slug without the format query are redirected there.
 func (s *sitesController) dataHandler(c *echo.Context) error {
 	slug, err := slugParam(c)
@@ -35,7 +35,7 @@ func (s *sitesController) dataHandler(c *echo.Context) error {
 
 	format := c.QueryParam("format")
 	if format != "csv" && format != "json" {
-		return c.Redirect(http.StatusFound, "/manage/"+slug) //nolint:wrapcheck
+		return c.Redirect(http.StatusFound, "/inbox/"+slug) //nolint:wrapcheck
 	}
 
 	cols, rows, err := s.collectSubmissions(c.Request().Context(), slug)
@@ -189,7 +189,7 @@ func (s *sitesController) deleteSubmissionHandler(c *echo.Context) error {
 	}
 	slog.Info("submission.delete", "slug", slug, "key", key, "user", email)
 
-	return c.Redirect(http.StatusSeeOther, "/manage/"+slug+"?flash="+urlEscape("Deleted "+key)+"#submissions-heading") //nolint:wrapcheck
+	return c.Redirect(http.StatusSeeOther, "/inbox/"+slug+"?flash="+urlEscape("Deleted "+key)+"#submissions-heading") //nolint:wrapcheck
 }
 
 // formatCell turns a KV value into a display string. Numeric `ts` is parsed as

@@ -209,7 +209,7 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	if !strings.Contains(resp.Request.URL.Path, "/workspace/"+slug) {
 		t.Errorf("expected redirect to /workspace/%s, landed at %s", slug, resp.Request.URL.Path)
 	}
-	for _, want := range []string{"status-strip", `data-step="design"`, "Designing", ">Workspace<"} {
+	for _, want := range []string{"status-strip", `data-step="design"`, "Designing", ">Edit<"} {
 		if !strings.Contains(string(workspaceBody), want) {
 			t.Errorf("workspace (building) missing %q", want)
 		}
@@ -252,7 +252,7 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	if !strings.Contains(resp.Request.URL.Path, "/workspace/"+slug) {
 		t.Errorf("expected /edit/%s to redirect to /workspace, landed at %s", slug, resp.Request.URL.Path)
 	}
-	for _, want := range []string{">Workspace<", ">Manage<", "Describe a change", "panel-themes", "panel-history"} {
+	for _, want := range []string{">Edit<", ">Inbox<", ">Settings<", "Describe a change", "panel-themes", "panel-history"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("workspace missing %q", want)
 		}
@@ -271,19 +271,24 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 		t.Errorf("workspace (theme redirect target) missing themes panel")
 	}
 
-	// 8a. /system surfaces the just-built slug in its Apps table.
-	//     Cheap piggyback assertion — catches /system regressions caused by
-	//     edits to the shared brand partial or the apps walk.
+	// 8a. /admin/system surfaces the just-built slug in its Apps table, and
+	//     the pre-split /system bookmark still lands there. This test's user
+	//     is a super admin; the same fetch as a plain admin is covered by
+	//     TestAdminSystem_RequiresSuperAdmin.
 	resp, body = authedGET("/system") //nolint:bodyclose // see authedGET comment above.
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /system: %d", resp.StatusCode)
 	}
+	if !strings.Contains(resp.Request.URL.Path, "/admin/system") {
+		t.Errorf("expected /system to redirect to /admin/system, landed at %s", resp.Request.URL.Path)
+	}
 	if !strings.Contains(body, slug) {
-		t.Errorf("/system did not list slug %q in the Apps table", slug)
+		t.Errorf("/admin/system did not list slug %q in the Apps table", slug)
 	}
 
-	// 8. Manage page renders with the consolidated sections; legacy /settings
-	//    redirects here.
+	// 8. Settings renders configuration and lifecycle only; legacy /settings
+	//    redirects here. Visitor-submitted data moved to the Inbox tab, so
+	//    "Form submissions" must NOT appear on this page any more.
 	resp, body = authedGET("/settings/" + slug) //nolint:bodyclose // see authedGET comment above.
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET settings: %d", resp.StatusCode)
@@ -291,9 +296,23 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	if !strings.Contains(resp.Request.URL.Path, "/manage/"+slug) {
 		t.Errorf("expected /settings/%s to redirect to /manage, landed at %s", slug, resp.Request.URL.Path)
 	}
-	for _, want := range []string{"Custom web address", "Permissions", "Form submissions", "Advanced tools", "Delete this app", slug} {
+	for _, want := range []string{"Custom web address", "Permissions", "Advanced tools", "Delete this app", slug} {
 		if !strings.Contains(body, want) {
-			t.Errorf("manage missing %q", want)
+			t.Errorf("settings missing %q", want)
+		}
+	}
+	if strings.Contains(body, "Form submissions") {
+		t.Errorf("settings must not carry the submissions table; it belongs on /inbox")
+	}
+
+	// 8b. Inbox owns the submissions table.
+	resp, body = authedGET("/inbox/" + slug) //nolint:bodyclose // see authedGET comment above.
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /inbox/%s: %d", slug, resp.StatusCode)
+	}
+	for _, want := range []string{"Form submissions", ">Inbox<"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("inbox missing %q", want)
 		}
 	}
 

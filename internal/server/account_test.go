@@ -34,7 +34,7 @@ func TestAccount_MCPEnabled(t *testing.T) {
 	html := renderAccount(t, accountData{
 		Email:      "user@example.com",
 		Role:       "admin",
-		MCPEnabled: true,
+		Chrome:     Chrome{MCPEnabled: true},
 		MCPCommand: testMCPCommand,
 	})
 
@@ -56,10 +56,9 @@ func TestAccount_DisabledSuperAdmin(t *testing.T) {
 	t.Parallel()
 
 	html := renderAccount(t, accountData{
-		Email:        "boss@example.com",
-		Role:         "super_admin",
-		MCPEnabled:   false,
-		IsSuperAdmin: true,
+		Email:  "boss@example.com",
+		Role:   "super_admin",
+		Chrome: Chrome{MCPEnabled: false, IsSuperAdmin: true},
 	})
 
 	if !strings.Contains(html, "MCP_SECRET") {
@@ -80,9 +79,9 @@ func TestAccount_DangerZoneRegularUser(t *testing.T) {
 	t.Parallel()
 
 	html := renderAccount(t, accountData{
-		Email:        "user@example.com",
-		Role:         "admin",
-		IsSuperAdmin: false,
+		Email:  "user@example.com",
+		Role:   "admin",
+		Chrome: Chrome{IsSuperAdmin: false},
 	})
 
 	for _, want := range []string{
@@ -110,9 +109,9 @@ func TestAccount_DangerZoneSuperAdmin(t *testing.T) {
 	t.Parallel()
 
 	html := renderAccount(t, accountData{
-		Email:        "boss@example.com",
-		Role:         "super_admin",
-		IsSuperAdmin: true,
+		Email:  "boss@example.com",
+		Role:   "super_admin",
+		Chrome: Chrome{IsSuperAdmin: true},
 	})
 
 	if !strings.Contains(html, `action="/account/sessions"`) {
@@ -182,10 +181,9 @@ func TestAccount_DisabledRegularUser(t *testing.T) {
 	t.Parallel()
 
 	html := renderAccount(t, accountData{
-		Email:        "user@example.com",
-		Role:         "admin",
-		MCPEnabled:   false,
-		IsSuperAdmin: false,
+		Email:  "user@example.com",
+		Role:   "admin",
+		Chrome: Chrome{MCPEnabled: false, IsSuperAdmin: false},
 	})
 
 	if !strings.Contains(html, "isn't enabled") {

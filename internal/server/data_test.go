@@ -121,8 +121,9 @@ func TestDeleteSubmissionHandler(t *testing.T) {
 		t.Fatalf("happy path: status %d want 303", resp.StatusCode)
 	}
 	loc := resp.Header.Get("Location")
-	if !strings.HasPrefix(loc, "/manage/"+slug) || !strings.Contains(loc, "flash=Deleted") {
-		t.Errorf("redirect: got %q want /manage/%s…flash=Deleted…", loc, slug)
+	// Back to the Inbox tab the row was deleted from, not to Settings.
+	if !strings.HasPrefix(loc, "/inbox/"+slug) || !strings.Contains(loc, "flash=Deleted") {
+		t.Errorf("redirect: got %q want /inbox/%s…flash=Deleted…", loc, slug)
 	}
 	data := loadStateData(t, ctx, kv, slug)
 	if data["submission:0001"] != nil {

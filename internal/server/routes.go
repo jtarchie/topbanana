@@ -62,11 +62,14 @@ func (s *Server) mountRoutes(e *echo.Echo) {
 	admin := e.Group("", s.requireUser)
 	owns := s.requireSlugOwnership
 	admin.GET("/", s.landingHandler)
-	admin.GET("/system", s.systemHandler)
 	(&accountController{s}).registerAccount(admin)
 
 	// Super-admin-only surfaces carry requireSuperAdmin (role check on top of
 	// requireUser) and are mounted on the root router, not the admin group.
+	// /admin/system lives here too: it lists every app on the instance plus
+	// the server's S3/LLM configuration, so requireUser alone was never the
+	// right gate — a regular signed-in user could enumerate other people's
+	// slugs, titles, sizes, and build history from it.
 	(&adminController{s}).register(e, s.requireSuperAdmin)
 
 	// Per-resource controllers. Each owns its routes and the :slug ones carry the
