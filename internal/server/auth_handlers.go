@@ -83,6 +83,11 @@ type accountData struct {
 	// here too, shadowing Chrome's copies with a second derivation of the
 	// same fact — one field per fact, set in one place.
 	MCPCommand string
+	// MCPEndpoint is the bare `https://host/mcp` URL behind MCPCommand. The
+	// connect flow is a plain streamable-HTTP MCP endpoint with OAuth
+	// discovery, so a client other than Claude Code needs the URL rather than
+	// the CLI line — the setup steps show one and the fallback shows the other.
+	MCPEndpoint string
 	// Flash / Error surface the outcome of a danger-zone POST (passkey removed,
 	// or a refused self-delete) after the handler redirects back to /account.
 	Flash string
@@ -192,10 +197,14 @@ func (s *accountController) accountHandler(c *echo.Context) error {
 			Created: time.Now().UTC().Format("2006-01-02"),
 		})
 	}
-	mcpEnabled := s.mcpSecret != ""
-	mcpCmd := ""
-	if mcpEnabled {
-		mcpCmd = "claude mcp add --transport http topbanana " + s.adminURL(c, "/mcp")
+	mcpCmd, mcpEndpoint := "", ""
+	if s.mcpSecret != "" {
+		mcpEndpoint = s.adminURL(c, "/mcp")
+		// --scope user, not the `claude mcp add` default of project-local:
+		// Top Banana hosts your sites, not one checkout, so the connection
+		// should follow you into every directory instead of needing a re-add
+		// per project.
+		mcpCmd = "claude mcp add --scope user --transport http topbanana " + mcpEndpoint
 	}
 	return s.render(c, "account", accountData{
 		Chrome:      Chrome{Active: "account"},
@@ -203,6 +212,7 @@ func (s *accountController) accountHandler(c *echo.Context) error {
 		Role:        string(user.Role),
 		Credentials: creds,
 		MCPCommand:  mcpCmd,
+		MCPEndpoint: mcpEndpoint,
 		Flash:       c.QueryParam("flash"),
 		Error:       c.QueryParam("error"),
 	})

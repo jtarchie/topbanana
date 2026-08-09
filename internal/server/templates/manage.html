@@ -226,7 +226,7 @@
     <div class="danger-row">
       <div class="flex-1 min-w-[15rem]">
         <div class="text-sm font-medium">Duplicate this site</div>
-        <p class="text-xs text-base-content/70 mt-0.5">Copies every file into a new app you own. The original is untouched. Custom domains and the private flag do not carry over.</p>
+        <p class="text-xs text-base-content/70 mt-1.5">Copies every file into a new app you own. The original is untouched. Custom domains and the private flag do not carry over.</p>
       </div>
       <form method="POST" action="/apps/{{ .Slug }}/remix"
             class="js-confirm"
@@ -241,7 +241,7 @@
     <div class="danger-row">
       <div class="flex-1 min-w-[15rem]">
         <div class="text-sm font-medium">Transfer ownership</div>
-        <p class="text-xs text-base-content/70 mt-0.5">Hand this app off to another user by email. They take over editing immediately; you lose access (unless you're a super admin).</p>
+        <p class="text-xs text-base-content/70 mt-1.5">Hand this app off to another user by email. They take over editing immediately; you lose access (unless you're a super admin).</p>
       </div>
       <form method="POST" action="/apps/{{ .Slug }}/transfer"
             class="js-confirm flex flex-wrap gap-2 items-end"
@@ -259,7 +259,7 @@
     <div class="danger-row danger-row-terminal">
       <div class="flex-1 min-w-[15rem]">
         <div class="text-sm font-medium text-error">Delete this app</div>
-        <p class="text-xs text-base-content/70 mt-0.5">Permanently removes every page, file, and the entire version history. Custom domains attached to this site are released back to the pool. <strong>This cannot be undone.</strong></p>
+        <p class="text-xs text-base-content/70 mt-1.5">Permanently removes every page, file, and the entire version history. Custom domains attached to this site are released back to the pool. <strong>This cannot be undone.</strong></p>
       </div>
       <form method="POST" action="/apps/{{ .Slug }}"
             class="js-confirm"

@@ -26,23 +26,31 @@ func renderAccount(t *testing.T, data accountData) string {
 
 const testMCPCommand = "claude mcp add --transport http topbanana http://localhost:8080/mcp"
 
-// TestAccount_MCPEnabled: when MCP is on, the card shows the copy-paste connect
-// command and Copy button, not the disabled-state hint.
+// TestAccount_MCPEnabled: when MCP is on, the setup flow renders as ordered
+// steps carrying the copy-paste connect command, plus the raw endpoint for
+// clients other than Claude Code — and never the disabled-state hint.
 func TestAccount_MCPEnabled(t *testing.T) {
 	t.Parallel()
 
+	const endpoint = "https://example.test/mcp"
 	html := renderAccount(t, accountData{
-		Email:      "user@example.com",
-		Role:       "admin",
-		Chrome:     Chrome{MCPEnabled: true},
-		MCPCommand: testMCPCommand,
+		Email:       "user@example.com",
+		Role:        "admin",
+		Chrome:      Chrome{MCPEnabled: true},
+		MCPCommand:  testMCPCommand,
+		MCPEndpoint: endpoint,
 	})
 
-	if !strings.Contains(html, testMCPCommand) {
-		t.Errorf("enabled card missing connect command %q", testMCPCommand)
-	}
-	if !strings.Contains(html, ">Copy<") {
-		t.Errorf("enabled card missing Copy button")
+	for _, want := range []string{
+		testMCPCommand,
+		endpoint,
+		`class="setup-steps"`, // the numbered stepper, not a wall of prose
+		"Set up in under a minute",
+		">Copy<",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("enabled setup flow missing %q", want)
+		}
 	}
 	if strings.Contains(html, "MCP_SECRET") {
 		t.Errorf("enabled card should not show the MCP_SECRET enable hint")
@@ -64,7 +72,7 @@ func TestAccount_DisabledSuperAdmin(t *testing.T) {
 	if !strings.Contains(html, "MCP_SECRET") {
 		t.Errorf("disabled super-admin card missing the MCP_SECRET enable hint")
 	}
-	if !strings.Contains(html, "isn't enabled") {
+	if !strings.Contains(html, "Not enabled on this server") {
 		t.Errorf("disabled card missing the 'not enabled' note")
 	}
 	if strings.Contains(html, "claude mcp add") {
@@ -186,7 +194,7 @@ func TestAccount_DisabledRegularUser(t *testing.T) {
 		Chrome: Chrome{MCPEnabled: false, IsSuperAdmin: false},
 	})
 
-	if !strings.Contains(html, "isn't enabled") {
+	if !strings.Contains(html, "Not enabled on this server") {
 		t.Errorf("disabled card missing the 'not enabled' note")
 	}
 	if strings.Contains(html, "MCP_SECRET") {

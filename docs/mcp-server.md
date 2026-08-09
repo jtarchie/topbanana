@@ -32,8 +32,13 @@ private (it signs every token).
 ## Connecting from Claude Code
 
 ```
-claude mcp add --transport http topbanana https://<your-domain>/mcp
+claude mcp add --scope user --transport http topbanana https://<your-domain>/mcp
 ```
+
+`--scope user` rather than `claude mcp add`'s project-local default: Top
+Banana hosts your sites, not one checkout, so the connection should follow
+you into every directory instead of needing a re-add per project. The
+/account page renders this exact line with the deployment's own URL.
 
 Claude Code discovers the OAuth authorization server from
 `/.well-known/oauth-protected-resource`, registers itself, and opens a browser
