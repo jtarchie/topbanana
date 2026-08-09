@@ -35,16 +35,23 @@ func TestMCPPageURL(t *testing.T) {
 	}
 }
 
-// TestMCPInstructionsEditFocused pins the surface's rebrand: the instructions
-// describe an editing tool (edit_file) and no longer point at create_site,
-// which moved to the web UI.
+// TestMCPInstructionsEditFocused pins what the instructions must name. edit_file
+// stays the headline: surgical edits are the common case and the surface is
+// built around them.
+//
+// create_site was retired here once, on the reasoning that sites are created in
+// the web /build flow. It's back, deliberately: an agent that can edit every
+// page of a site but can't start one forces a web-UI detour into the front of
+// every session, and creation needs no LLM — it's slug allocation plus a
+// skeleton write. The tool it names now seeds the template and enforces the
+// app quota, which the retired one did not.
 func TestMCPInstructionsEditFocused(t *testing.T) {
 	t.Parallel()
 	if !strings.Contains(mcpInstructions, "edit_file") {
 		t.Error("instructions should mention edit_file")
 	}
-	if strings.Contains(mcpInstructions, "create_site") {
-		t.Error("instructions must not mention the retired create_site")
+	if !strings.Contains(mcpInstructions, "create_site") {
+		t.Error("instructions should point at create_site for starting a new site")
 	}
 	if !strings.Contains(mcpLintNudge, "lint_site") {
 		t.Errorf("lint nudge should name lint_site, got %q", mcpLintNudge)

@@ -34,14 +34,17 @@ const (
 	mcpServerName    = "topbanana"
 	mcpServerVersion = "1.0.0"
 
-	mcpInstructions = "Tools for editing the static HTML sites a user already owns on Top " +
-		"Banana. Sites are created in the web UI — start by calling list_sites to find one, " +
-		"then get_site to see its pages. Read with read_file; change pages and text assets " +
+	mcpInstructions = "Tools for building and editing the static HTML sites a user owns on Top " +
+		"Banana. Start by calling list_sites to find one, then get_site to see its pages — or " +
+		"create_site to start a new one from a template (no LLM runs; you author the pages " +
+		"yourself). Read with read_file; change pages and text assets " +
 		"with edit_file (surgical find/replace — prefer it over rewriting a whole file), " +
 		"replace_lines, insert_at_line, or write_file (whole file). Those tools all accept " +
 		"HTML plus text assets: .html .css .js .svg .md .txt .json .xml. " +
 		"For binary images (png/jpg/gif/webp), call create_upload_ticket and curl the file to " +
-		"the URL it returns — base64 through write_file does not work. Every write returns " +
+		"the URL it returns — base64 through write_file does not work; list_assets shows what " +
+		"is already uploaded and set_asset_metadata sets the alt text screen readers announce. " +
+		"Every write returns " +
 		"the sha256 and byte count of what was stored; on a large file pass expect_sha256 to " +
 		"write_file so a corrupted transfer is rejected instead of published. " +
 		"grep_files searches across a site; delete_file removes a page. Keep every page " +
@@ -52,15 +55,18 @@ const (
 		"`<link rel=\"stylesheet\" href=\"/app.css\">` in <head> (Tailwind utility + daisyUI " +
 		"component classes; set the palette with <html data-theme>) — the platform compiles " +
 		"/app.css per site. Run lint_site when you finish: it compiles /app.css and reports " +
-		"anything to fix. If you create test rows while verifying a form, remove them with " +
+		"what is broken; get_site_guide reports what a credible site of this type is still " +
+		"missing. If you create test rows while verifying a form, remove them with " +
 		"delete_submission — the owner's export can't tell them from real data. Custom " +
 		"domains are attached in the web UI; get_domain_status reports the DNS records a " +
 		"domain needs plus its live DNS and TLS certificate state, and check_domain retries " +
 		"issuance. For conventions read the resources topbanana://guide/authoring and " +
 		"topbanana://guide/design, and the site's template at topbanana://templates/{id}; the " +
 		"edit_page and add_function prompts scaffold common tasks. list_runs / " +
-		"get_run_transcript surface read-only build history. All tools are scoped to sites " +
-		"the caller owns."
+		"get_run_transcript surface read-only build history. Site tools are scoped to sites " +
+		"the caller owns. issue_invite / list_invites / revoke_invite manage who can join the " +
+		"instance and work only for a super admin; the registration URL they return is a live " +
+		"credential — treat it like a password and give it only to the named recipient."
 )
 
 // newMCPHandler builds the stateless streamable-HTTP handler that serves the
@@ -86,6 +92,8 @@ func (s *Server) buildMCPServer() *mcp.Server {
 
 	s.registerListSites(srv)
 	s.registerGetSite(srv)
+	s.registerCreateSite(srv)
+	s.registerGetSiteGuide(srv)
 	s.registerReadFile(srv)
 	s.registerWriteFile(srv)
 	s.registerCreateUploadTicket(srv)
@@ -99,6 +107,9 @@ func (s *Server) buildMCPServer() *mcp.Server {
 	s.registerListRuns(srv)
 	s.registerGetRunTranscript(srv)
 
+	s.registerListAssets(srv)
+	s.registerSetAssetMetadata(srv)
+
 	s.registerWriteFunction(srv)
 	s.registerReadFunction(srv)
 	s.registerEditFunction(srv)
@@ -110,6 +121,13 @@ func (s *Server) buildMCPServer() *mcp.Server {
 	s.registerDeleteSubmission(srv)
 	s.registerGetDomainStatus(srv)
 	s.registerCheckDomain(srv)
+
+	// Instance administration. Registered unconditionally — the tools are in
+	// every client's list, but each one gates on the caller's role at call
+	// time (mcpSuperAdmin), so a regular admin only ever gets a refusal.
+	s.registerIssueInvite(srv)
+	s.registerListInvites(srv)
+	s.registerRevokeInvite(srv)
 
 	s.registerGuideResources(srv)
 	s.registerTemplateResources(srv)

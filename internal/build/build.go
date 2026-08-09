@@ -387,7 +387,7 @@ func (svc *Service) Start(p Params) {
 			return
 		}
 		if p.SeedSkeleton {
-			err := svc.seedTemplate(ctx, p.Slug, p.OwnerID, p.Template)
+			err := svc.SeedTemplate(ctx, p.Slug, p.OwnerID, p.Template)
 			if err != nil {
 				slog.Error(p.LogKey+".seed_failed", "slug", p.Slug, "template", p.Template.ID, "err", err)
 				svc.events.Fail(p.Slug, err)
@@ -783,10 +783,15 @@ func applyAutoFixers(content string, kinds map[lint.Kind]bool) (string, map[lint
 	return content, done
 }
 
-// seedTemplate writes the template's skeleton files (if any) and the
+// SeedTemplate writes the template's skeleton files (if any) and the
 // .topbanana.json sidecar recording the template id. The sidecar lets later
 // edits re-apply the same template addendum.
-func (svc *Service) seedTemplate(ctx context.Context, slug, ownerID string, tmpl *templates.SiteTemplate) error {
+//
+// Exported because it is the whole of site creation that isn't the LLM: the
+// MCP create_site tool needs a new slug seeded and owned without running an
+// agent, and duplicating the skeleton write + sidecar there would be a second
+// place for the OwnerID to go missing (which orphans the site).
+func (svc *Service) SeedTemplate(ctx context.Context, slug, ownerID string, tmpl *templates.SiteTemplate) error {
 	if tmpl == nil {
 		return nil
 	}
