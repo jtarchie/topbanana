@@ -97,8 +97,8 @@ func TestMCPDomainNext_DNSBlocksCert(t *testing.T) {
 	}
 
 	// No domains at all is a diagnosis too — the site simply hasn't had one
-	// attached, which is a manage-page action.
-	if got := mcpDomainNext(nil); !strings.Contains(got, "manage page") {
-		t.Errorf("next = %q; want it to point at the manage page", got)
+	// attached, and the agent can do that itself rather than handing off.
+	if got := mcpDomainNext(nil); !strings.Contains(got, "attach_domain") {
+		t.Errorf("next = %q; want it to name the attach tool", got)
 	}
 }

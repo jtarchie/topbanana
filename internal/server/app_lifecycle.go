@@ -179,9 +179,28 @@ func (s *sitesController) settingsDeleteHandler(c *echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/apps?flash="+urlEscape("Deleted "+slug)) //nolint:wrapcheck
 }
 
+// claimDomain normalizes one user-supplied hostname and enforces the two
+// guards that make attaching a domain an ownership decision rather than a
+// hijack: it may not overlap the platform's own domain (that would shadow a
+// tenant subdomain or the app itself), and it may not already belong to
+// another slug. Shared by the settings form and the MCP attach tool so both
+// surfaces claim domains under identical rules.
+func (s *Server) claimDomain(raw, owningSlug string) (string, error) {
+	host, err := build.NormalizeDomain(raw)
+	if err != nil {
+		return "", fmt.Errorf("normalize domain: %w", err)
+	}
+	if host == s.domain || strings.HasSuffix(host, "."+s.domain) {
+		return "", fmt.Errorf("domain %q overlaps the main app domain", host)
+	}
+	if other, ok := s.registry.lookupCustomDomain(host); ok && other != owningSlug {
+		return "", fmt.Errorf("domain %q is already claimed by site %q", host, other)
+	}
+	return host, nil
+}
+
 // parseDomains splits the settings-form textarea into a deduped, normalized
-// list of hostnames. Rejects entries that collide with the main app domain
-// (or its subdomains) and ones already claimed by another slug.
+// list of hostnames, each run through claimDomain.
 func (s *Server) parseDomains(raw, owningSlug string) ([]string, error) {
 	seen := map[string]bool{}
 	out := []string{}
@@ -190,15 +209,9 @@ func (s *Server) parseDomains(raw, owningSlug string) ([]string, error) {
 		if line == "" {
 			continue
 		}
-		host, err := build.NormalizeDomain(line)
+		host, err := s.claimDomain(line, owningSlug)
 		if err != nil {
-			return nil, fmt.Errorf("normalize domain: %w", err)
-		}
-		if host == s.domain || strings.HasSuffix(host, "."+s.domain) {
-			return nil, fmt.Errorf("domain %q overlaps the main app domain", host)
-		}
-		if other, ok := s.registry.lookupCustomDomain(host); ok && other != owningSlug {
-			return nil, fmt.Errorf("domain %q is already claimed by site %q", host, other)
+			return nil, err
 		}
 		if seen[host] {
 			continue

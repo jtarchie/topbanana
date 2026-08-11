@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -11,13 +12,15 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/jtarchie/topbanana/internal/build"
+	"github.com/jtarchie/topbanana/internal/snapshot"
 )
 
-// The read + retry half of custom domains over MCP. Attaching and detaching a
-// domain stays in the web UI: claiming a hostname is an ownership decision
-// with a hijack surface (parseDomains enforces the cross-site guards), and the
-// expensive part of the job was never the click — it was having no way to see
-// whether DNS and the certificate had actually landed.
+// Custom domains over MCP: attach, detach, diagnose, retry. Claiming a
+// hostname is an ownership decision with a hijack surface, so attach_domain
+// goes through the same claimDomain guards as the settings form — a domain
+// that overlaps the platform domain or already belongs to another slug is
+// refused on both surfaces, and the per-slug authorization gate means a
+// caller can only attach to a site they own.
 
 func (s *Server) registerGetDomainStatus(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
@@ -41,6 +44,118 @@ func (s *Server) registerGetDomainStatus(srv *mcp.Server) {
 			"next":           mcpDomainNext(out),
 		})
 	})
+}
+
+type attachDomainInput struct {
+	Slug   string `json:"slug"   jsonschema:"The site slug"`
+	Domain string `json:"domain" jsonschema:"The custom hostname to serve this site on (e.g. example.com or www.example.com)"`
+}
+
+func (s *Server) registerAttachDomain(srv *mcp.Server) {
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "attach_domain",
+		Description: "Attach a custom hostname to a site the caller owns, so the site is served on it. Returns the exact DNS record the owner must create at their registrar plus the domain's current DNS and certificate state — the owner still has to create that record before the domain works. Idempotent: re-attaching a domain the site already serves just re-reports its status. Refused when the hostname belongs to another site or overlaps the platform's own domain.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in attachDomainInput) (*mcp.CallToolResult, any, error) {
+		_, err := s.mcpUserAndAuthorize(ctx, in.Slug)
+		if err != nil {
+			return nil, nil, err
+		}
+		host, err := s.claimDomain(in.Domain, in.Slug)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		meta := s.build.ReadMeta(ctx, in.Slug)
+		added := !slices.Contains(meta.Domains, host)
+		if added {
+			meta.Domains = append(meta.Domains, host)
+			err = s.persistDomains(ctx, in.Slug, meta)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+
+		status := s.domainStatusFor(ctx, in.Slug, host, s.resolveTarget(ctx, in.Slug))
+		// Pre-warm only once DNS already points here. The web form fires
+		// issuance for every newly-added domain because a person adding one has
+		// usually set DNS up first; an agent typically attaches before the owner
+		// has touched their registrar, and an ACME attempt that cannot possibly
+		// pass the challenge only burns a Let's Encrypt rate-limit slot and
+		// leaves a recorded failure that makes the next get_domain_status read
+		// "failed" instead of the truthful "waiting on your DNS".
+		//nolint:contextcheck // deliberately detached: the ACME round-trip must
+		// outlive this tool call, not be cancelled when the client gets its reply.
+		if added && status.DNS.Status == dnsOK {
+			s.preWarmCerts([]string{host})
+		}
+		return mcpJSON(map[string]any{
+			"ok": true, "slug": in.Slug, "domain": host,
+			"attached":       added,
+			"domains":        meta.Domains,
+			"site_host":      s.cnameTarget(in.Slug),
+			"dns":            status.DNS,
+			"cert":           status.Cert,
+			"add_remove_url": s.manageURL(in.Slug),
+			"next":           mcpDomainNext([]domainStatus{status}),
+		})
+	})
+}
+
+type detachDomainInput struct {
+	Slug   string `json:"slug"   jsonschema:"The site slug"`
+	Domain string `json:"domain" jsonschema:"The custom hostname to stop serving this site on"`
+}
+
+func (s *Server) registerDetachDomain(srv *mcp.Server) {
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "detach_domain",
+		Description: "Stop serving a site the caller owns on one of its custom hostnames. The site stays reachable on its own subdomain and the DNS record at the owner's registrar is untouched — after detaching, that record points at a hostname this platform no longer answers for, so tell the owner to remove it. Idempotent: detaching a domain the site does not serve is a no-op.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in detachDomainInput) (*mcp.CallToolResult, any, error) {
+		_, err := s.mcpUserAndAuthorize(ctx, in.Slug)
+		if err != nil {
+			return nil, nil, err
+		}
+		// Normalize without the claim guards: a domain already on this site must
+		// stay removable even if it would no longer pass them (the platform
+		// domain can change under an existing attachment).
+		host, err := build.NormalizeDomain(in.Domain)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid domain: %w", err)
+		}
+		meta := s.build.ReadMeta(ctx, in.Slug)
+		remaining := slices.DeleteFunc(slices.Clone(meta.Domains), func(d string) bool { return d == host })
+		detached := len(remaining) != len(meta.Domains)
+		if detached {
+			meta.Domains = remaining
+			err = s.persistDomains(ctx, in.Slug, meta)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+		return mcpJSON(map[string]any{
+			"ok": true, "slug": in.Slug, "domain": host,
+			"detached": detached,
+			"domains":  meta.Domains,
+			"next": fmt.Sprintf(
+				"%s no longer routes to %s — have the owner delete the DNS record pointing at %s",
+				host, in.Slug, s.cnameTarget(in.Slug)),
+		})
+	})
+}
+
+// persistDomains snapshots, writes the sidecar, and refreshes the in-memory
+// indexes — the same three steps in the same order as settingsSubmitHandler,
+// because the domain index is what dispatch.go routes on: skipping the rebuild
+// leaves an attached domain unroutable (and a detached one still routing)
+// until the next sweep.
+func (s *Server) persistDomains(ctx context.Context, slug string, meta build.SiteMeta) error {
+	s.snapshotBefore(ctx, slug, snapshot.ReasonSettings)
+	err := s.build.WriteMeta(ctx, slug, meta)
+	if err != nil {
+		return fmt.Errorf("save domains: %w", err)
+	}
+	s.registry.rebuildIndexesLogging(ctx)
+	return nil
 }
 
 type getDomainStatusInput struct {
@@ -73,7 +188,7 @@ func (s *Server) registerCheckDomain(srv *mcp.Server) {
 		// it anyway, and a targeted error beats a generic ACME failure.
 		if owner, ok := s.registry.lookupCustomDomain(host); !ok || owner != in.Slug {
 			return nil, nil, fmt.Errorf(
-				"%q is not attached to site %q — add it on the manage page first (%s)",
+				"%q is not attached to site %q — call attach_domain first (or add it at %s)",
 				host, in.Slug, s.manageURL(in.Slug))
 		}
 
@@ -156,7 +271,7 @@ func (s *Server) manageURL(slug string) string {
 // challenge reaches us), then the certificate, then nothing to do.
 func mcpDomainNext(statuses []domainStatus) string {
 	if len(statuses) == 0 {
-		return "no custom domains attached — add one on the manage page, then re-run get_domain_status for the DNS records"
+		return "no custom domains attached — call attach_domain to add one; it returns the DNS records the owner needs"
 	}
 	// A domain this site doesn't serve blocks everything else about it, and no
 	// amount of correct DNS changes that.
@@ -166,7 +281,7 @@ func mcpDomainNext(statuses []domainStatus) string {
 			if d.Detail != "" {
 				return d.Detail
 			}
-			return d.Domain + " is not attached to this site — add it on the manage page, then re-check"
+			return d.Domain + " is not attached to this site — call attach_domain, then re-check"
 		}
 	}
 	for i := range statuses {

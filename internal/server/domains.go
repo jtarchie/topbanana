@@ -290,7 +290,7 @@ func (s *Server) domainStatusFor(ctx context.Context, slug, host string, target 
 	if !out.Serves {
 		out.Cert = domainCertStatus{Status: certUnattached}
 		out.Detail = fmt.Sprintf(
-			"%s is not attached to %s — add it on the manage page, then re-check", host, slug)
+			"%s is not attached to %s — call attach_domain, then re-check", host, slug)
 		return out
 	}
 	out.Cert = s.checkCert(ctx, host)
