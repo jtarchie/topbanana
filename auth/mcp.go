@@ -24,10 +24,18 @@ const (
 	// MCPScope is the OAuth scope the MCP resource requires. Tokens carry it in
 	// the `scope` claim and the bearer middleware checks for it.
 	MCPScope = "mcp"
-	// MCPTokenTTL bounds how long a minted bearer token is honoured. Kept short
-	// because the OAuth flow can mint a fresh one without user friction once the
-	// passkey session exists.
+	// MCPTokenTTL bounds how long a minted bearer token is honoured. Short on
+	// purpose: the token is a self-contained JWT that nothing can revoke, so
+	// its lifetime is the whole of its blast radius. Clients stay connected
+	// past it by refreshing, not by holding it longer.
 	MCPTokenTTL = 12 * time.Hour
+
+	// MCPRefreshTTL bounds a refresh-token chain. It is the real "stay signed
+	// in" window: past it the user has to authorize in a browser again, so it
+	// trades against how often a human is willing to be interrupted rather
+	// than against exposure — a stolen refresh token is detectable and
+	// revocable, unlike a stolen access token.
+	MCPRefreshTTL = 30 * 24 * time.Hour
 )
 
 // mcpClaims is the JWT payload. Scopes is a non-standard claim the bearer

@@ -204,7 +204,20 @@ func TestCollectAppRows_SplitsFormDataFromLiveFiles(t *testing.T) {
 	st := storetest.New(t, 0)
 	s := &Server{store: st, build: build.NewWithConfig(build.Config{Store: st})}
 
-	const slug = "usagetest"
+	// A fixed slug plus a shared bucket is a trap: this test counts the files
+	// under it, so anything an earlier run left behind — a sidecar written by
+	// a later feature, say — makes it fail with no sign of where the extra
+	// file came from. Unique per run, and cleaned up after.
+	slug := storetest.FreshSlug(t, "usagetest")
+	t.Cleanup(func() {
+		files, err := st.List(context.Background(), slug)
+		if err != nil {
+			return
+		}
+		for _, f := range files {
+			_ = st.Delete(context.Background(), slug, f)
+		}
+	})
 	mustWrite := func(path, content, ct string) {
 		t.Helper()
 		err := st.Write(ctx, slug, path, content, ct, nil)

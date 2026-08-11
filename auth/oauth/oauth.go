@@ -52,6 +52,14 @@ import (
 
 const mcpAuthCodeTTL = 10 * time.Minute
 
+// refreshTTL bounds a rotation chain; refreshTombstoneGrace is how long a
+// consumed record is kept past expiry so a replay is still detectable rather
+// than just missing.
+const (
+	refreshTTL            = auth.MCPRefreshTTL
+	refreshTombstoneGrace = 7 * 24 * time.Hour
+)
+
 // mcpOAuthPrefix is the bucket namespace the authorization server owns:
 // registrations under clients/, pending authorization codes under codes/, one
 // JSON blob each — the same shape internal/auth uses for invites.
@@ -327,6 +335,9 @@ func (st *mcpOAuthState) revokeClient(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("oauth: revoke oauth client: %w", err)
 	}
+	// Without this the registration is gone but the client keeps renewing off
+	// a live rotation chain, so "revoked" in the console would not be true.
+	st.revokeClientRefresh(ctx, id)
 	return nil
 }
 
@@ -541,7 +552,7 @@ func (s *Server) authServerMetadataHandler(c *echo.Context) error {
 		"token_endpoint":                        base + "/oauth/token",
 		"registration_endpoint":                 base + "/oauth/register",
 		"response_types_supported":              []string{"code"},
-		"grant_types_supported":                 []string{"authorization_code"},
+		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"code_challenge_methods_supported":      []string{"S256"},
 		"token_endpoint_auth_methods_supported": []string{"none"},
 		"scopes_supported":                      []string{auth.MCPScope},
@@ -652,10 +663,19 @@ func (s *Server) authorizeHandler(c *echo.Context) error {
 // --- token endpoint ---------------------------------------------------------
 
 func (s *Server) tokenHandler(c *echo.Context) error {
-	if c.FormValue("grant_type") != "authorization_code" {
+	switch c.FormValue("grant_type") {
+	case "authorization_code":
+		return s.exchangeCode(c)
+	case "refresh_token":
+		return s.exchangeRefresh(c)
+	default:
 		return mcpRespJSON(c, http.StatusBadRequest, map[string]string{"error": "unsupported_grant_type"})
 	}
-	ac, ok, err := s.st.takeCode(c.Request().Context(), c.FormValue("code"))
+}
+
+func (s *Server) exchangeCode(c *echo.Context) error {
+	ctx := c.Request().Context()
+	ac, ok, err := s.st.takeCode(ctx, c.FormValue("code"))
 	if err != nil {
 		// The store failed, so we never learned whether the code was good.
 		// Saying invalid_grant would be a terminal verdict the client acts on
@@ -667,7 +687,8 @@ func (s *Server) tokenHandler(c *echo.Context) error {
 	if !ok {
 		return mcpRespJSON(c, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
 	}
-	if ac.ClientID != c.FormValue("client_id") || ac.RedirectURI != c.FormValue("redirect_uri") {
+	clientID := c.FormValue("client_id")
+	if ac.ClientID != clientID || ac.RedirectURI != c.FormValue("redirect_uri") {
 		return mcpRespJSON(c, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
 	}
 	if !verifyPKCE(c.FormValue("code_verifier"), ac.CodeChallenge) {
@@ -676,15 +697,62 @@ func (s *Server) tokenHandler(c *echo.Context) error {
 			"error_description": "PKCE verification failed",
 		})
 	}
-	token, err := auth.MintMCPToken(s.cfg.Secret, ac.Email, auth.MCPTokenTTL)
+	return s.grant(c, ac.Email, clientID, "")
+}
+
+func (s *Server) exchangeRefresh(c *echo.Context) error {
+	ctx := c.Request().Context()
+	clientID := c.FormValue("client_id")
+	rec, ok, err := s.st.redeemRefresh(ctx, c.FormValue("refresh_token"), clientID)
+
+	if errors.Is(err, errRefreshReused) {
+		// The token was already rotated away, so at least two parties hold it.
+		// Kill the chain rather than this link: the legitimate client is
+		// forced to authorize again, which is the right outcome once a
+		// credential is known to have escaped.
+		slog.Warn("mcp.oauth.refresh_reuse_detected",
+			"client_id", clientID, "family", rec.Family,
+			"action", "revoked the whole refresh chain")
+		s.st.revokeFamily(ctx, rec.Family)
+		return mcpRespJSON(c, http.StatusBadRequest, map[string]string{
+			"error":             "invalid_grant",
+			"error_description": "refresh token reuse detected; the session was revoked",
+		})
+	}
+	if err != nil {
+		slog.Warn("mcp.oauth.redeem_refresh_failed", "err", err)
+		return mcpRespJSON(c, http.StatusServiceUnavailable, map[string]string{"error": "temporarily_unavailable"})
+	}
+	if !ok {
+		return mcpRespJSON(c, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
+	}
+	return s.grant(c, rec.Email, clientID, rec.Family)
+}
+
+// grant mints an access token plus the refresh token that renews it. family
+// continues an existing rotation chain, or starts one when empty.
+//
+// A failure to issue the refresh token fails the whole exchange rather than
+// returning the access token alone: a client that gets one without the other
+// looks connected for twelve hours and then needs a human, which is the exact
+// failure this is meant to end.
+func (s *Server) grant(c *echo.Context, email, clientID, family string) error {
+	token, err := auth.MintMCPToken(s.cfg.Secret, email, auth.MCPTokenTTL)
 	if err != nil {
 		return mcpRespJSON(c, http.StatusInternalServerError, map[string]string{"error": "server_error"})
 	}
+	refresh, err := s.st.issueRefresh(c.Request().Context(), email, clientID, family)
+	if err != nil {
+		slog.Warn("mcp.oauth.issue_refresh_failed", "err", err)
+		return mcpRespJSON(c, http.StatusServiceUnavailable, map[string]string{"error": "temporarily_unavailable"})
+	}
+	s.st.sweepRefresh(c.Request().Context())
 	return mcpRespJSON(c, http.StatusOK, map[string]any{
-		"access_token": token,
-		"token_type":   "Bearer",
-		"expires_in":   int(auth.MCPTokenTTL.Seconds()),
-		"scope":        auth.MCPScope,
+		"access_token":  token,
+		"token_type":    "Bearer",
+		"expires_in":    int(auth.MCPTokenTTL.Seconds()),
+		"refresh_token": refresh,
+		"scope":         auth.MCPScope,
 	})
 }
 
