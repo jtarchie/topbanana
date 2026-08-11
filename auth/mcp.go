@@ -30,11 +30,19 @@ const (
 	// past it by refreshing, not by holding it longer.
 	MCPTokenTTL = 12 * time.Hour
 
-	// MCPRefreshTTL bounds a refresh-token chain. It is the real "stay signed
-	// in" window: past it the user has to authorize in a browser again, so it
-	// trades against how often a human is willing to be interrupted rather
-	// than against exposure — a stolen refresh token is detectable and
-	// revocable, unlike a stolen access token.
+	// MCPRefreshTTL is an idle timeout, not a cap on the chain: every rotation
+	// issues a token expiring this far from now, so a client that keeps
+	// refreshing never has to authorize in a browser again, and one that goes
+	// quiet for this long does.
+	//
+	// That is the intended behaviour — the point of refresh tokens here is to
+	// stop interrupting a working connection — but it means the ceiling on a
+	// stolen chain is not this constant. It is however long the theft goes
+	// unnoticed, bounded by reuse detection: the moment the victim's client
+	// refreshes with a token the attacker already spent (or vice versa), the
+	// whole family is revoked. An absolute cap would add a second bound at
+	// the cost of a scheduled browser interruption; that trade has not been
+	// taken.
 	MCPRefreshTTL = 30 * 24 * time.Hour
 )
 

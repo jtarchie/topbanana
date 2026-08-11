@@ -41,6 +41,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -58,6 +59,9 @@ const mcpAuthCodeTTL = 10 * time.Minute
 const (
 	refreshTTL            = auth.MCPRefreshTTL
 	refreshTombstoneGrace = 7 * 24 * time.Hour
+	// refreshSweepInterval caps how often the refresh sweep runs; see
+	// maybeSweepRefresh for why sweeping every grant does not scale.
+	refreshSweepInterval = time.Hour
 )
 
 // mcpOAuthPrefix is the bucket namespace the authorization server owns:
@@ -120,6 +124,11 @@ type mcpOAuthState struct {
 	// client_id is inert until /oauth/authorize sees a signed-in session);
 	// this caps the junk and the storage bill.
 	registerLimiter *ratelimit.Limiter
+
+	// lastRefreshSweep is the unix-nano timestamp of the last refresh sweep,
+	// used to throttle it. Per-instance: a few extra sweeps across a fleet is
+	// harmless, and coordinating them would cost more than it saves.
+	lastRefreshSweep atomic.Int64
 }
 
 type mcpOAuthClient struct {
@@ -337,7 +346,12 @@ func (st *mcpOAuthState) revokeClient(ctx context.Context, id string) error {
 	}
 	// Without this the registration is gone but the client keeps renewing off
 	// a live rotation chain, so "revoked" in the console would not be true.
-	st.revokeClientRefresh(ctx, id)
+	// Propagated rather than logged: reporting a successful revocation while
+	// the chain is still live is the one outcome an operator must not get.
+	err = st.revokeClientRefresh(ctx, id)
+	if err != nil {
+		return fmt.Errorf("oauth: revoke refresh tokens for client: %w", err)
+	}
 	return nil
 }
 
@@ -712,8 +726,14 @@ func (s *Server) exchangeRefresh(c *echo.Context) error {
 		// credential is known to have escaped.
 		slog.Warn("mcp.oauth.refresh_reuse_detected",
 			"client_id", clientID, "family", rec.Family,
-			"action", "revoked the whole refresh chain")
-		s.st.revokeFamily(ctx, rec.Family)
+			"action", "revoking the whole refresh chain")
+		revokeErr := s.st.revokeFamily(ctx, rec.Family)
+		if revokeErr != nil {
+			// The replay is still refused below, but the leaked chain is
+			// alive and nothing else will retry this. Loud enough to page on.
+			slog.Error("mcp.oauth.refresh_reuse_revoke_failed",
+				"client_id", clientID, "family", rec.Family, "err", revokeErr)
+		}
 		return mcpRespJSON(c, http.StatusBadRequest, map[string]string{
 			"error":             "invalid_grant",
 			"error_description": "refresh token reuse detected; the session was revoked",
@@ -746,7 +766,7 @@ func (s *Server) grant(c *echo.Context, email, clientID, family string) error {
 		slog.Warn("mcp.oauth.issue_refresh_failed", "err", err)
 		return mcpRespJSON(c, http.StatusServiceUnavailable, map[string]string{"error": "temporarily_unavailable"})
 	}
-	s.st.sweepRefresh(c.Request().Context())
+	s.st.maybeSweepRefresh(c.Request().Context())
 	return mcpRespJSON(c, http.StatusOK, map[string]any{
 		"access_token":  token,
 		"token_type":    "Bearer",

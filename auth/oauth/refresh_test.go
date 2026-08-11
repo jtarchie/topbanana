@@ -223,3 +223,71 @@ func TestRefresh_AdvertisedInMetadata(t *testing.T) {
 		t.Fatalf("grant_types_supported omits refresh_token: %s", rec.Body.String())
 	}
 }
+
+// The sweep is a LIST plus a GET per record, and refresh records outlive the
+// tokens they mint. Running it on every grant would make each refresh pay for
+// every record every other client has ever held, so it is throttled — a
+// second grant must not sweep again.
+func TestRefresh_SweepIsThrottled(t *testing.T) {
+	s := newOAuthTestServer(t)
+	ctx := context.Background()
+	clientID, first := connect(t, s)
+
+	// A record already past its grace window: the sweep would remove it.
+	dead := refreshRecord{
+		Email: "user@example.com", ClientID: clientID, Family: "old",
+		Expires: time.Now().Add(-2 * refreshTombstoneGrace),
+	}
+	body, err := json.Marshal(dead)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	deadKey := s.st.refreshKey("deadTokenAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	err = s.st.store.Put(ctx, deadKey, string(body))
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// connect() already swept, so this refresh must skip it and leave the
+	// stale record alone.
+	_, status := refresh(t, s, clientID, first.RefreshToken)
+	if status != http.StatusOK {
+		t.Fatalf("refresh = %d", status)
+	}
+	obj, err := s.st.store.Get(ctx, deadKey)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if obj.Content == "" {
+		t.Fatal("the sweep ran on a second grant inside the throttle window; every refresh would scan every record")
+	}
+
+	// Forcing the interval open lets it through, so the throttle delays the
+	// sweep rather than disabling it.
+	s.st.lastRefreshSweep.Store(0)
+	s.st.maybeSweepRefresh(ctx)
+	obj, err = s.st.store.Get(ctx, deadKey)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if obj.Content != "" {
+		t.Fatal("the sweep never removed an expired record even once the window opened")
+	}
+}
+
+// A revocation that could not reach the store must not report success: an
+// operator told "revoked" while the chain is live has been misinformed about
+// who still has access.
+func TestRefresh_RevokeRefusesEmptySelectors(t *testing.T) {
+	s := newOAuthTestServer(t)
+	ctx := context.Background()
+
+	err := s.st.revokeFamily(ctx, "")
+	if err == nil {
+		t.Fatal("revokeFamily(\"\") returned success — it would match every malformed record and delete them as a group")
+	}
+	err = s.st.revokeClientRefresh(ctx, "")
+	if err == nil {
+		t.Fatal("revokeClientRefresh(\"\") returned success")
+	}
+}

@@ -134,16 +134,30 @@ func (st *mcpOAuthState) redeemRefresh(ctx context.Context, token, clientID stri
 
 // revokeFamily deletes every token in a rotation chain. Called on reuse
 // detection, where the chain is known to have leaked.
-func (st *mcpOAuthState) revokeFamily(ctx context.Context, family string) {
-	st.deleteMatching(ctx, func(rec refreshRecord) bool { return rec.Family == family })
+//
+// Returns an error rather than swallowing one: this is a security operation,
+// and a caller that reports "revoked" after a failed store call has told the
+// operator something untrue about who still has access.
+func (st *mcpOAuthState) revokeFamily(ctx context.Context, family string) error {
+	if family == "" {
+		// Every record issueRefresh writes carries a family, so an empty one
+		// can only come from a malformed record — and matching on it would
+		// delete every other malformed record along with it. Refuse rather
+		// than turn one bad blob into a mass delete.
+		return errors.New("oauth: refusing to revoke an empty refresh family")
+	}
+	return st.deleteMatching(ctx, func(rec refreshRecord) bool { return rec.Family == family })
 }
 
 // revokeClientRefresh deletes every refresh token issued to a client. Without
 // this, revoking a registration would not actually cut off access: the client
 // keeps a live rotation chain and renews indefinitely, which would make the
 // admin console's "revoked" a lie.
-func (st *mcpOAuthState) revokeClientRefresh(ctx context.Context, clientID string) {
-	st.deleteMatching(ctx, func(rec refreshRecord) bool { return rec.ClientID == clientID })
+func (st *mcpOAuthState) revokeClientRefresh(ctx context.Context, clientID string) error {
+	if clientID == "" {
+		return errors.New("oauth: refusing to revoke refresh tokens for an empty client_id")
+	}
+	return st.deleteMatching(ctx, func(rec refreshRecord) bool { return rec.ClientID == clientID })
 }
 
 // sweepRefresh drops expired and consumed-but-stale records so the prefix
@@ -152,18 +166,43 @@ func (st *mcpOAuthState) revokeClientRefresh(ctx context.Context, clientID strin
 // immediately would turn a detectable replay into a silent miss.
 func (st *mcpOAuthState) sweepRefresh(ctx context.Context) {
 	cutoff := time.Now().Add(-refreshTombstoneGrace)
-	st.deleteMatching(ctx, func(rec refreshRecord) bool { return cutoff.After(rec.Expires) })
+	err := st.deleteMatching(ctx, func(rec refreshRecord) bool { return cutoff.After(rec.Expires) })
+	if err != nil {
+		slog.Warn("mcp.oauth.refresh_sweep_failed", "err", err)
+	}
+}
+
+// maybeSweepRefresh runs the sweep at most once per refreshSweepInterval.
+//
+// The throttle is load-bearing, not politeness. The sweep is a LIST plus a GET
+// per record, and refresh records are long-lived: every rotation writes a new
+// one and keeps the consumed one as a replay tombstone, so a client refreshing
+// twice a day accumulates ~70 records over their lifetime. Sweeping on every
+// grant would make each refresh cost a read of every record every other client
+// has ever held — work that grows with usage on the exact path this feature
+// exists to keep cheap.
+func (st *mcpOAuthState) maybeSweepRefresh(ctx context.Context) {
+	now := time.Now().UnixNano()
+	last := st.lastRefreshSweep.Load()
+	if now-last < int64(refreshSweepInterval) {
+		return
+	}
+	// CAS so concurrent grants don't all sweep; the loser simply skips.
+	if !st.lastRefreshSweep.CompareAndSwap(last, now) {
+		return
+	}
+	st.sweepRefresh(ctx)
 }
 
 // deleteMatching removes every refresh record satisfying match. Unparseable
 // records are removed too: they can never be honoured, so keeping them only
 // slows the sweep.
-func (st *mcpOAuthState) deleteMatching(ctx context.Context, match func(refreshRecord) bool) {
+func (st *mcpOAuthState) deleteMatching(ctx context.Context, match func(refreshRecord) bool) error {
 	keys, err := st.store.List(ctx, st.refreshPrefix())
 	if err != nil {
-		slog.Warn("mcp.oauth.refresh_list_failed", "err", err)
-		return
+		return fmt.Errorf("oauth: list refresh tokens: %w", err)
 	}
+	var failed error
 	for _, key := range keys {
 		obj, err := st.store.Get(ctx, key)
 		if err != nil || obj.Content == "" {
@@ -176,7 +215,14 @@ func (st *mcpOAuthState) deleteMatching(ctx context.Context, match func(refreshR
 		}
 		err = st.store.Delete(ctx, key)
 		if err != nil {
+			// Keep going: a caller revoking a chain wants every link it can
+			// remove gone, not an early return that leaves the rest live.
+			// The first failure is reported once the pass completes.
 			slog.Warn("mcp.oauth.refresh_delete_failed", "key", key, "err", err)
+			if failed == nil {
+				failed = fmt.Errorf("oauth: delete refresh token %s: %w", key, err)
+			}
 		}
 	}
+	return failed
 }
