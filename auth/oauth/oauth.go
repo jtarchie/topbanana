@@ -566,11 +566,30 @@ func (s *Server) authServerMetadataHandler(c *echo.Context) error {
 		"token_endpoint":                        base + "/oauth/token",
 		"registration_endpoint":                 base + "/oauth/register",
 		"response_types_supported":              []string{"code"},
-		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
+		"grant_types_supported":                 supportedGrantTypes(),
 		"code_challenge_methods_supported":      []string{"S256"},
 		"token_endpoint_auth_methods_supported": []string{"none"},
 		"scopes_supported":                      []string{auth.MCPScope},
 	})
+}
+
+// supportedGrantTypes is what the token endpoint will actually honour.
+//
+// It is advertised in two places that have to agree, and which say different
+// things to a client: the authorization-server metadata is what a client
+// discovers, but RFC 7591 makes the registration response authoritative for the
+// specific client it was issued to. They drifted — refresh_token was added to
+// the metadata and not to the registration response — and a client that
+// believed its own registration therefore never attempted a renewal, sending
+// its user back through the browser every time the access token aged out while
+// the metadata insisted renewals were available. Read from one place so the
+// next grant added cannot reintroduce that.
+//
+// Returns a fresh slice rather than exposing a package-level one, because both
+// callers hand it straight to a JSON encoder and a shared mutable slice is a
+// footgun for no benefit.
+func supportedGrantTypes() []string {
+	return []string{"authorization_code", "refresh_token"}
 }
 
 // --- dynamic client registration (RFC 7591, minimal) ------------------------
@@ -602,7 +621,7 @@ func (s *Server) registerHandler(c *echo.Context) error {
 		"redirect_uris":              req.RedirectURIs,
 		"client_name":                req.ClientName,
 		"token_endpoint_auth_method": "none",
-		"grant_types":                []string{"authorization_code"},
+		"grant_types":                supportedGrantTypes(),
 		"response_types":             []string{"code"},
 	})
 }

@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/labstack/echo/v5"
 )
 
 // tokenResponse is the subset of the token endpoint's JSON these tests read.
@@ -221,6 +225,61 @@ func TestRefresh_AdvertisedInMetadata(t *testing.T) {
 	rec := oauthGET(t, s, s.authServerMetadataHandler, "")
 	if !strings.Contains(rec.Body.String(), `"refresh_token"`) {
 		t.Fatalf("grant_types_supported omits refresh_token: %s", rec.Body.String())
+	}
+}
+
+// Advertising it in the metadata is not enough on its own. RFC 7591 makes the
+// registration response the authoritative grant set for the client it was
+// issued to, so a library that believes its own registration will never send a
+// refresh_token grant when that response omits it — and the symptom is
+// indistinguishable from having no refresh support at all: the user goes back
+// through the browser every time the access token ages out, while the metadata
+// insists renewals are available.
+//
+// Compared against the metadata rather than a literal, because the two
+// disagreeing is the whole failure this pins.
+func TestRefresh_AdvertisedInRegistrationResponse(t *testing.T) {
+	s := newOAuthTestServer(t)
+
+	body := strings.NewReader(`{"redirect_uris":["https://cb.example/done"],"client_name":"Test Client"}`)
+	req := httptest.NewRequest(http.MethodPost, "/oauth/register", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	err := s.registerHandler(echo.New().NewContext(req, rec))
+	if err != nil {
+		t.Fatalf("register handler: %v", err)
+	}
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("register returned %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var registered struct {
+		GrantTypes []string `json:"grant_types"`
+	}
+
+	err = json.Unmarshal(rec.Body.Bytes(), &registered)
+	if err != nil {
+		t.Fatalf("decode registration response: %v", err)
+	}
+
+	var metadata struct {
+		GrantTypes []string `json:"grant_types_supported"`
+	}
+
+	metaBody := oauthGET(t, s, s.authServerMetadataHandler, "").Body.Bytes()
+
+	err = json.Unmarshal(metaBody, &metadata)
+	if err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+
+	if !slices.Equal(registered.GrantTypes, metadata.GrantTypes) {
+		t.Fatalf("registration advertises %v but metadata advertises %v; a client trusting its own registration would never renew",
+			registered.GrantTypes, metadata.GrantTypes)
+	}
+	if !slices.Contains(registered.GrantTypes, "refresh_token") {
+		t.Fatalf("registration response omits refresh_token: %s", rec.Body.String())
 	}
 }
 
