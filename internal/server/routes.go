@@ -61,7 +61,16 @@ func (s *Server) mountRoutes(e *echo.Echo) {
 
 	admin := e.Group("", s.requireUser)
 	owns := s.requireSlugOwnership
-	admin.GET("/", s.landingHandler)
+	// `/` is the signed-in home and it is the app list, not the build form:
+	// after the first app exists, "what do I have" beats "make another one"
+	// on every subsequent visit. A redirect rather than a second render of
+	// appsHandler keeps /apps the one canonical URL (nav highlight, tests,
+	// bookmarks) instead of two paths that can drift. The build form keeps
+	// its own address at /new — every "New app" link points there.
+	admin.GET("/", func(c *echo.Context) error {
+		return c.Redirect(http.StatusFound, "/apps")
+	})
+	admin.GET("/new", s.landingHandler)
 	(&accountController{s}).registerAccount(admin)
 
 	// Super-admin-only surfaces carry requireSuperAdmin (role check on top of

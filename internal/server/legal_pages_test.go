@@ -102,24 +102,24 @@ func TestLegalFooterOnLandingPage(t *testing.T) {
 	httpSrv := httptest.NewServer(handler)
 	t.Cleanup(httpSrv.Close)
 
-	req, err := http.NewRequest(http.MethodGet, httpSrv.URL+"/", nil)
+	req, err := http.NewRequest(http.MethodGet, httpSrv.URL+"/new", nil)
 	if err != nil {
-		t.Fatalf("new GET /: %v", err)
+		t.Fatalf("new GET /new: %v", err)
 	}
 	req.Host = "localhost"
 	req.AddCookie(testSessionCookie)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("GET /: %v", err)
+		t.Fatalf("GET /new: %v", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status /: got %d want 200", resp.StatusCode)
+		t.Fatalf("status /new: got %d want 200", resp.StatusCode)
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		t.Fatalf("read /: %v", err)
+		t.Fatalf("read /new: %v", err)
 	}
 	html := string(body)
 

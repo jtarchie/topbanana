@@ -14,6 +14,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/state"
 )
 
@@ -67,7 +68,7 @@ func (s *Server) collectSubmissions(ctx context.Context, slug string) ([]string,
 	entries := make([]entry, 0, len(snap.Data))
 	fieldSet := map[string]struct{}{}
 	for k, v := range snap.Data {
-		m, ok := v.(map[string]any)
+		m, ok := isSubmissionRow(v)
 		if !ok {
 			continue
 		}
@@ -111,6 +112,69 @@ func (s *Server) collectSubmissions(ctx context.Context, slug string) ([]string,
 	return cols, rows, nil
 }
 
+// isSubmissionRow is the single definition of "this KV key is a stored row":
+// object-valued. Scalars — the `submission_seq` / `order_seq` / `photo_seq`
+// counters the site functions increment — are bookkeeping, not rows. The
+// inbox table and its exports (collectSubmissions), the delete endpoint
+// (deleteSubmissionKey), and the apps-list badge (submissionCount) all key on
+// this one predicate, so the three surfaces cannot drift into disagreeing
+// about what a submission is.
+func isSubmissionRow(v any) (map[string]any, bool) {
+	m, ok := v.(map[string]any)
+	return m, ok
+}
+
+// submissionCount is the at-a-glance "does this site have entries waiting"
+// number on the apps list. It counts exactly the rows /inbox/:slug lists —
+// same predicate, so the badge and the inbox can never disagree. On a
+// photo-wall site that means the `photo:` rows too, which is why the badge
+// says "entries" rather than "form entries": the inbox shows them the same
+// way.
+//
+// The read is the site's single state blob, so it is one S3 GET rather than a
+// per-entry listing — but it is the whole dataset, not a cheap scalar. There
+// is no cheaper object to read: the monotonic counters live inside this same
+// blob, so "just read the counter" would cost the identical GET and would
+// additionally overcount, since a delete removes the row without rewinding the
+// sequence. What does buy the savings is the capability gate below.
+//
+// Only a site that can write KV can have rows: server functions (the
+// EnablesFunctions gate in apiHandler) and the photo wall (EnablesPhotoWall in
+// photowallEnabled) are the only writers. Every brochure site — the common
+// case on the list — skips the GET entirely. The trade-off is a site whose
+// owner collected entries and then switched functions off in settings: its
+// badge disappears while the inbox still lists the rows. Losing the badge on a
+// site the owner has explicitly turned off beats a round-trip per static site
+// on what is now the default landing page.
+//
+// A load failure is a zero, not an error: a missing badge is a better apps
+// page than a 500 because one site's state blob is unreadable. It does mean an
+// S3 blip reads as "no entries" rather than "unknown".
+func (s *Server) submissionCount(ctx context.Context, slug string, meta build.SiteMeta) int {
+	if s.state == nil {
+		return 0
+	}
+	tmpl := build.EffectiveTemplate(meta)
+	if tmpl == nil || (!tmpl.EnablesFunctions && !tmpl.EnablesPhotoWall) {
+		return 0
+	}
+	snap, err := s.state.Load(ctx, slug)
+	if err != nil {
+		// Debug, not Warn: this runs once per listed site, so a flaky backend
+		// (or a viewer navigating away, which cancels ctx mid-fan-out) would
+		// otherwise emit one warning per app per page load.
+		slog.Debug("apps.submission_count", "slug", slug, "error", err)
+		return 0
+	}
+	count := 0
+	for _, v := range snap.Data {
+		if _, ok := isSubmissionRow(v); ok {
+			count++
+		}
+	}
+	return count
+}
+
 var (
 	errSubmissionNotFound = errors.New("submission not found")
 	errNotSubmissionKey   = errors.New("key is not a form submission")
@@ -135,7 +199,7 @@ func (s *Server) deleteSubmissionKey(ctx context.Context, slug, key string) erro
 		if !ok {
 			return errSubmissionNotFound
 		}
-		_, ok = v.(map[string]any)
+		_, ok = isSubmissionRow(v)
 		if !ok {
 			return errNotSubmissionKey
 		}

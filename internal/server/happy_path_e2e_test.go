@@ -122,7 +122,7 @@ func buildServerWithRunnerAndInfo(t *testing.T, st *store.Store, snapSvc *snapsh
 }
 
 // TestHappyPath_EndToEnd drives a fresh user through the redesigned UI flow:
-// land on /, submit a build, watch the SSE event stream complete, see the
+// land on /new, submit a build, watch the SSE event stream complete, see the
 // site listed on /apps, fetch the live site through the subdomain proxy,
 // open the edit page, then delete the app and confirm it vanishes from
 // /apps. The point is to catch the kinds of regressions a template-rewrite
@@ -163,9 +163,9 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	// 1. Landing page renders with DaisyUI lemonade chrome.
 	// authedGET defers Body.Close() inside the helper before returning resp;
 	// bodyclose can't see through the closure, hence the suppress.
-	resp, body := authedGET("/") //nolint:bodyclose // see comment.
+	resp, body := authedGET("/new") //nolint:bodyclose // see comment.
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /: %d", resp.StatusCode)
+		t.Fatalf("GET /new: %d", resp.StatusCode)
 	}
 	// Includes the bootstrap script + toggle markers so the dark-mode pass
 	// can't silently regress. `tb_theme` is the localStorage key the

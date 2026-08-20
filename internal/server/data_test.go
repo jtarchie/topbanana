@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -249,5 +250,117 @@ func TestDeleteSubmissionRetriesThroughConflicts(t *testing.T) {
 	kv.conflictsLeft = 0
 	if loadStateData(t, ctx, kv, slug)["submission:0002"] == nil {
 		t.Errorf("submission:0002 deleted despite exhausted CAS retries")
+	}
+}
+
+// TestAppsListShowsSubmissionCount covers the at-a-glance entry badge on
+// /apps across the three cases that can differ: a functions-enabled site with
+// rows (counts the object-valued rows only — the scalar `submission_seq`
+// seeded alongside them must not inflate it), a site whose template can't run
+// functions at all (skips the state read entirely, so no badge even with rows
+// sitting in the blob), and a functions-enabled site with nothing stored yet
+// (no badge rather than a "0 entries" one).
+func TestAppsListShowsSubmissionCount(t *testing.T) {
+	st := minioStore(t)
+	ctx := context.Background()
+	snapSvc := snapshot.New(st, 0)
+
+	withRows := "subcount-" + freshSlug(t)
+	gated := "subgated-" + freshSlug(t)
+	empty := "subempty-" + freshSlug(t)
+	// contact-form sets enables_functions; blank does not, which is what the
+	// badge's capability gate keys on.
+	for slug, tmpl := range map[string]string{withRows: "contact-form", gated: "blank", empty: "contact-form"} {
+		cleanupSlug(t, ctx, st, snapSvc, slug)
+		mustWrite(t, ctx, st, slug, "index.html", "<h1>home</h1>", "text/html")
+		writeMeta(t, ctx, st, slug, build.SiteMeta{Template: tmpl, OwnerID: testAdminUser})
+	}
+
+	kv := state.NewMemory()
+	seedSubmissions(t, ctx, kv, withRows) // 3 objects + 1 scalar counter
+	seedSubmissions(t, ctx, kv, gated)    // same rows, but the template can't run functions
+
+	srv := httptest.NewServer(buildServerWithState(t, st, snapSvc, kv))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/apps", nil)
+	if err != nil {
+		t.Fatalf("new GET /apps: %v", err)
+	}
+	req.Host = "localhost"
+	req.AddCookie(testSessionCookie)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /apps: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read /apps: %v", err)
+	}
+	html := string(body)
+
+	if got := appRowHTML(t, html, withRows); !strings.Contains(got, "3 entries") {
+		t.Errorf("%s row missing the %q badge — submissionCount should skip the scalar counter and count the 3 object rows; row=%q",
+			withRows, "3 entries", got)
+	}
+	if got := appRowHTML(t, html, withRows); strings.Contains(got, "4 entries") {
+		t.Errorf("%s counted the scalar submission_seq key as a submission", withRows)
+	}
+	// Both of these assert on the row, so they fail (rather than vacuously
+	// pass) if the site drops off the listing entirely.
+	for _, slug := range []string{gated, empty} {
+		if got := appRowHTML(t, html, slug); strings.Contains(got, "entries") || strings.Contains(got, "entry") {
+			t.Errorf("%s rendered an entry badge but should render none; row=%q", slug, got)
+		}
+	}
+}
+
+// appRowHTML returns the markup of one <li> row on the rendered apps list,
+// failing the test when the row is absent — so a badge assertion can't quietly
+// pass because the whole site vanished from the listing.
+func appRowHTML(t *testing.T, html, slug string) string {
+	t.Helper()
+	marker := `data-name="` + slug + `"`
+	i := strings.Index(html, marker)
+	if i == -1 {
+		t.Fatalf("/apps is missing the row for %s", slug)
+	}
+	rest := html[i:]
+	if end := strings.Index(rest, "</li>"); end != -1 {
+		return rest[:end]
+	}
+	return rest
+}
+
+// TestRootRedirectsToApps pins the landing swap: `/` is the app list now, and
+// the build form moved to /new. A regression here silently sends every
+// signed-in visit back to "make another app".
+func TestRootRedirectsToApps(t *testing.T) {
+	st := minioStore(t)
+	snapSvc := snapshot.New(st, 0)
+	srv := httptest.NewServer(buildServer(t, st, snapSvc))
+	t.Cleanup(srv.Close)
+
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/", nil)
+	if err != nil {
+		t.Fatalf("new GET /: %v", err)
+	}
+	req.Host = "localhost"
+	req.AddCookie(testSessionCookie)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("GET / status: got %d want 302", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Location"); got != "/apps" {
+		t.Errorf("GET / Location: got %q want %q", got, "/apps")
 	}
 }

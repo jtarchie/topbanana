@@ -121,7 +121,7 @@ func TestHappyPath_BrowserSmoke(t *testing.T) {
 			Name:  "prefers-color-scheme",
 			Value: "light",
 		}}),
-		chromedp.Navigate(httpSrv.URL+"/"),
+		chromedp.Navigate(httpSrv.URL+"/new"),
 		chromedp.WaitVisible(`textarea#prompt`, chromedp.ByQuery),
 		chromedp.AttributeValue(`html`, `data-theme`, &theme, nil),
 		chromedp.Text(`h1`, &bodyText, chromedp.ByQuery),
@@ -160,7 +160,7 @@ func TestHappyPath_BrowserSmoke(t *testing.T) {
 			Name:  "prefers-color-scheme",
 			Value: "dark",
 		}}),
-		chromedp.Navigate(httpSrv.URL+"/"),
+		chromedp.Navigate(httpSrv.URL+"/new"),
 		chromedp.WaitVisible(`textarea#prompt`, chromedp.ByQuery),
 		chromedp.AttributeValue(`html`, `data-theme`, &darkTheme, nil),
 	)

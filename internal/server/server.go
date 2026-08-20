@@ -19,6 +19,7 @@ import (
 	"github.com/labstack/echo/v5"
 	slogecho "github.com/samber/slog-echo/v2"
 	"github.com/tdewolff/minify/v2"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/jtarchie/topbanana/auth"
 	"github.com/jtarchie/topbanana/auth/blob"
@@ -494,12 +495,23 @@ type appLink struct {
 	// domain is configured. Surfaced on the row next to the slug so the user
 	// can see at a glance which apps live at their own address.
 	PrimaryDomain string
+	// Submissions is how many entries are currently stored for the site — the
+	// same rows /inbox/:slug lists, which on a photo-wall site includes the
+	// uploaded photos. 0 hides the badge, and 0 is also what any site that
+	// can't hold entries at all reports without a read (see submissionCount).
+	Submissions int
 	// Shared marks a site the viewer collaborates on rather than owns. The
 	// row otherwise looks identical, and the destructive actions behind it
 	// (delete, transfer) are owner-only — without the badge the first sign
 	// you don't own a site would be a 403 from a button you already clicked.
 	Shared bool
 }
+
+// appRowConcurrency bounds the fan-out that builds the apps-list rows. High
+// enough that a typical account's rows resolve in roughly one round-trip, low
+// enough that a super admin listing every site on the instance can't open a
+// connection per app against S3.
+const appRowConcurrency = 8
 
 type appsData struct {
 	Chrome
@@ -520,38 +532,72 @@ func (s *sitesController) appsHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "list apps", err)
 	}
 
-	links := make([]appLink, 0, len(apps))
-	for _, app := range apps {
-		meta := s.build.ReadMeta(ctx, app)
-		// Role-filter: regular admins see the apps they own plus the ones
-		// shared with them. Super admin sees everything regardless.
-		// Pre-migration data with an empty OwnerID falls through to
-		// super-admin-only on purpose; the startup migration assigns those
-		// on every boot. Read from the sidecar rather than the registry —
-		// this loop already holds the authoritative meta.
-		granted := user != nil && metaGrantsAccess(meta, user.Email)
-		if user != nil && user.Role != auth.RoleSuperAdmin && !granted {
-			continue
-		}
-		// A super admin reaching a site by role isn't collaborating on it, so
-		// the badge keys on an actual grant rather than on "not the owner".
-		shared := granted && meta.OwnerID != user.Email
-		primaryDomain := ""
-		if len(meta.Domains) > 0 {
-			primaryDomain = meta.Domains[0]
-		}
-		lastEdited, editedAt := s.lastEditedFor(ctx, app)
-		links = append(links, appLink{
-			Name:          app,
-			Title:         meta.Title,
-			Description:   meta.Description,
-			URL:           s.siteURL(c, app, "/"),
-			LastEdited:    lastEdited,
-			EditedAt:      editedAt,
-			PrimaryDomain: primaryDomain,
-			Shared:        shared,
+	// Each row is up to three independent S3 reads — the sidecar, the
+	// transcript listing behind "Edited …", and (only for sites that can hold
+	// entries) the state blob behind the badge — and `/` now lands here, so
+	// they resolve concurrently instead of one account's worth of round-trips
+	// end to end. Every read is a pure read against an internally-locked
+	// store cache, and the only shared writes are to distinct indexes of
+	// rows/keep, so the fan-out needs no lock of its own. Order is restored by
+	// the compaction below plus the sort, both driven by the input order.
+	// Site URLs are derived from the request (scheme, public port), so they are
+	// resolved here rather than inside the fan-out — the echo context stays
+	// single-threaded, and this loop does no I/O.
+	urls := make([]string, len(apps))
+	for i, app := range apps {
+		urls[i] = s.siteURL(c, app, "/")
+	}
+
+	rows := make([]appLink, len(apps))
+	keep := make([]bool, len(apps))
+	group := new(errgroup.Group)
+	group.SetLimit(appRowConcurrency)
+	for i, app := range apps {
+		group.Go(func() error {
+			meta := s.build.ReadMeta(ctx, app)
+			// Role-filter: regular admins see the apps they own plus the ones
+			// shared with them. Super admin sees everything regardless.
+			// Pre-migration data with an empty OwnerID falls through to
+			// super-admin-only on purpose; the startup migration assigns those
+			// on every boot. Read from the sidecar rather than the registry —
+			// this row already holds the authoritative meta.
+			granted := user != nil && metaGrantsAccess(meta, user.Email)
+			if user != nil && user.Role != auth.RoleSuperAdmin && !granted {
+				return nil
+			}
+			primaryDomain := ""
+			if len(meta.Domains) > 0 {
+				primaryDomain = meta.Domains[0]
+			}
+			lastEdited, editedAt := s.lastEditedFor(ctx, app)
+			rows[i] = appLink{
+				Name:          app,
+				Title:         meta.Title,
+				Description:   meta.Description,
+				URL:           urls[i],
+				LastEdited:    lastEdited,
+				EditedAt:      editedAt,
+				PrimaryDomain: primaryDomain,
+				Submissions:   s.submissionCount(ctx, app, meta),
+				// A super admin reaching a site by role isn't collaborating on
+				// it, so the badge keys on an actual grant rather than on "not
+				// the owner". granted is false when user is nil, which is what
+				// keeps the Email deref below unreachable in that case.
+				Shared: granted && meta.OwnerID != user.Email,
+			}
+			keep[i] = true
+			return nil
 		})
 	}
+	_ = group.Wait() // Every row swallows its own read errors; nothing to join.
+
+	links := make([]appLink, 0, len(apps))
+	for i, ok := range keep {
+		if ok {
+			links = append(links, rows[i])
+		}
+	}
+
 	sort.SliceStable(links, func(i, j int) bool {
 		return appLinkKey(links[i]) < appLinkKey(links[j])
 	})

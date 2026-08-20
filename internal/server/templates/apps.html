@@ -12,7 +12,7 @@
       <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight">Your apps</h1>
       {{ if .Apps }}<span id="apps-count" class="text-sm text-base-content/60" data-total="{{ len .Apps }}" aria-live="polite">{{ len .Apps }}</span>{{ end }}
     </div>
-    <a href="/" class="btn btn-primary">New app</a>
+    <a href="/new" class="btn btn-primary">New app</a>
   </div>
 
   {{ if .Flash }}
@@ -61,7 +61,20 @@
                    the owner-only actions in the menu 403 rather than hide. */}}
               {{ if .Shared }}<span class="badge badge-ghost badge-sm align-middle ml-1">Shared</span>{{ end }}
             </h2>
-            {{ if .LastEdited }}<span class="text-xs text-base-content/60 shrink-0">Edited {{ .LastEdited }}</span>{{ end }}
+            <span class="flex items-baseline gap-2 shrink-0">
+              {{/* Entry count, not "new since you last looked" — the platform
+                   stores no per-owner read marker, so a badge claiming "new"
+                   would be lying the second time you load the page. A stable
+                   total still answers the glance question: it moved, go look. */}}
+              {{/* "entries", not "form entries": on a photo-wall site the same
+                   rows are uploaded photos, and the Inbox lists both the same
+                   way. The badge is deliberately not a link — it sits inside
+                   the row's workspace anchor, where a nested <a> is invalid
+                   HTML — so the wording states where the entries are rather
+                   than telling the user to click it. Inbox is in the row menu. */}}
+              {{ if .Submissions }}<span class="badge badge-primary badge-sm" title="{{ .Submissions }} waiting in this app's Inbox">{{ .Submissions }} {{ if eq .Submissions 1 }}entry{{ else }}entries{{ end }}</span>{{ end }}
+              {{ if .LastEdited }}<span class="text-xs text-base-content/60">Edited {{ .LastEdited }}</span>{{ end }}
+            </span>
           </div>
           {{ if .Description }}<p class="text-sm text-base-content/70 line-clamp-1 mt-1">{{ .Description }}</p>{{ end }}
           <p class="text-xs text-base-content/60 mt-1.5 truncate">
@@ -128,7 +141,7 @@
         </svg>
         <h2 class="text-xl font-semibold mb-1">No apps yet</h2>
         <p class="text-base-content/70 mb-6 max-w-md">Describe what you'd like to build and we'll generate a working site.</p>
-        <a href="/" class="btn btn-primary">Create your first app</a>
+        <a href="/new" class="btn btn-primary">Create your first app</a>
       </div>
     </div>
   {{ end }}
