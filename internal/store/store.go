@@ -115,17 +115,9 @@ func (s *Store) Write(ctx context.Context, slug, path, content, contentType stri
 	// alt-text with em-dashes or non-Latin characters) round-trips safely.
 	encoded := encodeMetadata(metadata)
 
-	// Compress text-y payloads at rest. ContentType stays unchanged because
-	// callers (proxy, agent, MCP, lint) consume the decompressed form via
-	// Read — the stored representation is an implementation detail of this
-	// package, not part of the external object contract.
-	body := content
-	if isCompressibleContentType(contentType) {
-		compressed, cerr := compressutil.Compress([]byte(content))
-		if cerr != nil {
-			return fmt.Errorf("failed to compress object %s: %w", key, cerr)
-		}
-		body = string(compressed)
+	body, err := s.encodeBody(key, content, contentType)
+	if err != nil {
+		return err
 	}
 
 	etag, err := s.backend.put(ctx, key, []byte(body), contentType, encoded)
@@ -133,16 +125,98 @@ func (s *Store) Write(ctx context.Context, slug, path, content, contentType stri
 		return err
 	}
 
-	if s.cache != nil {
-		s.cache.Add(key, &S3Object{
-			Content:     content,
-			ETag:        etag,
-			ContentType: contentType,
-			Metadata:    cloneMetadata(metadata),
-		})
-	}
+	s.cacheStore(key, content, etag, contentType, metadata)
 
 	return nil
+}
+
+// WriteConditional is Write under a compare-and-set: the object must currently
+// carry expectedETag, or — when expectedETag is "" — must not exist at all.
+// Returns ErrPrecondition when someone else wrote in between, which is a
+// "re-read and retry", never a fault.
+//
+// It exists because a read-modify-write on a shared object is only safe if one
+// writer can win. The per-site sidecar is the case that forced it: two people
+// with access to the same site (owner and collaborator) can save settings and
+// change the collaborator list at the same time, and a last-writer-wins
+// round-trip silently discards whichever change was read first — including a
+// revocation, which comes back.
+//
+// On ErrPrecondition the cached copy is provably stale, so it's evicted: the
+// caller's retry has to re-read from the backend or it would just resubmit the
+// same losing ETag forever.
+func (s *Store) WriteConditional(
+	ctx context.Context,
+	slug, path, content, contentType string,
+	metadata map[string]string,
+	expectedETag string,
+) (string, error) {
+	err := ValidateObjectPath(path)
+	if err != nil {
+		return "", err
+	}
+	key := slug + "/" + path
+	if contentType == "" {
+		contentType = DefaultContentType
+	}
+	body, err := s.encodeBody(key, content, contentType)
+	if err != nil {
+		return "", err
+	}
+
+	etag, err := s.backend.putConditional(ctx, key, []byte(body), contentType, encodeMetadata(metadata), expectedETag)
+	if err != nil {
+		if errors.Is(err, ErrPrecondition) && s.cache != nil {
+			s.cache.Remove(key)
+		}
+		return "", err
+	}
+
+	s.cacheStore(key, content, etag, contentType, metadata)
+	return etag, nil
+}
+
+// cacheStore records a just-written object under its post-write ETag. Shared by
+// Write and WriteConditional so the two can't cache differently.
+func (s *Store) cacheStore(key, content, etag, contentType string, metadata map[string]string) {
+	if s.cache == nil {
+		return
+	}
+	s.cache.Add(key, &S3Object{
+		Content:     content,
+		ETag:        etag,
+		ContentType: contentType,
+		Metadata:    cloneMetadata(metadata),
+	})
+}
+
+// ReadFresh is Read with the ARC cache bypassed (and the stale entry dropped).
+// The retry half of a compare-and-set needs it: a cached object carries the
+// ETag that just lost, so re-reading through the cache would resubmit it.
+func (s *Store) ReadFresh(ctx context.Context, slug, path string) (*S3Object, error) {
+	if s.cache != nil {
+		err := ValidateObjectPath(path)
+		if err != nil {
+			return nil, err
+		}
+		s.cache.Remove(slug + "/" + path)
+	}
+	return s.Read(ctx, slug, path)
+}
+
+// encodeBody compresses text-y payloads at rest. ContentType stays unchanged
+// because callers (proxy, agent, MCP, lint) consume the decompressed form via
+// Read — the stored representation is an implementation detail of this
+// package, not part of the external object contract.
+func (s *Store) encodeBody(key, content, contentType string) (string, error) {
+	if !isCompressibleContentType(contentType) {
+		return content, nil
+	}
+	compressed, err := compressutil.Compress([]byte(content))
+	if err != nil {
+		return "", fmt.Errorf("failed to compress object %s: %w", key, err)
+	}
+	return string(compressed), nil
 }
 
 // encodeMetadata URL-escapes metadata values so unicode round-trips through

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 
 	"github.com/labstack/echo/v5"
 
@@ -71,19 +72,44 @@ func metaGrantsAccess(meta build.SiteMeta, email string) bool {
 	return false
 }
 
-// writeCollaborators persists a collaborator list to the sidecar and refreshes
-// the in-memory index. Both are required: the sidecar is the truth an index
-// rebuild reads back, and the index is what every access gate actually
-// consults, so a write that updates only one of them either loses the grant on
-// restart or doesn't take effect until the next sweep.
-func (s *Server) writeCollaborators(c *echo.Context, slug string, meta build.SiteMeta, list []string) error {
-	meta.Collaborators = normalizeCollaborators(list, meta.OwnerID)
-	err := s.build.WriteMeta(c.Request().Context(), slug, meta)
+// Outcomes a collaborator-list mutation can report back from inside the
+// compare-and-set closure. They're sentinels rather than HTTP errors because
+// the closure runs against whatever the sidecar says at write time, which may
+// differ from what the handler read a moment earlier — the decision has to be
+// made where the authoritative value is.
+var (
+	errAlreadyOwner  = errors.New("that user already owns this site")
+	errAlreadyShared = errors.New("already has access")
+	errNotShared     = errors.New("does not have access")
+	errTooManyShares = errors.New("collaborator limit reached")
+)
+
+// updateCollaborators is the one write path for the list. It goes through
+// build.UpdateMeta — a compare-and-set read-modify-write — rather than
+// ReadMeta + WriteMeta, because the sidecar now has more than one writer with
+// access to it: an owner sharing a site while a collaborator saves settings
+// would otherwise lose whichever change was read first, and a lost *removal*
+// silently restores access. UpdateMeta also surfaces a failed read instead of
+// persisting ReadMeta's zero value, which would blank OwnerID and orphan the
+// site.
+//
+// mutate reports its outcome through the returned sentinel; it must be a pure
+// function of the meta it's handed, since a CAS retry calls it again.
+func (s *Server) updateCollaborators(
+	ctx context.Context,
+	slug string,
+	mutate func(meta *build.SiteMeta) error,
+) (build.SiteMeta, error, error) {
+	var outcome error
+	meta, err := s.build.UpdateMeta(ctx, slug, func(m *build.SiteMeta) {
+		outcome = mutate(m)
+		m.Collaborators = normalizeCollaborators(m.Collaborators, m.OwnerID)
+	})
 	if err != nil {
-		return httpErr(http.StatusInternalServerError, "write meta", err)
+		return build.SiteMeta{}, nil, httpErr(http.StatusInternalServerError, "update site meta", err)
 	}
 	s.registry.setCollaborators(slug, meta.Collaborators)
-	return nil
+	return meta, outcome, nil
 }
 
 // addCollaboratorHandler grants an existing user full working access to a
@@ -93,7 +119,12 @@ func (s *Server) writeCollaborators(c *echo.Context, slug string, meta build.Sit
 // The recipient must already have an account: issuing an invite here would let
 // any site owner create users on the instance, which is a super-admin-only
 // power (auth.InviteStore is reached from the admin surface alone). An unknown
-// email is a 404 with the same wording the transfer form uses.
+// address and a disabled one answer identically — sharing is a routine action
+// offered to every owner, and distinguishable responses would turn each of
+// them into an oracle for who has an account on an invite-only instance. A
+// successful share still confirms the address exists, which is inherent to the
+// feature; what this removes is the ability to probe addresses you can't share
+// with.
 func (s *sitesController) addCollaboratorHandler(c *echo.Context) error {
 	slug, err := slugParam(c)
 	if err != nil {
@@ -113,28 +144,36 @@ func (s *sitesController) addCollaboratorHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "load collaborator", err)
 	}
 	if recipient.Disabled {
-		return echo.NewHTTPError(http.StatusBadRequest, "that account is disabled")
+		return echo.NewHTTPError(http.StatusNotFound, "no user with that email")
 	}
 
-	meta := s.build.ReadMeta(ctx, slug)
-	if recipient.Email == auth.NormalizeEmail(meta.OwnerID) {
-		return echo.NewHTTPError(http.StatusBadRequest, "that user already owns this site")
-	}
-	// Idempotent: re-adding someone is a no-op with the same flash, not an
-	// error. Two owners' tabs racing on the same email shouldn't 400.
-	for _, existing := range meta.Collaborators {
-		if existing == recipient.Email {
-			return c.Redirect(http.StatusSeeOther, manageFlash(slug, recipient.Email+" already has access")) //nolint:wrapcheck
+	_, outcome, err := s.updateCollaborators(ctx, slug, func(m *build.SiteMeta) error {
+		if recipient.Email == auth.NormalizeEmail(m.OwnerID) {
+			return errAlreadyOwner
 		}
-	}
-	if len(meta.Collaborators) >= maxCollaborators {
-		return echo.NewHTTPError(http.StatusBadRequest,
-			fmt.Sprintf("a site can have at most %d collaborators", maxCollaborators))
-	}
-
-	err = s.writeCollaborators(c, slug, meta, append(meta.Collaborators, recipient.Email))
+		for _, existing := range m.Collaborators {
+			if existing == recipient.Email {
+				return errAlreadyShared
+			}
+		}
+		if len(m.Collaborators) >= maxCollaborators {
+			return errTooManyShares
+		}
+		m.Collaborators = append(m.Collaborators, recipient.Email)
+		return nil
+	})
 	if err != nil {
 		return err
+	}
+	switch {
+	case errors.Is(outcome, errAlreadyOwner):
+		return echo.NewHTTPError(http.StatusBadRequest, "that user already owns this site")
+	case errors.Is(outcome, errTooManyShares):
+		return echo.NewHTTPError(http.StatusBadRequest,
+			fmt.Sprintf("a site can have at most %d collaborators", maxCollaborators))
+	case errors.Is(outcome, errAlreadyShared):
+		// Idempotent: re-adding someone is a no-op with a flash, not an error.
+		return c.Redirect(http.StatusSeeOther, manageFlash(slug, recipient.Email+" already has access")) //nolint:wrapcheck
 	}
 
 	slog.Info("app.collaborator.add", "slug", slug, "email", recipient.Email, "by", callerEmail(c))
@@ -155,23 +194,27 @@ func (s *sitesController) removeCollaboratorHandler(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "collaborator_email required")
 	}
 
-	meta := s.build.ReadMeta(c.Request().Context(), slug)
-	kept := make([]string, 0, len(meta.Collaborators))
-	found := false
-	for _, existing := range meta.Collaborators {
-		if existing == target {
-			found = true
-			continue
+	_, outcome, err := s.updateCollaborators(c.Request().Context(), slug, func(m *build.SiteMeta) error {
+		kept := make([]string, 0, len(m.Collaborators))
+		found := false
+		for _, existing := range m.Collaborators {
+			if existing == target {
+				found = true
+				continue
+			}
+			kept = append(kept, existing)
 		}
-		kept = append(kept, existing)
-	}
-	if !found {
-		return c.Redirect(http.StatusSeeOther, manageFlash(slug, target+" does not have access")) //nolint:wrapcheck
-	}
-
-	err = s.writeCollaborators(c, slug, meta, kept)
+		if !found {
+			return errNotShared
+		}
+		m.Collaborators = kept
+		return nil
+	})
 	if err != nil {
 		return err
+	}
+	if errors.Is(outcome, errNotShared) {
+		return c.Redirect(http.StatusSeeOther, manageFlash(slug, target+" does not have access")) //nolint:wrapcheck
 	}
 
 	slog.Info("app.collaborator.remove", "slug", slug, "email", target, "by", callerEmail(c))
@@ -190,6 +233,11 @@ func (s *Server) removeCollaboratorEverywhere(ctx context.Context, email string)
 	if email == "" {
 		return 0, nil
 	}
+	// Authoritative ListApps + ReadMeta rather than the in-memory collabIndex,
+	// for the same reason deleteAppsOwnedBy scans: the index is per-process, so
+	// another instance's just-added grant isn't in ours. The ReadMeta pass is
+	// the cheap filter — only sites that actually name the address pay for a
+	// compare-and-set write.
 	slugs, err := s.store.ListApps(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("list apps: %w", err)
@@ -197,21 +245,21 @@ func (s *Server) removeCollaboratorEverywhere(ctx context.Context, email string)
 	count := 0
 	var firstErr error
 	for _, slug := range slugs {
-		meta := s.build.ReadMeta(ctx, slug)
-		kept := make([]string, 0, len(meta.Collaborators))
-		for _, existing := range meta.Collaborators {
-			if existing != email {
-				kept = append(kept, existing)
-			}
-		}
-		if len(kept) == len(meta.Collaborators) {
+		if !slices.Contains(s.build.ReadMeta(ctx, slug).Collaborators, email) {
 			continue
 		}
-		meta.Collaborators = normalizeCollaborators(kept, meta.OwnerID)
-		werr := s.build.WriteMeta(ctx, slug, meta)
-		if werr != nil {
+		meta, uerr := s.build.UpdateMeta(ctx, slug, func(m *build.SiteMeta) {
+			kept := make([]string, 0, len(m.Collaborators))
+			for _, existing := range m.Collaborators {
+				if existing != email {
+					kept = append(kept, existing)
+				}
+			}
+			m.Collaborators = normalizeCollaborators(kept, m.OwnerID)
+		})
+		if uerr != nil {
 			if firstErr == nil {
-				firstErr = werr
+				firstErr = uerr
 			}
 			continue
 		}

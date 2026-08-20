@@ -430,9 +430,13 @@ func (s *adminController) adminUserDeleteHandler(c *echo.Context) error {
 	// stays, the grant goes. Skipping this leaves the deleted address in
 	// other people's sidecars, where re-inviting it restores access nobody
 	// re-granted.
-	shared, err := s.removeCollaboratorEverywhere(ctx, email)
-	if err != nil {
-		return httpErr(http.StatusInternalServerError, "revoke shared access", err)
+	// Best-effort for the same reason as the account self-delete path: the
+	// owned sites have already been deleted or reassigned, so a 500 here would
+	// strand the user record with its data gone. Logged at error so a leftover
+	// grant is visible.
+	shared, sweepErr := s.removeCollaboratorEverywhere(ctx, email)
+	if sweepErr != nil {
+		slog.Error("admin.user.delete.share_revoke_failed", "email", email, "err", sweepErr)
 	}
 
 	revokeErr := s.auth.Sessions.RevokeAllForUser(ctx, email)

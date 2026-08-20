@@ -75,9 +75,29 @@ func (s *Server) requireSlugOwner(next echo.HandlerFunc) echo.HandlerFunc {
 		if u == nil {
 			return notFound()
 		}
-		if u.Role == auth.RoleSuperAdmin || s.registry.ownerOf(slug) == u.Email {
+		if s.isOwner(slug, u) {
 			return next(c)
 		}
 		return echo.NewHTTPError(http.StatusForbidden, "only the site owner can do that")
 	}
+}
+
+// isOwner is the counterpart to registry.canAccess: one definition of "may do
+// the owner-only things", used by both the gate and the manage page that
+// decides whether to render them. Two surfaces deriving it separately is how a
+// page ends up offering a button the gate refuses (or hiding one it allows).
+// Empty email never matches, for the same reason canAccess refuses it: it must
+// not collide with the empty OwnerID of a pre-migration site.
+func (s *Server) isOwner(slug string, u *auth.User) bool {
+	if u == nil {
+		return false
+	}
+	if u.Role == auth.RoleSuperAdmin {
+		return true
+	}
+	email := auth.NormalizeEmail(u.Email)
+	if email == "" {
+		return false
+	}
+	return s.registry.ownerOf(slug) == email
 }

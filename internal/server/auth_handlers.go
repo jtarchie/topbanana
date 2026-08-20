@@ -276,10 +276,14 @@ func (s *accountController) accountDeleteHandler(c *echo.Context) error {
 	}
 	// Sites this user only collaborated on stay put — they belong to someone
 	// else — but the grant itself must go, or re-registering this address
-	// would silently restore access to them.
-	shared, err := s.removeCollaboratorEverywhere(ctx, email)
-	if err != nil {
-		return httpErr(http.StatusInternalServerError, "revoke shared access", err)
+	// would silently restore access to them. Best-effort, like the session
+	// revoke below: the sites are already gone by this point, so failing the
+	// request here would leave the account alive with none of its data and
+	// every retry re-running the same sweep. The residual grant is logged loud
+	// enough to be swept by hand.
+	shared, sweepErr := s.removeCollaboratorEverywhere(ctx, email)
+	if sweepErr != nil {
+		slog.Error("account.delete.share_revoke_failed", "email", email, "err", sweepErr)
 	}
 	revokeErr := s.auth.Sessions.RevokeAllForUser(ctx, email)
 	if revokeErr != nil {

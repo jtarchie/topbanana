@@ -267,3 +267,79 @@ func TestCollaborator_TransferDropsRecipientFromList(t *testing.T) {
 		t.Errorf("new owner still listed as collaborator: %v", meta.Collaborators)
 	}
 }
+
+// TestCollaborator_DisabledAccountLosesPrivateAccess covers the operator's
+// kill switch on the one path that doesn't run through requireUser: the
+// private-site proxy reads the session cookie directly, and session revocation
+// on disable is explicitly best-effort, so a warm cookie has to be re-checked
+// against the current record.
+func TestCollaborator_DisabledAccountLosesPrivateAccess(t *testing.T) {
+	const owner = "own6@test"
+	const bob = "bob6@test"
+	slug := "collab-disabled-" + freshSlug(t)
+	rig, base := collabRig(t, slug, owner)
+
+	ownerCookie := rig.session(t, owner, auth.RoleAdmin)
+	bobCookie := rig.session(t, bob, auth.RoleAdmin)
+
+	resp := postForm(t, base, "/apps/"+slug+"/collaborators", ownerCookie,
+		url.Values{"collaborator_email": {bob}})
+	_ = resp.Body.Close()
+	if status := siteGet(t, base, slug, bobCookie); status != http.StatusOK {
+		t.Fatalf("shared private site before disable: got %d want 200", status)
+	}
+
+	ctx := context.Background()
+	user, err := rig.auth.Users.Load(ctx, bob)
+	if err != nil {
+		t.Fatalf("load %s: %v", bob, err)
+	}
+	user.Disabled = true
+	err = rig.auth.Users.Save(ctx, user)
+	if err != nil {
+		t.Fatalf("disable %s: %v", bob, err)
+	}
+
+	// Same cookie, same grant — the account is what changed.
+	if status := siteGet(t, base, slug, bobCookie); status != http.StatusNotFound {
+		t.Errorf("disabled collaborator still reads the private site: got %d want 404", status)
+	}
+	if status, _ := authedGetStatus(t, base, "/manage/"+slug, bobCookie); status == http.StatusOK {
+		t.Error("disabled collaborator still reaches /manage")
+	}
+}
+
+// TestCollaborator_ReassignOnUserDeleteDropsDuplicate guards the sidecar
+// invariant on the other ownership-moving path: deleting a user with
+// transfer_to must not leave the new owner sitting in their own collaborator
+// list, where the Remove button next to their address reads as revoking an
+// owner.
+func TestCollaborator_ReassignOnUserDeleteDropsDuplicate(t *testing.T) {
+	const owner = "own7@test"
+	const bob = "bob7@test"
+	slug := "collab-reassign-" + freshSlug(t)
+	rig, base := collabRig(t, slug, owner)
+
+	superCookie := rig.session(t, testAdminUser, auth.RoleSuperAdmin)
+	ownerCookie := rig.session(t, owner, auth.RoleAdmin)
+	_ = rig.session(t, bob, auth.RoleAdmin)
+
+	resp := postForm(t, base, "/apps/"+slug+"/collaborators", ownerCookie,
+		url.Values{"collaborator_email": {bob}})
+	_ = resp.Body.Close()
+
+	resp = postForm(t, base, "/admin/users/"+owner, superCookie,
+		url.Values{"_method": {"DELETE"}, "confirm": {owner}, "disposition": {"transfer"}, "transfer_to": {bob}})
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("delete-with-transfer: got %d want 303", resp.StatusCode)
+	}
+
+	meta := readMetaDirect(t, rig, slug)
+	if meta.OwnerID != bob {
+		t.Fatalf("owner = %q, want %q", meta.OwnerID, bob)
+	}
+	if len(meta.Collaborators) != 0 {
+		t.Errorf("new owner still listed as a collaborator: %v", meta.Collaborators)
+	}
+}

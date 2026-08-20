@@ -140,8 +140,13 @@ func (s *Server) reassignAppsOwnedBy(ctx context.Context, from, to string) (int,
 		if meta.OwnerID != from {
 			continue
 		}
-		meta.OwnerID = to
-		werr := s.build.WriteMeta(ctx, slug, meta)
+		updated, werr := s.build.UpdateMeta(ctx, slug, func(m *build.SiteMeta) {
+			m.OwnerID = to
+			// Same invariant transferAppHandler keeps: the new owner must not
+			// also sit in Collaborators, where removing them would read as
+			// revoking an owner.
+			m.Collaborators = normalizeCollaborators(m.Collaborators, m.OwnerID)
+		})
 		if werr != nil {
 			if firstErr == nil {
 				firstErr = werr
@@ -149,6 +154,7 @@ func (s *Server) reassignAppsOwnedBy(ctx context.Context, from, to string) (int,
 			continue
 		}
 		s.registry.setOwner(slug, to)
+		s.registry.setCollaborators(slug, updated.Collaborators)
 		slog.Info("app.transfer", "slug", slug, "from", from, "to", to, "reason", "owner_delete")
 		count++
 	}

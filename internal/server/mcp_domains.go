@@ -68,8 +68,11 @@ func (s *Server) registerAttachDomain(srv *mcp.Server) {
 		meta := s.build.ReadMeta(ctx, in.Slug)
 		added := !slices.Contains(meta.Domains, host)
 		if added {
-			meta.Domains = append(meta.Domains, host)
-			err = s.persistDomains(ctx, in.Slug, meta)
+			meta, err = s.persistDomains(ctx, in.Slug, func(m *build.SiteMeta) {
+				if !slices.Contains(m.Domains, host) {
+					m.Domains = append(m.Domains, host)
+				}
+			})
 			if err != nil {
 				return nil, nil, err
 			}
@@ -123,11 +126,11 @@ func (s *Server) registerDetachDomain(srv *mcp.Server) {
 			return nil, nil, fmt.Errorf("invalid domain: %w", err)
 		}
 		meta := s.build.ReadMeta(ctx, in.Slug)
-		remaining := slices.DeleteFunc(slices.Clone(meta.Domains), func(d string) bool { return d == host })
-		detached := len(remaining) != len(meta.Domains)
+		detached := slices.Contains(meta.Domains, host)
 		if detached {
-			meta.Domains = remaining
-			err = s.persistDomains(ctx, in.Slug, meta)
+			meta, err = s.persistDomains(ctx, in.Slug, func(m *build.SiteMeta) {
+				m.Domains = slices.DeleteFunc(slices.Clone(m.Domains), func(d string) bool { return d == host })
+			})
 			if err != nil {
 				return nil, nil, err
 			}
@@ -143,19 +146,23 @@ func (s *Server) registerDetachDomain(srv *mcp.Server) {
 	})
 }
 
-// persistDomains snapshots, writes the sidecar, and refreshes the in-memory
-// indexes — the same three steps in the same order as settingsSubmitHandler,
+// persistDomains snapshots, applies mutate to the sidecar, and refreshes the
+// in-memory indexes — the same three steps in the same order as settingsSubmitHandler,
 // because the domain index is what dispatch.go routes on: skipping the rebuild
 // leaves an attached domain unroutable (and a detached one still routing)
 // until the next sweep.
-func (s *Server) persistDomains(ctx context.Context, slug string, meta build.SiteMeta) error {
+// The mutation runs under UpdateMeta's compare-and-set rather than a plain
+// read-modify-write: the snapshot below is slow enough that a co-owner's
+// concurrent settings save would otherwise be written back out of existence,
+// and a domain lost that way is a site that stops routing.
+func (s *Server) persistDomains(ctx context.Context, slug string, mutate func(*build.SiteMeta)) (build.SiteMeta, error) {
 	s.snapshotBefore(ctx, slug, snapshot.ReasonSettings)
-	err := s.build.WriteMeta(ctx, slug, meta)
+	meta, err := s.build.UpdateMeta(ctx, slug, mutate)
 	if err != nil {
-		return fmt.Errorf("save domains: %w", err)
+		return build.SiteMeta{}, fmt.Errorf("save domains: %w", err)
 	}
 	s.registry.rebuildIndexesLogging(ctx)
-	return nil
+	return meta, nil
 }
 
 type getDomainStatusInput struct {

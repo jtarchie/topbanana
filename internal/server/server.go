@@ -529,12 +529,13 @@ func (s *sitesController) appsHandler(c *echo.Context) error {
 		// super-admin-only on purpose; the startup migration assigns those
 		// on every boot. Read from the sidecar rather than the registry —
 		// this loop already holds the authoritative meta.
-		if user != nil && user.Role != auth.RoleSuperAdmin && !metaGrantsAccess(meta, user.Email) {
+		granted := user != nil && metaGrantsAccess(meta, user.Email)
+		if user != nil && user.Role != auth.RoleSuperAdmin && !granted {
 			continue
 		}
 		// A super admin reaching a site by role isn't collaborating on it, so
 		// the badge keys on an actual grant rather than on "not the owner".
-		shared := user != nil && meta.OwnerID != user.Email && metaGrantsAccess(meta, user.Email)
+		shared := granted && meta.OwnerID != user.Email
 		primaryDomain := ""
 		if len(meta.Domains) > 0 {
 			primaryDomain = meta.Domains[0]
@@ -847,7 +848,7 @@ func (s *sitesController) editSubmitHandler(c *echo.Context) error {
 	tiers := s.effectiveTiersFor(userFromContext(c))
 	// EffectiveTemplate wraps templates.Get, which is non-nil at runtime
 	// (init guarantees defaultID is present).
-	slog.Info("edit.start", "slug", slug, "page", page, "template", tmpl.ID, "seeds", len(seeds), "attachments", len(attachments), "tiers", tiers) //nolint:nilaway // see comment.
+	slog.Info("edit.start", "slug", slug, "page", page, "template", tmpl.ID, "seeds", len(seeds), "attachments", len(attachments), "user", callerEmail(c), "tiers", tiers) //nolint:nilaway // see comment.
 	return s.startBuild(c, build.Params{
 		Slug:        slug,
 		Prompt:      build.EditPrompt(prompt, page),
@@ -927,33 +928,39 @@ func (s *sitesController) settingsSubmitHandler(c *echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
-	meta := s.build.ReadMeta(ctx, slug)
 
 	domains, derr := s.parseDomains(c.FormValue("domains"), slug)
 	if derr != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, derr.Error())
 	}
-	added := newlyAddedDomains(meta.Domains, domains)
-	meta.Domains = domains
-
-	// Only honour the override when the template doesn't already enable
-	// functions. Templates that do (contact-form, guestbook, tiny-shop) keep
-	// functions on regardless of the per-site bit, so the form's checked-state
-	// always matches what the user sees.
-	if base := templates.Get(meta.Template); base == nil || !base.EnablesFunctions {
-		meta.EnablesFunctions = c.FormValue("enable_functions") == "on"
-	}
-
-	meta.EnablesPublicAPI = c.FormValue("enable_public_api") == "on"
-	meta.Private = c.FormValue("private") == "on"
 
 	s.snapshotBefore(ctx, slug, snapshot.ReasonSettings)
 
-	err = s.build.WriteMeta(ctx, slug, meta)
+	// Compare-and-set, not read-modify-write: the snapshot above takes long
+	// enough on a real site that a co-owner's change to the same sidecar (a
+	// share, a domain attach) lands inside the window, and a plain round-trip
+	// would write it back out of existence. This form owns four fields; the
+	// closure touches only those, so anything else a concurrent writer changed
+	// survives the retry.
+	var added []string
+	_, err = s.build.UpdateMeta(ctx, slug, func(m *build.SiteMeta) {
+		added = newlyAddedDomains(m.Domains, domains)
+		m.Domains = domains
+		// Only honour the override when the template doesn't already enable
+		// functions. Templates that do (contact-form, guestbook, tiny-shop) keep
+		// functions on regardless of the per-site bit, so the form's checked-state
+		// always matches what the user sees.
+		if base := templates.Get(m.Template); base == nil || !base.EnablesFunctions {
+			m.EnablesFunctions = c.FormValue("enable_functions") == "on"
+		}
+		m.EnablesPublicAPI = c.FormValue("enable_public_api") == "on"
+		m.Private = c.FormValue("private") == "on"
+	})
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "save settings", err)
 	}
 	s.registry.rebuildIndexesLogging(ctx)
 	s.preWarmCerts(added)
+	slog.Info("settings.save", "slug", slug, "user", callerEmail(c), "domains", len(domains), "private", c.FormValue("private") == "on")
 	return c.Redirect(http.StatusSeeOther, "/manage/"+slug) //nolint:wrapcheck
 }

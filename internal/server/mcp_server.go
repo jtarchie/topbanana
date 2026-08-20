@@ -165,9 +165,13 @@ func mcpCaller(ctx context.Context) (string, error) {
 }
 
 // mcpUserAndAuthorize resolves the caller, looks up their record, and enforces
-// the same ownership rule as the web admin surface (authorizeSlug): super
-// admins reach every slug; everyone else only their own. A non-owner sees a
-// "not found" error so the existence of someone else's slug never leaks.
+// the same access rule as the web admin surface (authorizeSlug): super admins
+// reach every slug; everyone else reaches the sites they own plus the ones
+// shared with them (registry.canAccess). A caller without access sees a "not
+// found" error so the existence of someone else's slug never leaks. Reaching a
+// slug through this gate does NOT prove ownership — a tool that deletes,
+// transfers, or re-shares a site needs an owner check of its own, which is why
+// those actions stay on the web surface behind requireSlugOwner.
 func (s *Server) mcpUserAndAuthorize(ctx context.Context, slug string) (*auth.User, error) {
 	email, err := mcpCaller(ctx)
 	if err != nil {
@@ -315,7 +319,7 @@ func (s *Server) registerListSites(srv *mcp.Server) {
 			meta := s.build.ReadMeta(ctx, slug)
 			out = append(out, siteSummary{
 				Slug:        slug,
-				Shared:      meta.OwnerID != user.Email,
+				Shared:      meta.OwnerID != user.Email && metaGrantsAccess(meta, user.Email),
 				Title:       meta.Title,
 				Description: meta.Description,
 				Template:    meta.Template,

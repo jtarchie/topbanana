@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/jtarchie/topbanana/auth"
+	"github.com/jtarchie/topbanana/internal/build"
 )
 
 // transferAppHandler moves ownership of an app to another user. Gated by
@@ -44,16 +45,21 @@ func (s *sitesController) transferAppHandler(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "recipient account is disabled")
 	}
 
-	meta := s.build.ReadMeta(ctx, slug)
-	previousOwner := meta.OwnerID
-	meta.OwnerID = recipient.Email
-	// A recipient who was a collaborator is now the owner; leaving them on
-	// both lists would mean removing their collaboration appears to revoke an
-	// owner's access. normalizeCollaborators drops the owner by construction.
-	// The previous owner is deliberately not demoted to collaborator —
-	// transfer means handing the site off, and the confirm dialog says so.
-	meta.Collaborators = normalizeCollaborators(meta.Collaborators, meta.OwnerID)
-	err = s.build.WriteMeta(ctx, slug, meta)
+	// Compare-and-set: handing a site over must not be able to resurrect a
+	// collaborator (or drop a domain) that changed while this request was in
+	// flight, and a failed read must not blank OwnerID instead of moving it.
+	previousOwner := ""
+	meta, err := s.build.UpdateMeta(ctx, slug, func(m *build.SiteMeta) {
+		previousOwner = m.OwnerID
+		m.OwnerID = recipient.Email
+		// A recipient who was a collaborator is now the owner; leaving them on
+		// both lists would mean removing their collaboration appears to revoke
+		// an owner's access. normalizeCollaborators drops the owner by
+		// construction. The previous owner is deliberately not demoted to
+		// collaborator — transfer means handing the site off, and the confirm
+		// dialog says so.
+		m.Collaborators = normalizeCollaborators(m.Collaborators, m.OwnerID)
+	})
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "write meta", err)
 	}

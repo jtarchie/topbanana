@@ -39,7 +39,7 @@ func (s *sitesController) historyRestoreHandler(c *echo.Context) error {
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "restore snapshot", err)
 	}
-	slog.Info("snapshot.restore", "slug", slug, "key", key)
+	slog.Info("snapshot.restore", "slug", slug, "key", key, "user", callerEmail(c))
 	return c.Redirect(http.StatusSeeOther, "/workspace/"+slug+"?flash="+urlEscape("Restored. Current state was auto-snapshotted first.")) //nolint:wrapcheck
 }
 
@@ -60,7 +60,7 @@ func (s *sitesController) historyDeleteHandler(c *echo.Context) error {
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "delete snapshot", err)
 	}
-	slog.Info("snapshot.delete", "slug", slug, "key", key)
+	slog.Info("snapshot.delete", "slug", slug, "key", key, "user", callerEmail(c))
 	return c.Redirect(http.StatusSeeOther, "/workspace/"+slug+"?flash="+urlEscape("Snapshot deleted.")) //nolint:wrapcheck
 }
 

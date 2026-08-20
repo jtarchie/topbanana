@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jtarchie/topbanana/internal/store"
 	"github.com/jtarchie/topbanana/internal/templates"
 )
 
@@ -115,6 +116,101 @@ func NormalizeDomain(raw string) (string, error) {
 		return "", fmt.Errorf("domain %q must contain a dot", raw)
 	}
 	return h, nil
+}
+
+// metaUpdateAttempts bounds the compare-and-set retry loop. Contention here is
+// human-scale (two people on one site's settings), so a couple of retries is
+// already generous; the cap exists so a pathological loser can't spin.
+const metaUpdateAttempts = 5
+
+// ErrMetaConflict is returned when UpdateMeta lost the compare-and-set race
+// metaUpdateAttempts times running. Distinct from a write failure: nothing is
+// wrong, the caller just never got a clean window.
+var ErrMetaConflict = errors.New("site meta: concurrent update, retry")
+
+// UpdateMeta is the safe read-modify-write for the sidecar: it reads the
+// current value, hands it to mutate, and stores the result only if nobody else
+// wrote in between — retrying from a fresh read when they did.
+//
+// Every mutating caller must use this rather than ReadMeta + WriteMeta, for
+// two reasons the pair can't give you:
+//
+//   - ReadMeta answers a zero SiteMeta when the read *fails*, which a plain
+//     read-modify-write then persists: OwnerID gone (the site is orphaned and
+//     its owner locked out), Domains gone, Private cleared. UpdateMeta returns
+//     the read error instead of writing anything.
+//   - A site now has more than one person who can change it. Last-writer-wins
+//     silently drops whichever change was read first, and when that change was
+//     a revoked collaborator, the revocation is undone.
+//
+// mutate may be called more than once and must be a pure function of the meta
+// it is handed. Returns the stored value.
+func (svc *Service) UpdateMeta(ctx context.Context, slug string, mutate func(*SiteMeta)) (SiteMeta, error) {
+	var lastErr error
+	for attempt := range metaUpdateAttempts {
+		meta, etag, err := svc.readMetaForUpdate(ctx, slug, attempt > 0)
+		if err != nil {
+			return SiteMeta{}, err
+		}
+		mutate(&meta)
+		body, err := json.Marshal(meta)
+		if err != nil {
+			return SiteMeta{}, fmt.Errorf("encode site meta: %w", err)
+		}
+		_, err = svc.store.WriteConditional(ctx, slug, MetaFile, string(body), "application/json", nil, etag)
+		if err == nil {
+			return meta, nil
+		}
+		if !errors.Is(err, store.ErrPrecondition) {
+			return SiteMeta{}, fmt.Errorf("write site meta: %w", err)
+		}
+		lastErr = err
+		slog.Info("site_meta.cas_retry", "slug", slug, "attempt", attempt+1)
+	}
+	return SiteMeta{}, fmt.Errorf("%w: %w", ErrMetaConflict, lastErr)
+}
+
+// readMetaForUpdate is ReadMeta's error-returning sibling: it reports a failed
+// read instead of degrading to a zero value, and returns the ETag the write
+// half has to match. An absent sidecar yields ("", zero meta) — an empty ETag
+// means "must not exist" to WriteConditional, so a site whose sidecar is being
+// created for the first time is still a one-winner race.
+//
+// Legacy sidecars are read for their content but deliberately contribute no
+// ETag: the write always lands on MetaFile, which is a create.
+func (svc *Service) readMetaForUpdate(ctx context.Context, slug string, fresh bool) (SiteMeta, string, error) {
+	read := svc.store.Read
+	if fresh {
+		read = svc.store.ReadFresh
+	}
+	obj, err := read(ctx, slug, MetaFile)
+	if err != nil {
+		return SiteMeta{}, "", fmt.Errorf("read site meta: %w", err)
+	}
+	if obj.Content != "" {
+		var m SiteMeta
+		derr := json.Unmarshal([]byte(obj.Content), &m)
+		if derr != nil {
+			return SiteMeta{}, "", fmt.Errorf("decode site meta: %w", derr)
+		}
+		return m, obj.ETag, nil
+	}
+	for _, legacy := range legacyMetaFiles {
+		lobj, lerr := svc.store.Read(ctx, slug, legacy)
+		if lerr != nil {
+			return SiteMeta{}, "", fmt.Errorf("read legacy site meta: %w", lerr)
+		}
+		if lobj.Content == "" {
+			continue
+		}
+		var m SiteMeta
+		derr := json.Unmarshal([]byte(lobj.Content), &m)
+		if derr != nil {
+			return SiteMeta{}, "", fmt.Errorf("decode legacy site meta: %w", derr)
+		}
+		return m, "", nil
+	}
+	return SiteMeta{}, "", nil
 }
 
 // ReadMeta returns the recorded sidecar for an existing site, or a zero value

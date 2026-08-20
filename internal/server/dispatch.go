@@ -169,24 +169,30 @@ func (s *Server) dispatchSite(c *echo.Context, slug string) error {
 // user permitted to see a private site. The subdomain path doesn't go
 // through requireUser so we read the session cookie directly — the same
 // cookie the admin chain uses, just resolved inline without erroring on
-// miss. Super admins always pass; otherwise the email must own the site or
-// appear in its collaborator list.
+// miss. Disabled accounts never pass. Super admins always do; otherwise the
+// email must own the site or appear in its collaborator list.
 func (s *Server) callerCanViewPrivate(c *echo.Context, slug string) bool {
+	if s.auth == nil {
+		return false
+	}
 	email, ok := s.currentSessionEmail(c)
 	if !ok {
 		return false
 	}
-	if s.registry.canAccess(slug, email) {
+	// Load the record before deciding anything. The index answers "who may
+	// work on this site", not "is this account still allowed to sign in" —
+	// disabling a user is the operator's kill switch, and revoking their
+	// sessions is explicitly best-effort (adminUserSetDisabledHandler reports
+	// the failure and continues), so a warm cookie has to be re-checked here
+	// the same way requireUser and canEdit do it.
+	u, err := s.auth.Users.LookupCached(c.Request().Context(), email)
+	if err != nil || u.Disabled {
+		return false
+	}
+	if u.Role == auth.RoleSuperAdmin {
 		return true
 	}
-	if s.auth == nil {
-		return false
-	}
-	u, err := s.auth.Users.LookupCached(c.Request().Context(), email)
-	if err != nil {
-		return false
-	}
-	return u.Role == auth.RoleSuperAdmin
+	return s.registry.canAccess(slug, u.Email)
 }
 
 // hstsMiddleware advertises HSTS only when the request actually arrived over

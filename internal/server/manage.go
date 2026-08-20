@@ -8,7 +8,6 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"github.com/jtarchie/topbanana/auth"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/guide"
 	"github.com/jtarchie/topbanana/internal/templates"
@@ -188,8 +187,9 @@ func (s *sitesController) manageHandler(c *echo.Context) error {
 	// describe the site type, not its runtime capabilities.
 	report := guide.Evaluate(ctx, s.store, slug, base)
 
-	caller := userFromContext(c)
-	isOwner := caller != nil && (caller.Role == auth.RoleSuperAdmin || caller.Email == meta.OwnerID)
+	// Same predicate the requireSlugOwner gate enforces — deriving it from the
+	// sidecar here instead would let the page and the gate disagree.
+	isOwner := s.isOwner(slug, userFromContext(c))
 
 	return s.render(c, "manage", manageData{
 		Chrome:           s.siteChrome(c, slug, meta.Title, "manage"),

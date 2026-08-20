@@ -148,3 +148,51 @@ func TestStore_ConditionalClaim_ExactlyOneWinner(t *testing.T) {
 		t.Fatalf("winners = %d, want exactly 1", winners)
 	}
 }
+
+// TestStore_WriteConditional_SlugPathRoundTrip covers the slug-scoped
+// compare-and-set the sidecar writers use: it has to compress and cache like
+// Write, refuse a stale ETag, and — the part that makes a retry loop
+// terminate — drop the losing cache entry so the next Read sees the winner.
+func TestStore_WriteConditional_SlugPathRoundTrip(t *testing.T) {
+	s := storetest.New(t, 8)
+	ctx := context.Background()
+	slug := storetest.FreshSlug(t, "cond")
+	t.Cleanup(func() { _ = s.Delete(ctx, slug, "meta.json") })
+
+	first, err := s.WriteConditional(ctx, slug, "meta.json", `{"n":1}`, "application/json", nil, "")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if first == "" {
+		t.Fatal("no ETag returned — compare-and-set cannot work without one")
+	}
+
+	// Creating again must lose: "" means "must not exist".
+	_, err = s.WriteConditional(ctx, slug, "meta.json", `{"n":2}`, "application/json", nil, "")
+	if !errors.Is(err, store.ErrPrecondition) {
+		t.Fatalf("second create err = %v, want ErrPrecondition", err)
+	}
+
+	second, err := s.WriteConditional(ctx, slug, "meta.json", `{"n":2}`, "application/json", nil, first)
+	if err != nil {
+		t.Fatalf("update with current ETag: %v", err)
+	}
+
+	_, err = s.WriteConditional(ctx, slug, "meta.json", `{"n":3}`, "application/json", nil, first)
+	if !errors.Is(err, store.ErrPrecondition) {
+		t.Fatalf("stale-ETag update err = %v, want ErrPrecondition", err)
+	}
+
+	// The loser's read must now see the winner's value and ETag, or a retry
+	// loop would resubmit the same losing ETag forever.
+	obj, err := s.Read(ctx, slug, "meta.json")
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if obj.Content != `{"n":2}` {
+		t.Errorf("content = %q, want {\"n\":2}", obj.Content)
+	}
+	if obj.ETag != second {
+		t.Errorf("ETag = %q, want the winning write's %q", obj.ETag, second)
+	}
+}

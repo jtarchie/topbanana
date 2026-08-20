@@ -137,7 +137,7 @@ func (s *sitesController) themeStudioApplyHandler(c *echo.Context) error {
 		warnings = append(warnings, lintErrs[i].Error())
 	}
 
-	slog.Info("theme_studio.apply", "slug", slug, "theme", req.Theme, "pages", len(rewritten), "warnings", len(warnings))
+	slog.Info("theme_studio.apply", "slug", slug, "theme", req.Theme, "pages", len(rewritten), "warnings", len(warnings), "user", callerEmail(c))
 	return c.JSON(http.StatusOK, themeApplyResponse{ //nolint:wrapcheck
 		OK:       true,
 		Warnings: warnings,

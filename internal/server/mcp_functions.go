@@ -294,29 +294,33 @@ func (s *Server) registerConfigureSite(srv *mcp.Server) {
 		if err != nil {
 			return nil, nil, err
 		}
-		meta := s.build.ReadMeta(ctx, in.Slug)
-		if in.Title != nil {
-			meta.Title = strings.TrimSpace(*in.Title)
-		}
-		if in.Description != nil {
-			meta.Description = strings.TrimSpace(*in.Description)
-		}
-		if in.Private != nil {
-			meta.Private = *in.Private
-		}
-		if in.EnablePublicAPI != nil {
-			meta.EnablesPublicAPI = *in.EnablePublicAPI
-		}
-		if in.EnableFunctions != nil {
-			// Only honour the override when the template doesn't already enable
-			// functions, mirroring settingsSubmitHandler so the surfaces agree.
-			if base := templates.Get(meta.Template); base == nil || !base.EnablesFunctions {
-				meta.EnablesFunctions = *in.EnableFunctions
-			}
-		}
-
 		s.snapshotBefore(ctx, in.Slug, snapshot.ReasonSettings)
-		err = s.build.WriteMeta(ctx, in.Slug, meta)
+		// Compare-and-set: only the fields the caller passed are touched, so a
+		// concurrent change by someone else with access to the same site (a
+		// share, a domain attach, the web settings form) survives instead of
+		// being written back out by a stale read.
+		meta, err := s.build.UpdateMeta(ctx, in.Slug, func(m *build.SiteMeta) {
+			if in.Title != nil {
+				m.Title = strings.TrimSpace(*in.Title)
+			}
+			if in.Description != nil {
+				m.Description = strings.TrimSpace(*in.Description)
+			}
+			if in.Private != nil {
+				m.Private = *in.Private
+			}
+			if in.EnablePublicAPI != nil {
+				m.EnablesPublicAPI = *in.EnablePublicAPI
+			}
+			if in.EnableFunctions != nil {
+				// Only honour the override when the template doesn't already
+				// enable functions, mirroring settingsSubmitHandler so the
+				// surfaces agree.
+				if base := templates.Get(m.Template); base == nil || !base.EnablesFunctions {
+					m.EnablesFunctions = *in.EnableFunctions
+				}
+			}
+		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("save settings: %w", err)
 		}

@@ -831,10 +831,13 @@ func (svc *Service) refreshDescription(ctx context.Context, runner Runner, slug,
 		slog.Warn("describe.failed", "slug", slug, "err", err)
 		return
 	}
-	meta := svc.ReadMeta(ctx, slug)
-	meta.Title = desc.Title
-	meta.Description = desc.Description
-	err = svc.WriteMeta(ctx, slug, meta)
+	// Compare-and-set: this lands minutes after the build started, by which
+	// time the owner (or a collaborator) may have changed settings on the same
+	// sidecar. Only the two generated fields are touched.
+	_, err = svc.UpdateMeta(ctx, slug, func(m *SiteMeta) {
+		m.Title = desc.Title
+		m.Description = desc.Description
+	})
 	if err != nil {
 		slog.Warn("describe.write_failed", "slug", slug, "err", err)
 	}
