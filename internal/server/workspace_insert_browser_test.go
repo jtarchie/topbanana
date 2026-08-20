@@ -23,7 +23,7 @@ import (
 // contract so the sidebar entry can't silently regress to a no-op.
 func TestWorkspaceInsertImage_AddsRefToPrompt(t *testing.T) {
 	st := minioStore(t)
-	chromePath := chromeExecPath()
+	chromePath := chromeExecPath(t)
 	if chromePath == "" {
 		t.Skip("no Chrome binary found — skipping browser test")
 	}

@@ -294,7 +294,7 @@
   function apply() {
     var q = input.value.trim().toLowerCase();
     var visible = 0;
-    table.querySelectorAll('tbody tr').forEach(function (tr) {
+    table.querySelectorAll('tbody tr[data-email]').forEach(function (tr) {
       if (!q) { tr.hidden = false; visible++; return; }
       var hay = ((tr.dataset.email || '') + ' ' + (tr.dataset.role || '')).toLowerCase();
       var match = hay.indexOf(q) !== -1;

@@ -110,7 +110,7 @@
     var q = input.value.trim().toLowerCase();
     var visible = 0;
     var visibleBytes = 0;
-    table.querySelectorAll('tbody tr').forEach(function (tr) {
+    table.querySelectorAll('tbody tr[data-path]').forEach(function (tr) {
       var hay = (tr.dataset.path || '').toLowerCase();
       var match = !q || hay.indexOf(q) !== -1;
       tr.hidden = !match;

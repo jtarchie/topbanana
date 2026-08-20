@@ -9,15 +9,20 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
-// shouldSkipChrome reports whether a chromedp error should downgrade the
-// test to a skip (Chrome unavailable / network unreachable) rather than a
-// hard failure.
+// shouldSkipChrome reports whether a chromedp error should downgrade the test
+// to a skip (Chrome unavailable) rather than a hard failure.
+//
+// Deliberately limited to allocator/startup failures. "context deadline
+// exceeded" used to be on this list, which made every WaitVisible/Poll that
+// never resolves — i.e. the exact way a real UI regression surfaces — report
+// as a skip on a green run. A browser that started and then failed to reach a
+// state is a failure, not an environment problem.
 func shouldSkipChrome(err error) bool {
 	msg := err.Error()
 
 	return strings.Contains(msg, "chrome failed to start") ||
 		strings.Contains(msg, "exec:") ||
-		strings.Contains(msg, "context deadline exceeded")
+		strings.Contains(msg, "fork/exec")
 }
 
 // jsString quotes a string for embedding in a JS source snippet sent to

@@ -20,7 +20,27 @@ import (
 // installed. chromedp's default allocator does its own PATH lookup but
 // doesn't know to look in macOS application bundles, so we hand it the
 // canonical bundle path when the binary is there.
-func chromeExecPath() string {
+//
+// CHROME_PATH lets a machine without a system Chrome (or CI) point the browser
+// tests at any Chromium build — e.g. a Playwright download. Setting it is an
+// explicit "test this binary", so an unusable value fails the test instead of
+// silently falling through to whatever Chrome happens to be installed: the
+// natural macOS value is the .app bundle directory, which os.Stat accepts and
+// chromedp then dies on with a fork/exec permission error.
+func chromeExecPath(t *testing.T) string {
+	t.Helper()
+	if p := os.Getenv("CHROME_PATH"); p != "" {
+		fi, err := os.Stat(p)
+		switch {
+		case err != nil:
+			t.Fatalf("CHROME_PATH=%q: %v", p, err)
+		case fi.IsDir():
+			t.Fatalf("CHROME_PATH=%q is a directory — point it at the executable inside (macOS: <bundle>.app/Contents/MacOS/<name>)", p)
+		case fi.Mode()&0o111 == 0:
+			t.Fatalf("CHROME_PATH=%q is not executable (mode %s)", p, fi.Mode())
+		}
+		return p
+	}
 	for _, p := range []string{
 		"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 		"/Applications/Chromium.app/Contents/MacOS/Chromium",
@@ -55,7 +75,7 @@ func TestHappyPath_BrowserSmoke(t *testing.T) {
 	httpSrv := httptest.NewServer(handler)
 	t.Cleanup(httpSrv.Close)
 
-	chromePath := chromeExecPath()
+	chromePath := chromeExecPath(t)
 	if chromePath == "" {
 		t.Skip("no Chrome binary found — skipping browser smoke test")
 	}
@@ -110,13 +130,11 @@ func TestHappyPath_BrowserSmoke(t *testing.T) {
 		chromedp.Evaluate(`getComputedStyle(document.documentElement).getPropertyValue('--color-primary') || getComputedStyle(document.body).color`, &primaryColor),
 	)
 	if err != nil {
-		// Treat Chrome startup or network issues as a skip rather than a
-		// hard fail — the HTTP test already covers correctness; this is
-		// the optional "did Tailwind actually render" check, and it
-		// shouldn't gate CI on dev machines without a working Chrome.
-		if strings.Contains(err.Error(), "chrome failed to start") ||
-			strings.Contains(err.Error(), "exec:") ||
-			strings.Contains(err.Error(), "context deadline exceeded") {
+		// Chrome startup issues are a skip rather than a hard fail — the HTTP
+		// test already covers correctness; this is the optional "did Tailwind
+		// actually render" check, and it shouldn't gate CI on dev machines
+		// without a working Chrome.
+		if shouldSkipChrome(err) {
 			t.Skipf("chromedp run failed (%v) — skipping browser smoke test", err)
 		}
 		t.Fatalf("chromedp run: %v", err)
@@ -147,6 +165,11 @@ func TestHappyPath_BrowserSmoke(t *testing.T) {
 		chromedp.AttributeValue(`html`, `data-theme`, &darkTheme, nil),
 	)
 	if err != nil {
+		// Same policy as the first Run: a Chrome that died between the two
+		// (or never worked) is an environment problem, not a regression.
+		if shouldSkipChrome(err) {
+			t.Skipf("chromedp run failed (%v) — skipping browser smoke test", err)
+		}
 		t.Fatalf("dark-mode re-navigate: %v", err)
 	}
 	if darkTheme != "lemonade-dark" {

@@ -26,7 +26,7 @@ import (
 // Skips when Chrome isn't installed or MinIO env isn't set.
 func TestWorkspaceProgress_StatusStripUpdatesFromSSE(t *testing.T) {
 	st := minioStore(t)
-	chromePath := chromeExecPath()
+	chromePath := chromeExecPath(t)
 	if chromePath == "" {
 		t.Skip("no Chrome binary found — skipping browser test")
 	}
