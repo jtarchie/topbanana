@@ -426,6 +426,14 @@ func (s *adminController) adminUserDeleteHandler(c *echo.Context) error {
 	if handled {
 		return resp
 	}
+	// Sites owned by someone else that this user could work on: the site
+	// stays, the grant goes. Skipping this leaves the deleted address in
+	// other people's sidecars, where re-inviting it restores access nobody
+	// re-granted.
+	shared, err := s.removeCollaboratorEverywhere(ctx, email)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "revoke shared access", err)
+	}
 
 	revokeErr := s.auth.Sessions.RevokeAllForUser(ctx, email)
 	if revokeErr != nil {
@@ -442,7 +450,7 @@ func (s *adminController) adminUserDeleteHandler(c *echo.Context) error {
 	if current != nil {
 		byEmail = current.Email
 	}
-	slog.Info("admin.user.delete", "email", email, "by", byEmail, "apps", apps, "transferred_to", transferTo)
+	slog.Info("admin.user.delete", "email", email, "by", byEmail, "apps", apps, "shared_revoked", shared, "transferred_to", transferTo)
 
 	msg := "Deleted " + email
 	if transferTo != "" {

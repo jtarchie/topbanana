@@ -61,6 +61,13 @@ type SiteMeta struct {
 	// (and any custom domains) return 404 to everyone except the owner and
 	// super admins.
 	Private bool `json:"private,omitempty"`
+	// Collaborators are additional users with full working access to this
+	// site: everything the owner can do except delete it, transfer it, or
+	// change this list. Ownership stays a scalar on purpose — OwnerID is the
+	// single principal quota counts against, account deletion cascades from,
+	// and transfer moves — so collaboration is additive and needs no
+	// migration. Canonical emails, deduped, never containing OwnerID.
+	Collaborators []string `json:"collaborators,omitempty"`
 }
 
 // EffectiveTemplate returns the template a build/edit/route lookup should use,

@@ -274,6 +274,13 @@ func (s *accountController) accountDeleteHandler(c *echo.Context) error {
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "delete sites", err)
 	}
+	// Sites this user only collaborated on stay put — they belong to someone
+	// else — but the grant itself must go, or re-registering this address
+	// would silently restore access to them.
+	shared, err := s.removeCollaboratorEverywhere(ctx, email)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "revoke shared access", err)
+	}
 	revokeErr := s.auth.Sessions.RevokeAllForUser(ctx, email)
 	if revokeErr != nil {
 		// The account is going away regardless; a failed revoke just means a
@@ -288,7 +295,7 @@ func (s *accountController) accountDeleteHandler(c *echo.Context) error {
 	s.registry.rebuildIndexesLogging(ctx)
 	s.auth.Passkey.Logout(c.Response(), c.Request())
 
-	slog.Info("account.delete", "email", email, "apps", apps)
+	slog.Info("account.delete", "email", email, "apps", apps, "shared_revoked", shared)
 	return c.Redirect(http.StatusSeeOther, "/login?flash="+urlEscape("Account deleted")) //nolint:wrapcheck
 }
 

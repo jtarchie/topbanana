@@ -20,6 +20,12 @@ type sitesController struct{ *Server }
 // owns is the per-slug ownership gate applied to every route keyed by :slug.
 // build and apps are account-wide (no :slug) so they skip owns.
 func (s *sitesController) register(g *echo.Group, owns echo.MiddlewareFunc) {
+	// owner is the stricter gate for the three routes a collaborator must not
+	// reach — deleting the site, handing it to someone else, and editing who
+	// else can work on it. It stacks on top of owns, which has already proven
+	// the caller has access at all.
+	owner := s.requireSlugOwner
+
 	// Body caps: the larger envelope covers prompt POSTs that also carry
 	// multipart markdown attachments; the smaller one bounds plain prompt
 	// bodies. Import has its own archive-sized cap.
@@ -43,9 +49,11 @@ func (s *sitesController) register(g *echo.Group, owns echo.MiddlewareFunc) {
 	g.PATCH("/files/:slug", s.renameFileHandler, owns)
 	g.GET("/settings/:slug", s.redirectToManage, owns)
 	g.POST("/settings/:slug", s.settingsSubmitHandler, owns)
-	g.DELETE("/apps/:slug", s.settingsDeleteHandler, owns)
+	g.DELETE("/apps/:slug", s.settingsDeleteHandler, owns, owner)
 	g.POST("/apps/:slug/remix", s.remixHandler, owns)
-	g.POST("/apps/:slug/transfer", s.transferAppHandler, owns)
+	g.POST("/apps/:slug/transfer", s.transferAppHandler, owns, owner)
+	g.POST("/apps/:slug/collaborators", s.addCollaboratorHandler, owns, owner)
+	g.DELETE("/apps/:slug/collaborators", s.removeCollaboratorHandler, owns, owner)
 	g.GET("/history/:slug", s.redirectToWorkspace, owns)
 	g.PUT("/history/:slug", s.historyRestoreHandler, owns)
 	g.DELETE("/history/:slug", s.historyDeleteHandler, owns)

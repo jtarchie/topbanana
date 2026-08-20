@@ -19,12 +19,13 @@ import (
 //     real app (slugIndex) — the latter keeps autocert from asking Let's Encrypt
 //     for a cert for a scanner-invented hostname and burning the 50/week
 //     per-registered-domain rate limit;
-//   - ownership: which email owns a slug (ownerIndex), so role-filtered listings
-//     and authorization don't pay an S3 GET per app;
+//   - ownership: which email owns a slug (ownerIndex) and which additional
+//     emails may work on it (collabIndex), so role-filtered listings and
+//     authorization don't pay an S3 GET per app;
 //   - privacy: whether a slug is marked private (privateIndex), consulted by the
 //     subdomain proxy on every public hit.
 //
-// All four maps are guarded by one RWMutex and rebuilt together, so a reader
+// All five maps are guarded by one RWMutex and rebuilt together, so a reader
 // never sees a half-updated index.
 type siteRegistry struct {
 	store *store.Store
@@ -34,6 +35,7 @@ type siteRegistry struct {
 	domainIndex  map[string]string
 	slugIndex    map[string]bool
 	ownerIndex   map[string]string
+	collabIndex  map[string][]string
 	privateIndex map[string]bool
 }
 
@@ -46,13 +48,14 @@ func newSiteRegistry(st *store.Store, b *build.Service) *siteRegistry {
 		domainIndex:  map[string]string{},
 		slugIndex:    map[string]bool{},
 		ownerIndex:   map[string]string{},
+		collabIndex:  map[string][]string{},
 		privateIndex: map[string]bool{},
 	}
 }
 
-// rebuildIndexes scans all sites and rebuilds all four indexes (domain → slug,
-// slug existence, owner, privacy) in one sweep. Called after any settings save
-// that changes Domains, ownership, or privacy. Returns an error so the initial
+// rebuildIndexes scans all sites and rebuilds all five indexes (domain → slug,
+// slug existence, owner, collaborators, privacy) in one sweep. Called after any
+// settings save that changes Domains, ownership, collaborators, or privacy. Returns an error so the initial
 // startup rebuild can retry; runtime callers (settings handlers) just log and
 // continue — a stale index there only delays the next refresh.
 func (r *siteRegistry) rebuildIndexes(ctx context.Context) error {
@@ -63,12 +66,16 @@ func (r *siteRegistry) rebuildIndexes(ctx context.Context) error {
 	idx := make(map[string]string, len(apps))
 	slugs := make(map[string]bool, len(apps))
 	owners := make(map[string]string, len(apps))
+	collabs := make(map[string][]string, len(apps))
 	privates := make(map[string]bool, len(apps))
 	for _, slug := range apps {
 		slugs[slug] = true
 		meta := r.build.ReadMeta(ctx, slug)
 		if meta.OwnerID != "" {
 			owners[slug] = meta.OwnerID
+		}
+		if len(meta.Collaborators) > 0 {
+			collabs[slug] = meta.Collaborators
 		}
 		if meta.Private {
 			privates[slug] = true
@@ -85,9 +92,10 @@ func (r *siteRegistry) rebuildIndexes(ctx context.Context) error {
 	r.domainIndex = idx
 	r.slugIndex = slugs
 	r.ownerIndex = owners
+	r.collabIndex = collabs
 	r.privateIndex = privates
 	r.mu.Unlock()
-	slog.Info("site_index.rebuilt", "domains", len(idx), "slugs", len(slugs), "owners", len(owners), "private", len(privates))
+	slog.Info("site_index.rebuilt", "domains", len(idx), "slugs", len(slugs), "owners", len(owners), "shared", len(collabs), "private", len(privates))
 	return nil
 }
 
@@ -122,9 +130,51 @@ func (r *siteRegistry) setOwner(slug, owner string) {
 	r.mu.Unlock()
 }
 
+// canAccess is the single access predicate for a slug: the recorded owner or
+// any collaborator. Every per-slug gate — admin routes, the live-site edit
+// toolbar, the private-site proxy, and the MCP tools — funnels through here so
+// there is one definition of "may work on this site". Super-admin bypass stays
+// with the callers, since it's a role decision rather than a site one. An
+// empty email is never a match: it must not collide with the empty OwnerID of
+// a pre-migration site.
+func (r *siteRegistry) canAccess(slug, email string) bool {
+	if email == "" {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.ownerIndex[slug] == email {
+		return true
+	}
+	for _, c := range r.collabIndex[slug] {
+		if c == email {
+			return true
+		}
+	}
+	return false
+}
+
+// setCollaborators refreshes one slug's collaborator list without rebuilding
+// the whole index, mirroring setOwner. The caller owns normalization; the
+// slice is copied so a later mutation by the caller can't race a reader.
+func (r *siteRegistry) setCollaborators(slug string, emails []string) {
+	r.mu.Lock()
+	if r.collabIndex == nil {
+		r.collabIndex = map[string][]string{}
+	}
+	if len(emails) == 0 {
+		delete(r.collabIndex, slug)
+	} else {
+		r.collabIndex[slug] = append([]string(nil), emails...)
+	}
+	r.mu.Unlock()
+}
+
 // countAppsFor returns the number of slugs the given email owns according
 // to the in-memory ownerIndex. Used by the quota check on /build and by
-// the over-quota banner on /apps. Empty email returns 0.
+// the over-quota banner on /apps. Empty email returns 0. Deliberately counts
+// ownership only: a site shared with you doesn't consume your app quota, so
+// being at your cap never blocks someone from collaborating with you.
 func (r *siteRegistry) countAppsFor(email string) int {
 	if email == "" {
 		return 0

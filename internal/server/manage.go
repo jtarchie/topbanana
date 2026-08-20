@@ -8,6 +8,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/jtarchie/topbanana/auth"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/guide"
 	"github.com/jtarchie/topbanana/internal/templates"
@@ -80,6 +81,18 @@ type manageData struct {
 	GuidePresent  int
 	GuideTotal    int
 	GuideComplete bool
+	// IsOwner gates the owner-only region: sharing, transfer, and delete.
+	// A collaborator reaching this page sees everything else — the routes
+	// behind those forms answer 403 either way, so this only keeps the page
+	// from offering buttons that can't work.
+	IsOwner bool
+	// OwnerEmail + Collaborators back the sharing card. OwnerEmail is shown
+	// to collaborators as "shared with you by"; the list is owner-only.
+	OwnerEmail    string
+	Collaborators []string
+	// MaxCollaborators hides the add form once the list is full, rather than
+	// letting the submit fail the length check server-side.
+	MaxCollaborators int
 }
 
 // urlPattern matches bare http/https URLs anywhere in setup-notes text. Kept
@@ -175,6 +188,9 @@ func (s *sitesController) manageHandler(c *echo.Context) error {
 	// describe the site type, not its runtime capabilities.
 	report := guide.Evaluate(ctx, s.store, slug, base)
 
+	caller := userFromContext(c)
+	isOwner := caller != nil && (caller.Role == auth.RoleSuperAdmin || caller.Email == meta.OwnerID)
+
 	return s.render(c, "manage", manageData{
 		Chrome:           s.siteChrome(c, slug, meta.Title, "manage"),
 		Title:            meta.Title,
@@ -191,6 +207,10 @@ func (s *sitesController) manageHandler(c *echo.Context) error {
 		GuidePresent:     report.Present,
 		GuideTotal:       report.Total,
 		GuideComplete:    report.Complete(),
+		IsOwner:          isOwner,
+		OwnerEmail:       meta.OwnerID,
+		Collaborators:    meta.Collaborators,
+		MaxCollaborators: maxCollaborators,
 	})
 }
 

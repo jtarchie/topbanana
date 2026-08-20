@@ -237,9 +237,63 @@
     </form>
   </div>
 
+  {{/* Sharing is additive, not a change of hands: a collaborator can build,
+       edit, and read submissions, but not delete the site, transfer it, or
+       change this list — so it sits out here rather than in the danger zone.
+       Ownership stays one accountable person (quota, cascade-delete, and
+       transfer all key on them). */}}
+  {{ if .IsOwner }}
+  <div class="action-row">
+    <div class="flex-1 min-w-[15rem]">
+      <div class="text-sm font-medium">People with access</div>
+      <p class="text-xs text-base-content/70 mt-1.5">Anyone you add can edit this site, change its settings, and read what visitors send it. They can't delete it, transfer it, or change this list. The site still counts against your app quota, not theirs.</p>
+      {{ if .Collaborators }}
+      <ul class="mt-3 space-y-1.5">
+        {{ range .Collaborators }}
+        <li class="flex items-center justify-between gap-2 text-sm">
+          <span class="font-mono truncate">{{ . }}</span>
+          <form method="POST" action="/apps/{{ $.Slug }}/collaborators"
+                class="js-confirm shrink-0"
+                data-confirm-title="Remove access?"
+                data-confirm="{{ . }} loses access to this site immediately."
+                data-confirm-ok="Remove">
+            <input type="hidden" name="_method" value="DELETE">
+            <input type="hidden" name="collaborator_email" value="{{ . }}">
+            <button type="submit" class="btn btn-ghost btn-xs">Remove</button>
+          </form>
+        </li>
+        {{ end }}
+      </ul>
+      {{ end }}
+    </div>
+    {{ if lt (len .Collaborators) .MaxCollaborators }}
+    <form method="POST" action="/apps/{{ .Slug }}/collaborators" class="flex flex-wrap gap-2 items-start">
+      <label class="flex flex-col">
+        <span class="sr-only">Email of the person to share with</span>
+        <input type="email" name="collaborator_email" required class="input input-sm" placeholder="them@example.com">
+      </label>
+      <button type="submit" class="btn btn-outline btn-sm">Share</button>
+    </form>
+    {{ else }}
+    <p class="text-xs text-base-content/60">Limit of {{ .MaxCollaborators }} reached.</p>
+    {{ end }}
+  </div>
+  {{ else }}
+  <div class="action-row">
+    <div class="flex-1 min-w-[15rem]">
+      <div class="text-sm font-medium">Shared with you</div>
+      <p class="text-xs text-base-content/70 mt-1.5">{{ if .OwnerEmail }}<span class="font-mono">{{ .OwnerEmail }}</span> owns this site and shared it with you.{{ else }}This site was shared with you.{{ end }} You can edit it and change its settings; deleting, transferring, and managing access stay with the owner.</p>
+    </div>
+  </div>
+  {{ end }}
+
   {{/* Everything here permanently changes who owns this site or whether it
        exists at all. Same component as /account — see the danger_heading
        partial for why it's quiet rather than red-washed. */}}
+  {{/* Transfer and delete are owner-only server-side (requireSlugOwner);
+       hiding the whole region from a collaborator keeps the page from
+       offering two buttons that can only answer 403. */}}
+  {{ if .IsOwner }}
   <section aria-labelledby="danger-heading">
     {{ template "danger_heading" . }}
     <div class="danger-zone">
@@ -283,6 +337,7 @@
       </div>
     </div>
   </section>
+  {{ end }}
 </main>
 {{ template "footer" . }}
 {{ template "confirm_dialog" . }}

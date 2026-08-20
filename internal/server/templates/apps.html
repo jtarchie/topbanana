@@ -57,6 +57,9 @@
           <div class="flex items-baseline justify-between gap-3 flex-wrap">
             <h2 class="text-base font-semibold leading-tight">
               {{ if .Title }}{{ .Title }}{{ else }}<span class="font-mono">{{ .Name }}</span>{{ end }}
+              {{/* Shared sites look like owned ones apart from this badge, and
+                   the owner-only actions in the menu 403 rather than hide. */}}
+              {{ if .Shared }}<span class="badge badge-ghost badge-sm align-middle ml-1">Shared</span>{{ end }}
             </h2>
             {{ if .LastEdited }}<span class="text-xs text-base-content/60 shrink-0">Edited {{ .LastEdited }}</span>{{ end }}
           </div>
@@ -83,6 +86,9 @@
               <li><a href="/workspace/{{ .Name }}">Edit</a></li>
               <li><a href="/inbox/{{ .Name }}">Inbox</a></li>
               <li><a href="/manage/{{ .Name }}">Settings</a></li>
+              {{/* Delete is owner-only (requireSlugOwner). Rendering it on a
+                   shared row would offer a button that always 403s. */}}
+              {{ if not .Shared }}
               <li>
                 <form method="POST" action="/apps/{{ .Name }}"
                       class="js-confirm"
@@ -95,6 +101,7 @@
                   <button type="submit" class="text-error w-full text-left">Delete</button>
                 </form>
               </li>
+              {{ end }}
             </ul>
           </div>
         </div>

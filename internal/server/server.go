@@ -494,6 +494,11 @@ type appLink struct {
 	// domain is configured. Surfaced on the row next to the slug so the user
 	// can see at a glance which apps live at their own address.
 	PrimaryDomain string
+	// Shared marks a site the viewer collaborates on rather than owns. The
+	// row otherwise looks identical, and the destructive actions behind it
+	// (delete, transfer) are owner-only — without the badge the first sign
+	// you don't own a site would be a 403 from a button you already clicked.
+	Shared bool
 }
 
 type appsData struct {
@@ -518,13 +523,18 @@ func (s *sitesController) appsHandler(c *echo.Context) error {
 	links := make([]appLink, 0, len(apps))
 	for _, app := range apps {
 		meta := s.build.ReadMeta(ctx, app)
-		// Role-filter: regular admins only see their own apps. Super
-		// admin sees everything regardless. Pre-migration data with an
-		// empty OwnerID falls through to super-admin-only on purpose;
-		// the startup migration assigns those on every boot.
-		if user != nil && user.Role != auth.RoleSuperAdmin && meta.OwnerID != user.Email {
+		// Role-filter: regular admins see the apps they own plus the ones
+		// shared with them. Super admin sees everything regardless.
+		// Pre-migration data with an empty OwnerID falls through to
+		// super-admin-only on purpose; the startup migration assigns those
+		// on every boot. Read from the sidecar rather than the registry —
+		// this loop already holds the authoritative meta.
+		if user != nil && user.Role != auth.RoleSuperAdmin && !metaGrantsAccess(meta, user.Email) {
 			continue
 		}
+		// A super admin reaching a site by role isn't collaborating on it, so
+		// the badge keys on an actual grant rather than on "not the owner".
+		shared := user != nil && meta.OwnerID != user.Email && metaGrantsAccess(meta, user.Email)
 		primaryDomain := ""
 		if len(meta.Domains) > 0 {
 			primaryDomain = meta.Domains[0]
@@ -538,6 +548,7 @@ func (s *sitesController) appsHandler(c *echo.Context) error {
 			LastEdited:    lastEdited,
 			EditedAt:      editedAt,
 			PrimaryDomain: primaryDomain,
+			Shared:        shared,
 		})
 	}
 	sort.SliceStable(links, func(i, j int) bool {

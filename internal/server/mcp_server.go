@@ -177,8 +177,9 @@ func (s *Server) mcpUserAndAuthorize(ctx context.Context, slug string) (*auth.Us
 }
 
 // authorizeSlugOwner looks up email's user record and enforces the ownership
-// rule for a slug: super admins reach every slug; everyone else only their
-// own; a non-owner sees "not found" so a slug's existence never leaks. slug ==
+// rule for a slug: super admins reach every slug; everyone else only sites
+// they own or collaborate on; a caller without access sees "not found" so a
+// slug's existence never leaks. slug ==
 // "" skips the per-slug check. Shared by the MCP tools (caller from the bearer
 // token) and the upload-ticket handler (caller from the signed ticket).
 func (s *Server) authorizeSlugOwner(ctx context.Context, email, slug string) (*auth.User, error) {
@@ -194,7 +195,7 @@ func (s *Server) authorizeSlugOwner(ctx context.Context, email, slug string) (*a
 		if validateErr != nil {
 			return nil, fmt.Errorf("invalid slug %q: %w", slug, validateErr)
 		}
-		if user.Role != auth.RoleSuperAdmin && s.registry.ownerOf(slug) != user.Email {
+		if user.Role != auth.RoleSuperAdmin && !s.registry.canAccess(slug, user.Email) {
 			return nil, fmt.Errorf("site %q not found", slug)
 		}
 	}
@@ -286,12 +287,16 @@ type siteSummary struct {
 	Private     bool      `json:"private,omitempty"`
 	Domains     []string  `json:"domains,omitempty"`
 	URL         string    `json:"url"`
+	// Shared marks a site the caller collaborates on rather than owns. An
+	// agent that assumes ownership of a shared site will propose deleting or
+	// transferring it, which the web surface refuses — say so up front.
+	Shared bool `json:"shared,omitempty"`
 }
 
 func (s *Server) registerListSites(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_sites",
-		Description: "List the sites the authenticated user owns, with title, template, creation time, privacy flag, any custom domains, and public URL.",
+		Description: "List the sites the authenticated user can work on — owned plus shared with them — with title, template, creation time, privacy flag, any custom domains, public URL, and whether the site is shared rather than owned.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ listSitesInput) (*mcp.CallToolResult, any, error) {
 		user, err := s.mcpUserAndAuthorize(ctx, "")
 		if err != nil {
@@ -304,12 +309,13 @@ func (s *Server) registerListSites(srv *mcp.Server) {
 		sort.Strings(slugs)
 		out := make([]siteSummary, 0, len(slugs))
 		for _, slug := range slugs {
-			if user.Role != auth.RoleSuperAdmin && s.registry.ownerOf(slug) != user.Email {
+			if user.Role != auth.RoleSuperAdmin && !s.registry.canAccess(slug, user.Email) {
 				continue
 			}
 			meta := s.build.ReadMeta(ctx, slug)
 			out = append(out, siteSummary{
 				Slug:        slug,
+				Shared:      meta.OwnerID != user.Email,
 				Title:       meta.Title,
 				Description: meta.Description,
 				Template:    meta.Template,

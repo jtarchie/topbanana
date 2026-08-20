@@ -47,11 +47,18 @@ func (s *sitesController) transferAppHandler(c *echo.Context) error {
 	meta := s.build.ReadMeta(ctx, slug)
 	previousOwner := meta.OwnerID
 	meta.OwnerID = recipient.Email
+	// A recipient who was a collaborator is now the owner; leaving them on
+	// both lists would mean removing their collaboration appears to revoke an
+	// owner's access. normalizeCollaborators drops the owner by construction.
+	// The previous owner is deliberately not demoted to collaborator —
+	// transfer means handing the site off, and the confirm dialog says so.
+	meta.Collaborators = normalizeCollaborators(meta.Collaborators, meta.OwnerID)
 	err = s.build.WriteMeta(ctx, slug, meta)
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "write meta", err)
 	}
 	s.registry.setOwner(slug, recipient.Email)
+	s.registry.setCollaborators(slug, meta.Collaborators)
 
 	callerEmail := ""
 	if caller != nil {

@@ -41,10 +41,10 @@ func (s *Server) requireSlugOwnership(next echo.HandlerFunc) echo.HandlerFunc {
 //
 // Authorization rules:
 //   - super admin: always allowed.
-//   - regular admin: allowed iff the slug's recorded owner matches their
-//     email. Slugs with no recorded owner (pre-migration data) appear
-//     not-found to regular admins — the bootstrap migration on every
-//     startup keeps this from being a concern in practice.
+//   - regular admin: allowed iff they own the slug or appear in its
+//     collaborator list (registry.canAccess). Slugs with no recorded owner
+//     (pre-migration data) appear not-found to regular admins — the bootstrap
+//     migration on every startup keeps this from being a concern in practice.
 func (s *Server) authorizeSlug(c *echo.Context, slug string) (*auth.User, error) {
 	u := userFromContext(c)
 	if u == nil {
@@ -55,9 +55,29 @@ func (s *Server) authorizeSlug(c *echo.Context, slug string) (*auth.User, error)
 	if u.Role == auth.RoleSuperAdmin {
 		return u, nil
 	}
-	owner := s.registry.ownerOf(slug)
-	if owner == "" || owner != u.Email {
+	if !s.registry.canAccess(slug, u.Email) {
 		return nil, notFound()
 	}
 	return u, nil
+}
+
+// requireSlugOwner is the stricter gate layered on the handful of routes a
+// collaborator must not reach: deleting the site, transferring it, and editing
+// the collaborator list itself. It runs after requireSlugOwnership, so the
+// caller has already been proven to have access — which is why the rejection
+// is a plain 403 rather than the 404 authorizeSlug uses. There is nothing left
+// to leak at this point, and a 404 here would read as a broken link on a page
+// the user is looking at.
+func (s *Server) requireSlugOwner(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		slug := c.Param("slug")
+		u := userFromContext(c)
+		if u == nil {
+			return notFound()
+		}
+		if u.Role == auth.RoleSuperAdmin || s.registry.ownerOf(slug) == u.Email {
+			return next(c)
+		}
+		return echo.NewHTTPError(http.StatusForbidden, "only the site owner can do that")
+	}
 }

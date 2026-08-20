@@ -169,14 +169,14 @@ func (s *Server) dispatchSite(c *echo.Context, slug string) error {
 // user permitted to see a private site. The subdomain path doesn't go
 // through requireUser so we read the session cookie directly — the same
 // cookie the admin chain uses, just resolved inline without erroring on
-// miss. Super admins always pass; otherwise the email must match the
-// recorded owner.
+// miss. Super admins always pass; otherwise the email must own the site or
+// appear in its collaborator list.
 func (s *Server) callerCanViewPrivate(c *echo.Context, slug string) bool {
 	email, ok := s.currentSessionEmail(c)
 	if !ok {
 		return false
 	}
-	if email == s.registry.ownerOf(slug) {
+	if s.registry.canAccess(slug, email) {
 		return true
 	}
 	if s.auth == nil {

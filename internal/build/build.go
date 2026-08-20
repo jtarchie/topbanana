@@ -351,6 +351,11 @@ func (svc *Service) newRecorder(p Params, authorID string) *editrec.Recorder {
 //
 // The goroutine walks the build lifecycle step-by-step; splitting it into
 // helpers fragments the failure-handling paths without making the flow clearer.
+// ponytail: no per-slug in-flight guard — two concurrent Start calls for the
+// same slug interleave agent writes into one S3 prefix. Single-owner sites made
+// that theoretical; collaborators make it reachable. Upgrade path: a per-slug
+// mutex (or a CAS on the events Status) that rejects the second start with
+// "someone is already editing this site".
 func (svc *Service) Start(p Params) {
 	svc.events.Start(p.Slug)
 
