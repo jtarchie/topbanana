@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jtarchie/topbanana/internal/editrec"
 	"github.com/jtarchie/topbanana/internal/events"
@@ -216,4 +217,28 @@ func newHistoryService(t *testing.T, s *store.Store) *Service {
 	tracker := events.NewTracker()
 	t.Cleanup(tracker.Close)
 	return New(s, nil, tracker, nil)
+}
+
+func TestTruncatePrompt_CutsOnRuneBoundary(t *testing.T) {
+	t.Parallel()
+
+	// A prompt whose byte length exceeds the cap while its rune length sits
+	// right at it — slicing by byte offset here lands mid-rune and puts
+	// invalid UTF-8 into the model's context.
+	prompt := strings.Repeat("é", historyMaxPromptChars+40)
+	got := truncatePrompt(prompt)
+	if !utf8.ValidString(got) {
+		t.Errorf("truncated prompt is not valid UTF-8: %q", got)
+	}
+	if strings.Contains(got, "�") {
+		t.Errorf("truncated prompt contains a replacement char: %q", got)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("want an ellipsis marker, got %q", got)
+	}
+
+	short := "make the images bigger"
+	if truncatePrompt(short) != short {
+		t.Errorf("a short prompt should pass through unchanged")
+	}
 }

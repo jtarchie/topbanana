@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -21,12 +22,18 @@ import (
 // panels.
 type workspaceData struct {
 	Chrome
-	PageURL   string
-	Page      string
-	Pages     []string
-	Assets    []editAsset
-	Functions []string
-	Flash     string
+	PageURL string
+	Page    string
+	Pages   []string
+	// Stylesheets are the sheets the site authored for itself. Listed
+	// separately from Pages because SplitFilesByKind buckets neither: a
+	// root-level site.css is not a page and not an upload. Without this the
+	// agent edits a file on every visual request, and lint names it in errors,
+	// that the owner cannot see anywhere in the workspace.
+	Stylesheets []string
+	Assets      []editAsset
+	Functions   []string
+	Flash       string
 
 	// Building flag flips the status strip on and hides the preview behind a
 	// placeholder. Set from ?building=1 (right after POST /build or POST
@@ -61,6 +68,7 @@ func (s *sitesController) workspaceHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "list pages", err)
 	}
 	pages, assetPaths := build.SplitFilesByKind(all)
+	stylesheets := authorStylesheets(all)
 	assets := s.collectWorkspaceAssets(ctx, slug, assetPaths)
 	functions := collectFunctionNames(all)
 	meta := s.build.ReadMeta(ctx, slug)
@@ -85,6 +93,7 @@ func (s *sitesController) workspaceHandler(c *echo.Context) error {
 		PageURL:          s.siteURL(c, slug, "/"+page),
 		Page:             page,
 		Pages:            pages,
+		Stylesheets:      stylesheets,
 		Assets:           assets,
 		Functions:        functions,
 		Flash:            c.QueryParam("flash"),
@@ -95,6 +104,19 @@ func (s *sitesController) workspaceHandler(c *echo.Context) error {
 		ThemesJSON:       toJSONLiteral(daisyThemes),
 		Snapshots:        snaps,
 	})
+}
+
+// authorStylesheets returns the stylesheets the site wrote for itself, so the
+// owner can see and scope an edit to the file that actually governs the design.
+// Excludes the generated app.css, which the platform overwrites on every build.
+func authorStylesheets(all []string) []string {
+	var sheets []string
+	for _, f := range build.EditableFiles(all) {
+		if strings.HasSuffix(f, ".css") {
+			sheets = append(sheets, f)
+		}
+	}
+	return sheets
 }
 
 // collectWorkspaceAssets returns the image rows for the workspace's image

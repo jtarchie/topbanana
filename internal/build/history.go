@@ -34,6 +34,13 @@ const (
 	// historyMaxFiles caps the files listed per run, so one sweeping edit
 	// can't crowd out the runs around it.
 	historyMaxFiles = 6
+
+	// historyMaxAge bounds how far back history reaches. The block tells the
+	// agent that a request restating earlier history means the earlier attempt
+	// missed — true of something asked minutes ago, wrong of something asked
+	// last quarter. Beyond this a re-request is a fresh request, and surfacing
+	// it would send the agent hunting for a root cause that doesn't exist.
+	historyMaxAge = 14 * 24 * time.Hour
 )
 
 // PriorRun is the distilled record of one earlier user-initiated run: enough
@@ -75,6 +82,10 @@ func (svc *Service) RecentRuns(ctx context.Context, slug string, limit int) []Pr
 		}
 		if !userInitiatedLogKeys[row.LogKey] {
 			continue
+		}
+		if !row.Timestamp.IsZero() && time.Since(row.Timestamp) > historyMaxAge {
+			// Listings are newest-first, so everything past here is older.
+			break
 		}
 		tr, err := editrec.Read(ctx, svc.store, row.Key)
 		if err != nil {
@@ -163,12 +174,16 @@ func formatFiles(files []string) string {
 	return strings.Join(files, ", ")
 }
 
+// truncatePrompt shortens a prior prompt for the history line. Cuts on a rune
+// boundary: prompts are arbitrary user text, and slicing at a byte offset can
+// land mid-rune and put invalid UTF-8 into the model's context.
 func truncatePrompt(p string) string {
 	p = strings.Join(strings.Fields(p), " ")
-	if len(p) <= historyMaxPromptChars {
+	runes := []rune(p)
+	if len(runes) <= historyMaxPromptChars {
 		return p
 	}
-	return p[:historyMaxPromptChars] + "…"
+	return string(runes[:historyMaxPromptChars]) + "…"
 }
 
 // humanizeAge renders a duration the way a person would say it. Exact

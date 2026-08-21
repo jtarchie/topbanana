@@ -56,6 +56,19 @@
         {{ end }}
       </div>
 
+      {{ if .Stylesheets }}
+      <div>
+        <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60 mb-2">Stylesheet</h2>
+        <ul class="menu menu-sm bg-base-100 rounded-box border border-base-300 w-full p-1">
+          {{ range .Stylesheets }}
+          <li>
+            <a href="/workspace/{{ $.Slug }}?page={{ . }}" class="font-mono text-xs break-all{{ if eq . $.Page }} active{{ end }}">{{ . }}</a>
+          </li>
+          {{ end }}
+        </ul>
+      </div>
+      {{ end }}
+
       <div>
         <div class="flex items-center justify-between mb-2">
           <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
@@ -244,6 +257,14 @@
     </ul>
     {{ else }}
     <p class="text-sm text-base-content/70 px-1">No pages yet.</p>
+    {{ end }}
+    {{ if .Stylesheets }}
+    <h3 class="text-xs font-semibold uppercase tracking-wide text-base-content/60 mt-4 mb-2 px-1">Stylesheet</h3>
+    <ul class="menu menu-sm w-full p-0 gap-1">
+      {{ range .Stylesheets }}
+      <li><a href="/workspace/{{ $.Slug }}?page={{ . }}" class="font-mono text-xs break-all{{ if eq . $.Page }} active{{ end }}">{{ . }}</a></li>
+      {{ end }}
+    </ul>
     {{ end }}
   </div>
 </aside>
