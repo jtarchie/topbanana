@@ -361,19 +361,64 @@ func TestValidateFunctionName(t *testing.T) {
 	}
 }
 
+// TestGrepEligible tracks the editable set: anything a surface can rewrite must
+// also be findable, or an agent can be told a file exists and be unable to
+// locate the line it needs to change. Function handlers are searchable despite
+// failing the write gate — they have their own edit tools.
 func TestGrepEligible(t *testing.T) {
 	cases := map[string]bool{
 		"index.html":        true,
 		"functions/x.js":    true,
-		"assets/logo.svg":   false,
+		"site.css":          true,
+		"assets/logo.svg":   true,
+		"notes.txt":         true,
+		"app.css":           false, // regenerated every build
+		"assets/photo.png":  false, // binary
 		".topbanana.json":   false,
 		".bloomhollow.json": false,
 		".buildabear.json":  false,
-		"notes.txt":         false,
 	}
 	for p, want := range cases {
 		if got := GrepEligible(p); got != want {
 			t.Errorf("GrepEligible(%q) = %v, want %v", p, got, want)
+		}
+	}
+}
+
+// TestIsTextAsset pins the predicate the listing surfaces filter on. It is
+// defined as "ValidateTextPath accepts it" precisely so a listed file is always
+// an editable one.
+func TestIsTextAsset(t *testing.T) {
+	cases := map[string]bool{
+		"index.html":         true,
+		"site.css":           true,
+		"assets/logo.svg":    true,
+		"app.css":            false,
+		"functions/x.js":     false,
+		".topbanana.json":    false,
+		"_state/data.json":   false,
+		"assets/photo.png":   false,
+		"../escape.html":     false,
+		"/absolute/path.css": false,
+	}
+	for p, want := range cases {
+		if got := IsTextAsset(p); got != want {
+			t.Errorf("IsTextAsset(%q) = %v, want %v", p, got, want)
+		}
+	}
+}
+
+func TestContentTypeFor(t *testing.T) {
+	cases := map[string]string{
+		"index.html": "text/html; charset=utf-8",
+		"site.css":   "text/css; charset=utf-8",
+		"robots.txt": "text/plain; charset=utf-8",
+		"notes.md":   "text/markdown; charset=utf-8",
+		"feed.xml":   "application/xml",
+	}
+	for p, want := range cases {
+		if got := ContentTypeFor(p); got != want {
+			t.Errorf("ContentTypeFor(%q) = %q, want %q", p, got, want)
 		}
 	}
 }

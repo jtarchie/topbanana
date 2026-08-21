@@ -8,9 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"mime"
 	"net/http"
-	"path"
 	"sort"
 	"strings"
 	"time"
@@ -250,32 +248,12 @@ func mcpDigest(content string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// mcpContentType picks a content type for a written file: HTML gets the
-// charset-tagged type the proxy expects; everything else falls back to the
-// stdlib extension table. store.Write still validates the path itself.
-// Types spelled out here rather than left to mime.TypeByExtension, which
-// answers from the host's /etc/mime.types for anything outside Go's small
-// builtin table. The runtime image is bare alpine with no mailcap package, so
-// .md and .txt resolve to "" there and would be stored — and then served — as
-// application/octet-stream, turning robots.txt into a download. Go's builtin
-// table does cover .css/.js/.json/.svg/.xml/.html.
-var mcpExplicitContentTypes = map[string]string{
-	".html": "text/html; charset=utf-8",
-	".htm":  "text/html; charset=utf-8",
-	".md":   "text/markdown; charset=utf-8",
-	".txt":  "text/plain; charset=utf-8",
-	".xml":  "application/xml",
-}
-
+// mcpContentType picks a content type for a written file. The rule lives in
+// internal/textedit so the build agent's edit tools stamp identical types —
+// both surfaces now write the same set of text assets, and a page rewritten by
+// one must not come back with a different content type than the other gives it.
 func mcpContentType(p string) string {
-	ext := strings.ToLower(path.Ext(p))
-	if ct, ok := mcpExplicitContentTypes[ext]; ok {
-		return ct
-	}
-	if ct := mime.TypeByExtension(ext); ct != "" {
-		return ct
-	}
-	return "application/octet-stream"
+	return textedit.ContentTypeFor(p)
 }
 
 // --- site management --------------------------------------------------------
@@ -629,7 +607,7 @@ type grepFilesInput struct {
 func (s *Server) registerGrepFiles(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "grep_files",
-		Description: "Literal substring search across the HTML pages and function handlers of a site the caller owns. Returns paths, 1-indexed line numbers, and snippets — handy for locating a unique string to pass to edit_file.",
+		Description: "Literal substring search across the HTML pages, text assets (.css .js .svg .md .txt .json .xml) and function handlers of a site the caller owns. Returns paths, 1-indexed line numbers, and snippets — handy for locating a unique string to pass to edit_file.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in grepFilesInput) (*mcp.CallToolResult, any, error) {
 		_, err := s.mcpUserAndAuthorize(ctx, in.Slug)
 		if err != nil {

@@ -11,6 +11,7 @@ package textedit
 import (
 	"errors"
 	"fmt"
+	"mime"
 	"path"
 	"sort"
 	"strings"
@@ -19,6 +20,11 @@ import (
 // maxHTMLPathLen bounds an authored HTML path. Mirrors the agent's own cap so
 // the two surfaces reject the same oversized paths.
 const maxHTMLPathLen = 200
+
+// functionsPrefix is the in-slug directory holding executable handlers. They
+// are authored through write_function/edit_function and must stay unreachable
+// from the generic file-write gates.
+const functionsPrefix = "functions/"
 
 // EditResult is the outcome of a successful ApplyEdit: the updated content, how
 // many replacements were made, and an advisory note surfaced to the caller
@@ -300,7 +306,7 @@ func NumberLines(content string, startOffset int) string {
 
 // reservedWritePrefixes are paths managed by other tools (functions/, assets/)
 // that the HTML write tools must not clobber.
-var reservedWritePrefixes = []string{"functions/", "assets/"}
+var reservedWritePrefixes = []string{functionsPrefix, "assets/"}
 
 // reservedWritePaths are exact paths the write tools must not touch (e.g. the
 // per-site sidecar persisted by the build service). Both the current and
@@ -509,8 +515,8 @@ func checkTextPathReserved(p string) error {
 	if reservedWritePaths[p] {
 		return fmt.Errorf("path %q is reserved", p)
 	}
-	if strings.HasPrefix(p, "functions/") {
-		return fmt.Errorf("path %q is under reserved prefix %q — use write_function/edit_function", p, "functions/")
+	if strings.HasPrefix(p, functionsPrefix) {
+		return fmt.Errorf("path %q is under reserved prefix %q — use write_function/edit_function", p, functionsPrefix)
 	}
 	return nil
 }
@@ -550,17 +556,55 @@ func ValidateFunctionName(name string) error {
 	return nil
 }
 
-// GrepEligible decides whether a stored path is worth grepping. Assets are
-// binary-ish, the sidecar is internal metadata, and other extensions don't
-// belong in a search aimed at HTML + function source.
+// IsTextAsset reports whether a stored path is one an editing tool may read
+// and rewrite. Defined as "ValidateTextPath accepts it" so that what a surface
+// lists is exactly what it can edit — a listing that advertises a file the
+// write gate then refuses is worse than not listing it at all. Binary uploads
+// fail the extension check, and the generated app.css, the sidecars,
+// functions/ and the reserved _ prefixes are all excluded by the validator.
+func IsTextAsset(p string) bool {
+	return ValidateTextPath(p) == nil
+}
+
+// GrepEligible decides whether a stored path is worth grepping: every path an
+// editing tool can rewrite, plus the function handlers, which are editable
+// through write_function/edit_function rather than the generic write gate and
+// so are excluded by ValidateTextPath. Binary assets and the sidecars are not
+// searchable text.
 func GrepEligible(path string) bool {
-	if strings.HasPrefix(path, "assets/") {
-		return false
+	if strings.HasPrefix(path, functionsPrefix) && strings.HasSuffix(path, ".js") {
+		return true
 	}
-	if path == ".topbanana.json" || path == ".bloomhollow.json" || path == ".buildabear.json" {
-		return false
+	return IsTextAsset(path)
+}
+
+// ContentTypeFor picks the content type to store a text file under. HTML gets
+// the charset-tagged type the proxy expects; everything else falls back to the
+// stdlib extension table.
+//
+// The explicit entries are spelled out rather than left to
+// mime.TypeByExtension, which answers from the host's /etc/mime.types for
+// anything outside Go's small builtin table. The runtime image is bare alpine
+// with no mailcap package, so .md and .txt resolve to "" there and would be
+// stored — and then served — as application/octet-stream, turning robots.txt
+// into a download. Go's builtin table does cover .css/.js/.json/.svg/.xml.
+func ContentTypeFor(p string) string {
+	ext := strings.ToLower(path.Ext(p))
+	if ct, ok := explicitContentTypes[ext]; ok {
+		return ct
 	}
-	return strings.HasSuffix(path, ".html") || strings.HasSuffix(path, ".js")
+	if ct := mime.TypeByExtension(ext); ct != "" {
+		return ct
+	}
+	return "application/octet-stream"
+}
+
+var explicitContentTypes = map[string]string{
+	".html": "text/html; charset=utf-8",
+	".htm":  "text/html; charset=utf-8",
+	".md":   "text/markdown; charset=utf-8",
+	".txt":  "text/plain; charset=utf-8",
+	".xml":  "application/xml",
 }
 
 // GrepMatch is one literal-substring hit: the file, its 1-indexed line, and a

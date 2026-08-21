@@ -134,12 +134,32 @@ func budgetHint(htmlCount int, state *buildState) string {
 	return fmt.Sprintf("%d of %d HTML files used; ~%d iterations remaining", htmlCount, maxHTMLFiles, remaining)
 }
 
-// validateHTMLPath gates every tool that writes/edits HTML: reject anything
-// that could escape the slug, smuggle non-HTML into HTML paths, or clobber
-// files managed by other tools. Implemented in internal/textedit so the MCP
-// write/edit tools enforce the identical rule.
+// validateHTMLPath gates write_file, the only tool that creates a file from
+// nothing: reject anything that could escape the slug, smuggle non-HTML into
+// HTML paths, or clobber files managed by other tools. Implemented in
+// internal/textedit so the MCP write/edit tools enforce the identical rule.
+//
+// Creation stays HTML-only on purpose. The agent can now edit a stylesheet a
+// site already has (see validateEditPath), but letting it author new ones
+// invites a second, competing stylesheet on a site that already has a design
+// system — the exact confusion the edit-path widening exists to resolve.
 func validateHTMLPath(p string) error {
 	return textedit.ValidateHTMLPath(p)
+}
+
+// validateEditPath gates the tools that read and rewrite an existing file:
+// read_file, edit_file, replace_lines, insert_at_line. Wider than
+// validateHTMLPath by the hand-maintainable text assets a site can link
+// same-origin (.css .js .svg .md .txt .json .xml), because a site authored
+// over MCP can carry its own stylesheet — and until this gate widened, the
+// build agent could neither see nor fix the file actually deciding how the
+// page renders. It would edit markup that an unlayered author rule silently
+// outranked, and report success.
+//
+// The platform-managed paths stay unreachable: ValidateTextPath refuses the
+// generated app.css, the sidecars, functions/, and the reserved _ prefixes.
+func validateEditPath(p string) error {
+	return textedit.ValidateTextPath(p)
 }
 
 // validateFunctionName accepts the bare handler name (no path, no extension)

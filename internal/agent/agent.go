@@ -908,11 +908,11 @@ func newReadFileTool(s *store.Store, slug string, emit func(events.Event)) (tool
 	t, err := functiontool.New(
 		functiontool.Config{
 			Name:        "read_file",
-			Description: "Read an HTML file. Pass start_line/end_line (1-indexed inclusive) for a slice. Lines come back prefixed with their 1-indexed number and a tab — strip that annotation before passing text back.",
+			Description: "Read an HTML page or a text asset the site carries (.css .js .svg .md .txt .json .xml). Pass start_line/end_line (1-indexed inclusive) for a slice. Lines come back prefixed with their 1-indexed number and a tab — strip that annotation before passing text back.",
 		},
 		func(tctx agent.Context, args readFileArgs) (readFileResult, error) {
 			em.start(args.Path)
-			err := validateHTMLPath(args.Path)
+			err := validateEditPath(args.Path)
 			if err != nil {
 				em.fail(args.Path, err)
 				return readFileResult{Error: err.Error()}, nil
@@ -962,11 +962,11 @@ func newEditFileTool(s *store.Store, slug string, emit func(events.Event), state
 	t, err := functiontool.New(
 		functiontool.Config{
 			Name:        "edit_file",
-			Description: "Surgical edit on an HTML file: old_text must byte-match and be unique unless replace_all=true. Prefer this over rewriting the whole file.",
+			Description: "Surgical edit on an HTML page or a text asset the site carries (.css .js .svg .md .txt .json .xml): old_text must byte-match and be unique unless replace_all=true. Prefer this over rewriting the whole file.",
 		},
 		func(tctx agent.Context, args editFileArgs) (editFileResult, error) {
 			em.start(args.Path)
-			pathErr := validateHTMLPath(args.Path)
+			pathErr := validateEditPath(args.Path)
 			if pathErr != nil {
 				em.fail(args.Path, pathErr)
 				return editFileResult{Error: pathErr.Error()}, nil
@@ -1022,11 +1022,11 @@ func newReplaceLinesTool(s *store.Store, slug string, emit func(events.Event), s
 	t, err := functiontool.New(
 		functiontool.Config{
 			Name:        "replace_lines",
-			Description: "Replace lines start_line..end_line (1-indexed inclusive) in an HTML file with new_text. Empty new_text deletes. Line numbers must reflect the current file — re-read between multiple edits.",
+			Description: "Replace lines start_line..end_line (1-indexed inclusive) in an HTML page or text asset with new_text. Empty new_text deletes. Line numbers must reflect the current file — re-read between multiple edits.",
 		},
 		func(tctx agent.Context, args replaceLinesArgs) (editFileResult, error) {
 			em.start(args.Path)
-			pathErr := validateHTMLPath(args.Path)
+			pathErr := validateEditPath(args.Path)
 			if pathErr != nil {
 				em.fail(args.Path, pathErr)
 				return editFileResult{Error: pathErr.Error()}, nil
@@ -1061,11 +1061,11 @@ func newInsertAtLineTool(s *store.Store, slug string, emit func(events.Event), s
 	t, err := functiontool.New(
 		functiontool.Config{
 			Name:        "insert_at_line",
-			Description: "Insert content after line N in an HTML file. after_line=0 prepends, after_line=total_lines appends. Inserted verbatim — include a trailing newline if needed.",
+			Description: "Insert content after line N in an HTML page or text asset. after_line=0 prepends, after_line=total_lines appends. Inserted verbatim — include a trailing newline if needed.",
 		},
 		func(tctx agent.Context, args insertAtLineArgs) (editFileResult, error) {
 			em.start(args.Path)
-			pathErr := validateHTMLPath(args.Path)
+			pathErr := validateEditPath(args.Path)
 			if pathErr != nil {
 				em.fail(args.Path, pathErr)
 				return editFileResult{Error: pathErr.Error()}, nil
@@ -1124,7 +1124,7 @@ func applyToFile(ctx context.Context, s *store.Store, slug, path, tool, guardSig
 	}
 	contentType := obj.ContentType
 	if contentType == "" {
-		contentType = "text/html; charset=utf-8"
+		contentType = textedit.ContentTypeFor(path)
 	}
 	err = s.Write(ctx, slug, path, updated, contentType, obj.Metadata)
 	if err != nil {
@@ -1159,7 +1159,7 @@ func newGrepFilesTool(s *store.Store, slug string, emit func(events.Event)) (too
 	t, err := functiontool.New(
 		functiontool.Config{
 			Name:        "grep_files",
-			Description: "Literal (case-sensitive, no regex) substring search across HTML pages and function handlers. Returns paths, 1-indexed line numbers, and snippets.",
+			Description: "Literal (case-sensitive, no regex) substring search across HTML pages, the site's text assets, and function handlers. Returns paths, 1-indexed line numbers, and snippets.",
 		},
 		func(tctx agent.Context, args grepFilesArgs) (grepFilesResult, error) {
 			em.start("")
@@ -1197,7 +1197,7 @@ func newGrepFilesTool(s *store.Store, slug string, emit func(events.Event)) (too
 func newListFilesTool(s *store.Store, slug string, emit func(events.Event)) (tool.Tool, error) {
 	em := emitter{emit: emit, tool: "list_files"}
 	t, err := functiontool.New(
-		functiontool.Config{Name: "list_files", Description: "List all HTML files created so far"},
+		functiontool.Config{Name: "list_files", Description: "List the site's HTML pages and the text assets it carries (.css .js .svg .md .txt .json .xml)"},
 		func(tctx agent.Context, _ struct{}) (listFilesResult, error) {
 			em.start("")
 			files, err := s.List(tctx, slug)
@@ -1206,15 +1206,18 @@ func newListFilesTool(s *store.Store, slug string, emit func(events.Event)) (too
 				em.fail("", err)
 				return listFilesResult{Error: err.Error()}, nil
 			}
-			html := make([]string, 0, len(files))
+			// Listed set == editable set (textedit.IsTextAsset is defined as
+			// "the write gate accepts it"), so the agent never sees a file it
+			// would then be refused permission to change.
+			editable := make([]string, 0, len(files))
 			for _, f := range files {
-				if strings.HasSuffix(f, ".html") {
-					html = append(html, f)
+				if textedit.IsTextAsset(f) {
+					editable = append(editable, f)
 				}
 			}
-			slog.Info("agent.list_files", "slug", slug, "count", len(html))
+			slog.Info("agent.list_files", "slug", slug, "count", len(editable))
 			em.done("")
-			return listFilesResult{Files: html}, nil
+			return listFilesResult{Files: editable}, nil
 		},
 	)
 	if err != nil {
