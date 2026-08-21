@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jtarchie/topbanana/internal/agent"
 	"github.com/jtarchie/topbanana/internal/textedit"
@@ -223,4 +224,20 @@ func EditPrompt(prompt, page string) string {
 	}
 
 	return fmt.Sprintf(editPagePromptFmt, page, prompt)
+}
+
+// EditPromptWithHistory is EditPrompt plus a short summary of what the user
+// already asked for on this site. Use it for user-initiated edits; the
+// lint-fix and polish passes want the bare prompt, since they aren't requests
+// and their history would read to the agent as though the user had made one.
+//
+// Best-effort: no history, or an unreadable transcript, yields the same prompt
+// EditPrompt would have produced.
+func (svc *Service) EditPromptWithHistory(ctx context.Context, slug, prompt, page string) string {
+	base := EditPrompt(prompt, page)
+	block := FormatRunHistory(svc.RecentRuns(ctx, slug, historyRuns), prompt, time.Now().UTC())
+	if block == "" {
+		return base
+	}
+	return base + "\n\n" + block
 }

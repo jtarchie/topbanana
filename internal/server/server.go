@@ -897,7 +897,7 @@ func (s *sitesController) editSubmitHandler(c *echo.Context) error {
 	slog.Info("edit.start", "slug", slug, "page", page, "template", tmpl.ID, "seeds", len(seeds), "attachments", len(attachments), "user", callerEmail(c), "tiers", tiers) //nolint:nilaway // see comment.
 	return s.startBuild(c, build.Params{
 		Slug:        slug,
-		Prompt:      build.EditPrompt(prompt, page),
+		Prompt:      s.build.EditPromptWithHistory(ctx, slug, prompt, page),
 		LogKey:      "edit",
 		Template:    tmpl,
 		Seeds:       seeds,
