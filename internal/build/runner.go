@@ -101,10 +101,11 @@ func (r agentRunner) siteURL(slug string) string {
 
 func (r agentRunner) Run(ctx context.Context, s *store.Store, req RunRequest, emit func(events.Event), tracker *events.Tracker) (agent.Usage, error) {
 	bctx := agent.BuildContext{
-		Now:     req.BuildStart,
-		Slug:    req.Slug,
-		SiteURL: r.siteURL(req.Slug),
-		IsEdit:  req.IsEdit,
+		Now:            req.BuildStart,
+		Slug:           req.Slug,
+		SiteURL:        r.siteURL(req.Slug),
+		IsEdit:         req.IsEdit,
+		OwnStylesheets: OwnStylesheets(ctx, s, req.Slug),
 	}
 	agentReq := agent.RunRequest{
 		Store:           s,

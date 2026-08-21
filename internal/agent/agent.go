@@ -36,6 +36,15 @@ import (
 //go:embed agent_prompt.md
 var systemPrompt string
 
+// The two styling regimes. Exactly one is laid down per build, right after the
+// base prompt — see substrateFor in instruction.go.
+
+//go:embed substrate_platform.md
+var platformSubstrate string
+
+//go:embed substrate_byo.md
+var byoSubstrateFmt string // placeholder: %s = the site's own stylesheet paths
+
 //go:embed functions_prompt.md
 var functionsPrompt string
 
@@ -257,6 +266,12 @@ type BuildContext struct {
 	Slug    string
 	SiteURL string
 	IsEdit  bool
+	// OwnStylesheets are the stylesheets the site authored for itself, if
+	// any. Non-empty selects the bring-your-own-CSS styling regime: the
+	// platform's Tailwind/DaisyUI guidance is replaced with instructions to
+	// read and edit these files instead. Empty means the platform substrate
+	// is the whole design system, which is true of every template build.
+	OwnStylesheets []string
 }
 
 // Usage accumulates the token counts the model reports across one agent run.

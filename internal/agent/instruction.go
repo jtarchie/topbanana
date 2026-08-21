@@ -66,8 +66,27 @@ func InstructionFor(req RunRequest) string {
 	return buildInstruction(req.Template, req.Attachments, req.BuildContext)
 }
 
+// substrateFor picks the styling regime for this build. A site that carries no
+// stylesheet of its own is styled entirely by the platform substrate, which is
+// every template build. A site that does carry one — anything authored over
+// MCP, for instance — is governed by that file, and telling such a site's agent
+// to reach for DaisyUI components is worse than useless: those classes are not
+// in its design language, and every rule in the generated /app.css sits inside
+// a CSS @layer that the site's own unlayered rules outrank anyway.
+//
+// The block is laid down immediately after the base prompt, before the
+// template addendum. Nearly every site is platform-regime, so that keeps the
+// longest possible prefix shared across builds; a BYO site gets its own prefix
+// which is then stable across that site's edits.
+func substrateFor(bctx BuildContext) string {
+	if len(bctx.OwnStylesheets) == 0 {
+		return platformSubstrate
+	}
+	return fmt.Sprintf(byoSubstrateFmt, strings.Join(bctx.OwnStylesheets, ", "))
+}
+
 func buildInstruction(tmpl *templates.SiteTemplate, attachments []Attachment, bctx BuildContext) string {
-	parts := []string{systemPrompt}
+	parts := []string{systemPrompt, substrateFor(bctx)}
 	if tmpl != nil {
 		if tmpl.EnablesFunctions {
 			parts = append(parts, functionsPrompt)

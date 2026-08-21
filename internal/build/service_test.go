@@ -1211,3 +1211,50 @@ func TestEditSeeds_PrefetchesStylesheetForUnnamedPrompt(t *testing.T) {
 		t.Errorf("seeded reads = %v, must not prefetch the generated stylesheet", readPaths)
 	}
 }
+
+// TestOwnStylesheets keys the styling regime on what a site actually carries.
+// It must not key on the /app.css link in <head>: OptimizeCSS injects that tag
+// into every page unconditionally and lint requires it, so reading it as a
+// signal is exactly how a hand-authored site ended up being handed DaisyUI
+// guidance it could not use.
+func TestOwnStylesheets_SiteWithItsOwnStylesheet(t *testing.T) {
+	s := minioStoreForBuild(t)
+	ctx := context.Background()
+	slug := buildSlug(t)
+	cleanupSlug(t, s, slug)
+	seedFiles(t, ctx, s, slug, map[string]string{
+		"index.html": `<link rel="stylesheet" href="/app.css">`,
+		"site.css":   ".shot{width:84px}",
+		"app.css":    ".generated{}",
+	})
+
+	got := OwnStylesheets(ctx, s, slug)
+	if !equalSlice(got, []string{"site.css"}) {
+		t.Errorf("got %v, want [site.css] — the generated app.css is not an authored stylesheet", got)
+	}
+}
+
+func TestOwnStylesheets_TemplateSiteLinksOnlyTheGeneratedSheet(t *testing.T) {
+	s := minioStoreForBuild(t)
+	ctx := context.Background()
+	slug := buildSlug(t)
+	cleanupSlug(t, s, slug)
+	seedFiles(t, ctx, s, slug, map[string]string{
+		"index.html": `<link rel="stylesheet" href="/app.css">`,
+		"app.css":    ".generated{}",
+	})
+
+	if got := OwnStylesheets(ctx, s, slug); len(got) != 0 {
+		t.Errorf("got %v, want none — this site is platform-styled", got)
+	}
+}
+
+func seedFiles(t *testing.T, ctx context.Context, s *store.Store, slug string, files map[string]string) {
+	t.Helper()
+	for path, body := range files {
+		err := s.Write(ctx, slug, path, body, textedit.ContentTypeFor(path), nil)
+		if err != nil {
+			t.Fatalf("seed %s: %v", path, err)
+		}
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jtarchie/topbanana/internal/agent"
+	"github.com/jtarchie/topbanana/internal/store"
 	"github.com/jtarchie/topbanana/internal/textedit"
 )
 
@@ -240,4 +241,31 @@ func (svc *Service) EditPromptWithHistory(ctx context.Context, slug, prompt, pag
 		return base
 	}
 	return base + "\n\n" + block
+}
+
+// OwnStylesheets returns the stylesheets a site authored for itself, newest
+// listing order, or nil when it has none. Presence of one selects the
+// bring-your-own-CSS styling regime for the agent (see agent.BuildContext).
+//
+// Detection keys on what the site actually carries, never on the `/app.css`
+// link in <head>: OptimizeCSS injects that tag into every page unconditionally
+// and lint requires it, so its presence says nothing about how a site is
+// styled. Reading it as a signal is what let a hand-authored site be handed
+// DaisyUI guidance it could not use.
+//
+// Best-effort: a list failure yields the platform regime, which is both the
+// safe default and the prior behaviour.
+func OwnStylesheets(ctx context.Context, st *store.Store, slug string) []string {
+	files, err := st.List(ctx, slug)
+	if err != nil {
+		slog.Warn("regime.list_failed", "slug", slug, "err", err)
+		return nil
+	}
+	var sheets []string
+	for _, f := range EditableFiles(files) {
+		if strings.HasSuffix(f, ".css") {
+			sheets = append(sheets, f)
+		}
+	}
+	return sheets
 }
