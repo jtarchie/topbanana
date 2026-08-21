@@ -128,8 +128,11 @@ func TestHumanizeFailure_RealLintOutput(t *testing.T) {
 			// than the generic bucket.
 			name: "size overruled by the site's own stylesheet",
 			files: map[string]string{
-				"index.html": `<!DOCTYPE html><html lang="en"><head>` + validHead + `</head><body><img class="shot" src="a.png" width="360" alt="a"></body></html>`,
-				"site.css":   `.shot{width:84px}`,
+				"index.html": `<!DOCTYPE html><html lang="en"><head>` + validHead +
+					`<link rel="stylesheet" href="/site.css"></head>` +
+					`<body><img class="shot" src="shot.png" width="360" alt="a"></body></html>`,
+				"site.css": `.shot{width:84px}`,
+				"shot.png": "png-bytes",
 			},
 			wantHeadline: "A size change didn't take effect on the page.",
 		},

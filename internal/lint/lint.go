@@ -227,8 +227,8 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 // loses to any authored rule and can never be the cause. Read failures are
 // skipped rather than reported — a stylesheet that won't load is the HTML
 // pass's problem, and inventing a second error for it helps nobody.
-func collectAuthorSizingRules(ctx context.Context, s *store.Store, slug string, files []string) []sizingRule {
-	var rules []sizingRule
+func collectAuthorSizingRules(ctx context.Context, s *store.Store, slug string, files []string) map[string][]sizingRule {
+	rules := map[string][]sizingRule{}
 	for _, file := range files {
 		if file == localStylesheetName || !strings.HasSuffix(file, ".css") {
 			continue
@@ -237,7 +237,9 @@ func collectAuthorSizingRules(ctx context.Context, s *store.Store, slug string, 
 		if err != nil || obj.Content == "" {
 			continue
 		}
-		rules = append(rules, collectSizingRules(file, obj.Content)...)
+		if found := collectSizingRules(file, obj.Content); len(found) > 0 {
+			rules[file] = found
+		}
 	}
 	return rules
 }
