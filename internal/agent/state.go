@@ -156,10 +156,12 @@ func validateHTMLPath(p string) error {
 // page renders. It would edit markup that an unlayered author rule silently
 // outranked, and report success.
 //
-// The platform-managed paths stay unreachable: ValidateTextPath refuses the
-// generated app.css, the sidecars, functions/, and the reserved _ prefixes.
+// The platform-managed paths stay unreachable: the gate refuses the generated
+// app.css, the sidecars, functions/, the reserved _ prefixes, and assets/ —
+// owner-uploaded files arrive through an upload ticket and must not be
+// rewritable as a side effect of an unrelated edit.
 func validateEditPath(p string) error {
-	return textedit.ValidateTextPath(p)
+	return textedit.ValidateAgentEditPath(p)
 }
 
 // validateFunctionName accepts the bare handler name (no path, no extension)

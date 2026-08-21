@@ -1,6 +1,6 @@
 ## Styling: this site has its own stylesheet
 
-This site does not use the platform's component library. It carries its own hand-authored stylesheet — %s — and that file, not your markup, decides how every page looks. It has been pre-loaded into your conversation history via read_file. Read it before you change anything visual.
+This site does not use the platform's component library. It carries its own hand-authored stylesheet — %s — and that file, not your markup, decides how every page looks. It is usually already in your conversation history from a seeded read_file; if it is not, call `read_file` on it now. Either way, read it before you change anything visual.
 
 **Style changes belong in the stylesheet.** Use `edit_file` on it exactly as you would on a page. This is the single most important rule here, because of how the cascade works:
 

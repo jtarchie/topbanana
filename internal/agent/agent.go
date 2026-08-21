@@ -1190,7 +1190,15 @@ func newGrepFilesTool(s *store.Store, slug string, emit func(events.Event)) (too
 			}
 			// Shared with the MCP grep_files tool so caps and scan semantics
 			// stay identical across both search surfaces.
-			matches, total, truncated := textedit.GrepFiles(files, func(path string) (string, bool) {
+			// Search only what this agent could go on to edit, so a hit never
+			// points at a file its write gate would refuse.
+			searchable := make([]string, 0, len(files))
+			for _, f := range files {
+				if textedit.IsAgentEditable(f) || strings.HasPrefix(f, "functions/") {
+					searchable = append(searchable, f)
+				}
+			}
+			matches, total, truncated := textedit.GrepFiles(searchable, func(path string) (string, bool) {
 				obj, rerr := s.Read(tctx, slug, path)
 				if rerr != nil {
 					return "", false
@@ -1226,7 +1234,7 @@ func newListFilesTool(s *store.Store, slug string, emit func(events.Event)) (too
 			// would then be refused permission to change.
 			editable := make([]string, 0, len(files))
 			for _, f := range files {
-				if textedit.IsTextAsset(f) {
+				if textedit.IsAgentEditable(f) {
 					editable = append(editable, f)
 				}
 			}

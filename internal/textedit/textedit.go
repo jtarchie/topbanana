@@ -26,6 +26,10 @@ const maxHTMLPathLen = 200
 // from the generic file-write gates.
 const functionsPrefix = "functions/"
 
+// assetsPrefix holds owner-uploaded files. Written through upload tickets, not
+// through any editing tool the build agent has.
+const assetsPrefix = "assets/"
+
 // EditResult is the outcome of a successful ApplyEdit: the updated content, how
 // many replacements were made, and an advisory note surfaced to the caller
 // (empty when there's nothing to flag, e.g. set after a whitespace-tolerant
@@ -306,7 +310,7 @@ func NumberLines(content string, startOffset int) string {
 
 // reservedWritePrefixes are paths managed by other tools (functions/, assets/)
 // that the HTML write tools must not clobber.
-var reservedWritePrefixes = []string{functionsPrefix, "assets/"}
+var reservedWritePrefixes = []string{functionsPrefix, assetsPrefix}
 
 // reservedWritePaths are exact paths the write tools must not touch (e.g. the
 // per-site sidecar persisted by the build service). Both the current and
@@ -554,6 +558,31 @@ func ValidateFunctionName(name string) error {
 		}
 	}
 	return nil
+}
+
+// ValidateAgentEditPath gates the build agent's read/edit tools. Same as
+// ValidateTextPath minus `assets/`, which stays off limits to the agent: those
+// files were uploaded by the owner through an upload ticket, and an unrelated
+// edit rewriting someone's logo — with no ticket and no audit trail — is not a
+// power this widening was meant to hand out. The MCP surface keeps `assets/`
+// deliberately, since editing an uploaded SVG in place is the whole point
+// there and the caller is the owner.
+func ValidateAgentEditPath(p string) error {
+	err := ValidateTextPath(p)
+	if err != nil {
+		return err
+	}
+	if strings.HasPrefix(p, assetsPrefix) {
+		return fmt.Errorf("path %q is under reserved prefix %q — uploaded assets are managed by the owner, not the build agent", p, assetsPrefix)
+	}
+	return nil
+}
+
+// IsAgentEditable reports whether the build agent may read and rewrite a path.
+// Same relationship to ValidateAgentEditPath that IsTextAsset has to
+// ValidateTextPath: what a surface lists is exactly what it can edit.
+func IsAgentEditable(p string) bool {
+	return ValidateAgentEditPath(p) == nil
 }
 
 // IsTextAsset reports whether a stored path is one an editing tool may read

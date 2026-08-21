@@ -31,6 +31,11 @@ var editPagePromptFmt string // placeholders: %s = page name, %s = user prompt
 // own read_file calls so we don't blow the context window on a sprawling site.
 const editPrefetchTotalCap = 32 * 1024
 
+// maxSeedOverruns bounds how many too-large files the prefetch will read and
+// discard after the budget is first exceeded. Files are visited in priority
+// order, so by the time this trips the useful ones are already seeded.
+const maxSeedOverruns = 5
+
 // SplitFilesByKind partitions a slug's file list into editable HTML pages
 // versus uploaded assets. Sidecars and unknown files are dropped from both.
 func SplitFilesByKind(files []string) (pages, assets []string) {
@@ -47,15 +52,16 @@ func SplitFilesByKind(files []string) (pages, assets []string) {
 	return pages, assets
 }
 
-// EditableFiles returns the files an editing tool may rewrite, in stable
-// order: the HTML pages plus the text assets a site carries. Distinct from
+// EditableFiles returns the files the build agent may rewrite, in stable
+// order: the HTML pages plus the text assets a site carries, excluding
+// owner-uploaded assets/. Distinct from
 // SplitFilesByKind, which OptimizeCSS relies on to mean "HTML only" — feeding
 // a stylesheet into the Tailwind content scan, or letting the page rewriter
 // inject a <link> tag into one, are both wrong.
 func EditableFiles(files []string) []string {
 	out := make([]string, 0, len(files))
 	for _, f := range files {
-		if textedit.IsTextAsset(f) {
+		if textedit.IsAgentEditable(f) {
 			out = append(out, f)
 		}
 	}
@@ -99,6 +105,7 @@ func (svc *Service) EditSeeds(ctx context.Context, slug, prompt string) []agent.
 
 	ordered := seedOrder(editable, prompt)
 	total := 0
+	overruns := 0
 	capped := false
 	for _, path := range ordered {
 		obj, err := svc.store.Read(ctx, slug, path)
@@ -107,10 +114,17 @@ func (svc *Service) EditSeeds(ctx context.Context, slug, prompt string) []agent.
 			continue
 		}
 		if total+len(obj.Content) > editPrefetchTotalCap {
-			// Keep going: a later, smaller file may still fit, and a
-			// stylesheet the agent can't see is the failure mode this
-			// prefetch exists to prevent.
+			// Keep going rather than stopping: a later, smaller file may still
+			// fit, and a stylesheet the agent can't see is the failure mode
+			// this prefetch exists to prevent. Bounded, though — without a cap
+			// an oversized site is read end to end on every EditSeeds call,
+			// and a build makes up to five of those (the edit itself, each
+			// lint-fix retry, and the polish pass).
 			capped = true
+			overruns++
+			if overruns >= maxSeedOverruns {
+				break
+			}
 			continue
 		}
 		total += len(obj.Content)
@@ -128,7 +142,7 @@ func (svc *Service) EditSeeds(ctx context.Context, slug, prompt string) []agent.
 		})
 	}
 
-	slog.Info("edit.prefetch", "slug", slug, "editable", len(editable), "seeded_reads", len(seeds)-1, "bytes", total, "capped", capped)
+	slog.Info("edit.prefetch", "slug", slug, "editable", len(editable), "seeded_reads", len(seeds)-1, "bytes", total, "capped", capped, "overruns", overruns)
 	return seeds
 }
 
@@ -136,9 +150,10 @@ func (svc *Service) EditSeeds(ctx context.Context, slug, prompt string) []agent.
 // so that when the budget runs out it runs out on the least useful file:
 //
 //  1. pages the prompt names outright — the user pointed at them
-//  2. index.html, the mandatory entry point and the usual target
-//  3. the site's own stylesheets, which govern every page at once and are the
-//     highest signal per byte on a site that carries one
+//  2. the site's own stylesheets, which govern every page at once, are the
+//     highest signal per byte on a site that carries one, and are what the
+//     bring-your-own-CSS prompt block tells the agent it already has
+//  3. index.html, the mandatory entry point and the usual target
 //  4. every remaining page
 //  5. everything else (svg, md, txt, json, xml)
 //
@@ -165,8 +180,8 @@ func seedOrder(editable []string, prompt string) []string {
 	always := func(string) bool { return true }
 
 	take(pagesNamedInPrompt(pages, prompt), always)
-	take(editable, func(f string) bool { return f == "index.html" })
 	take(editable, func(f string) bool { return strings.HasSuffix(f, ".css") })
+	take(editable, func(f string) bool { return f == "index.html" })
 	take(pages, always)
 	take(editable, always)
 	return out
@@ -243,17 +258,26 @@ func (svc *Service) EditPromptWithHistory(ctx context.Context, slug, prompt, pag
 	return base + "\n\n" + block
 }
 
-// OwnStylesheets returns the stylesheets a site authored for itself, newest
-// listing order, or nil when it has none. Presence of one selects the
-// bring-your-own-CSS styling regime for the agent (see agent.BuildContext).
+// OwnStylesheets returns the stylesheets a site authored for itself, or nil
+// when the site is styled by the platform substrate. A non-empty result selects
+// the bring-your-own-CSS regime for the agent (see agent.BuildContext).
 //
-// Detection keys on what the site actually carries, never on the `/app.css`
-// link in <head>: OptimizeCSS injects that tag into every page unconditionally
-// and lint requires it, so its presence says nothing about how a site is
-// styled. Reading it as a signal is what let a hand-authored site be handed
-// DaisyUI guidance it could not use.
+// Two signals, and both must agree, because either alone is wrong:
 //
-// Best-effort: a list failure yields the platform regime, which is both the
+//   - The site must carry a stylesheet of its own. Never the `/app.css` link in
+//     <head>: OptimizeCSS injects that tag into every page unconditionally and
+//     lint requires it, so its presence says nothing about how a site is
+//     styled. Reading it as a signal is what let a hand-authored site be handed
+//     DaisyUI guidance it could not use.
+//   - The markup must not already be platform-styled. Carrying a stylesheet is
+//     not exclusive: a template site can pick up a small print.css or fonts.css
+//     over MCP and still be DaisyUI throughout. Flipping the regime on that
+//     alone would tell the agent "this site does not use the platform's
+//     component library" about a site that is nothing but the component
+//     library, and it would start hand-writing CSS into a sheet governing
+//     nothing.
+//
+// Best-effort: any read failure yields the platform regime, which is both the
 // safe default and the prior behaviour.
 func OwnStylesheets(ctx context.Context, st *store.Store, slug string) []string {
 	files, err := st.List(ctx, slug)
@@ -267,5 +291,41 @@ func OwnStylesheets(ctx context.Context, st *store.Store, slug string) []string 
 			sheets = append(sheets, f)
 		}
 	}
+	if len(sheets) == 0 || platformStyled(ctx, st, slug) {
+		return nil
+	}
 	return sheets
+}
+
+// platformStyled reports whether the site's entry point is built on the
+// DaisyUI substrate. Reads index.html only: it is mandatory, and the prompt
+// requires every other page to copy its <html> attributes and chrome verbatim,
+// so it is representative and costs one read rather than one per page.
+//
+// A read failure answers true — the platform regime is the conservative
+// default, since its guidance is merely unhelpful on a hand-authored site
+// whereas the BYO block makes assertions that would be false on a template one.
+func platformStyled(ctx context.Context, st *store.Store, slug string) bool {
+	obj, err := st.Read(ctx, slug, "index.html")
+	if err != nil || obj == nil || obj.Content == "" {
+		return true
+	}
+	content := obj.Content
+	if strings.Contains(content, "data-theme=") {
+		return true
+	}
+	for _, marker := range daisyComponentMarkers {
+		if strings.Contains(content, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// daisyComponentMarkers are class tokens that only appear on a site built from
+// the substrate. Matched with the surrounding quote or space so `card` doesn't
+// hit `postcard` and `btn` doesn't hit `btn-like-thing` in a hand-rolled sheet.
+var daisyComponentMarkers = []string{
+	`"btn`, ` btn`, `"card`, ` card`, `"navbar`, ` navbar`,
+	`"hero`, ` hero`, `"badge`, ` badge`, `text-base-content`, `bg-base-`,
 }

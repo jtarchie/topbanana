@@ -388,6 +388,25 @@ func TestGrepEligible(t *testing.T) {
 // TestIsTextAsset pins the predicate the listing surfaces filter on. It is
 // defined as "ValidateTextPath accepts it" precisely so a listed file is always
 // an editable one.
+// TestIsAgentEditable pins the build agent's narrower gate: everything the MCP
+// surface can rewrite except owner-uploaded assets/.
+func TestIsAgentEditable(t *testing.T) {
+	cases := map[string]bool{
+		"index.html":       true,
+		"site.css":         true,
+		"assets/logo.svg":  false,
+		"assets/photo.png": false,
+		"app.css":          false,
+		"functions/x.js":   false,
+		".topbanana.json":  false,
+	}
+	for p, want := range cases {
+		if got := IsAgentEditable(p); got != want {
+			t.Errorf("IsAgentEditable(%q) = %v, want %v", p, got, want)
+		}
+	}
+}
+
 func TestIsTextAsset(t *testing.T) {
 	cases := map[string]bool{
 		"index.html":         true,

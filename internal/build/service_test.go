@@ -1096,7 +1096,7 @@ func TestValidHTMLPassesLint(t *testing.T) {
 	}
 }
 
-func TestSeedOrder_PrioritisesPromptThenIndexThenStylesheets(t *testing.T) {
+func TestSeedOrder_PrioritisesPromptThenStylesheetsThenIndex(t *testing.T) {
 	t.Parallel()
 
 	editable := []string{"about.html", "index.html", "notes.md", "pricing.html", "site.css", "theme.css"}
@@ -1104,7 +1104,7 @@ func TestSeedOrder_PrioritisesPromptThenIndexThenStylesheets(t *testing.T) {
 	t.Run("prompt names a page, it leads", func(t *testing.T) {
 		t.Parallel()
 		got := seedOrder(editable, "redo the pricing page")
-		want := []string{"pricing.html", "index.html", "site.css", "theme.css", "about.html", "notes.md"}
+		want := []string{"pricing.html", "site.css", "theme.css", "index.html", "about.html", "notes.md"}
 		if !equalSlice(got, want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
@@ -1113,10 +1113,13 @@ func TestSeedOrder_PrioritisesPromptThenIndexThenStylesheets(t *testing.T) {
 	// The incident prompt named no file at all. Before this ordering existed
 	// it seeded nothing but the listing, and the agent never saw the
 	// stylesheet that was overriding the markup it kept editing.
-	t.Run("prompt names nothing, index and stylesheets still lead", func(t *testing.T) {
+	// Stylesheets outrank index.html because the bring-your-own-CSS prompt
+	// block tells the agent it already has them; if the budget runs out before
+	// they are seeded, that block is describing a file the agent never read.
+	t.Run("prompt names nothing, stylesheets and index still lead", func(t *testing.T) {
 		t.Parallel()
 		got := seedOrder(editable, "make the images bigger")
-		want := []string{"index.html", "site.css", "theme.css", "about.html", "pricing.html", "notes.md"}
+		want := []string{"site.css", "theme.css", "index.html", "about.html", "pricing.html", "notes.md"}
 		if !equalSlice(got, want) {
 			t.Errorf("got %v, want %v", got, want)
 		}
@@ -1151,7 +1154,9 @@ func TestEditableFiles(t *testing.T) {
 		"functions/submit.js",
 		"_state/data.json",
 	})
-	want := []string{"assets/logo.svg", "index.html", "site.css"}
+	// assets/ is excluded: those arrive through an owner upload ticket, and an
+	// unrelated edit rewriting someone's logo is not a power the agent needs.
+	want := []string{"index.html", "site.css"}
 	if !equalSlice(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
@@ -1256,5 +1261,46 @@ func seedFiles(t *testing.T, ctx context.Context, s *store.Store, slug string, f
 		if err != nil {
 			t.Fatalf("seed %s: %v", path, err)
 		}
+	}
+}
+
+// TestOwnStylesheets_PlatformSiteWithAnAuxiliarySheet is the regime's second
+// signal. Carrying a stylesheet is not exclusive: a template site can pick up a
+// small print.css over MCP and still be DaisyUI throughout. Flipping the regime
+// on that alone would hand it a prompt block asserting "this site does not use
+// the platform's component library" about a site that is nothing but.
+func TestOwnStylesheets_PlatformSiteWithAnAuxiliarySheet(t *testing.T) {
+	s := minioStoreForBuild(t)
+	ctx := context.Background()
+	slug := buildSlug(t)
+	cleanupSlug(t, s, slug)
+	seedFiles(t, ctx, s, slug, map[string]string{
+		"index.html": `<html data-theme="cupcake"><body><div class="card"><a class="btn">go</a></div></body></html>`,
+		"print.css":  `@media print{.card{box-shadow:none}}`,
+		"app.css":    ".generated{}",
+	})
+
+	if got := OwnStylesheets(ctx, s, slug); len(got) != 0 {
+		t.Errorf("got %v, want none — a DaisyUI site with an auxiliary sheet is still platform-styled", got)
+	}
+}
+
+// The counterpart: hand-authored markup with no substrate fingerprint stays in
+// the bring-your-own-CSS regime even though the platform injected /app.css.
+func TestOwnStylesheets_HandAuthoredSiteKeepsItsRegime(t *testing.T) {
+	s := minioStoreForBuild(t)
+	ctx := context.Background()
+	slug := buildSlug(t)
+	cleanupSlug(t, s, slug)
+	seedFiles(t, ctx, s, slug, map[string]string{
+		"index.html": `<html lang="en"><head><link rel="stylesheet" href="/site.css">` +
+			`<link rel="stylesheet" href="/app.css"></head>` +
+			`<body><a class="tool"><img class="shot" alt="a" src="/a.png"></a></body></html>`,
+		"site.css": ".tool .shot{width:84px}",
+		"app.css":  ".generated{}",
+	})
+
+	if got := OwnStylesheets(ctx, s, slug); !equalSlice(got, []string{"site.css"}) {
+		t.Errorf("got %v, want [site.css]", got)
 	}
 }
