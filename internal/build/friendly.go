@@ -44,6 +44,11 @@ var friendlyRules = []friendlyRule{
 		hint:     "Try again, or break your request into one change at a time.",
 	},
 	{
+		match:    "a stylesheet rule always beats a width/height attribute",
+		headline: "A size change didn't take effect on the page.",
+		hint:     "The site's own stylesheet was setting that size, so the change was overruled. Try again — asking for the change in plain terms is enough.",
+	},
+	{
 		match:    "missing stylesheet",
 		headline: "A page was missing its styling.",
 		hint:     "Try again — this usually clears up on a second attempt.",

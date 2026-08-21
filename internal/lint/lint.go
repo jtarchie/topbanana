@@ -25,6 +25,11 @@ import (
 type Kind string
 
 const (
+	// KindCascadeConflict identifies an element whose width/height attribute
+	// is overridden by a fixed size in one of the site's own stylesheets.
+	// Never auto-fixed: only the agent can decide whether the intended size is
+	// the attribute's or the rule's, and the repair belongs in the stylesheet.
+	KindCascadeConflict Kind = "cascade_conflict"
 	// KindDesignSubstrate identifies a page missing the self-hosted /app.css
 	// stylesheet link — purely mechanical, AutoFixDesignSubstrate handles it.
 	KindDesignSubstrate Kind = "design_substrate"
@@ -148,6 +153,7 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 	var pages []pageInfo
 	factsByPage := map[string]jsFacts{}
 	var fnLiterals []string
+	sizingRules := collectAuthorSizingRules(ctx, s, slug, files)
 	for _, file := range files {
 		switch {
 		case strings.HasSuffix(file, ".html"):
@@ -193,6 +199,7 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 	// Cross-page checks (a fragment can target an id on another page; titles
 	// must be unique across the site; a page may be referenced from anywhere)
 	// run once every page is parsed rather than per file above.
+	errs = append(errs, checkCascadeConflicts(pages, sizingRules)...)
 	errs = append(errs, checkAnchors(pages, lc)...)
 	errs = append(errs, checkDuplicateTitles(pages)...)
 	errs = append(errs, checkUnreferencedPages(pages, factsByPage, fnLiterals, skeletonPages, lc)...)
@@ -210,6 +217,29 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 	}
 
 	return errs
+}
+
+// collectAuthorSizingRules gathers the fixed width/height rules from every
+// stylesheet the site authored, so checkCascadeConflicts can tell whether a
+// page's sizing attributes are being overruled.
+//
+// The generated app.css is excluded: it is entirely inside a CSS @layer, so it
+// loses to any authored rule and can never be the cause. Read failures are
+// skipped rather than reported — a stylesheet that won't load is the HTML
+// pass's problem, and inventing a second error for it helps nobody.
+func collectAuthorSizingRules(ctx context.Context, s *store.Store, slug string, files []string) []sizingRule {
+	var rules []sizingRule
+	for _, file := range files {
+		if file == localStylesheetName || !strings.HasSuffix(file, ".css") {
+			continue
+		}
+		obj, err := s.Read(ctx, slug, file)
+		if err != nil || obj.Content == "" {
+			continue
+		}
+		rules = append(rules, collectSizingRules(file, obj.Content)...)
+	}
+	return rules
 }
 
 // templateSkeletonPages returns the file names the chosen template ships.
@@ -257,6 +287,10 @@ func checkEntryPoint(ctx context.Context, s *store.Store, slug string) []Error {
 // served at /app.css — it bundles DaisyUI, every theme, and the Tailwind
 // utilities the page uses. There is no CDN substrate anymore.
 const localStylesheetHref = "/app.css"
+
+// localStylesheetName is the same sheet as a stored path. Named separately so
+// the "is this a stylesheet the site authored?" test can't drift from the href.
+const localStylesheetName = "app.css"
 
 // localStylesheetTag is the canonical form AutoFixDesignSubstrate injects.
 const localStylesheetTag = `<link rel="stylesheet" href="/app.css">`

@@ -123,6 +123,17 @@ func TestHumanizeFailure_RealLintOutput(t *testing.T) {
 			wantHeadline: "A link pointed to a page that doesn't exist yet.",
 		},
 		{
+			// The incident case: markup edited, stylesheet unchanged, page
+			// unmoved. The failure has to reach the owner as something other
+			// than the generic bucket.
+			name: "size overruled by the site's own stylesheet",
+			files: map[string]string{
+				"index.html": `<!DOCTYPE html><html lang="en"><head>` + validHead + `</head><body><img class="shot" src="a.png" width="360" alt="a"></body></html>`,
+				"site.css":   `.shot{width:84px}`,
+			},
+			wantHeadline: "A size change didn't take effect on the page.",
+		},
+		{
 			name: "missing home page",
 			files: map[string]string{
 				"about.html": `<!DOCTYPE html><html lang="en"><head>` + validHead + `</head><body><h1>about</h1></body></html>`,
