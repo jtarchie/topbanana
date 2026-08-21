@@ -142,13 +142,27 @@ type FileChange struct {
 
 // Recorder accumulates a Transcript across one agent run. Wrap exposes a
 // single emit callback that's safe to call from the runner's tool callbacks;
-// internal state is mutex-guarded so a future move to parallel tool calls
-// wouldn't corrupt the transcript.
+// internal state is mutex-guarded so parallel tool calls can't corrupt the
+// transcript.
+//
+// pendingIdx is a per-path FIFO queue, not a single index. ADK dispatches
+// each function call in its own goroutine and both OpenAI and Anthropic
+// batch tool calls by default, so two edits to the same page are routinely
+// in flight at once. Keyed by path alone, the second start overwrote the
+// first, the first done consumed the survivor, and the second done found
+// nothing and recorded nothing — two real edits collapsed into one
+// FileChange pairing one call's before with another call's after. The queue
+// keeps one slot per in-flight call so every edit lands in the transcript.
+//
+// ponytail: pairing is still positional, not by identity — with staggered
+// completions a before can pair with the wrong call's after. Correct fix is
+// a call id on events.Event, threaded from the tool closures; that touches
+// every emitter, so it waits for a reason beyond transcript fidelity.
 type Recorder struct {
 	mu             sync.Mutex
 	transcript     Transcript
 	pendingBefores []pendingBefore
-	pendingIdx     map[string]int // path -> index into pendingBefores
+	pendingIdx     map[string][]int // path -> FIFO of indexes into pendingBefores
 }
 
 type pendingBefore struct {
@@ -170,7 +184,7 @@ func New(slug, logKey, userPrompt, page string) *Recorder {
 			ToolCalls:   []ToolCall{},
 			FileChanges: []FileChange{},
 		},
-		pendingIdx: map[string]int{},
+		pendingIdx: map[string][]int{},
 	}
 }
 
@@ -298,16 +312,15 @@ func (r *Recorder) observe(ctx context.Context, st *store.Store, slug string, ev
 			content:   before,
 			toolStart: toolIdx,
 		})
-		r.pendingIdx[ev.Path] = idx
+		r.pendingIdx[ev.Path] = append(r.pendingIdx[ev.Path], idx)
 		r.mu.Unlock()
 	case events.PhaseDone:
 		r.mu.Lock()
-		idx, ok := r.pendingIdx[ev.Path]
+		idx, ok := r.popPending(ev.Path)
 		if !ok {
 			r.mu.Unlock()
 			return
 		}
-		delete(r.pendingIdx, ev.Path)
 		pre := r.pendingBefores[idx]
 		r.mu.Unlock()
 
@@ -317,10 +330,31 @@ func (r *Recorder) observe(ctx context.Context, st *store.Store, slug string, ev
 		r.appendChange(pre, after, toolIdx)
 		r.mu.Unlock()
 	case events.PhaseError:
+		// Drop one queued slot, not the whole path: a concurrent sibling
+		// edit to the same file may still be in flight and must keep its
+		// before-content.
 		r.mu.Lock()
-		delete(r.pendingIdx, ev.Path)
+		r.popPending(ev.Path)
 		r.mu.Unlock()
 	}
+}
+
+// popPending removes and returns the oldest queued pendingBefores index for
+// path. Must be called with r.mu held. Reports false when nothing is queued,
+// which happens whenever a done/error arrives without a matching start (a
+// tool that emits only a terminal phase).
+func (r *Recorder) popPending(path string) (int, bool) {
+	queue := r.pendingIdx[path]
+	if len(queue) == 0 {
+		return 0, false
+	}
+	idx := queue[0]
+	if len(queue) == 1 {
+		delete(r.pendingIdx, path)
+	} else {
+		r.pendingIdx[path] = queue[1:]
+	}
+	return idx, true
 }
 
 func readContent(ctx context.Context, st *store.Store, slug, p string) string {

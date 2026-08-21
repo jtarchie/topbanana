@@ -337,3 +337,97 @@ func TestRecorderTrim(t *testing.T) {
 		t.Errorf("after trim want 2, got %d", len(rows))
 	}
 }
+
+// TestRecorderRecordsConcurrentEditsToSameFile pins the bug that made a real
+// incident undiagnosable: two edit_file calls on index.html, dispatched in
+// parallel by ADK, produced exactly one FileChange in the transcript — and
+// that one paired the first call's before-content with the second call's
+// after-content. The debug page therefore showed one image resizing when both
+// had. Events are replayed in the interleaving the incident transcript
+// recorded: start, start, done, done.
+func TestRecorderRecordsConcurrentEditsToSameFile(t *testing.T) {
+	s := storetest.New(t, 0)
+	ctx := context.Background()
+	slug := freshSlug(t)
+	cleanup(t, ctx, s, slug)
+
+	const path = "index.html"
+	err := s.Write(ctx, slug, path, `<img id="a" width="84"><img id="b" width="84">`, "text/html", nil)
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	rec := editrec.New(slug, "edit", "make the images bigger", path)
+	emit := rec.Wrap(ctx, s, slug, nil)
+
+	start := events.Event{Type: events.TypeTool, Tool: "edit_file", Phase: events.PhaseStart, Path: path}
+	done := events.Event{Type: events.TypeTool, Tool: "edit_file", Phase: events.PhaseDone, Path: path}
+
+	// Both calls start before either finishes — the parallel dispatch.
+	emit(start)
+	emit(start)
+
+	// writeMu serializes the actual store writes, so they land in sequence.
+	err = s.Write(ctx, slug, path, `<img id="a" width="360"><img id="b" width="84">`, "text/html", nil)
+	if err != nil {
+		t.Fatalf("first edit: %v", err)
+	}
+	emit(done)
+	err = s.Write(ctx, slug, path, `<img id="a" width="360"><img id="b" width="360">`, "text/html", nil)
+	if err != nil {
+		t.Fatalf("second edit: %v", err)
+	}
+	emit(done)
+
+	rec.Finish(ctx, s, events.StatusCompleted, nil)
+
+	tr := mustReadOnlyTranscript(t, ctx, s, slug)
+	if len(tr.FileChanges) != 2 {
+		t.Fatalf("FileChanges = %d, want 2 — a concurrent edit was dropped from the transcript", len(tr.FileChanges))
+	}
+	// The final recorded state must reflect both edits, or a reader of the
+	// transcript concludes only one image changed.
+	last := tr.FileChanges[len(tr.FileChanges)-1].AfterContent
+	if !strings.Contains(last, `id="a" width="360"`) || !strings.Contains(last, `id="b" width="360"`) {
+		t.Errorf("final AfterContent does not show both edits: %q", last)
+	}
+}
+
+// TestRecorderErrorDropsOnlyOnePending guards the other half of the fix: a
+// failed call must retire its own queued slot, not the whole path, or a
+// sibling edit still in flight loses its before-content and goes unrecorded.
+func TestRecorderErrorDropsOnlyOnePending(t *testing.T) {
+	s := storetest.New(t, 0)
+	ctx := context.Background()
+	slug := freshSlug(t)
+	cleanup(t, ctx, s, slug)
+
+	const path = "index.html"
+	err := s.Write(ctx, slug, path, "<p>before</p>", "text/html", nil)
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	rec := editrec.New(slug, "edit", "two edits, one fails", path)
+	emit := rec.Wrap(ctx, s, slug, nil)
+
+	emit(events.Event{Type: events.TypeTool, Tool: "edit_file", Phase: events.PhaseStart, Path: path})
+	emit(events.Event{Type: events.TypeTool, Tool: "edit_file", Phase: events.PhaseStart, Path: path})
+	emit(events.Event{Type: events.TypeTool, Tool: "edit_file", Phase: events.PhaseError, Path: path, Message: "old_text not found in file"})
+
+	err = s.Write(ctx, slug, path, "<p>after</p>", "text/html", nil)
+	if err != nil {
+		t.Fatalf("surviving edit: %v", err)
+	}
+	emit(events.Event{Type: events.TypeTool, Tool: "edit_file", Phase: events.PhaseDone, Path: path})
+
+	rec.Finish(ctx, s, events.StatusCompleted, nil)
+
+	tr := mustReadOnlyTranscript(t, ctx, s, slug)
+	if len(tr.FileChanges) != 1 {
+		t.Fatalf("FileChanges = %d, want 1 — the surviving edit lost its pending slot", len(tr.FileChanges))
+	}
+	if !strings.Contains(tr.FileChanges[0].AfterContent, "after") {
+		t.Errorf("AfterContent = %q, want the surviving edit's result", tr.FileChanges[0].AfterContent)
+	}
+}
