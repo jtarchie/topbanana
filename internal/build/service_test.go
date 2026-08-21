@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -17,6 +18,7 @@ import (
 	"github.com/jtarchie/topbanana/internal/store"
 	"github.com/jtarchie/topbanana/internal/storetest"
 	"github.com/jtarchie/topbanana/internal/templates"
+	"github.com/jtarchie/topbanana/internal/textedit"
 )
 
 // --- Pure unit tests (no MinIO required) ------------------------------------
@@ -1091,5 +1093,121 @@ func TestValidHTMLPassesLint(t *testing.T) {
 	errs := lint.App(ctx, st, slug, templates.Get("blank"))
 	if len(errs) != 0 {
 		t.Fatalf("valid fixture failed lint: %+v", errs)
+	}
+}
+
+func TestSeedOrder_PrioritisesPromptThenIndexThenStylesheets(t *testing.T) {
+	t.Parallel()
+
+	editable := []string{"about.html", "index.html", "notes.md", "pricing.html", "site.css", "theme.css"}
+
+	t.Run("prompt names a page, it leads", func(t *testing.T) {
+		t.Parallel()
+		got := seedOrder(editable, "redo the pricing page")
+		want := []string{"pricing.html", "index.html", "site.css", "theme.css", "about.html", "notes.md"}
+		if !equalSlice(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	// The incident prompt named no file at all. Before this ordering existed
+	// it seeded nothing but the listing, and the agent never saw the
+	// stylesheet that was overriding the markup it kept editing.
+	t.Run("prompt names nothing, index and stylesheets still lead", func(t *testing.T) {
+		t.Parallel()
+		got := seedOrder(editable, "make the images bigger")
+		want := []string{"index.html", "site.css", "theme.css", "about.html", "pricing.html", "notes.md"}
+		if !equalSlice(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("every editable file appears exactly once", func(t *testing.T) {
+		t.Parallel()
+		got := seedOrder(editable, "redo pricing.html and index.html")
+		if len(got) != len(editable) {
+			t.Fatalf("got %d entries for %d files: %v", len(got), len(editable), got)
+		}
+		seen := map[string]bool{}
+		for _, f := range got {
+			if seen[f] {
+				t.Errorf("%q listed twice: %v", f, got)
+			}
+			seen[f] = true
+		}
+	})
+}
+
+func TestEditableFiles(t *testing.T) {
+	t.Parallel()
+
+	got := EditableFiles([]string{
+		"index.html",
+		"site.css",
+		"assets/logo.svg",
+		"assets/hero.jpg",
+		"app.css",
+		".topbanana.json",
+		"functions/submit.js",
+		"_state/data.json",
+	})
+	want := []string{"assets/logo.svg", "index.html", "site.css"}
+	if !equalSlice(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+// TestEditSeeds_PrefetchesStylesheetForUnnamedPrompt is the end-to-end
+// regression for the incident: the site layout is tinytools' (pages plus a
+// hand-authored site.css that decides how images render), and the prompt names
+// no file. The agent must start its turn already holding the stylesheet, or it
+// edits markup that an unlayered rule silently outranks.
+func TestEditSeeds_PrefetchesStylesheetForUnnamedPrompt(t *testing.T) {
+	s := minioStoreForBuild(t)
+	ctx := context.Background()
+	slug := buildSlug(t)
+	cleanupSlug(t, s, slug)
+
+	files := map[string]string{
+		"index.html":   `<img class="shot" width="84">`,
+		"privacy.html": "<p>privacy</p>",
+		"site.css":     ".tool .shot{width:84px;height:84px}",
+		"app.css":      ".generated{}",
+	}
+	for path, content := range files {
+		err := s.Write(ctx, slug, path, content, textedit.ContentTypeFor(path), nil)
+		if err != nil {
+			t.Fatalf("seed %s: %v", path, err)
+		}
+	}
+
+	tracker := events.NewTracker()
+	t.Cleanup(tracker.Close)
+	svc := New(s, nil, tracker, nil)
+	seeds := svc.EditSeeds(ctx, slug, "Make the images bigger by scaling them up in size.")
+
+	if len(seeds) == 0 || seeds[0].Name != "list_files" {
+		t.Fatalf("want a leading list_files seed, got %+v", seeds)
+	}
+	listed, _ := seeds[0].Response["files"].([]string)
+	if !slices.Contains(listed, "site.css") || slices.Contains(listed, "app.css") {
+		t.Errorf("seeded listing = %v, want site.css present and the generated app.css absent", listed)
+	}
+
+	readPaths := make([]string, 0, len(seeds))
+	for _, sd := range seeds[1:] {
+		if sd.Name != "read_file" {
+			continue
+		}
+		path, _ := sd.Args["path"].(string)
+		readPaths = append(readPaths, path)
+	}
+	for _, want := range []string{"index.html", "site.css"} {
+		if !slices.Contains(readPaths, want) {
+			t.Errorf("seeded reads = %v, missing %q", readPaths, want)
+		}
+	}
+	if slices.Contains(readPaths, "app.css") {
+		t.Errorf("seeded reads = %v, must not prefetch the generated stylesheet", readPaths)
 	}
 }

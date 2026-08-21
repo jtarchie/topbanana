@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/jtarchie/topbanana/internal/agent"
+	"github.com/jtarchie/topbanana/internal/textedit"
 )
 
 // The edit-prompt format strings the agent sees on every edit submission.
@@ -43,10 +45,33 @@ func SplitFilesByKind(files []string) (pages, assets []string) {
 	return pages, assets
 }
 
-// EditSeeds returns synthetic tool-call seeds for an edit invocation: always
-// a list_files seed (so the agent doesn't need that round-trip), and a
-// read_file seed for each existing HTML page mentioned by name in the user's
-// prompt, capped at editPrefetchTotalCap total bytes.
+// EditableFiles returns the files an editing tool may rewrite, in stable
+// order: the HTML pages plus the text assets a site carries. Distinct from
+// SplitFilesByKind, which OptimizeCSS relies on to mean "HTML only" — feeding
+// a stylesheet into the Tailwind content scan, or letting the page rewriter
+// inject a <link> tag into one, are both wrong.
+func EditableFiles(files []string) []string {
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		if textedit.IsTextAsset(f) {
+			out = append(out, f)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// EditSeeds returns synthetic tool-call seeds for an edit invocation: a
+// list_files seed (so the agent doesn't need that round-trip) and read_file
+// seeds for as much of the site as fits in editPrefetchTotalCap.
+//
+// Seeding used to prefetch only pages the prompt named, which meant a prompt
+// naming no page at all — "make the images bigger" — seeded nothing but the
+// file list. The agent then read pages at random, guessed at edit_file
+// old_text, failed the byte match twice, and re-read: four iterations to reach
+// the state it should have started in, working from a mental model that never
+// included the file governing the change. Most sites fit well inside the cap,
+// so prefetch by priority until the budget runs out rather than by name alone.
 //
 // Errors are swallowed and logged: seeding is an optimization, never a gating
 // step. If we can't list the bucket, the agent proceeds without seeds.
@@ -56,30 +81,35 @@ func (svc *Service) EditSeeds(ctx context.Context, slug, prompt string) []agent.
 		slog.Warn("edit.seeds.list_failed", "slug", slug, "err", err)
 		return nil
 	}
-	pages, _ := SplitFilesByKind(files)
-	if len(pages) == 0 {
+	editable := EditableFiles(files)
+	if len(editable) == 0 {
 		return nil
 	}
 
-	seeds := make([]agent.SeedToolCall, 0, 1+len(pages))
+	seeds := make([]agent.SeedToolCall, 0, 1+len(editable))
+	// The seeded listing must match what the live list_files tool answers, or
+	// the agent's first real call contradicts its own history.
 	seeds = append(seeds, agent.SeedToolCall{
 		Name:     "list_files",
 		Args:     map[string]any{},
-		Response: map[string]any{"files": pages},
+		Response: map[string]any{"files": editable},
 	})
 
-	matched := pagesNamedInPrompt(pages, prompt)
+	ordered := seedOrder(editable, prompt)
 	total := 0
 	capped := false
-	for _, page := range matched {
-		obj, err := svc.store.Read(ctx, slug, page)
+	for _, path := range ordered {
+		obj, err := svc.store.Read(ctx, slug, path)
 		if err != nil || obj == nil {
-			slog.Warn("edit.seeds.read_failed", "slug", slug, "page", page, "err", err)
+			slog.Warn("edit.seeds.read_failed", "slug", slug, "page", path, "err", err)
 			continue
 		}
 		if total+len(obj.Content) > editPrefetchTotalCap {
+			// Keep going: a later, smaller file may still fit, and a
+			// stylesheet the agent can't see is the failure mode this
+			// prefetch exists to prevent.
 			capped = true
-			break
+			continue
 		}
 		total += len(obj.Content)
 		totalLines := 0
@@ -88,7 +118,7 @@ func (svc *Service) EditSeeds(ctx context.Context, slug, prompt string) []agent.
 		}
 		seeds = append(seeds, agent.SeedToolCall{
 			Name: "read_file",
-			Args: map[string]any{"path": page},
+			Args: map[string]any{"path": path},
 			Response: map[string]any{
 				"content":     agent.NumberLines(obj.Content, 1),
 				"total_lines": totalLines,
@@ -96,8 +126,48 @@ func (svc *Service) EditSeeds(ctx context.Context, slug, prompt string) []agent.
 		})
 	}
 
-	slog.Info("edit.prefetch", "slug", slug, "pages", len(pages), "matched", len(matched), "seeded_reads", len(seeds)-1, "bytes", total, "capped", capped)
+	slog.Info("edit.prefetch", "slug", slug, "editable", len(editable), "seeded_reads", len(seeds)-1, "bytes", total, "capped", capped)
 	return seeds
+}
+
+// seedOrder ranks the editable files by how much a prefetch of each is worth,
+// so that when the budget runs out it runs out on the least useful file:
+//
+//  1. pages the prompt names outright — the user pointed at them
+//  2. index.html, the mandatory entry point and the usual target
+//  3. the site's own stylesheets, which govern every page at once and are the
+//     highest signal per byte on a site that carries one
+//  4. every remaining page
+//  5. everything else (svg, md, txt, json, xml)
+//
+// Each file appears once, at its best rank.
+func seedOrder(editable []string, prompt string) []string {
+	pages := make([]string, 0, len(editable))
+	for _, f := range editable {
+		if strings.HasSuffix(f, ".html") {
+			pages = append(pages, f)
+		}
+	}
+
+	seen := make(map[string]bool, len(editable))
+	out := make([]string, 0, len(editable))
+	take := func(candidates []string, keep func(string) bool) {
+		for _, f := range candidates {
+			if seen[f] || !keep(f) {
+				continue
+			}
+			seen[f] = true
+			out = append(out, f)
+		}
+	}
+	always := func(string) bool { return true }
+
+	take(pagesNamedInPrompt(pages, prompt), always)
+	take(editable, func(f string) bool { return f == "index.html" })
+	take(editable, func(f string) bool { return strings.HasSuffix(f, ".css") })
+	take(pages, always)
+	take(editable, always)
+	return out
 }
 
 // pagesNamedInPrompt returns the subset of pages whose full name (e.g.
