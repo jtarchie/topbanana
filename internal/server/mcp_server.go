@@ -105,6 +105,7 @@ func (s *Server) buildMCPServer() *mcp.Server {
 	s.registerLintSite(srv)
 	s.registerListRuns(srv)
 	s.registerGetRunTranscript(srv)
+	s.registerRunEdit(srv)
 
 	s.registerListAssets(srv)
 	s.registerSetAssetMetadata(srv)
