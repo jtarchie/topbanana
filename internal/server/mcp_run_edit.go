@@ -62,7 +62,7 @@ func (s *Server) registerRunEdit(srv *mcp.Server) {
 		if err != nil {
 			return nil, nil, mcpPlainErr(err)
 		}
-		if existing := s.events.Get(in.Slug); existing != nil && existing.Status == events.StatusBuilding {
+		if existing := s.events.Get(in.Slug); existing != nil && events.IsActive(existing.Status) {
 			return nil, nil, mcpPlainErr(errors.New("a build is already in progress for this site — wait for it to finish"))
 		}
 
@@ -96,7 +96,7 @@ func (s *Server) registerRunEdit(srv *mcp.Server) {
 		if st := s.events.Get(in.Slug); st != nil && st.Error != "" {
 			res["error"] = st.Error
 		}
-		if status == events.StatusBuilding {
+		if !events.IsTerminal(status) {
 			res["next"] = "the run is still going — poll list_runs and read the newest transcript with get_run_transcript"
 			return mcpJSON(res)
 		}
@@ -123,9 +123,10 @@ func runEditWait(seconds int) time.Duration {
 }
 
 // waitForBuild polls the events tracker until the slug reaches a terminal
-// status or the wait budget (or the request context) runs out, returning the
-// last status seen. Polling rather than subscribing keeps this independent of
-// the SSE plumbing's buffer semantics.
+// status (completed/failed — linting, retry, and polishing are all still
+// in-flight) or the wait budget (or the request context) runs out, returning
+// the last status seen. Polling rather than subscribing keeps this
+// independent of the SSE plumbing's buffer semantics.
 func (s *Server) waitForBuild(ctx context.Context, slug string, wait time.Duration) string {
 	deadline := time.Now().Add(wait)
 	for {
@@ -133,7 +134,7 @@ func (s *Server) waitForBuild(ctx context.Context, slug string, wait time.Durati
 		if st := s.events.Get(slug); st != nil {
 			status = st.Status
 		}
-		if status != events.StatusBuilding || time.Now().After(deadline) {
+		if events.IsTerminal(status) || time.Now().After(deadline) {
 			return status
 		}
 		select {
