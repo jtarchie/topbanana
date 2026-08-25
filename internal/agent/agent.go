@@ -390,15 +390,25 @@ func Run(ctx context.Context, llm adkmodel.LLM, req RunRequest, emit func(events
 		return Usage{}, err
 	}
 
-	// History compaction: cap the conversation at ~20 entries so a long
-	// build does not replay an ever-growing history on every turn. The
-	// sliding-window strategy is turn-based (no tokenizer needed), uses
-	// this agent's own LLM to produce the summary, and only fires when
-	// the cap is exceeded — short builds pay nothing. CrushRegistry
-	// ships with the upstream package and provides context-window
-	// metadata for known model IDs, with sane fallbacks otherwise.
+	// History compaction: cap the conversation at ~20 entries beyond the
+	// seeds so a long build does not replay an ever-growing history on
+	// every turn. The sliding-window strategy is turn-based (no tokenizer
+	// needed), uses this agent's own LLM to produce the summary, and only
+	// fires when the cap is exceeded — short builds pay nothing.
+	// CrushRegistry ships with the upstream package and provides
+	// context-window metadata for known model IDs, with sane fallbacks
+	// otherwise.
+	//
+	// The window MUST budget for the seeded events (two session entries
+	// per seed), or seeding alone trips the cap and the guard summarizes
+	// the conversation before the model's first turn. That summary
+	// discards the seeded file bytes AND buries the user's request — the
+	// 2026-08-25 tinytools incident: whole-site prefetch pushed an edit
+	// session to ~27 entries, compaction fired at turn zero, and the
+	// model concluded "no explicit user request for changes" and answered
+	// "done" without editing anything.
 	guard := contextguard.New(contextguard.NewCrushRegistry())
-	guard.Add(cfg.Name, llm, contextguard.WithSlidingWindow(20))
+	guard.Add(cfg.Name, llm, contextguard.WithSlidingWindow(20+2*len(allSeeds)))
 
 	r, err := runner.New(runner.Config{
 		AppName:           "topbanana",
@@ -449,12 +459,32 @@ func Run(ctx context.Context, llm adkmodel.LLM, req RunRequest, emit func(events
 			slog.Info("agent.parallel_tool_calls", "slug", slug, "count", n)
 		}
 		if event != nil && event.IsFinalResponse() {
+			if text := finalResponseText(event); text != "" {
+				emit(events.Event{Type: events.TypeAgentText, Message: text})
+			}
 			slog.Info("agent.done", "slug", slug, "iterations", iters)
 			break
 		}
 	}
 
 	return usage, nil
+}
+
+// finalResponseText joins the visible text parts of the run's final event.
+// Thought parts and function calls are skipped — this is what the model said
+// on its way out, the one artifact that explains a run that changed nothing.
+func finalResponseText(ev *session.Event) string {
+	if ev == nil || ev.Content == nil {
+		return ""
+	}
+	var parts []string
+	for _, p := range ev.Content.Parts {
+		if p == nil || p.Thought || p.Text == "" {
+			continue
+		}
+		parts = append(parts, p.Text)
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n"))
 }
 
 // seedSession creates a fresh session for the given slug and pre-populates it

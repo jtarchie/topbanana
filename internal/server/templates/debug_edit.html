@@ -88,10 +88,22 @@
           {{ end }}
         </ul>
         {{ if not .FileChangeCount }}
-        <p class="text-base-content/70 mt-3">No file mutations were recorded. If the agent reported success but nothing changed, this is the smoking gun.</p>
+        <p class="text-base-content/70 mt-3">No file mutations were recorded. If the agent reported success but nothing changed, this is the smoking gun — the agent's final message below says what it did instead.</p>
         {{ end }}
       {{ end }}
     </section>
+
+    {{ if .FinalMessages }}
+    <section>
+      <h2 class="text-lg font-semibold mb-3">Agent final message{{ if gt (len .FinalMessages) 1 }}s{{ end }}</h2>
+      <p class="text-base-content/70 mb-2 text-sm">The closing text of each agent pass (author, lint retries, polish), in order.</p>
+      <div class="space-y-2">
+        {{ range .FinalMessages }}
+        <pre class="rounded bg-base-100 border border-base-300 p-3 text-sm whitespace-pre-wrap break-words">{{ . }}</pre>
+        {{ end }}
+      </div>
+    </section>
+    {{ end }}
 
     {{ if .OrphanFileChanges }}
     <section>

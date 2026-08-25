@@ -89,12 +89,17 @@ type Transcript struct {
 	// compatibility with transcripts written before the selection-edit feature
 	// was retired. Nothing in the codebase sets it anymore; readers can still
 	// surface it on old transcripts.
-	SelectionLen int          `json:"selection_len,omitempty"`
-	FinalStatus  string       `json:"final_status,omitempty"`
-	Error        string       `json:"error,omitempty"`
-	Usage        Usage        `json:"usage,omitempty"`
-	ToolCalls    []ToolCall   `json:"tool_calls"`
-	FileChanges  []FileChange `json:"file_changes"`
+	SelectionLen int    `json:"selection_len,omitempty"`
+	FinalStatus  string `json:"final_status,omitempty"`
+	Error        string `json:"error,omitempty"`
+	// FinalMessages holds the closing text of each agent pass that fed this
+	// run (author, lint-fix retries, polish), in order. When a run completes
+	// with zero FileChanges, this is the only record of why — the model's
+	// final message is where it says what it did instead of editing.
+	FinalMessages []string     `json:"final_messages,omitempty"`
+	Usage         Usage        `json:"usage,omitempty"`
+	ToolCalls     []ToolCall   `json:"tool_calls"`
+	FileChanges   []FileChange `json:"file_changes"`
 }
 
 // Usage is the per-run token tally summed across every agent turn that fed
@@ -281,6 +286,13 @@ func (r *Recorder) Wrap(ctx context.Context, st *store.Store, slug string, downs
 }
 
 func (r *Recorder) observe(ctx context.Context, st *store.Store, slug string, ev events.Event) {
+	if ev.Type == events.TypeAgentText {
+		text, _ := truncate(ev.Message)
+		r.mu.Lock()
+		r.transcript.FinalMessages = append(r.transcript.FinalMessages, text)
+		r.mu.Unlock()
+		return
+	}
 	if ev.Type != events.TypeTool {
 		return
 	}

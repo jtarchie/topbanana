@@ -114,6 +114,7 @@ type debugDetailData struct {
 	SelectionLen    int
 	FinalStatus     string
 	Error           string
+	FinalMessages   []string
 	Usage           editrec.Usage
 	HasUsage        bool
 	CacheHitPct     string
@@ -209,6 +210,7 @@ func (s *debugController) debugDetailHandler(c *echo.Context) error {
 		SelectionLen:    t.SelectionLen,
 		FinalStatus:     t.FinalStatus,
 		Error:           t.Error,
+		FinalMessages:   t.FinalMessages,
 		Usage:           t.Usage,
 	}
 	if t.Usage.Responses > 0 {

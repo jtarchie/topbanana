@@ -60,6 +60,11 @@ const (
 	TypeTool     = "tool"
 	TypeFunction = "function"
 	TypeQuestion = "question"
+	// TypeAgentText carries the text of an agent pass's final response in
+	// Message. A run that finishes without file changes is undiagnosable
+	// without it — the model's closing message is the only place it says
+	// why it declined to act (the 2026-08-25 tinytools no-op edits).
+	TypeAgentText = "agent_text"
 )
 
 // Tool phases (also used for TypeFunction).
