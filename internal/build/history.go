@@ -106,18 +106,11 @@ func (svc *Service) RecentRuns(ctx context.Context, slug string, limit int) []Pr
 }
 
 // changedFiles returns the distinct paths a run actually modified, in stable
-// order. Reads FileChanges rather than ToolCalls so a tool that errored, or
-// one whose edit was a no-op, doesn't show up as a change that never happened.
+// order. editrec.ChangedPaths reads FileChanges rather than ToolCalls so a
+// tool that errored, or one whose edit was a no-op, doesn't show up as a
+// change that never happened.
 func changedFiles(tr editrec.Transcript) []string {
-	seen := make(map[string]bool, len(tr.FileChanges))
-	paths := make([]string, 0, len(tr.FileChanges))
-	for _, fc := range tr.FileChanges {
-		if fc.Path == "" || seen[fc.Path] || fc.BeforeSHA256 == fc.AfterSHA256 {
-			continue
-		}
-		seen[fc.Path] = true
-		paths = append(paths, fc.Path)
-	}
+	paths := editrec.ChangedPaths(tr)
 	sort.Strings(paths)
 	if len(paths) > historyMaxFiles {
 		paths = paths[:historyMaxFiles]

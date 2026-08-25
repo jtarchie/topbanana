@@ -74,6 +74,35 @@ func TestTracker_EmitFailedCarriesFriendlyMessageAndDetail(t *testing.T) {
 	}
 }
 
+// Restarting a build must clear the previous run's terminal residue: a stale
+// Error would be attributed to the new run by status readers, and a stale
+// Finished stamp makes the sweep evict the entry while its build is still
+// active (any restart within TerminalTTL of the last finish).
+func TestTracker_RestartClearsTerminalResidue(t *testing.T) {
+	t.Parallel()
+
+	tr := NewTracker()
+	t.Cleanup(tr.Close)
+	tr.Start("r")
+	tr.Fail("r", errors.New("boom"))
+
+	tr.Start("r")
+	got := tr.Get("r")
+	if got == nil || got.Status != StatusBuilding {
+		t.Fatalf("after restart, status = %+v, want building", got)
+	}
+	if got.Error != "" {
+		t.Errorf("after restart, Error = %q, want empty (stale failure leaked)", got.Error)
+	}
+	if !got.Finished.IsZero() {
+		t.Errorf("after restart, Finished = %v, want zero (sweep would evict an active build)", got.Finished)
+	}
+	tr.sweep(time.Now().Add(TerminalTTL + time.Minute))
+	if tr.Get("r") == nil {
+		t.Fatal("sweep evicted an entry whose build restarted and is still active")
+	}
+}
+
 func TestTracker_GetUnknownReturnsNil(t *testing.T) {
 	t.Parallel()
 

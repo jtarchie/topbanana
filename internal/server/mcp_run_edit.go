@@ -44,7 +44,7 @@ type runEditInput struct {
 func (s *Server) registerRunEdit(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "run_edit",
-		Description: "Run the platform's build agent (an LLM) against a site with an edit prompt — the same pipeline as the workspace edit box, including prior-request history, site prefetch, the styling regime, the lint loop, and the CSS compile. Waits for the run and returns its status, the files it changed, and the agent's final message, plus the transcript key for get_run_transcript. Costs LLM tokens and takes tens of seconds; for direct authoring prefer edit_file/write_file.",
+		Description: "Run the platform's build agent (an LLM) against a site with an edit prompt — the same pipeline as the workspace edit box, including prior-request history, site prefetch, the styling regime, the lint loop, and the CSS compile. Waits for the run and returns its status, the files it changed, and the agent's final message, plus the transcript key for get_run_transcript. Costs LLM tokens and takes tens of seconds; for direct authoring prefer edit_file/write_file. The agent may pause to ask a clarifying question — over MCP nobody can answer, so after 5 minutes it proceeds with its own recommendation; keep prompts unambiguous.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runEditInput) (*mcp.CallToolResult, any, error) {
 		user, err := s.mcpUserAndAuthorize(ctx, in.Slug)
 		if err != nil {
@@ -62,14 +62,18 @@ func (s *Server) registerRunEdit(srv *mcp.Server) {
 		if err != nil {
 			return nil, nil, mcpPlainErr(err)
 		}
-		if existing := s.events.Get(in.Slug); existing != nil && events.IsActive(existing.Status) {
+		if s.buildInFlight(in.Slug) {
 			return nil, nil, mcpPlainErr(errors.New("a build is already in progress for this site — wait for it to finish"))
 		}
 
 		meta := s.build.ReadMeta(ctx, in.Slug)
 		tmpl := build.EffectiveTemplate(meta)
 		tiers := s.effectiveTiersFor(user)
-		startedAfter := time.Now().UTC().Add(-time.Second)
+		// The recorder stamps its StartedAt inside Start's goroutine, strictly
+		// after this read, so now() is already a correct lower bound — no
+		// slack, which would let a just-finished prior run's transcript be
+		// misattributed to this call.
+		startedAfter := time.Now().UTC()
 		// EffectiveTemplate wraps templates.Get, which is non-nil at runtime
 		// (init guarantees defaultID is present).
 		slog.Info("edit.start", "slug", in.Slug, "page", in.Page, "template", tmpl.ID, "user", user.Email, "tiers", tiers, "via", "mcp") //nolint:nilaway // see comment.
@@ -86,17 +90,17 @@ func (s *Server) registerRunEdit(srv *mcp.Server) {
 			Tiers:      tiers,
 		})
 
-		status := s.waitForBuild(ctx, in.Slug, runEditWait(in.WaitSeconds))
+		st := s.waitForBuild(ctx, in.Slug, runEditWait(in.WaitSeconds))
 		res := map[string]any{
-			"ok":     status == events.StatusCompleted,
+			"ok":     st.Status == events.StatusCompleted,
 			"slug":   in.Slug,
-			"status": status,
+			"status": st.Status,
 			"url":    s.mcpSiteURL(in.Slug),
 		}
-		if st := s.events.Get(in.Slug); st != nil && st.Error != "" {
+		if st.Error != "" {
 			res["error"] = st.Error
 		}
-		if !events.IsTerminal(status) {
+		if !events.IsTerminal(st.Status) {
 			res["next"] = "the run is still going — poll list_runs and read the newest transcript with get_run_transcript"
 			return mcpJSON(res)
 		}
@@ -104,7 +108,7 @@ func (s *Server) registerRunEdit(srv *mcp.Server) {
 		key, tr, ok := s.newestEditTranscript(ctx, in.Slug, startedAfter)
 		if ok {
 			res["transcript_key"] = key
-			res["files_changed"] = transcriptChangedPaths(tr)
+			res["files_changed"] = editrec.ChangedPaths(tr)
 			res["final_messages"] = tr.FinalMessages
 		}
 		return mcpJSON(res)
@@ -115,31 +119,39 @@ func runEditWait(seconds int) time.Duration {
 	if seconds <= 0 {
 		return runEditDefaultWait
 	}
-	wait := time.Duration(seconds) * time.Second
-	if wait > runEditMaxWait {
+	// Clamp before multiplying: time.Duration(seconds)*time.Second wraps
+	// negative for huge inputs, which the post-multiply cap would miss —
+	// yielding a deadline in the past and an unrequested fire-and-forget.
+	if seconds > int(runEditMaxWait/time.Second) {
 		return runEditMaxWait
 	}
-	return wait
+	return time.Duration(seconds) * time.Second
 }
 
 // waitForBuild polls the events tracker until the slug reaches a terminal
 // status (completed/failed — linting, retry, and polishing are all still
 // in-flight) or the wait budget (or the request context) runs out, returning
-// the last status seen. Polling rather than subscribing keeps this
-// independent of the SSE plumbing's buffer semantics.
-func (s *Server) waitForBuild(ctx context.Context, slug string, wait time.Duration) string {
+// the last state seen so the caller reads status and error from one coherent
+// snapshot. Polling rather than subscribing keeps this independent of the
+// SSE plumbing's buffer semantics.
+func (s *Server) waitForBuild(ctx context.Context, slug string, wait time.Duration) *events.Status {
 	deadline := time.Now().Add(wait)
+	last := &events.Status{Slug: slug, Status: events.StatusBuilding}
 	for {
-		status := events.StatusBuilding
-		if st := s.events.Get(slug); st != nil {
-			status = st.Status
+		st := s.events.Get(slug)
+		if st == nil {
+			// The entry existed when build.Start returned (events.Start is
+			// synchronous), so nil means it was forgotten — the site was
+			// deleted mid-run. Nothing left to wait on.
+			return last
 		}
-		if events.IsTerminal(status) || time.Now().After(deadline) {
-			return status
+		last = st
+		if events.IsTerminal(st.Status) || time.Now().After(deadline) {
+			return st
 		}
 		select {
 		case <-ctx.Done():
-			return status
+			return st
 		case <-time.After(runEditPollEvery):
 		}
 	}
@@ -164,19 +176,4 @@ func (s *Server) newestEditTranscript(ctx context.Context, slug string, startedA
 		return row.Key, tr, true
 	}
 	return "", editrec.Transcript{}, false
-}
-
-// transcriptChangedPaths projects the distinct paths a run actually changed,
-// skipping no-op mutations, in first-changed order.
-func transcriptChangedPaths(tr editrec.Transcript) []string {
-	seen := map[string]bool{}
-	out := []string{}
-	for _, fc := range tr.FileChanges {
-		if fc.Path == "" || seen[fc.Path] || fc.BeforeSHA256 == fc.AfterSHA256 {
-			continue
-		}
-		seen[fc.Path] = true
-		out = append(out, fc.Path)
-	}
-	return out
 }

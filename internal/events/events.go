@@ -172,6 +172,16 @@ func (t *Tracker) Emit(slug string, event Event) {
 			s.Finished = event.Time
 			s.Error = event.Message
 			s.closePending()
+		default:
+			// A new run (Start emits StatusBuilding) or a mid-run phase:
+			// clear terminal residue from the previous run. Left in place,
+			// the stale Error leaks onto status reads of the new run, and
+			// the stale Finished stamp makes the sweep evict an entry whose
+			// build is still active (any restart within TerminalTTL of the
+			// last finish) — closing SSE channels and dropping the
+			// already-building gate mid-run.
+			s.Finished = time.Time{}
+			s.Error = ""
 		}
 	}
 	for sub := range s.subs {

@@ -883,7 +883,7 @@ func (s *sitesController) editSubmitHandler(c *echo.Context) error {
 		return err
 	}
 
-	if existing := s.events.Get(slug); existing != nil && existing.Status == events.StatusBuilding {
+	if s.buildInFlight(slug) {
 		return echo.NewHTTPError(http.StatusConflict, "edit already in progress for this site")
 	}
 
@@ -917,7 +917,7 @@ func (s *sitesController) relintHandler(c *echo.Context) error {
 		return err
 	}
 
-	if existing := s.events.Get(slug); existing != nil && existing.Status == events.StatusBuilding {
+	if s.buildInFlight(slug) {
 		return echo.NewHTTPError(http.StatusConflict, "build already in progress for this site")
 	}
 

@@ -486,6 +486,23 @@ func Key(slug string, startedAt time.Time, logKey string) string {
 	return fmt.Sprintf("%s%s/%s-%s.json", Prefix, slug, startedAt.UTC().Format(keyTimeLayout), logKey)
 }
 
+// ChangedPaths returns the distinct paths a run actually changed — skipping
+// no-op mutations — in first-changed order. The single definition of "this
+// run changed that file": the edit-history block (which sorts and caps on
+// top) and the MCP run_edit result both project through it.
+func ChangedPaths(tr Transcript) []string {
+	seen := make(map[string]bool, len(tr.FileChanges))
+	paths := []string{}
+	for _, fc := range tr.FileChanges {
+		if fc.Path == "" || seen[fc.Path] || fc.BeforeSHA256 == fc.AfterSHA256 {
+			continue
+		}
+		seen[fc.Path] = true
+		paths = append(paths, fc.Path)
+	}
+	return paths
+}
+
 // Listing is the row data returned by List — just enough to render the
 // transcripts table without paying for a full transcript Read per row.
 type Listing struct {
