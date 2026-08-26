@@ -141,17 +141,24 @@ func TestCanvas_SelectElementInBrowser(t *testing.T) {
 		t.Fatalf("second click must step selection out to the parent, got %q", afterSecond.ScopeLabel)
 	}
 
-	// The identity proof: the page has two <p>s with byte-identical content.
-	// Clicking each must produce scopes that differ ONLY in the element
-	// address — same tag, same text, different el. Content-based selection
-	// could not tell them apart.
-	type scopeProbe struct {
-		El   int    `json:"el"`
-		Text string `json:"text"`
-		Tag  string `json:"tag"`
-	}
+	assertDuplicateContentSelectsByAddress(t, navCtx)
+}
+
+type scopeProbe struct {
+	El   int    `json:"el"`
+	Text string `json:"text"`
+	Tag  string `json:"tag"`
+}
+
+// assertDuplicateContentSelectsByAddress is the identity proof: the page has
+// two <p>s with byte-identical content, and clicking each must produce scopes
+// that differ ONLY in the element address — same tag, same text, different
+// el. Content-based selection could not tell them apart.
+func assertDuplicateContentSelectsByAddress(t *testing.T, navCtx context.Context) {
+	t.Helper()
+	var clicked bool
 	var first, second scopeProbe
-	err = chromedp.Run(navCtx,
+	err := chromedp.Run(navCtx,
 		chromedp.Evaluate(canvasClickFor(`[data-tb-el="7"]`), &clicked),
 		chromedp.Sleep(300*time.Millisecond),
 		chromedp.Evaluate(`window.__tbScope`, &first),
