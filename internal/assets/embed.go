@@ -39,6 +39,13 @@ var AppCSS []byte
 //go:embed image_drawer.js
 var ImageDrawerJS []byte
 
+// CanvasJS is the edit-mode script the proxy injects into a site served with
+// ?tb_edit=1: hover/selection overlays that report element addresses
+// (data-tb-el) to the parent canvas page. Served at /canvas.js.
+//
+//go:embed canvas.js
+var CanvasJS []byte
+
 // daisyUIFS is the vendored daisyUI npm package, embedded so the runtime
 // per-site Tailwind compile can load it as a plugin without npm/network.
 //

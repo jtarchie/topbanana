@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="lemonade">
+<head>
+<title>Canvas: {{ .SiteName }} — Top Banana</title>
+{{ template "head" . }}
+</head>
+<body class="h-screen flex flex-col bg-base-200 overflow-hidden">
+
+{{/* Top bar: identity, page switcher, and the ways out. Everything else in
+     v2 lives on the canvas itself. */}}
+<header class="flex items-center gap-3 px-3 h-12 bg-base-100 border-b border-base-300 shrink-0">
+  <a href="/apps" class="flex items-center gap-2 shrink-0" aria-label="Back to your apps">
+    <img src="/favicon.svg" alt="" width="22" height="22">
+    <span class="font-semibold text-sm hidden sm:inline">{{ .SiteName }}</span>
+  </a>
+
+  <div class="dropdown">
+    <button type="button" tabindex="0" class="btn btn-sm btn-ghost font-mono text-xs" id="page-btn" aria-haspopup="listbox">
+      {{ .Page }} <span aria-hidden="true">▾</span>
+    </button>
+    <ul tabindex="0" class="dropdown-content menu menu-sm z-30 mt-1 p-1 bg-base-100 border border-base-300 rounded-box shadow-lg w-56" role="listbox">
+      {{ range .Pages }}
+      <li><a href="/v2/workspace/{{ $.Slug }}?page={{ . }}" class="font-mono text-xs{{ if eq . $.Page }} active{{ end }}">{{ . }}</a></li>
+      {{ end }}
+    </ul>
+  </div>
+
+  <span id="canvas-status" class="text-sm text-base-content/70 truncate flex-1 min-w-0" role="status" aria-live="polite"></span>
+
+  <button type="button" id="changes-btn" data-panel="changes" class="btn btn-sm btn-ghost">Changes</button>
+  <a href="{{ .SiteURL }}" target="_blank" rel="noopener" class="btn btn-sm btn-ghost">View site</a>
+  <a href="/workspace/{{ .Slug }}" class="btn btn-sm btn-ghost text-base-content/70" title="Back to the classic workspace">Classic</a>
+</header>
+
+{{/* The site, full bleed, in edit mode. */}}
+<div class="flex-1 relative min-h-0">
+  <iframe id="canvas-frame" src="{{ .EditURL }}" title="Your site, in edit mode"
+          class="w-full h-full block bg-white"></iframe>
+
+  {{/* Floating command bar. The scope chip names what the prompt applies to:
+       the whole site by default, or the element selected on the canvas. */}}
+  <form id="edit-form" method="POST" action="/edit/{{ .Slug }}"
+        class="absolute left-1/2 bottom-4 -translate-x-1/2 w-[min(44rem,calc(100%-2rem))] bg-base-100 border border-base-300 rounded-box shadow-xl p-3 flex flex-col gap-2">
+    <div class="flex items-center gap-2 text-xs">
+      <span id="scope-chip" class="badge badge-ghost gap-1 max-w-full">
+        <span id="scope-label" class="truncate">Whole site</span>
+      </span>
+      <button type="button" id="scope-clear" class="btn btn-ghost btn-xs hidden">Clear</button>
+      <span class="text-base-content/50 max-sm:hidden" id="scope-hint">Click anything on the page to change just that.</span>
+    </div>
+    <div class="flex gap-2 items-end">
+      <textarea name="prompt" id="prompt" rows="1" maxlength="4096" required
+                class="textarea textarea-sm w-full text-base resize-none leading-snug min-h-10 max-h-40"
+                placeholder="Describe a change…"></textarea>
+      <button type="submit" id="apply-btn" class="btn btn-primary btn-sm shrink-0">Apply</button>
+    </div>
+  </form>
+</div>
+
+{{/* Changes slide-over: the shared verdict feed. */}}
+<div class="side-scrim" id="scrim-changes" data-scrim="changes"></div>
+<aside class="side-panel bg-base-100 border-l border-base-300 flex flex-col" id="panel-changes" aria-label="Changes" aria-hidden="true">
+  <header class="flex items-center justify-between p-4 border-b border-base-300">
+    <h2 class="font-semibold">Changes</h2>
+    <button type="button" class="btn btn-ghost btn-sm btn-square" data-close="changes" aria-label="Close changes panel">×</button>
+  </header>
+  <div class="overflow-y-auto p-3 flex-1">
+    <div id="run-feed" role="log" aria-live="polite" class="space-y-2"></div>
+  </div>
+</aside>
+
+<div id="toast" class="toast toast-end z-50"></div>
+
+<script>
+  (function () {
+    'use strict';
+    var slug = {{ .SlugJSON }};
+    var page = {{ .PageJSON }};
+    var frame = document.getElementById('canvas-frame');
+    var statusEl = document.getElementById('canvas-status');
+    var form = document.getElementById('edit-form');
+    var promptEl = document.getElementById('prompt');
+    var applyBtn = document.getElementById('apply-btn');
+    var scopeLabel = document.getElementById('scope-label');
+    var scopeClear = document.getElementById('scope-clear');
+    var scopeHint = document.getElementById('scope-hint');
+    var scope = null; // {el, tag, breadcrumb, outer_html}
+
+    function toast(msg, kind) {
+      var t = document.getElementById('toast');
+      if (!t) return;
+      var card = document.createElement('div');
+      card.className = 'alert ' + (kind === 'error' ? 'alert-error' : kind === 'warning' ? 'alert-warning' : 'alert-success');
+      card.innerHTML = '<span></span>';
+      card.querySelector('span').textContent = msg;
+      t.appendChild(card);
+      setTimeout(function () { card.remove(); }, 8000);
+    }
+
+    // ----- selection wiring (messages from the edit-mode iframe) -----
+    window.addEventListener('message', function (e) {
+      var d = e.data || {};
+      if (d.type !== 'tb-select') return;
+      if (d.el == null) {
+        scope = null;
+        scopeLabel.textContent = 'Whole site';
+        scopeClear.classList.add('hidden');
+        scopeHint.style.display = '';
+        return;
+      }
+      scope = d;
+      scopeLabel.textContent = 'This ' + (d.tag || 'element') + (d.text ? ' — “' + d.text.slice(0, 40) + (d.text.length > 40 ? '…' : '') + '”' : '');
+      scopeClear.classList.remove('hidden');
+      scopeHint.style.display = 'none';
+      promptEl.focus();
+    });
+    scopeClear.addEventListener('click', function () {
+      scope = null;
+      scopeLabel.textContent = 'Whole site';
+      scopeClear.classList.add('hidden');
+      scopeHint.style.display = '';
+      var w = frame.contentWindow;
+      if (w) w.postMessage({ type: 'tb-clear' }, '*');
+    });
+
+    function reloadFrame() {
+      var base = '/s/' + encodeURIComponent(slug) + '/' + page;
+      frame.src = base + '?tb_edit=1&t=' + Date.now();
+    }
+
+    // ----- run submission: stay on the canvas, watch over SSE -----
+    function setBusy(busy) {
+      promptEl.disabled = busy;
+      applyBtn.disabled = busy;
+    }
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var text = promptEl.value.trim();
+      if (!text) return;
+
+      var fd = new FormData();
+      fd.append('prompt', text);
+      fd.append('page', '');
+      if (scope) {
+        fd.append('scope',
+          'The user selected one specific element on ' + page + ' and the change applies to THAT element only — ' +
+          'not to other elements with similar content (its address in the served page is data-tb-el=' + scope.el + '; ' +
+          'locate it in the source by the markup below). Selected element (' + (scope.breadcrumb || scope.tag) + '):\n\n' +
+          '```html\n' + scope.outer_html + '\n```');
+      }
+
+      setBusy(true);
+      statusEl.textContent = 'Starting…';
+      fetch('/edit/' + encodeURIComponent(slug), { method: 'POST', body: fd })
+        .then(function (r) {
+          if (!r.ok && r.status !== 303) throw new Error('HTTP ' + r.status);
+          watch();
+        })
+        .catch(function (err) {
+          setBusy(false);
+          statusEl.textContent = '';
+          toast('Could not start the change: ' + err, 'error');
+        });
+    });
+
+    function narrate(ev) {
+      if (ev.type === 'tool' && ev.phase === 'start' && ev.tool && ev.path) {
+        statusEl.textContent = 'Working — ' + ev.tool.replace(/_/g, ' ') + ' ' + ev.path;
+      } else if (ev.type === 'status') {
+        var m = { building: 'Working on it…', linting: 'Checking the result…', retry: 'Fixing an issue…', polishing: 'Polishing…' }[ev.status];
+        if (m) statusEl.textContent = m;
+      }
+    }
+
+    function watch() {
+      var pendingResult = null;
+      var es = new EventSource('/events/' + encodeURIComponent(slug));
+      es.onmessage = function (e) {
+        var ev; try { ev = JSON.parse(e.data); } catch (_) { return; }
+        if (ev.type === 'result') { pendingResult = ev; return; }
+        narrate(ev);
+        if (ev.type !== 'status' || !(ev.status === 'completed' || ev.status === 'failed' || ev.status === 'unknown')) return;
+        es.close();
+        setBusy(false);
+        if (window.TBRunFeed) TBRunFeed.refresh(false);
+
+        var changed = ev.status === 'completed' && (!pendingResult || !pendingResult.files || pendingResult.files.length > 0);
+        if (ev.status === 'completed' && changed) {
+          statusEl.textContent = '';
+          promptEl.value = '';
+          scopeClear.click();
+          toast('Done — your change is live.');
+          reloadFrame();
+        } else if (ev.status === 'completed') {
+          statusEl.textContent = 'Finished — no changes were made.';
+          toast('The builder finished without changing anything — see Changes for why.', 'warning');
+          openPanel();
+        } else {
+          statusEl.textContent = '';
+          toast(ev.message || 'The change failed.', 'error');
+          openPanel();
+        }
+      };
+      es.onerror = function () {
+        if (es.readyState !== 2) statusEl.textContent = 'Reconnecting…';
+      };
+    }
+
+    // ----- changes slide-over -----
+    function openPanel() {
+      var btn = document.getElementById('changes-btn');
+      if (btn) btn.click();
+    }
+    // Auto-grow the one-line composer as the user types.
+    promptEl.addEventListener('input', function () {
+      promptEl.style.height = 'auto';
+      promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px';
+    });
+    // Enter applies, Shift+Enter breaks the line — command-bar convention.
+    promptEl.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        form.requestSubmit();
+      }
+    });
+  })();
+</script>
+{{ template "runfeed_js" . }}
+{{ template "panel_js" . }}
+</body>
+</html>

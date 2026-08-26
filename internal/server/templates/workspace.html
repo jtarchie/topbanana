@@ -114,14 +114,15 @@
         <h1 class="text-lg font-semibold tracking-tight">
           {{ if .Page }}Edit <code class="font-mono bg-base-200 px-1.5 py-0.5 rounded text-base">{{ .Page }}</code>{{ else }}Edit this site{{ end }}
         </h1>
-        {{ if .SiteURL }}
         <div class="flex items-center gap-1 text-sm">
+          <a href="/v2/workspace/{{ .Slug }}" class="btn btn-xs btn-outline btn-primary">Try the new editor</a>
+          {{ if .SiteURL }}
           <a href="{{ .SiteURL }}" target="_blank" rel="noopener"
              class="link link-hover font-mono text-xs truncate max-w-[16rem]">{{ .SiteURL }}</a>
           <button type="button" class="btn btn-ghost btn-xs js-copy" data-copy="{{ .SiteURL }}"
                   data-copied-label="Copied!" aria-label="Copy your site address">Copy link</button>
+          {{ end }}
         </div>
-        {{ end }}
       </header>
 
       {{ if .SiteURL }}
@@ -596,225 +597,6 @@
     paint();
   })();
 
-  // Run feed — the conversation panel above the composer. Renders each prior
-  // agent run as a prompt bubble plus a verdict card, so "did anything
-  // change?" is answered on the page instead of by squinting at the preview.
-  window.TBRunFeed = (function () {
-    var slug = {{ .SlugJSON }};
-    var feed = document.getElementById('run-feed');
-
-    function friendlyNames(files) {
-      var out = [], seen = {};
-      (files || []).forEach(function (p) {
-        var label;
-        if (/\.css$/.test(p)) label = "your site's styling";
-        else if (p.indexOf('functions/') === 0) label = 'form handling';
-        else if (p === 'index.html') label = 'your Home page';
-        else if (/\.html$/.test(p)) label = 'the ' + p.replace(/\.html$/, '').replace(/[-_]/g, ' ') + ' page';
-        else if (p.indexOf('assets/') === 0) label = 'an image';
-        else label = p;
-        if (!seen[label]) { seen[label] = true; out.push(label); }
-      });
-      return out;
-    }
-    function joinNames(names) {
-      if (names.length <= 1) return names.join('');
-      return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
-    }
-    function truncate(s, n) {
-      s = String(s || '').trim();
-      return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s;
-    }
-    function el(tag, cls, text) {
-      var e = document.createElement(tag);
-      if (cls) e.className = cls;
-      if (text != null) e.textContent = text;
-      return e;
-    }
-
-    function promptHeader(run) {
-      var head = el('div', 'text-xs text-base-content/70 break-words');
-      head.appendChild(el('span', 'font-medium', '“' + truncate(run.prompt, 140) + '”'));
-      if (run.when_label) head.appendChild(el('span', 'text-base-content/50', ' · ' + run.when_label));
-      return head;
-    }
-
-    function detailsLink(run, label) {
-      if (!run.key) return null;
-      var a = el('a', 'link link-hover text-xs', label);
-      a.href = '/debug/' + encodeURIComponent(slug) + '/edit?key=' + encodeURIComponent(run.key);
-      return a;
-    }
-
-    function undoForm(run) {
-      var f = document.createElement('form');
-      f.method = 'POST';
-      f.action = '/history/' + encodeURIComponent(slug);
-      f.className = 'js-confirm inline';
-      f.dataset.confirmTitle = 'Undo this change?';
-      f.dataset.confirm = 'Your site goes back to how it was before this change. The current version is saved first, so you can bring it back from Version history.';
-      f.dataset.confirmOk = 'Undo';
-      f.dataset.confirmTone = 'primary';
-      var m = document.createElement('input');
-      m.type = 'hidden'; m.name = '_method'; m.value = 'PUT';
-      var k = document.createElement('input');
-      k.type = 'hidden'; k.name = 'key'; k.value = run.undo_key;
-      var b = el('button', 'btn btn-xs btn-outline', 'Undo this change');
-      b.type = 'submit';
-      f.appendChild(m); f.appendChild(k); f.appendChild(b);
-      return f;
-    }
-
-    function verdictCard(run) {
-      var changed = run.status === 'completed' && run.files && run.files.length > 0;
-      var noop = run.status === 'completed' && (!run.files || run.files.length === 0);
-      var card = el('div', 'rounded-box border p-3 text-sm space-y-2 ' + (
-        changed ? 'border-success/40 bg-success/10' :
-        noop ? 'border-warning/50 bg-warning/10' :
-        'border-error/40 bg-error/10'));
-      card.tabIndex = -1;
-
-      var head = el('div', 'flex items-center gap-2 font-medium');
-      var icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      icon.setAttribute('viewBox', '0 0 24 24');
-      icon.setAttribute('width', '16'); icon.setAttribute('height', '16');
-      icon.setAttribute('fill', 'none'); icon.setAttribute('stroke', 'currentColor');
-      icon.setAttribute('stroke-width', '2.5'); icon.setAttribute('stroke-linecap', 'round');
-      icon.setAttribute('stroke-linejoin', 'round'); icon.setAttribute('aria-hidden', 'true');
-      icon.innerHTML = changed ? '<path d="M4 12.5l5 5L20 6.5"/>' :
-        noop ? '<circle cx="12" cy="12" r="9"/><path d="M12 8v4.5"/><path d="M12 16h.01"/>' :
-        '<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>';
-      head.appendChild(icon);
-      head.appendChild(el('span', null,
-        changed ? 'Updated ' + joinNames(friendlyNames(run.files)) :
-        noop ? 'Finished without changing anything' :
-        "Couldn't finish this change"));
-      card.appendChild(head);
-
-      if (noop) {
-        card.appendChild(el('p', 'text-base-content/80',
-          run.final_message
-            ? 'The builder said: “' + truncate(run.final_message, 280) + '”'
-            : 'The builder read your site but decided no change was needed.'));
-        card.appendChild(el('p', 'text-xs text-base-content/70',
-          'Not what you meant? Rephrase with the exact words you see on the page, or name the page to change.'));
-      } else if (changed && run.final_message && !/^done[.!]?$/i.test(run.final_message.trim())) {
-        // The prompt tells the agent to say only "done" — that adds nothing
-        // here. Anything longer is a real summary worth showing.
-        card.appendChild(el('p', 'text-base-content/80', truncate(run.final_message, 200)));
-      } else if (!changed && !noop) {
-        card.appendChild(el('p', 'text-base-content/80', 'Nothing was changed. Try again, or simplify the request.'));
-      }
-
-      var actions = el('div', 'flex items-center gap-3 flex-wrap');
-      if (changed && run.undo_key) actions.appendChild(undoForm(run));
-      if (noop) {
-        // Puts the failed prompt back in the composer, selected, ready to
-        // edit — a visible action, not just a focus() nobody notices.
-        var again = el('button', 'btn btn-xs btn-outline', 'Edit request & retry');
-        again.type = 'button';
-        again.addEventListener('click', function () {
-          var pt = document.getElementById('prompt');
-          if (!pt) return;
-          pt.value = run.prompt || '';
-          pt.focus();
-          try { pt.select(); } catch (_) {}
-          pt.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        });
-        actions.appendChild(again);
-      }
-      var link = detailsLink(run, changed ? 'See exactly what changed' : 'See details');
-      if (link) actions.appendChild(link);
-      if (actions.children.length) card.appendChild(actions);
-      return card;
-    }
-
-    var liveEl = null;
-    function liveStart(prompt) {
-      if (!feed || liveEl) return;
-      liveEl = el('div', 'space-y-2');
-      if (prompt) liveEl.appendChild(promptHeader({ prompt: prompt, when_label: 'just now' }));
-      var row = el('div', 'flex items-center gap-2 text-sm text-base-content/70');
-      row.appendChild(el('span', 'loading loading-spinner loading-xs text-primary'));
-      row.appendChild(el('span', 'js-live-msg', 'Working on it…'));
-      liveEl.appendChild(row);
-      feed.prepend(liveEl);
-    }
-    function liveNarrate(text) {
-      if (!liveEl) return;
-      var msg = liveEl.querySelector('.js-live-msg');
-      if (msg && text) msg.textContent = text;
-    }
-
-    // statusGlyph is the collapsed row's one-character verdict; the text label
-    // beside it carries the meaning for screen readers and colour-blind users.
-    function rowSummary(run) {
-      var changed = run.status === 'completed' && run.files && run.files.length > 0;
-      var noop = run.status === 'completed' && !changed;
-      var s = document.createElement('summary');
-      s.className = 'flex items-center gap-2 cursor-pointer py-1 text-sm text-base-content/80 hover:text-base-content list-none [&::-webkit-details-marker]:hidden';
-      s.appendChild(el('span',
-        'font-semibold ' + (changed ? 'text-success' : noop ? 'text-warning' : 'text-error'),
-        changed ? '✓' : noop ? '—' : '✕'));
-      s.appendChild(el('span', 'flex-1 min-w-0 truncate', truncate(run.prompt, 90)));
-      s.appendChild(el('span', 'text-xs text-base-content/50 shrink-0', run.when_label || ''));
-      return s;
-    }
-
-    // Newest run: full verdict card. Older runs: one-line rows that expand on
-    // click. One card of real content beats a wall of equal-weight history.
-    function render(runs) {
-      if (!feed) return;
-      feed.textContent = '';
-      if (!runs.length) return;
-
-      var latest = el('div', 'space-y-2');
-      latest.appendChild(promptHeader(runs[0]));
-      latest.appendChild(verdictCard(runs[0]));
-      feed.appendChild(latest);
-
-      var rest = runs.slice(1);
-      if (!rest.length) return;
-      var older = el('div', 'space-y-1');
-      older.appendChild(el('h3', 'text-xs font-medium text-base-content/60 pt-1', 'Earlier changes'));
-      rest.forEach(function (run) {
-        var d = document.createElement('details');
-        var body = el('div', 'pb-2');
-        body.appendChild(verdictCard(run));
-        d.appendChild(rowSummary(run));
-        d.appendChild(body);
-        older.appendChild(d);
-      });
-      feed.appendChild(older);
-    }
-
-    // focusVerdict: after a live run resolves, move focus (and the screen
-    // reader) to the newest verdict card so the outcome is announced.
-    function refresh(focusVerdict) {
-      return fetch('/runs/' + encodeURIComponent(slug))
-        .then(function (r) { return r.ok ? r.json() : { runs: [] }; })
-        .then(function (body) {
-          liveEl = null;
-          render(body.runs || []);
-          if (focusVerdict && feed && feed.firstElementChild) {
-            var card = feed.firstElementChild.querySelector('[tabindex]');
-            if (card) card.focus({ preventScroll: true });
-          }
-        })
-        .catch(function () {});
-    }
-
-    refresh(false).then(function () {
-      {{ if .Building }}
-      var last = null;
-      try { last = sessionStorage.getItem('tb_last_prompt'); } catch (_) {}
-      liveStart(last);
-      {{ end }}
-    });
-
-    return { refresh: refresh, liveStart: liveStart, liveNarrate: liveNarrate };
-  })();
-
   {{ if .Building }}
   // Status strip SSE — ported from progress.html.
   (function () {
@@ -1129,6 +911,7 @@
   })();
   {{ end }}
 </script>
+{{ template "runfeed_js" . }}
 {{ template "panel_js" . }}
 {{ template "copy_js" . }}
 <script>

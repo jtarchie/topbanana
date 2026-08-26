@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/jtarchie/topbanana/internal/domaddr"
 	"github.com/jtarchie/topbanana/internal/store"
 )
 
@@ -81,12 +82,7 @@ func (s *Server) proxyHandler(c *echo.Context, slug string) error {
 
 		ct := resolveContentType(obj.ContentType, candidate)
 		if strings.HasPrefix(ct, "text/html") {
-			body := s.injectEditToolbar(c, obj.Content, slug, candidate)
-			minified, mErr := minifyHTMLBody(s.htmlMinifier, body)
-			if mErr != nil {
-				slog.Warn("serve.minify_failed", "slug", slug, "path", candidate, "err", mErr)
-			}
-			return c.HTML(http.StatusOK, minified) //nolint:wrapcheck
+			return s.serveHTMLPage(c, slug, candidate, obj.Content)
 		}
 		return c.Blob(http.StatusOK, ct, []byte(obj.Content)) //nolint:wrapcheck
 	}
@@ -126,6 +122,43 @@ func resolveContentType(stored, name string) string {
 		return stored
 	}
 	return store.DefaultContentType
+}
+
+// serveHTMLPage renders a stored HTML page: canvas edit mode for an
+// authorized ?tb_edit=1 request, otherwise the normal toolbar-injected,
+// minified serve.
+func (s *Server) serveHTMLPage(c *echo.Context, slug, candidate, content string) error {
+	if c.QueryParam("tb_edit") == "1" && s.canEdit(c, slug) {
+		// Canvas edit mode: stamp every element with its address and inject
+		// the selection script instead of the viewer toolbar. Served
+		// unminified — the addresses must be resolvable against the stored
+		// bytes, and this path is owner-only anyway.
+		return c.HTML(http.StatusOK, canvasEditBody(content)) //nolint:wrapcheck
+	}
+	body := s.injectEditToolbar(c, content, slug, candidate)
+	minified, mErr := minifyHTMLBody(s.htmlMinifier, body)
+	if mErr != nil {
+		slog.Warn("serve.minify_failed", "slug", slug, "path", candidate, "err", mErr)
+	}
+	return c.HTML(http.StatusOK, minified) //nolint:wrapcheck
+}
+
+// canvasEditScriptTag loads the selection script from the admin origin —
+// edit mode only ever renders inside the canvas page's same-origin iframe
+// (the /s/:slug path), so an absolute path resolves to the admin host.
+const canvasEditScriptTag = `<script src="/canvas.js" defer></script>`
+
+// canvasEditBody prepares a page for the canvas editor: every element gets
+// its data-tb-el address (see internal/domaddr — the same walk Resolve runs
+// against the stored bytes, so the browser's reported address maps to an
+// exact source span) and the selection script is spliced in before </body>,
+// or appended when the page has none.
+func canvasEditBody(htmlContent string) string {
+	annotated := string(domaddr.Annotate([]byte(htmlContent)))
+	if strings.Contains(annotated, "</body>") {
+		return strings.Replace(annotated, "</body>", canvasEditScriptTag+"</body>", 1)
+	}
+	return annotated + canvasEditScriptTag
 }
 
 // injectEditToolbar inserts the theme-preview listener and (for owners) the

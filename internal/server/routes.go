@@ -24,6 +24,7 @@ func (s *Server) mountRoutes(e *echo.Echo) {
 	e.GET("/favicon.svg", s.faviconHandler)
 	e.GET("/app.css", s.appCSSHandler)
 	e.GET("/image_drawer.js", s.imageDrawerJSHandler)
+	e.GET("/canvas.js", s.canvasJSHandler)
 
 	// Legal pages: always-public, unauthenticated. Prospective users need to
 	// read these before signing up, so they can't sit behind requireUser.

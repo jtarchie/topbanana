@@ -165,10 +165,14 @@ func New(d Deps) (*echo.Echo, *Server) {
 	// workspace and manage pages. Parse it alongside the
 	// layout so any page below can reference {{ template "image_drawer" . }}.
 	template.Must(tpl.Parse(imageDrawerTemplate))
+	// runfeed_js.html defines the shared verdict-feed script used by the
+	// classic workspace and the v2 canvas.
+	template.Must(tpl.Parse(runFeedJSTemplate))
 	for _, t := range []struct{ name, body string }{
 		{"landing", landingTemplate},
 		{"apps", appsTemplate},
 		{"workspace", workspaceTemplate},
+		{"canvas", canvasTemplate},
 		{"manage", manageTemplate},
 		{"inbox", inboxTemplate},
 		{"photo_queue", photoQueueTemplate},
@@ -285,6 +289,13 @@ func (s *Server) appCSSHandler(c *echo.Context) error {
 func (s *Server) imageDrawerJSHandler(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "public, max-age=86400")
 	return c.Blob(http.StatusOK, "application/javascript; charset=utf-8", assets.ImageDrawerJS) //nolint:wrapcheck
+}
+
+// canvasJSHandler serves the canvas edit-mode script the proxy injects into
+// ?tb_edit=1 pages. Same caching policy as the drawer module.
+func (s *Server) canvasJSHandler(c *echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "public, max-age=86400")
+	return c.Blob(http.StatusOK, "application/javascript; charset=utf-8", assets.CanvasJS) //nolint:wrapcheck
 }
 
 // adminURL builds an absolute URL on the main app domain. Used by the toolbar
@@ -676,6 +687,11 @@ func appLinkKey(a appLink) string {
 // check that pairs with maxPromptBodyBytes on the route.
 const maxPromptBytes = 4 * 1024
 
+// maxScopeBytes caps the canvas's element-selection context (the selected
+// element's markup plus its address). The canvas script already truncates the
+// outerHTML it sends; this bound is the server's own guarantee.
+const maxScopeBytes = 6 * 1024
+
 // maxPromptBodyBytes caps the entire request body on prompt-bearing POSTs.
 // The handler-side check on maxPromptBytes still applies; this bounds the
 // overall body so the hidden selection field and any other form data combined
@@ -883,6 +899,15 @@ func (s *sitesController) editSubmitHandler(c *echo.Context) error {
 		return err
 	}
 
+	// scope is the canvas's element-selection context: the address and markup
+	// of the one element the user pointed at. It rides the agent prompt only —
+	// history and the run feed show the user's own words.
+	scope := strings.TrimSpace(c.FormValue("scope"))
+	if len(scope) > maxScopeBytes {
+		return echo.NewHTTPError(http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("selection context is too long (max %d bytes)", maxScopeBytes))
+	}
+
 	if s.buildInFlight(slug) {
 		return echo.NewHTTPError(http.StatusConflict, "edit already in progress for this site")
 	}
@@ -892,12 +917,16 @@ func (s *sitesController) editSubmitHandler(c *echo.Context) error {
 	tmpl := build.EffectiveTemplate(meta)
 	seeds := s.build.EditSeeds(ctx, slug, prompt)
 	tiers := s.effectiveTiersFor(userFromContext(c))
+	agentPrompt := s.build.EditPromptWithHistory(ctx, slug, prompt, page)
+	if scope != "" {
+		agentPrompt += "\n\n" + scope
+	}
 	// EffectiveTemplate wraps templates.Get, which is non-nil at runtime
 	// (init guarantees defaultID is present).
-	slog.Info("edit.start", "slug", slug, "page", page, "template", tmpl.ID, "seeds", len(seeds), "attachments", len(attachments), "user", callerEmail(c), "tiers", tiers) //nolint:nilaway // see comment.
+	slog.Info("edit.start", "slug", slug, "page", page, "template", tmpl.ID, "seeds", len(seeds), "attachments", len(attachments), "scoped", scope != "", "user", callerEmail(c), "tiers", tiers) //nolint:nilaway // see comment.
 	return s.startBuild(c, build.Params{
 		Slug:        slug,
-		Prompt:      s.build.EditPromptWithHistory(ctx, slug, prompt, page),
+		Prompt:      agentPrompt,
 		LogKey:      "edit",
 		Template:    tmpl,
 		Seeds:       seeds,

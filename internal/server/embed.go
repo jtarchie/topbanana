@@ -26,6 +26,12 @@ var appsTemplate string
 //go:embed templates/workspace.html
 var workspaceTemplate string
 
+//go:embed templates/canvas.html
+var canvasTemplate string
+
+//go:embed templates/runfeed_js.html
+var runFeedJSTemplate string
+
 //go:embed templates/manage.html
 var manageTemplate string
 
