@@ -33,6 +33,7 @@ const canvasTestPage = `<!DOCTYPE html>
 <p>Same text</p>
 <p>Same text</p>
 <img src="/assets/pic.png" alt="">
+<div style="height:2400px"></div>
 </body>
 </html>`
 

@@ -132,6 +132,7 @@ func TestCanvas_SelectElementInBrowser(t *testing.T) {
 	}
 
 	assertSelectionByAddress(t, afterClick, stepOut, first, second)
+	assertBarPeeksOnScroll(t, navCtx)
 
 	// Direct text editing, end to end: the tb-text-edit seam mutates the
 	// second duplicated <p> in the frame and hands the save to the parent,
@@ -269,6 +270,38 @@ func TestCanvas_ImageDropInBrowser(t *testing.T) {
 	}
 	if !uploaded {
 		t.Fatalf("dropped image was never stored: %v", files)
+	}
+}
+
+// assertBarPeeksOnScroll pins the command bar's scroll-away behavior:
+// scrolling the site down slides it to a peeking edge (content revealed),
+// scrolling up brings it back. Driven through the tb-scrollto seam — the
+// frame's real scroll listener does the reporting.
+func assertBarPeeksOnScroll(t *testing.T, navCtx context.Context) {
+	t.Helper()
+	scrollTo := func(y int) string {
+		return fmt.Sprintf(
+			`(document.getElementById('canvas-frame').contentWindow.postMessage({type:'tb-scrollto', y:%d}, '*'), true)`, y)
+	}
+	// Blur the composer first — a focused composer deliberately pins the bar.
+	var peeked, expanded bool
+	err := chromedp.Run(navCtx,
+		chromedp.Evaluate(`(document.activeElement && document.activeElement.blur(), true)`, nil),
+		chromedp.Evaluate(scrollTo(1200), nil),
+		chromedp.Sleep(400*time.Millisecond),
+		chromedp.Evaluate(`document.getElementById('edit-form').classList.contains('cmd-peek')`, &peeked),
+		chromedp.Evaluate(scrollTo(0), nil),
+		chromedp.Sleep(400*time.Millisecond),
+		chromedp.Evaluate(`!document.getElementById('edit-form').classList.contains('cmd-peek')`, &expanded),
+	)
+	if err != nil {
+		t.Fatalf("scroll drive: %v", err)
+	}
+	if !peeked {
+		t.Fatal("scrolling down must slide the command bar to its peek state")
+	}
+	if !expanded {
+		t.Fatal("scrolling up must bring the command bar back")
 	}
 }
 

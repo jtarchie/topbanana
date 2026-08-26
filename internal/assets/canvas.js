@@ -317,6 +317,25 @@
     if (e.key === 'Escape') select(null);
   }, true);
 
+  // ----- scroll reporting: the parent's command bar gets out of the way on
+  // scroll-down and returns on scroll-up (the browser-toolbar convention),
+  // but the scrolling happens in here — so report direction changes, with
+  // hysteresis so a jitter never flaps the bar.
+  var lastScrollY = window.scrollY;
+  var scrollTick = false;
+  window.addEventListener('scroll', function () {
+    if (scrollTick) return;
+    scrollTick = true;
+    requestAnimationFrame(function () {
+      scrollTick = false;
+      var y = window.scrollY;
+      var dy = y - lastScrollY;
+      if (Math.abs(dy) < 24) return;
+      lastScrollY = y;
+      parent.postMessage({ type: 'tb-scroll', dir: dy > 0 ? 'down' : 'up' }, '*');
+    });
+  }, { passive: true });
+
   // Keep the halo glued to the element across scroll/resize/layout shifts.
   function refresh() {
     if (selected) place(selectBox, selected);
@@ -341,6 +360,12 @@
     if (d.type === 'tb-clear') {
       if (editing) cancelTextEdit();
       select(null);
+    }
+    // tb-scrollto scrolls the frame programmatically — the automation seam
+    // for the scroll-reporting path, since synthetic input can't reach a
+    // sandboxed out-of-process frame. Parent-only, like everything here.
+    if (d.type === 'tb-scrollto' && typeof d.y === 'number') {
+      window.scrollTo(0, d.y);
     }
     // tb-click selects by CSS selector — the canvas's automation seam (tests,
     // and later breadcrumb navigation). Parent-only, and faithful to real

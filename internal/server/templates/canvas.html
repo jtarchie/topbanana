@@ -53,9 +53,28 @@
           class="w-full h-full block bg-white"></iframe>
 
   {{/* Floating command bar. The scope chip names what the prompt applies to:
-       the whole site by default, or the element selected on the canvas. */}}
+       the whole site by default, or the element selected on the canvas.
+       Centering and the scroll-away peek state live in the style block below
+       (one owner for the translate, so the two can't fight): scrolling down
+       in the site slides the bar to a slim peeking edge so it never sits on
+       top of the content being read; scroll up, hover, focus, selection, or
+       a running change bring it back. */}}
+  <style>
+    #edit-form {
+      left: 50%;
+      translate: -50% 0;
+      transition: translate .25s cubic-bezier(.16, 1, .3, 1), opacity .25s ease;
+    }
+    #edit-form.cmd-peek {
+      translate: -50% calc(100% - 1.25rem);
+      opacity: .85;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #edit-form { transition: none; }
+    }
+  </style>
   <form id="edit-form" method="POST" action="/edit/{{ .Slug }}"
-        class="absolute left-1/2 bottom-4 -translate-x-1/2 w-[min(44rem,calc(100%-2rem))] bg-base-100 border border-base-300 rounded-box shadow-xl p-3 flex flex-col gap-2">
+        class="absolute bottom-4 w-[min(44rem,calc(100%-2rem))] bg-base-100 border border-base-300 rounded-box shadow-xl p-3 flex flex-col gap-2">
     <div class="flex items-center gap-2 text-xs">
       <span id="scope-chip" class="badge badge-ghost gap-1 max-w-full">
         <span id="scope-label" class="truncate">Whole site</span>
@@ -144,6 +163,11 @@
         handleImageDrop(d);
         return;
       }
+      if (d.type === 'tb-scroll') {
+        if (d.dir === 'down') collapseBar();
+        else expandBar();
+        return;
+      }
       if (d.type !== 'tb-select') return;
       // A valid address is a finite integer; anything else (NaN from a garbled
       // data-tb-el, a forged message) clears the scope rather than feeding
@@ -210,10 +234,26 @@
         });
     }
 
+    // ----- command bar peek: out of the way on scroll-down, back on any
+    // signal of intent. Never collapses mid-thought: a focused composer,
+    // typed-but-unsent text, or a running change pins it open.
+    var running = false;
+    function collapseBar() {
+      if (running) return;
+      if (form.contains(document.activeElement)) return;
+      if (promptEl.value.trim() !== '') return;
+      form.classList.add('cmd-peek');
+    }
+    function expandBar() { form.classList.remove('cmd-peek'); }
+    form.addEventListener('mouseenter', expandBar);
+    form.addEventListener('focusin', expandBar);
+
     // ----- run submission: stay on the canvas, watch over SSE -----
     function setBusy(busy) {
+      running = busy;
       promptEl.disabled = busy;
       applyBtn.disabled = busy;
+      if (busy) expandBar();
     }
 
     // startRun submits a change to the agent pipeline. scopeEl (nullable)
