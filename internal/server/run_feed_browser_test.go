@@ -1,11 +1,11 @@
 package server_test
 
-// Renders the workspace run feed in a real browser: the conversation panel
-// must hydrate from /runs/:slug and show a prompt bubble plus verdict card
-// per run — including the amber "finished without changing anything" card
-// with the agent's own explanation, the state the 2026-08-25 incident shipped
-// without. Server-side tests can't see this: the feed is built entirely by
-// the page's own JS.
+// Renders the workspace run feed in a real browser: the panel must hydrate
+// from /runs/:slug with the composer leading, the newest run as a full
+// verdict card — including the amber "finished without changing anything"
+// card with the agent's own explanation, the state the 2026-08-25 incident
+// shipped without — and older runs collapsed to one-line rows. Server-side
+// tests can't see this: the feed is built entirely by the page's own JS.
 //
 // Skips when Chrome isn't installed.
 
@@ -25,19 +25,25 @@ import (
 )
 
 type runFeedState struct {
-	Items     int    `json:"items"`
-	Bubbles   int    `json:"bubbles"`
-	UndoForms int    `json:"undoForms"`
-	Text      string `json:"text"`
+	Items             int    `json:"items"`
+	CollapsedRows     int    `json:"collapsedRows"`
+	UndoForms         int    `json:"undoForms"`
+	ComposerAboveFeed bool   `json:"composerAboveFeed"`
+	Text              string `json:"text"`
 }
 
 const runFeedProbe = `(function(){
 	var feed = document.getElementById('run-feed');
-	if (!feed) return { items: -1, bubbles: 0, undoForms: 0, text: '' };
+	if (!feed) return { items: -1, collapsedRows: 0, undoForms: 0, composerAboveFeed: false, text: '' };
+	// Expand the collapsed history so innerText covers older verdicts too.
+	feed.querySelectorAll('details').forEach(function (d) { d.open = true; });
+	var form = document.getElementById('edit-form');
 	return {
 		items: feed.children.length,
-		bubbles: feed.querySelectorAll('.chat-bubble').length,
+		collapsedRows: feed.querySelectorAll('details').length,
 		undoForms: feed.querySelectorAll('form.js-confirm').length,
+		// The composer must lead the panel: it precedes the feed in DOM order.
+		composerAboveFeed: !!(form && (form.compareDocumentPosition(feed) & Node.DOCUMENT_POSITION_FOLLOWING)),
 		text: feed.innerText
 	};
 })()`
@@ -99,6 +105,9 @@ func TestWorkspaceRunFeed_RendersVerdictsInBrowser(t *testing.T) {
 			Domain: host,
 			Path:   "/",
 		}}),
+		// Desktop width: the xl two-column layout (composer left, sticky
+		// preview right) is the layout under test.
+		chromedp.EmulateViewport(1440, 900),
 		chromedp.Navigate(httpSrv.URL+"/workspace/"+slug),
 		// The feed hydrates from a fetch; wait for its first entry.
 		chromedp.WaitVisible(`#run-feed > *`, chromedp.ByQuery),
@@ -117,22 +126,26 @@ func TestWorkspaceRunFeed_RendersVerdictsInBrowser(t *testing.T) {
 	}
 
 	if state.Items != 2 {
-		t.Fatalf("feed items = %d, want 2", state.Items)
+		t.Fatalf("feed items = %d, want 2 (latest card + earlier-changes block)", state.Items)
 	}
-	if state.Bubbles != 2 {
-		t.Fatalf("prompt bubbles = %d, want 2", state.Bubbles)
+	if state.CollapsedRows != 1 {
+		t.Fatalf("collapsed history rows = %d, want 1", state.CollapsedRows)
 	}
 	if state.UndoForms != 1 {
 		t.Fatalf("undo forms = %d, want exactly 1 (newest run only)", state.UndoForms)
+	}
+	if !state.ComposerAboveFeed {
+		t.Fatal("composer must precede the feed — describing a change is the primary action")
 	}
 	for _, want := range []string{
 		"make this line white",
 		"Finished without changing anything",
 		"the text is already white",
-		"Try rephrasing",
+		"Edit request & retry",
 		"remove the word occasionally",
 		"Updated your Home page and your site's styling",
 		"Undo this change",
+		"Earlier changes",
 	} {
 		if !strings.Contains(state.Text, want) {
 			t.Errorf("feed text missing %q\n--- feed text ---\n%s", want, state.Text)
