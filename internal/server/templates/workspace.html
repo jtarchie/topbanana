@@ -35,6 +35,10 @@
   {{ if eq .Flash "lint-autofixed" }}
   <div class="alert alert-success mb-4" role="status"><span>Issues fixed automatically — no agent run was needed.</span></div>
   {{ end }}
+  {{ if and .Flash (ne .Flash "lint-clean") (ne .Flash "lint-autofixed") }}
+  {{/* Generic flash — the restore/delete redirects put a plain sentence here. */}}
+  <div class="alert alert-success mb-4" role="status"><span>{{ .Flash }}</span></div>
+  {{ end }}
 
   <div class="grid grid-cols-1 lg:grid-cols-[14rem_1fr] gap-4">
     {{/* Desktop tool rail. Below lg it's hidden and the fixed bottom tool bar
@@ -184,8 +188,19 @@
         {{ end }}
       </div>
 
-      <form method="POST" action="/edit/{{ .Slug }}" enctype="multipart/form-data" class="card bg-base-100 border border-base-300" id="edit-form">
+      {{/* Conversation panel: every agent run renders as a prompt bubble plus
+           a verdict card — what changed in plain words, or an honest "nothing
+           changed" with the agent's own explanation. It exists because a
+           completed run that changed nothing used to look identical to a
+           successful one, and users retried blind. Rehydrated from /runs/:slug
+           on load; the SSE handler refreshes it when a run finishes. */}}
+      <section class="card bg-base-100 border border-base-300" aria-label="Changes and requests">
         <div class="card-body gap-3 p-4">
+          <div id="run-feed" role="log" aria-live="polite"
+               class="space-y-3 max-h-96 overflow-y-auto overscroll-contain pr-1 empty:hidden"></div>
+
+      <form method="POST" action="/edit/{{ .Slug }}" enctype="multipart/form-data" id="edit-form">
+        <div class="flex flex-col gap-3">
           <input type="hidden" name="page" value="{{ .Page }}">
           <label for="prompt" class="block pb-1 px-0">
             <span class="text-sm font-medium">{{ if .Page }}Describe a change to <span class="font-mono break-all">{{ .Page }}</span>{{ else }}Describe a change to the whole site{{ end }}</span>
@@ -211,6 +226,8 @@
           </div>
         </div>
       </form>
+        </div>
+      </section>
     </section>
   </div>
 </main>
@@ -573,6 +590,195 @@
     paint();
   })();
 
+  // Run feed — the conversation panel above the composer. Renders each prior
+  // agent run as a prompt bubble plus a verdict card, so "did anything
+  // change?" is answered on the page instead of by squinting at the preview.
+  window.TBRunFeed = (function () {
+    var slug = {{ .SlugJSON }};
+    var feed = document.getElementById('run-feed');
+
+    function friendlyNames(files) {
+      var out = [], seen = {};
+      (files || []).forEach(function (p) {
+        var label;
+        if (/\.css$/.test(p)) label = "your site's styling";
+        else if (p.indexOf('functions/') === 0) label = 'form handling';
+        else if (p === 'index.html') label = 'your Home page';
+        else if (/\.html$/.test(p)) label = 'the ' + p.replace(/\.html$/, '').replace(/[-_]/g, ' ') + ' page';
+        else if (p.indexOf('assets/') === 0) label = 'an image';
+        else label = p;
+        if (!seen[label]) { seen[label] = true; out.push(label); }
+      });
+      return out;
+    }
+    function joinNames(names) {
+      if (names.length <= 1) return names.join('');
+      return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+    }
+    function truncate(s, n) {
+      s = String(s || '').trim();
+      return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s;
+    }
+    function el(tag, cls, text) {
+      var e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text != null) e.textContent = text;
+      return e;
+    }
+
+    function promptBubble(run) {
+      var wrap = el('div', 'chat chat-end');
+      var meta = el('div', 'chat-header text-xs text-base-content/60', run.when_label || '');
+      var bubble = el('div', 'chat-bubble chat-bubble-primary text-sm whitespace-pre-wrap break-words', truncate(run.prompt, 500));
+      wrap.appendChild(meta);
+      wrap.appendChild(bubble);
+      return wrap;
+    }
+
+    function detailsLink(run, label) {
+      if (!run.key) return null;
+      var a = el('a', 'link link-hover text-xs', label);
+      a.href = '/debug/' + encodeURIComponent(slug) + '/edit?key=' + encodeURIComponent(run.key);
+      return a;
+    }
+
+    function undoForm(run) {
+      var f = document.createElement('form');
+      f.method = 'POST';
+      f.action = '/history/' + encodeURIComponent(slug);
+      f.className = 'js-confirm inline';
+      f.dataset.confirmTitle = 'Undo this change?';
+      f.dataset.confirm = 'Your site goes back to how it was before this change. The current version is saved first, so you can bring it back from Version history.';
+      f.dataset.confirmOk = 'Undo';
+      f.dataset.confirmTone = 'primary';
+      var m = document.createElement('input');
+      m.type = 'hidden'; m.name = '_method'; m.value = 'PUT';
+      var k = document.createElement('input');
+      k.type = 'hidden'; k.name = 'key'; k.value = run.undo_key;
+      var b = el('button', 'btn btn-xs btn-outline', 'Undo this change');
+      b.type = 'submit';
+      f.appendChild(m); f.appendChild(k); f.appendChild(b);
+      return f;
+    }
+
+    function verdictCard(run) {
+      var changed = run.status === 'completed' && run.files && run.files.length > 0;
+      var noop = run.status === 'completed' && (!run.files || run.files.length === 0);
+      var card = el('div', 'rounded-box border p-3 text-sm space-y-2 ' + (
+        changed ? 'border-success/40 bg-success/10' :
+        noop ? 'border-warning/50 bg-warning/10' :
+        'border-error/40 bg-error/10'));
+      card.tabIndex = -1;
+
+      var head = el('div', 'flex items-center gap-2 font-medium');
+      var icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      icon.setAttribute('viewBox', '0 0 24 24');
+      icon.setAttribute('width', '16'); icon.setAttribute('height', '16');
+      icon.setAttribute('fill', 'none'); icon.setAttribute('stroke', 'currentColor');
+      icon.setAttribute('stroke-width', '2.5'); icon.setAttribute('stroke-linecap', 'round');
+      icon.setAttribute('stroke-linejoin', 'round'); icon.setAttribute('aria-hidden', 'true');
+      icon.innerHTML = changed ? '<path d="M4 12.5l5 5L20 6.5"/>' :
+        noop ? '<circle cx="12" cy="12" r="9"/><path d="M12 8v4.5"/><path d="M12 16h.01"/>' :
+        '<circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/>';
+      head.appendChild(icon);
+      head.appendChild(el('span', null,
+        changed ? 'Updated ' + joinNames(friendlyNames(run.files)) :
+        noop ? 'Finished without changing anything' :
+        "Couldn't finish this change"));
+      card.appendChild(head);
+
+      if (noop) {
+        card.appendChild(el('p', 'text-base-content/80',
+          run.final_message
+            ? 'The builder said: “' + truncate(run.final_message, 280) + '”'
+            : 'The builder read your site but decided no change was needed.'));
+        card.appendChild(el('p', 'text-xs text-base-content/70',
+          'Not what you meant? Rephrase with the exact words you see on the page, or name the page to change.'));
+      } else if (changed && run.final_message && !/^done[.!]?$/i.test(run.final_message.trim())) {
+        // The prompt tells the agent to say only "done" — that adds nothing
+        // here. Anything longer is a real summary worth showing.
+        card.appendChild(el('p', 'text-base-content/80', truncate(run.final_message, 200)));
+      } else if (!changed && !noop) {
+        card.appendChild(el('p', 'text-base-content/80', 'Nothing was changed. Try again, or simplify the request.'));
+      }
+
+      var actions = el('div', 'flex items-center gap-3 flex-wrap');
+      if (changed && run.undo_key) actions.appendChild(undoForm(run));
+      if (noop) {
+        var again = el('button', 'btn btn-xs btn-outline', 'Try rephrasing');
+        again.type = 'button';
+        again.addEventListener('click', function () {
+          var pt = document.getElementById('prompt');
+          if (pt) { pt.focus(); pt.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+        });
+        actions.appendChild(again);
+      }
+      var link = detailsLink(run, changed ? 'See exactly what changed' : 'See details');
+      if (link) actions.appendChild(link);
+      if (actions.children.length) card.appendChild(actions);
+      return card;
+    }
+
+    function scrollToEnd() { if (feed) feed.scrollTop = feed.scrollHeight; }
+
+    var liveEl = null;
+    function liveStart(prompt) {
+      if (!feed || liveEl) return;
+      liveEl = el('div', 'space-y-2');
+      if (prompt) liveEl.appendChild(promptBubble({ prompt: prompt, when_label: 'just now' }));
+      var row = el('div', 'flex items-center gap-2 text-sm text-base-content/70');
+      row.appendChild(el('span', 'loading loading-spinner loading-xs text-primary'));
+      row.appendChild(el('span', 'js-live-msg', 'Working on it…'));
+      liveEl.appendChild(row);
+      feed.appendChild(liveEl);
+      scrollToEnd();
+    }
+    function liveNarrate(text) {
+      if (!liveEl) return;
+      var msg = liveEl.querySelector('.js-live-msg');
+      if (msg && text) msg.textContent = text;
+    }
+
+    function render(runs) {
+      if (!feed) return;
+      feed.textContent = '';
+      // Server returns newest first; the feed reads top-down oldest → newest.
+      runs.slice().reverse().forEach(function (run) {
+        var item = el('div', 'space-y-2');
+        item.appendChild(promptBubble(run));
+        item.appendChild(verdictCard(run));
+        feed.appendChild(item);
+      });
+      scrollToEnd();
+    }
+
+    // focusVerdict: after a live run resolves, move focus (and the screen
+    // reader) to the newest verdict card so the outcome is announced.
+    function refresh(focusVerdict) {
+      return fetch('/runs/' + encodeURIComponent(slug))
+        .then(function (r) { return r.ok ? r.json() : { runs: [] }; })
+        .then(function (body) {
+          liveEl = null;
+          render(body.runs || []);
+          if (focusVerdict && feed && feed.lastElementChild) {
+            var card = feed.lastElementChild.querySelector('[tabindex]');
+            if (card) card.focus({ preventScroll: true });
+          }
+        })
+        .catch(function () {});
+    }
+
+    refresh(false).then(function () {
+      {{ if .Building }}
+      var last = null;
+      try { last = sessionStorage.getItem('tb_last_prompt'); } catch (_) {}
+      liveStart(last);
+      {{ end }}
+    });
+
+    return { refresh: refresh, liveStart: liveStart, liveNarrate: liveNarrate };
+  })();
+
   {{ if .Building }}
   // Status strip SSE — ported from progress.html.
   (function () {
@@ -736,12 +942,24 @@
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
+    // The run's verdict (files changed + the agent's closing message) arrives
+    // as a "result" event just before the terminal status. A missing verdict
+    // (recording disabled, older server) defaults to celebrating, preserving
+    // the old behaviour; an explicit empty Files means the run changed
+    // nothing and the UI must say so instead of cheering.
+    var pendingResult = null;
+
     var es = new EventSource('/events/' + slug);
     es.onmessage = function (e) {
       var ev; try { ev = JSON.parse(e.data); } catch (_) { return; }
       var k = evKey(ev);
       if (seen.has(k)) return;
       seen.add(k);
+
+      if (ev.type === 'result') {
+        pendingResult = ev;
+        return;
+      }
 
       if (ev.type === 'question') {
         if (ev.phase === 'ask') {
@@ -757,18 +975,31 @@
         if (ev.status === 'linting' || ev.status === 'retry' || ev.status === 'polishing') setStep('polish');
         if (ev.status === 'completed') {
           setStep('done');
-          toast('Your site is ready.', 'success');
-          var mascot = document.getElementById('brand-mascot');
-          if (mascot) {
-            mascot.classList.add('mascot-celebrate');
-            setTimeout(function () { mascot.classList.remove('mascot-celebrate'); }, 700);
+          // Celebrate only when the run actually changed something. A run
+          // that completed with an explicitly empty verdict gets the honest
+          // treatment from the run feed instead — cheering over a no-op is
+          // the exact failure that taught users to distrust "completed".
+          var changed = !pendingResult || !pendingResult.files || pendingResult.files.length > 0;
+          if (changed) {
+            toast('Done — your change is live.', 'success');
+            var mascot = document.getElementById('brand-mascot');
+            if (mascot) {
+              mascot.classList.add('mascot-celebrate');
+              setTimeout(function () { mascot.classList.remove('mascot-celebrate'); }, 700);
+            }
+            // Reveal the "what's next" guidance immediately, decoupled from the
+            // 600ms preview reload below, so it never races that timeout.
+            var sp = document.getElementById('build-success');
+            if (sp) { sp.classList.remove('hidden'); sp.classList.add('build-reveal'); sp.focus(); }
           }
-          // Reveal the "what's next" guidance immediately, decoupled from the
-          // 600ms preview reload below, so it never races that timeout.
-          var sp = document.getElementById('build-success');
-          if (sp) { sp.classList.remove('hidden'); sp.classList.add('build-reveal'); sp.focus(); }
         }
         statusEl.textContent = statusMsg(ev);
+        if (ev.status === 'completed' && pendingResult && pendingResult.files && pendingResult.files.length === 0) {
+          statusEl.textContent = 'Finished — no changes were made.';
+        }
+        if (window.TBRunFeed && !(ev.status === 'completed' || ev.status === 'failed')) {
+          TBRunFeed.liveNarrate(statusEl.textContent);
+        }
         if (ev.status === 'failed') {
           errorMsg.textContent = ev.message || 'Unknown error.';
           errorEl.classList.remove('hidden');
@@ -822,11 +1053,17 @@
         }
       } else if (ev.type === 'tool' && ev.phase === 'start') {
         var m = startMsg(ev);
-        if (m) statusEl.textContent = m;
+        if (m) {
+          statusEl.textContent = m;
+          if (window.TBRunFeed) TBRunFeed.liveNarrate(m);
+        }
       }
 
       if (ev.type === 'status' && (ev.status === 'completed' || ev.status === 'failed' || ev.status === 'unknown')) {
         es.close();
+        // The transcript is persisted before the terminal event fires, so the
+        // feed's refresh sees this run — verdict card, undo key and all.
+        if (window.TBRunFeed) TBRunFeed.refresh(true);
         if (ev.status === 'completed') {
           // Drop ?building=1 from the URL so a refresh doesn't reopen the SSE
           // stream on a finished build. Reload the iframe so the preview shows

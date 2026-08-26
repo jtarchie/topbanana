@@ -54,6 +54,7 @@ func (s *sitesController) register(g *echo.Group, owns echo.MiddlewareFunc) {
 	g.POST("/apps/:slug/transfer", s.transferAppHandler, owns, owner)
 	g.POST("/apps/:slug/collaborators", s.addCollaboratorHandler, owns, owner)
 	g.DELETE("/apps/:slug/collaborators", s.removeCollaboratorHandler, owns, owner)
+	g.GET("/runs/:slug", s.runsFeedHandler, owns)
 	g.GET("/history/:slug", s.redirectToWorkspace, owns)
 	g.PUT("/history/:slug", s.historyRestoreHandler, owns)
 	g.DELETE("/history/:slug", s.historyDeleteHandler, owns)

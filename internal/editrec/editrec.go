@@ -486,6 +486,22 @@ func Key(slug string, startedAt time.Time, logKey string) string {
 	return fmt.Sprintf("%s%s/%s-%s.json", Prefix, slug, startedAt.UTC().Format(keyTimeLayout), logKey)
 }
 
+// Summary projects the run's verdict out of a live recorder: the distinct
+// paths actually changed so far, and the last final message. Nil-safe (a
+// Service with recording disabled has no recorder), so callers can emit a
+// result event unconditionally.
+func (r *Recorder) Summary() (files []string, finalMessage string) {
+	if r == nil {
+		return nil, ""
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if n := len(r.transcript.FinalMessages); n > 0 {
+		finalMessage = r.transcript.FinalMessages[n-1]
+	}
+	return ChangedPaths(r.transcript), finalMessage
+}
+
 // ChangedPaths returns the distinct paths a run actually changed — skipping
 // no-op mutations — in first-changed order. The single definition of "this
 // run changed that file": the edit-history block (which sorts and caps on

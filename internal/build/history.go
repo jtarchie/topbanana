@@ -51,6 +51,13 @@ type PriorRun struct {
 	Prompt string
 	Files  []string
 	Status string
+	// FinalMessage is the agent's closing text for the run. The agent-facing
+	// history block doesn't render it; the workspace run feed does — on a
+	// completed run that changed nothing, it is the only explanation of why.
+	FinalMessage string
+	// Key is the transcript's bucket key, for deep-linking a feed entry to
+	// its /debug detail page.
+	Key string
 }
 
 // userInitiatedLogKeys are the runs a person asked for. Lint-fix retries and
@@ -95,12 +102,17 @@ func (svc *Service) RecentRuns(ctx context.Context, slug string, limit int) []Pr
 		if strings.TrimSpace(tr.UserPrompt) == "" {
 			continue
 		}
-		out = append(out, PriorRun{
+		run := PriorRun{
 			At:     tr.StartedAt,
 			Prompt: tr.UserPrompt,
 			Files:  changedFiles(tr),
 			Status: tr.FinalStatus,
-		})
+			Key:    row.Key,
+		}
+		if n := len(tr.FinalMessages); n > 0 {
+			run.FinalMessage = tr.FinalMessages[n-1]
+		}
+		out = append(out, run)
 	}
 	return out
 }

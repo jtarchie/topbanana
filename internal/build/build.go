@@ -427,6 +427,7 @@ func (svc *Service) Start(p Params) {
 					editrec.Trim(ctx, svc.store, p.Slug, svc.editsKeep)
 				}
 			}
+			svc.emitResult(p, rec)
 			svc.emitFailure(p.Slug, err)
 			return
 		}
@@ -444,8 +445,27 @@ func (svc *Service) Start(p Params) {
 				editrec.Trim(ctx, svc.store, p.Slug, svc.editsKeep)
 			}
 		}
+		svc.emitResult(p, rec)
 		svc.events.Complete(p.Slug)
 	}()
+}
+
+// emitResult publishes the run's verdict — the files it changed and the
+// agent's closing message — just before the terminal status event, so the
+// workspace can say "updated index.html" or, crucially, "finished without
+// changing anything" instead of celebrating every completion identically.
+// Only user-initiated runs get one: lint-fix and polish passes are machinery,
+// and a verdict for them would read as an answer to a request never made.
+func (svc *Service) emitResult(p Params, rec *editrec.Recorder) {
+	if rec == nil || !userInitiatedLogKeys[p.LogKey] {
+		// No recorder (recording disabled) means no honest answer to "what
+		// changed" — emit nothing rather than an empty verdict that would
+		// read as "changed nothing"; the client then keeps the old
+		// celebratory default.
+		return
+	}
+	files, finalMsg := rec.Summary()
+	svc.events.Emit(p.Slug, events.Event{Type: events.TypeResult, Files: files, Message: finalMsg})
 }
 
 // emitFailure translates a raw build failure into a plain-English status event

@@ -65,6 +65,12 @@ const (
 	// without it — the model's closing message is the only place it says
 	// why it declined to act (the 2026-08-25 tinytools no-op edits).
 	TypeAgentText = "agent_text"
+	// TypeResult is the run's verdict, emitted once just before the terminal
+	// status: Files lists the distinct paths the run actually changed and
+	// Message carries the agent's closing text. An empty Files on a completed
+	// run is the "finished but changed nothing" case the workspace must
+	// present honestly instead of celebrating.
+	TypeResult = "result"
 )
 
 // Tool phases (also used for TypeFunction).
@@ -86,6 +92,7 @@ type Event struct {
 	Path    string    `json:"path,omitempty"`    // for type=tool: file path the tool acted on
 	Message string    `json:"message,omitempty"` // optional human-readable detail (errors, retry reason)
 	Detail  string    `json:"detail,omitempty"`  // for type=status/failed: raw technical text behind the friendly Message
+	Files   []string  `json:"files,omitempty"`   // for type=result: distinct paths the run changed
 	Time    time.Time `json:"time"`
 
 	// Question fields — only set when Type == TypeQuestion.
