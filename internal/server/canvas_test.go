@@ -20,11 +20,12 @@ import (
 
 const canvasTestPage = `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="utf-8"><title>t</title></head>
+<head><meta charset="utf-8"><title>t</title><link rel="stylesheet" href="/site.css"></head>
 <body>
 <h1>Hello</h1>
 <p>Same text</p>
 <p>Same text</p>
+<img src="/assets/pic.png" alt="">
 </body>
 </html>`
 
@@ -60,8 +61,12 @@ func TestProxyEditMode_StampsAddressesForOwnerOnly(t *testing.T) {
 	body := res.Body.String()
 	for _, want := range []string{
 		`<html data-tb-el="0"`,
-		`data-tb-el="4"`, // body — html, head, meta, title precede it
+		`data-tb-el="5"`, // body — html, head, meta, title, link precede it
 		`<script src="/canvas.js" defer></script>`,
+		// Root-absolute references must be rebased onto the /s mount or the
+		// page renders unstyled inside the canvas iframe.
+		`href="/s/` + slug + `/site.css"`,
+		`src="/s/` + slug + `/assets/pic.png"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("edit-mode body missing %q:\n%s", want, body)
@@ -70,7 +75,7 @@ func TestProxyEditMode_StampsAddressesForOwnerOnly(t *testing.T) {
 
 	// The two identical <p>s must carry distinct addresses — element identity,
 	// never content matching.
-	if !strings.Contains(body, `<p data-tb-el="6">Same text</p>`) || !strings.Contains(body, `<p data-tb-el="7">Same text</p>`) {
+	if !strings.Contains(body, `<p data-tb-el="7">Same text</p>`) || !strings.Contains(body, `<p data-tb-el="8">Same text</p>`) {
 		t.Errorf("duplicated content must get distinct addresses:\n%s", body)
 	}
 

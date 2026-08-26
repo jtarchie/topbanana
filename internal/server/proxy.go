@@ -133,7 +133,7 @@ func (s *Server) serveHTMLPage(c *echo.Context, slug, candidate, content string)
 		// the selection script instead of the viewer toolbar. Served
 		// unminified — the addresses must be resolvable against the stored
 		// bytes, and this path is owner-only anyway.
-		return c.HTML(http.StatusOK, canvasEditBody(content)) //nolint:wrapcheck
+		return c.HTML(http.StatusOK, canvasEditBody(content, slug)) //nolint:wrapcheck
 	}
 	body := s.injectEditToolbar(c, content, slug, candidate)
 	minified, mErr := minifyHTMLBody(s.htmlMinifier, body)
@@ -151,10 +151,13 @@ const canvasEditScriptTag = `<script src="/canvas.js" defer></script>`
 // canvasEditBody prepares a page for the canvas editor: every element gets
 // its data-tb-el address (see internal/domaddr — the same walk Resolve runs
 // against the stored bytes, so the browser's reported address maps to an
-// exact source span) and the selection script is spliced in before </body>,
-// or appended when the page has none.
-func canvasEditBody(htmlContent string) string {
-	annotated := string(domaddr.Annotate([]byte(htmlContent)))
+// exact source span), the site's root-absolute references are rebased onto
+// the /s/:slug mount the canvas iframe loads through (a page's href="/site.css"
+// otherwise resolves to the admin origin's root and the site renders
+// unstyled), and the selection script is spliced in before </body>, or
+// appended when the page has none.
+func canvasEditBody(htmlContent, slug string) string {
+	annotated := string(domaddr.AnnotateAndRebase([]byte(htmlContent), "/s/"+slug))
 	if strings.Contains(annotated, "</body>") {
 		return strings.Replace(annotated, "</body>", canvasEditScriptTag+"</body>", 1)
 	}

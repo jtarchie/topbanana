@@ -131,6 +131,46 @@ func TestResolve_OutOfRangeAndUnclosed(t *testing.T) {
 	}
 }
 
+func TestAnnotateAndRebase_RewritesRootURLsInTagsOnly(t *testing.T) {
+	t.Parallel()
+	doc := []byte(`<html><head>
+<link rel="stylesheet" href="/site.css">
+<link rel="stylesheet" href='/app.css'>
+<link rel="preconnect" href="//cdn.example.com/x">
+</head><body>
+<img src="/assets/kumo.png" alt="">
+<a href="/privacy.html">privacy</a>
+<a href="about.html">about</a>
+<form action="/api/submit"></form>
+<script>var s = 'src="/api/count"';</script>
+</body></html>`)
+
+	out := string(AnnotateAndRebase(doc, "/s/tinytools"))
+
+	for _, want := range []string{
+		`href="/s/tinytools/site.css"`,
+		`href='/s/tinytools/app.css'`,
+		`src="/s/tinytools/assets/kumo.png"`,
+		`href="/s/tinytools/privacy.html"`,
+		`action="/s/tinytools/api/submit"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rebased doc missing %q:\n%s", want, out)
+		}
+	}
+	// Untouched: relative URLs, protocol-relative URLs, and URL-shaped strings
+	// inside script text.
+	for _, want := range []string{
+		`href="about.html"`,
+		`href="//cdn.example.com/x"`,
+		`var s = 'src="/api/count"';`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rebase must leave %q alone:\n%s", want, out)
+		}
+	}
+}
+
 func FuzzResolve(f *testing.F) {
 	f.Add(sample, 3)
 	f.Add("<div><div><div></div></div>", 1)

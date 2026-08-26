@@ -14,6 +14,7 @@ package domaddr
 import (
 	"bytes"
 	"fmt"
+	"regexp"
 	"strconv"
 
 	"golang.org/x/net/html"
@@ -81,10 +82,35 @@ func walk(doc []byte, visit func(index int, name string, tokStart, tokEnd int, r
 // tag, N counting elements in document order from 0. Everything else —
 // whitespace, attribute quoting, text, comments — passes through verbatim.
 func Annotate(doc []byte) []byte {
+	return AnnotateAndRebase(doc, "")
+}
+
+// rootURLAttr matches a root-absolute URL value in the reference attributes
+// of a single start tag ("/x" but not protocol-relative "//x"). Applied only
+// to tag bytes during the walk, never to text or script content, so an
+// inline script mentioning src="/api/…" in a string stays untouched.
+var rootURLAttr = regexp.MustCompile(`(\s(?:href|src|action|poster)=["'])(/[^/"'])`)
+
+// AnnotateAndRebase is Annotate plus URL rebasing for pages served off a
+// path mount: a site's root-absolute references (href="/site.css",
+// src="/assets/x.png") resolve against the admin origin's root when the page
+// renders inside the /s/:slug iframe, so edit mode rewrites them onto the
+// mount prefix. Relative URLs already resolve correctly and are left alone;
+// so are protocol-relative and absolute-origin URLs. url(...) inside
+// stylesheets is not rewritten — the sites the platform builds don't use
+// root-absolute url() references.
+//
+// ponytail: srcset attributes are not rebased (comma-separated multi-URL
+// values need their own parser); add when a generated site first uses one.
+func AnnotateAndRebase(doc []byte, prefix string) []byte {
 	var out bytes.Buffer
 	out.Grow(len(doc) + 16*bytes.Count(doc, []byte("<")))
 	walk(doc, func(index int, name string, _, _ int, raw []byte) []byte {
-		return injectAttr(raw, index)
+		tag := injectAttr(raw, index)
+		if prefix != "" {
+			tag = rootURLAttr.ReplaceAll(tag, []byte("${1}"+prefix+"${2}"))
+		}
+		return tag
 	}, &out)
 	return out.Bytes()
 }
