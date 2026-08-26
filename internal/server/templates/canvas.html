@@ -103,12 +103,17 @@
       if (d.type !== 'tb-select') return;
       if (d.el == null) {
         scope = null;
+        window.__tbScope = null;
         scopeLabel.textContent = 'Whole site';
         scopeClear.classList.add('hidden');
         scopeHint.style.display = '';
         return;
       }
       scope = d;
+      // Exposed for tests and debugging: the selection's identity is the
+      // element address (el), never its text — two elements with identical
+      // content differ only here.
+      window.__tbScope = scope;
       scopeLabel.textContent = 'This ' + (d.tag || 'element') + (d.text ? ' — “' + d.text.slice(0, 40) + (d.text.length > 40 ? '…' : '') + '”' : '');
       scopeClear.classList.remove('hidden');
       scopeHint.style.display = 'none';

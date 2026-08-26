@@ -140,6 +140,37 @@ func TestCanvas_SelectElementInBrowser(t *testing.T) {
 	if !strings.Contains(afterSecond.ScopeLabel, "body") {
 		t.Fatalf("second click must step selection out to the parent, got %q", afterSecond.ScopeLabel)
 	}
+
+	// The identity proof: the page has two <p>s with byte-identical content.
+	// Clicking each must produce scopes that differ ONLY in the element
+	// address — same tag, same text, different el. Content-based selection
+	// could not tell them apart.
+	type scopeProbe struct {
+		El   int    `json:"el"`
+		Text string `json:"text"`
+		Tag  string `json:"tag"`
+	}
+	var first, second scopeProbe
+	err = chromedp.Run(navCtx,
+		chromedp.Evaluate(canvasClickFor(`[data-tb-el="7"]`), &clicked),
+		chromedp.Sleep(300*time.Millisecond),
+		chromedp.Evaluate(`window.__tbScope`, &first),
+		chromedp.Evaluate(canvasClickFor(`[data-tb-el="8"]`), &clicked),
+		chromedp.Sleep(300*time.Millisecond),
+		chromedp.Evaluate(`window.__tbScope`, &second),
+	)
+	if err != nil {
+		t.Fatalf("duplicate-content clicks: %v", err)
+	}
+	if first.Text != "Same text" || second.Text != "Same text" || first.Tag != "p" || second.Tag != "p" {
+		t.Fatalf("expected two identical <p>Same text</p> selections, got %+v and %+v", first, second)
+	}
+	if first.El == second.El {
+		t.Fatalf("identical content must still select distinct elements: both reported address %d", first.El)
+	}
+	if first.El != 7 || second.El != 8 {
+		t.Fatalf("addresses must be the served stamps, got %d and %d", first.El, second.El)
+	}
 }
 
 func canvasClickFor(sel string) string {
