@@ -40,6 +40,12 @@ func (s *Server) mountRoutes(e *echo.Echo) {
 	// leak between the two surfaces.
 	e.Any("/s/:slug", s.pathRouteHandler)
 	e.Any("/s/:slug/*", s.pathRouteHandler)
+	// The tokenized preview mount: /s semantics with a preview token standing
+	// in for the session on private-site static reads — how a CSP-sandboxed
+	// canvas (whose subresource fetches carry no cookies) renders a private
+	// site with its styling.
+	e.Any("/sp/:slug/:token", s.tokenPreviewHandler)
+	e.Any("/sp/:slug/:token/*", s.tokenPreviewHandler)
 
 	// Passkey surfaces. Mounted unauthenticated and parallel to the legacy
 	// basic-auth admin gate during the rollout; commit 4 swaps requireAdmin

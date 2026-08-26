@@ -58,6 +58,9 @@ type PriorRun struct {
 	// Key is the transcript's bucket key, for deep-linking a feed entry to
 	// its /debug detail page.
 	Key string
+	// SnapshotKey is the run's own pre-run snapshot — what its Undo restores.
+	// Empty when the run predates identity recording or its snapshot failed.
+	SnapshotKey string
 }
 
 // userInitiatedLogKeys are the runs a person asked for. Lint-fix retries and
@@ -94,27 +97,60 @@ func (svc *Service) RecentRuns(ctx context.Context, slug string, limit int) []Pr
 			// Listings are newest-first, so everything past here is older.
 			break
 		}
-		tr, err := editrec.Read(ctx, svc.store, row.Key)
-		if err != nil {
-			slog.Warn("history.read_failed", "slug", slug, "key", row.Key, "err", err)
+		run, ok := priorRunFor(ctx, svc, row)
+		if !ok {
 			continue
-		}
-		if strings.TrimSpace(tr.UserPrompt) == "" {
-			continue
-		}
-		run := PriorRun{
-			At:     tr.StartedAt,
-			Prompt: tr.UserPrompt,
-			Files:  changedFiles(tr),
-			Status: tr.FinalStatus,
-			Key:    row.Key,
-		}
-		if n := len(tr.FinalMessages); n > 0 {
-			run.FinalMessage = tr.FinalMessages[n-1]
 		}
 		out = append(out, run)
 	}
 	return out
+}
+
+// priorRunFor projects one listing row. The slim summary (written beside
+// every transcript since the projection landed) is a few hundred bytes; only
+// rows that predate it pay for the full transcript — which carries the
+// system prompt and every file's before/after content — on the way in.
+func priorRunFor(ctx context.Context, svc *Service, row editrec.Listing) (PriorRun, bool) {
+	if sum, ok := editrec.ReadSummary(ctx, svc.store, row.Key); ok {
+		if strings.TrimSpace(sum.Prompt) == "" {
+			return PriorRun{}, false
+		}
+		files := sum.Files
+		sort.Strings(files)
+		if len(files) > historyMaxFiles {
+			files = files[:historyMaxFiles]
+		}
+		return PriorRun{
+			At:           sum.StartedAt,
+			Prompt:       sum.Prompt,
+			Files:        files,
+			Status:       sum.Status,
+			Key:          row.Key,
+			FinalMessage: sum.FinalMessage,
+			SnapshotKey:  sum.SnapshotKey,
+		}, true
+	}
+
+	tr, err := editrec.Read(ctx, svc.store, row.Key)
+	if err != nil {
+		slog.Warn("history.read_failed", "slug", row.Key, "err", err)
+		return PriorRun{}, false
+	}
+	if strings.TrimSpace(tr.UserPrompt) == "" {
+		return PriorRun{}, false
+	}
+	run := PriorRun{
+		At:          tr.StartedAt,
+		Prompt:      tr.UserPrompt,
+		Files:       changedFiles(tr),
+		Status:      tr.FinalStatus,
+		Key:         row.Key,
+		SnapshotKey: tr.SnapshotKey,
+	}
+	if n := len(tr.FinalMessages); n > 0 {
+		run.FinalMessage = tr.FinalMessages[n-1]
+	}
+	return run, true
 }
 
 // changedFiles returns the distinct paths a run actually modified, in stable

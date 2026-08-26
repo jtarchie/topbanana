@@ -145,9 +145,37 @@ func (s *Server) pathRouteHandler(c *echo.Context) error {
 	// SAME origin as the authenticated admin UI, so its HTML gets a CSP
 	// sandbox (see serveHTMLPage) that strips the document's origin — without
 	// it, any site's own <script> runs with the admin origin's cookies and a
-	// link to /s/<attacker-slug>/x.html is account takeover.
-	c.Set(pathMountKey, true)
+	// link to /s/<attacker-slug>/x.html is account takeover. The value is the
+	// mount prefix, so edit-mode URL rebasing rebuilds links under the same
+	// mount the document came from.
+	c.Set(pathMountKey, "/s/"+slug)
 
+	return s.dispatchSite(c, slug)
+}
+
+// tokenPreviewHandler is the /sp/{slug}/{token} mount: identical to /s except
+// a valid preview token stands in for the session on the private-site gate.
+// It exists because canvas pages are CSP-sandboxed (opaque origin) and their
+// subresource fetches carry no cookies — a private site's css/images would
+// 404 in the editor. The token rides the path, so every relative and rebased
+// URL inherits it.
+func (s *Server) tokenPreviewHandler(c *echo.Context) error {
+	slug := c.Param("slug")
+	token := c.Param("token")
+	if validateSlug(slug) != nil || !s.registry.slugExists(slug) || !validPreviewToken(slug, token) {
+		return notFound()
+	}
+
+	req := c.Request()
+	prefix := "/sp/" + slug + "/" + token
+	rest := strings.TrimPrefix(req.URL.Path, prefix)
+	if rest == "" {
+		rest = "/"
+	}
+	req.URL.Path = rest
+
+	c.Set(pathMountKey, prefix)
+	c.Set(previewTokenOKKey, true)
 	return s.dispatchSite(c, slug)
 }
 
@@ -156,10 +184,10 @@ func (s *Server) pathRouteHandler(c *echo.Context) error {
 // owner (or a super admin) gets a 404 so the existence of a private site
 // can't be inferred from the status code.
 func (s *Server) dispatchSite(c *echo.Context, slug string) error {
-	if s.registry.isPrivate(slug) && !s.callerCanViewPrivate(c, slug) {
+	reqPath := c.Request().URL.Path
+	if s.registry.isPrivate(slug) && !s.callerCanViewPrivate(c, slug) && !previewTokenAllows(c, reqPath) {
 		return notFound()
 	}
-	reqPath := c.Request().URL.Path
 	// Event-photo-wall reserved endpoints (POST /_photos, GET /_photos/approved).
 	// Claimed only when the path shape matches, so non-photo-wall sites don't
 	// pay a metadata read on every request.
@@ -170,6 +198,22 @@ func (s *Server) dispatchSite(c *echo.Context, slug string) error {
 		return s.apiHandler(c, slug, name)
 	}
 	return s.proxyHandler(c, slug)
+}
+
+// previewTokenAllows reports whether a validated preview token satisfies the
+// private-site gate for this request. Deliberately narrower than a session:
+// static GET/HEAD reads only — never /api handlers or the photo-wall
+// endpoints, so a leaked token can read the site's files (which the pages it
+// was embedded in already contain) but can't act on the site.
+func previewTokenAllows(c *echo.Context, reqPath string) bool {
+	if c.Get(previewTokenOKKey) != true {
+		return false
+	}
+	m := c.Request().Method
+	if m != http.MethodGet && m != http.MethodHead {
+		return false
+	}
+	return !strings.HasPrefix(reqPath, "/api/") && !strings.HasPrefix(reqPath, "/_photos")
 }
 
 // callerCanViewPrivate answers whether the request's session belongs to a

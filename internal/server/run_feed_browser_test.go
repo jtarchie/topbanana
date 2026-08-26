@@ -71,12 +71,13 @@ func TestWorkspaceRunFeed_RendersVerdictsInBrowser(t *testing.T) {
 	// Older run: the incident shape — completed, read everything, changed
 	// nothing, and said why.
 	seedRunTranscriptRaw(t, st, slug, "edit", "make this line white", now.Add(-9*time.Minute), nil, "the text is already white")
-	// Newer run: a real change, eligible for one-click undo.
-	seedRunTranscriptRaw(t, st, slug, "edit", "remove the word occasionally", now.Add(-2*time.Minute), []string{"index.html", "site.css"}, "done")
-	_, err := snapSvc.Create(ctx, slug, snapshot.ReasonEdit)
+	// Newer run: a real change whose transcript names its own pre-run
+	// snapshot — the identity one-click Undo restores.
+	snap, err := snapSvc.Create(ctx, slug, snapshot.ReasonEdit)
 	if err != nil {
 		t.Fatalf("create snapshot: %v", err)
 	}
+	seedRunTranscriptWithSnapshot(t, st, slug, "edit", "remove the word occasionally", now.Add(-2*time.Minute), []string{"index.html", "site.css"}, "done", snap.Key)
 
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(),
 		append(chromedp.DefaultExecAllocatorOptions[:],

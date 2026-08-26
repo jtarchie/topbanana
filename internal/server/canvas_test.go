@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -222,6 +223,64 @@ func TestTextEdit_ReplacesExactlyTheAddressedNode(t *testing.T) {
 	}, rig.session(t, "stranger@example.com", auth.RoleAdmin))
 	if res.Code != http.StatusNotFound {
 		t.Fatalf("non-owner text edit = %d, want 404", res.Code)
+	}
+}
+
+// TestPrivatePreviewMount pins how a private site renders inside the
+// sandboxed canvas: the canvas page mounts it at the tokenized /sp path, a
+// valid token satisfies the private gate for anonymous static GETs (which is
+// what the opaque-origin document's subresource fetches are), and nothing
+// more — bad tokens 404 like everything else on a private site.
+func TestPrivatePreviewMount(t *testing.T) {
+	t.Parallel()
+
+	st := storetest.New(t, 0)
+	ctx := context.Background()
+	slug := freshSlug(t)
+	const owner = "private-canvas@example.com"
+
+	mustWrite(t, ctx, st, slug, "index.html", canvasScopedPage, "text/html; charset=utf-8")
+	writeMeta(t, ctx, st, slug, build.SiteMeta{OwnerID: owner, Private: true})
+	rig := newPrivateRig(t, st, snapshot.New(st, 0))
+
+	// Anonymous /s is gated: the private site must not leak.
+	if res := canvasRigGet(t, rig, "/s/"+slug+"/index.html", nil); res.Code != http.StatusNotFound {
+		t.Fatalf("anonymous /s on a private site = %d, want 404", res.Code)
+	}
+
+	// The owner's canvas mounts the site through /sp with a token.
+	page := canvasRigGet(t, rig, "/v2/workspace/"+slug, rig.session(t, owner, auth.RoleAdmin))
+	if page.Code != http.StatusOK {
+		t.Fatalf("canvas for private site = %d, want 200", page.Code)
+	}
+	m := regexp.MustCompile(`/sp/` + slug + `/([0-9]+\.[0-9a-f]+)`).FindStringSubmatch(page.Body.String())
+	if m == nil {
+		t.Fatalf("canvas page must mount a private site at /sp with a token:\n%s", page.Body.String())
+	}
+	token := m[1]
+
+	// The token stands in for the session on anonymous static GETs — the
+	// sandboxed document's cookie-less subresource fetches.
+	res := canvasRigGet(t, rig, "/sp/"+slug+"/"+token+"/index.html", nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("tokenized GET = %d, want 200: %s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Content-Security-Policy"); !strings.Contains(got, "sandbox allow-scripts") {
+		t.Fatalf("tokenized mount must carry the sandbox CSP, got %q", got)
+	}
+
+	// A forged token is indistinguishable from a missing site.
+	if res := canvasRigGet(t, rig, "/sp/"+slug+"/1893456000.deadbeef/index.html", nil); res.Code != http.StatusNotFound {
+		t.Fatalf("bad token = %d, want 404", res.Code)
+	}
+
+	// The token never authorizes actions: an /api POST under it stays gated.
+	req := httptest.NewRequest(http.MethodPost, "/sp/"+slug+"/"+token+"/api/submit", strings.NewReader("a=b"))
+	req.Host = "localhost"
+	rec := httptest.NewRecorder()
+	rig.handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("tokenized POST /api = %d, want 404", rec.Code)
 	}
 }
 

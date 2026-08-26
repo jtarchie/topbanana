@@ -399,18 +399,11 @@ func (svc *Service) Start(p Params) {
 				return
 			}
 		}
-		// Snapshot post-seed and pre-agent. For initial builds this captures
-		// the bare template (restorable to a known-good starting point); for
-		// edits it captures the prior agent-built site. Failures are logged
-		// but don't block the build — losing undo is better than losing the
-		// edit.
-		if svc.snapshot != nil {
-			_, err := svc.snapshot.Create(ctx, p.Slug, p.LogKey)
-			if err != nil {
-				slog.Warn(p.LogKey+".snapshot_failed", "slug", p.Slug, "err", err)
-			}
-		}
 		rec := svc.newRecorder(p, authorID)
+		// The transcript names its own pre-run snapshot, so one-click Undo
+		// restores by identity rather than "newest snapshot" recency — which
+		// desyncs mid-run and silently reverts unrelated edits in between.
+		rec.SetSnapshotKey(svc.preRunSnapshot(ctx, p))
 		err = svc.buildAndLint(ctx, authorRunner, editorRunner, p.Slug, p.Prompt, p.Template, p.Attachments, p.Seeds, !p.SeedSkeleton, rec)
 		// Persist the transcript before emitting the terminal SSE event.
 		// Consumers (the progress strip, /system, /debug) treat "completed"
@@ -466,6 +459,22 @@ func (svc *Service) emitResult(p Params, rec *editrec.Recorder) {
 	}
 	files, finalMsg := rec.Summary()
 	svc.events.Emit(p.Slug, events.Event{Type: events.TypeResult, Files: files, Message: finalMsg})
+}
+
+// preRunSnapshot takes the pre-agent snapshot and returns its key, or "" —
+// failures are logged and swallowed, since losing undo is better than losing
+// the edit. For initial builds this captures the bare template; for edits,
+// the prior agent-built site.
+func (svc *Service) preRunSnapshot(ctx context.Context, p Params) string {
+	if svc.snapshot == nil {
+		return ""
+	}
+	snap, err := svc.snapshot.Create(ctx, p.Slug, p.LogKey)
+	if err != nil {
+		slog.Warn(p.LogKey+".snapshot_failed", "slug", p.Slug, "err", err)
+		return ""
+	}
+	return snap.Key
 }
 
 // emitFailure translates a raw build failure into a plain-English status event

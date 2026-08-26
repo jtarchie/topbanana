@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,7 +24,15 @@ import (
 )
 
 // seedRunTranscriptRaw writes a minimal transcript the feed can project.
+// Deliberately writes no summary sidecar, exercising the legacy fallback path.
 func seedRunTranscriptRaw(t *testing.T, st *store.Store, slug, logKey, prompt string, at time.Time, files []string, finalMsg string) {
+	t.Helper()
+	seedRunTranscriptWithSnapshot(t, st, slug, logKey, prompt, at, files, finalMsg, "")
+}
+
+// seedRunTranscriptWithSnapshot is seedRunTranscriptRaw plus the pre-run
+// snapshot key the run's Undo restores.
+func seedRunTranscriptWithSnapshot(t *testing.T, st *store.Store, slug, logKey, prompt string, at time.Time, files []string, finalMsg, snapKey string) {
 	t.Helper()
 	changes := make([]editrec.FileChange, 0, len(files))
 	for i, f := range files {
@@ -41,6 +50,7 @@ func seedRunTranscriptRaw(t *testing.T, st *store.Store, slug, logKey, prompt st
 		UserPrompt:  prompt,
 		FinalStatus: "completed",
 		FileChanges: changes,
+		SnapshotKey: snapKey,
 	}
 	if finalMsg != "" {
 		tr.FinalMessages = []string{finalMsg}
@@ -82,15 +92,19 @@ func TestRunsFeed_VerdictsUndoKeyAndOrdering(t *testing.T) {
 	writeMeta(t, ctx, st, slug, build.SiteMeta{OwnerID: owner})
 	rig := newPrivateRig(t, st, snapSvc)
 
+	// The newest run's transcript names its OWN pre-run snapshot; a later,
+	// unrelated snapshot must not become anyone's undo target.
+	snap, err := snapSvc.Create(ctx, slug, snapshot.ReasonEdit)
+	if err != nil {
+		t.Fatalf("create snapshot: %v", err)
+	}
 	now := time.Now().UTC()
 	seedRunTranscriptRaw(t, st, slug, "edit", "make the line white", now.Add(-10*time.Minute), nil, "the text is already white")
 	seedRunTranscriptRaw(t, st, slug, "relint", "machinery", now.Add(-5*time.Minute), []string{"index.html"}, "")
-	seedRunTranscriptRaw(t, st, slug, "edit", "remove the word occasionally", now.Add(-1*time.Minute), []string{"index.html"}, "done")
-
-	// The pre-run snapshot the newest run's Undo restores.
-	_, err := snapSvc.Create(ctx, slug, snapshot.ReasonEdit)
+	seedRunTranscriptWithSnapshot(t, st, slug, "edit", "remove the word occasionally", now.Add(-1*time.Minute), []string{"index.html"}, "done", snap.Key)
+	_, err = snapSvc.Create(ctx, slug, snapshot.ReasonUpload)
 	if err != nil {
-		t.Fatalf("create snapshot: %v", err)
+		t.Fatalf("create decoy snapshot: %v", err)
 	}
 
 	res := getRunsFeed(t, rig, slug, rig.session(t, owner, auth.RoleAdmin))
@@ -125,6 +139,9 @@ func TestRunsFeed_VerdictsUndoKeyAndOrdering(t *testing.T) {
 	}
 	if newest.UndoKey == "" {
 		t.Fatal("newest run must carry the undo snapshot key")
+	}
+	if !strings.Contains(newest.UndoKey, slug) {
+		t.Fatalf("undo key must be the run's own recorded snapshot, got %q", newest.UndoKey)
 	}
 	if newest.Key == "" {
 		t.Fatal("entries must carry the transcript key for the details link")

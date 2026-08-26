@@ -29,11 +29,16 @@ import (
 
 type canvasData struct {
 	Chrome
-	Page     string
-	Pages    []string
-	EditURL  template.URL
-	SlugJSON template.JS
-	PageJSON template.JS
+	Page  string
+	Pages []string
+	// PreviewBase is the mount the canvas loads site content from: /s/{slug}
+	// normally, or the tokenized /sp mount for private sites so the sandboxed
+	// (cookie-less) document's subresources pass the private gate.
+	PreviewBase     template.URL
+	PreviewBaseJSON template.JS
+	EditURL         template.URL
+	SlugJSON        template.JS
+	PageJSON        template.JS
 	// Building is true when a run is already in flight for this slug (started
 	// from the classic workspace, MCP, or another tab). The canvas reattaches
 	// to it on load — without this the page renders an idle composer that 409s
@@ -193,7 +198,11 @@ func (s *sitesController) canvasHandler(c *echo.Context) error {
 		siteName = slug
 	}
 
-	editURL := "/s/" + url.PathEscape(slug) + "/" + page + "?tb_edit=1"
+	previewBase := "/s/" + url.PathEscape(slug)
+	if meta.Private {
+		previewBase = "/sp/" + url.PathEscape(slug) + "/" + mintPreviewToken(slug)
+	}
+	editURL := previewBase + "/" + page + "?tb_edit=1"
 
 	return s.render(c, "canvas", canvasData{
 		Chrome: Chrome{
@@ -202,11 +211,13 @@ func (s *sitesController) canvasHandler(c *echo.Context) error {
 			SiteURL:  s.siteURL(c, slug, "/"),
 			Active:   "workspace",
 		},
-		Page:     page,
-		Pages:    pages,
-		EditURL:  template.URL(editURL), //nolint:gosec // built from a validated slug and page above.
-		SlugJSON: toJSONLiteral(slug),
-		PageJSON: toJSONLiteral(page),
-		Building: s.buildInFlight(slug),
+		Page:            page,
+		Pages:           pages,
+		PreviewBase:     template.URL(previewBase), //nolint:gosec // validated slug + hex token.
+		PreviewBaseJSON: toJSONLiteral(previewBase),
+		EditURL:         template.URL(editURL), //nolint:gosec // built from the base and a validated page.
+		SlugJSON:        toJSONLiteral(slug),
+		PageJSON:        toJSONLiteral(page),
+		Building:        s.buildInFlight(slug),
 	})
 }

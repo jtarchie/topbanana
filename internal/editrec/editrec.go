@@ -34,6 +34,48 @@ import (
 // so every reserved area lives in one place.
 const Prefix = store.EditsPrefix
 
+// SummariesPrefix holds the slim per-run projections written beside each
+// transcript. Readers that only need "what was asked, what happened" (the
+// workspace run feed, the agent's history block) read these few hundred
+// bytes instead of a full transcript carrying the system prompt and every
+// file's before/after content — ReadRaw is uncached, so the difference is
+// real S3 traffic on every feed load.
+const SummariesPrefix = store.EditSummariesPrefix
+
+// RunSummary is the projection: everything the feed and the history block
+// render, nothing a /debug forensic read needs.
+type RunSummary struct {
+	Slug         string    `json:"slug"`
+	LogKey       string    `json:"log_key"`
+	StartedAt    time.Time `json:"started_at"`
+	Prompt       string    `json:"prompt,omitempty"`
+	Status       string    `json:"status,omitempty"`
+	Files        []string  `json:"files"`
+	FinalMessage string    `json:"final_message,omitempty"`
+	SnapshotKey  string    `json:"snapshot_key,omitempty"`
+}
+
+// summaryKey mirrors a transcript key into the summaries prefix.
+func summaryKey(transcriptKey string) string {
+	return SummariesPrefix + strings.TrimPrefix(transcriptKey, Prefix)
+}
+
+// ReadSummary fetches the projection for a transcript key. A missing or
+// unreadable summary returns ok=false — pre-projection transcripts have
+// none, and callers fall back to the full read.
+func ReadSummary(ctx context.Context, st *store.Store, transcriptKey string) (RunSummary, bool) {
+	obj, err := st.ReadRaw(ctx, summaryKey(transcriptKey))
+	if err != nil || obj == nil || obj.Content == "" {
+		return RunSummary{}, false
+	}
+	var sum RunSummary
+	err = json.Unmarshal([]byte(obj.Content), &sum)
+	if err != nil {
+		return RunSummary{}, false
+	}
+	return sum, true
+}
+
 const contentType = "application/json"
 
 const (
@@ -96,10 +138,15 @@ type Transcript struct {
 	// run (author, lint-fix retries, polish), in order. When a run completes
 	// with zero FileChanges, this is the only record of why — the model's
 	// final message is where it says what it did instead of editing.
-	FinalMessages []string     `json:"final_messages,omitempty"`
-	Usage         Usage        `json:"usage,omitempty"`
-	ToolCalls     []ToolCall   `json:"tool_calls"`
-	FileChanges   []FileChange `json:"file_changes"`
+	FinalMessages []string `json:"final_messages,omitempty"`
+	// SnapshotKey names the pre-run snapshot taken at this run's start — the
+	// exact state one-click Undo restores. Recorded by identity rather than
+	// recovered by "newest snapshot" recency, which desyncs the moment a
+	// newer run starts or an unrelated snapshot lands in between.
+	SnapshotKey string       `json:"snapshot_key,omitempty"`
+	Usage       Usage        `json:"usage,omitempty"`
+	ToolCalls   []ToolCall   `json:"tool_calls"`
+	FileChanges []FileChange `json:"file_changes"`
 }
 
 // Usage is the per-run token tally summed across every agent turn that fed
@@ -218,6 +265,17 @@ func (r *Recorder) SetTemplate(template string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.transcript.Template = template
+}
+
+// SetSnapshotKey records the pre-run snapshot this run's Undo restores.
+// Nil-safe like every setter — recording may be disabled.
+func (r *Recorder) SetSnapshotKey(key string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.transcript.SnapshotKey = key
 }
 
 // SetSystemPrompt stamps the recorder with the rendered system prompt — the
@@ -441,6 +499,18 @@ func (r *Recorder) Finish(ctx context.Context, st *store.Store, finalStatus stri
 	body, err := json.Marshal(r.transcript)
 	toolCount := len(r.transcript.ToolCalls)
 	changeCount := len(r.transcript.FileChanges)
+	sum := RunSummary{
+		Slug:        slug,
+		LogKey:      logKey,
+		StartedAt:   startedAt,
+		Prompt:      r.transcript.UserPrompt,
+		Status:      finalStatus,
+		Files:       ChangedPaths(r.transcript),
+		SnapshotKey: r.transcript.SnapshotKey,
+	}
+	if n := len(r.transcript.FinalMessages); n > 0 {
+		sum.FinalMessage = r.transcript.FinalMessages[n-1]
+	}
 	r.mu.Unlock()
 
 	if err != nil {
@@ -465,6 +535,15 @@ func (r *Recorder) Finish(ctx context.Context, st *store.Store, finalStatus stri
 	if err != nil {
 		slog.Warn("editrec.write_failed", "slug", slug, "key", key, "err", err)
 		return
+	}
+	// The slim projection rides alongside, best-effort like everything here:
+	// a missing summary just costs its readers a full-transcript fallback.
+	sumBody, sumErr := json.Marshal(sum)
+	if sumErr == nil {
+		sumErr = st.WriteRaw(ctx, summaryKey(key), string(sumBody), contentType, nil)
+	}
+	if sumErr != nil {
+		slog.Warn("editrec.summary_write_failed", "slug", slug, "key", key, "err", sumErr)
 	}
 	slog.Info("editrec.write", "slug", slug, "key", key, "tool_calls", toolCount, "file_changes", changeCount, "bytes", len(body), "stored_bytes", len(stored))
 }
@@ -578,6 +657,7 @@ func Delete(ctx context.Context, st *store.Store, key string) error {
 	if err != nil {
 		return fmt.Errorf("delete transcript %s: %w", key, err)
 	}
+	_ = st.DeleteRaw(ctx, summaryKey(key)) // best-effort, same as Trim
 	return nil
 }
 
@@ -601,6 +681,10 @@ func Trim(ctx context.Context, st *store.Store, slug string, keep int) {
 			slog.Warn("editrec.trim_delete_failed", "slug", slug, "key", victim.Key, "err", err)
 			continue
 		}
+		// The summary lives and dies with its transcript. Best-effort: an
+		// orphaned summary is a few hundred stale bytes, not a correctness
+		// problem, since readers list transcripts and only then ask for it.
+		_ = st.DeleteRaw(ctx, summaryKey(victim.Key))
 		slog.Info("editrec.trim", "slug", slug, "key", victim.Key)
 	}
 }

@@ -40,7 +40,10 @@ func (s *sitesController) historyRestoreHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "restore snapshot", err)
 	}
 	slog.Info("snapshot.restore", "slug", slug, "key", key, "user", callerEmail(c))
-	return c.Redirect(http.StatusSeeOther, "/workspace/"+slug+"?flash="+urlEscape("Restored. Current state was auto-snapshotted first.")) //nolint:wrapcheck
+	// Sentinel, not a sentence: the workspace maps known codes to copy. Free
+	// text through ?flash= would let any crafted link print its own words in
+	// the workspace's trusted success banner.
+	return c.Redirect(http.StatusSeeOther, "/workspace/"+slug+"?flash=restored") //nolint:wrapcheck
 }
 
 func (s *sitesController) historyDeleteHandler(c *echo.Context) error {
@@ -61,7 +64,7 @@ func (s *sitesController) historyDeleteHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "delete snapshot", err)
 	}
 	slog.Info("snapshot.delete", "slug", slug, "key", key, "user", callerEmail(c))
-	return c.Redirect(http.StatusSeeOther, "/workspace/"+slug+"?flash="+urlEscape("Snapshot deleted.")) //nolint:wrapcheck
+	return c.Redirect(http.StatusSeeOther, "/workspace/"+slug+"?flash=snapshot-deleted") //nolint:wrapcheck
 }
 
 // humanizeAge renders timestamps relative to now ("3m ago") with an absolute

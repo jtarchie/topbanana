@@ -35,9 +35,14 @@
   {{ if eq .Flash "lint-autofixed" }}
   <div class="alert alert-success mb-4" role="status"><span>Issues fixed automatically — no agent run was needed.</span></div>
   {{ end }}
-  {{ if and .Flash (ne .Flash "lint-clean") (ne .Flash "lint-autofixed") }}
-  {{/* Generic flash — the restore/delete redirects put a plain sentence here. */}}
-  <div class="alert alert-success mb-4" role="status"><span>{{ .Flash }}</span></div>
+  {{/* Flash values are SENTINELS mapped to copy here, never echoed text — a
+       crafted ?flash= link must not be able to print its own words inside
+       the workspace's trusted success banner. */}}
+  {{ if eq .Flash "restored" }}
+  <div class="alert alert-success mb-4" role="status"><span>Restored. The current state was saved first, so you can bring it back from Version history.</span></div>
+  {{ end }}
+  {{ if eq .Flash "snapshot-deleted" }}
+  <div class="alert alert-success mb-4" role="status"><span>Snapshot deleted.</span></div>
   {{ end }}
 
   <div class="grid grid-cols-1 lg:grid-cols-[14rem_1fr] gap-4">

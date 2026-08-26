@@ -5,8 +5,6 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
-
-	"github.com/jtarchie/topbanana/internal/snapshot"
 )
 
 // The workspace run feed: the JSON behind the conversation panel. Each entry
@@ -62,38 +60,15 @@ func (s *sitesController) runsFeedHandler(c *echo.Context) error {
 			FinalMessage: r.FinalMessage,
 		})
 	}
-	if len(out) > 0 {
-		out[0].UndoKey = s.latestRunSnapshotKey(c, slug)
+	// Undo restores the newest run's OWN pre-run snapshot — recorded by
+	// identity in its transcript, never recovered by recency, so it can't
+	// desync onto another run's snapshot or silently revert direct edits
+	// made in between. Withheld while a run is in flight: restoring under a
+	// writing agent corrupts the run, and "newest finished" is about to be
+	// stale anyway.
+	if len(out) > 0 && !s.buildInFlight(slug) {
+		out[0].UndoKey = runs[0].SnapshotKey
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"runs": out}) //nolint:wrapcheck
-}
-
-// latestRunSnapshotKey returns the newest pre-run snapshot for the slug, or
-// "". Build/edit snapshots are taken at run start, so the newest one is the
-// state just before the newest run — the target for its Undo. Settings and
-// other snapshot reasons are skipped: restoring one of those from an "undo
-// this edit" button would surprise.
-func (s *sitesController) latestRunSnapshotKey(c *echo.Context, slug string) string {
-	if s.snapshot == nil {
-		return ""
-	}
-	snaps, err := s.snapshot.List(c.Request().Context(), slug)
-	if err != nil {
-		return ""
-	}
-	var best *snapshot.Snapshot
-	for i := range snaps {
-		sn := &snaps[i]
-		if sn.Reason != snapshot.ReasonBuild && sn.Reason != snapshot.ReasonEdit {
-			continue
-		}
-		if best == nil || sn.Timestamp.After(best.Timestamp) {
-			best = sn
-		}
-	}
-	if best == nil {
-		return ""
-	}
-	return best.Key
 }

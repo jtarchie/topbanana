@@ -27,7 +27,7 @@
       <li>
         <a href="/v2/workspace/{{ $.Slug }}?page={{ . }}" class="flex items-center gap-3{{ if eq . $.Page }} active{{ end }}">
           <span class="w-20 h-14 shrink-0 overflow-hidden rounded border border-base-300 bg-white relative" aria-hidden="true">
-            <iframe data-thumb-src="/s/{{ $.Slug }}/{{ . }}" tabindex="-1" title=""
+            <iframe data-thumb-src="{{ $.PreviewBase }}/{{ . }}" tabindex="-1" title=""
                     class="w-[640px] h-[448px] absolute top-0 left-0 origin-top-left scale-[0.125] pointer-events-none border-0"></iframe>
           </span>
           <span class="font-mono text-xs truncate">{{ . }}</span>
@@ -91,6 +91,7 @@
     'use strict';
     var slug = {{ .SlugJSON }};
     var page = {{ .PageJSON }};
+    var previewBase = {{ .PreviewBaseJSON }};
     var frame = document.getElementById('canvas-frame');
     var statusEl = document.getElementById('canvas-status');
     var form = document.getElementById('edit-form');
@@ -175,8 +176,7 @@
     });
 
     function reloadFrame() {
-      var base = '/s/' + encodeURIComponent(slug) + '/' + page;
-      frame.src = base + '?tb_edit=1&t=' + Date.now();
+      frame.src = previewBase + '/' + page + '?tb_edit=1&t=' + Date.now();
     }
 
     // saveText performs the frame's requested in-place text save. The frame

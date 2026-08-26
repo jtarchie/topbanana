@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/jtarchie/topbanana/internal/agent"
+	"github.com/jtarchie/topbanana/internal/editrec"
 	"github.com/jtarchie/topbanana/internal/events"
+	"github.com/jtarchie/topbanana/internal/snapshot"
 	"github.com/jtarchie/topbanana/internal/store"
 	"github.com/jtarchie/topbanana/internal/templates"
 )
@@ -134,6 +136,70 @@ func TestService_Start_EmitsEmptyResultWhenNothingChanged(t *testing.T) {
 	}
 	if len(results[0].Files) != 0 {
 		t.Fatalf("result files = %v, want empty (nothing changed)", results[0].Files)
+	}
+}
+
+// TestService_Start_RecordsSnapshotIdentityAndSummary pins the undo chain:
+// the run's transcript names its own pre-run snapshot, and the slim summary
+// written beside it carries the same identity — so the feed's one-click Undo
+// never has to guess by recency.
+func TestService_Start_RecordsSnapshotIdentityAndSummary(t *testing.T) {
+	t.Parallel()
+
+	st := minioStoreForBuild(t)
+	tracker := events.NewTracker()
+	t.Cleanup(tracker.Close)
+	svc := NewWithConfig(Config{
+		Store:        st,
+		Events:       tracker,
+		Runner:       writingRunner{},
+		RecordEdit:   true,
+		Snapshot:     snapshot.New(st, 0),
+		BuildTimeout: 30 * time.Second,
+	})
+	slug := buildSlug(t)
+	cleanupSlug(t, st, slug)
+
+	svc.Start(Params{
+		Slug:         slug,
+		Prompt:       "build it",
+		LogKey:       "build",
+		Template:     templates.Get("blank"),
+		SeedSkeleton: true,
+		OwnerID:      "tester@example.com",
+	})
+	if status := waitForTerminal(t, tracker, slug, 30*time.Second); status != events.StatusCompleted {
+		t.Fatalf("status = %q, want completed", status)
+	}
+
+	ctx := context.Background()
+	rows, err := editrec.List(ctx, st, slug)
+	if err != nil || len(rows) == 0 {
+		t.Fatalf("list transcripts: %v (%d rows)", err, len(rows))
+	}
+	tr, err := editrec.Read(ctx, st, rows[0].Key)
+	if err != nil {
+		t.Fatalf("read transcript: %v", err)
+	}
+	if tr.SnapshotKey == "" {
+		t.Fatal("transcript must record its pre-run snapshot key")
+	}
+
+	sum, ok := editrec.ReadSummary(ctx, st, rows[0].Key)
+	if !ok {
+		t.Fatal("summary projection must be written beside the transcript")
+	}
+	if sum.SnapshotKey != tr.SnapshotKey || sum.Prompt != "build it" || sum.Status != events.StatusCompleted {
+		t.Fatalf("summary must mirror the transcript's identity fields, got %+v", sum)
+	}
+	found := false
+	for _, f := range sum.Files {
+		if f == "index.html" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("summary files = %v, want index.html", sum.Files)
 	}
 }
 

@@ -124,9 +124,15 @@ func resolveContentType(stored, name string) string {
 	return store.DefaultContentType
 }
 
-// pathMountKey marks a request that reached the site proxy through the
-// /s/:slug path mount rather than a subdomain or custom domain.
+// pathMountKey carries the mount prefix ("/s/{slug}" or "/sp/{slug}/{token}")
+// for a request that reached the site proxy through a path mount rather than
+// a subdomain or custom domain. Doubles as the base edit-mode URL rebasing
+// rebuilds root-absolute links under.
 const pathMountKey = "path_mount"
+
+// previewTokenOKKey marks a request whose preview token validated — see
+// previewTokenAllows for exactly how far that trust extends.
+const previewTokenOKKey = "preview_token_ok"
 
 // pathMountCSP is applied to every HTML page served off the /s mount. The
 // `sandbox` directive gives the document an opaque origin: its scripts still
@@ -151,15 +157,16 @@ const pathMountCSP = "sandbox allow-scripts allow-forms; frame-ancestors 'self'"
 // authorized ?tb_edit=1 request, otherwise the normal toolbar-injected,
 // minified serve.
 func (s *Server) serveHTMLPage(c *echo.Context, slug, candidate, content string) error {
-	if c.Get(pathMountKey) == true {
+	mount, _ := c.Get(pathMountKey).(string)
+	if mount != "" {
 		c.Response().Header().Set("Content-Security-Policy", pathMountCSP)
 	}
-	if c.QueryParam("tb_edit") == "1" && s.canEdit(c, slug) {
+	if mount != "" && c.QueryParam("tb_edit") == "1" && s.canEdit(c, slug) {
 		// Canvas edit mode: stamp every element with its address and inject
 		// the selection script instead of the viewer toolbar. Served
 		// unminified — the addresses must be resolvable against the stored
 		// bytes, and this path is owner-only anyway.
-		return c.HTML(http.StatusOK, canvasEditBody(content, slug)) //nolint:wrapcheck
+		return c.HTML(http.StatusOK, canvasEditBody(content, mount)) //nolint:wrapcheck
 	}
 	body := s.injectEditToolbar(c, content, slug, candidate)
 	minified, mErr := minifyHTMLBody(s.htmlMinifier, body)
@@ -178,12 +185,13 @@ const canvasEditScriptTag = `<script src="/canvas.js" defer></script>`
 // its data-tb-el address (see internal/domaddr — the same walk Resolve runs
 // against the stored bytes, so the browser's reported address maps to an
 // exact source span), the site's root-absolute references are rebased onto
-// the /s/:slug mount the canvas iframe loads through (a page's href="/site.css"
+// the mount the canvas iframe loads through (a page's href="/site.css"
 // otherwise resolves to the admin origin's root and the site renders
-// unstyled), and the selection script is spliced in before </body>, or
-// appended when the page has none.
-func canvasEditBody(htmlContent, slug string) string {
-	annotated := string(domaddr.AnnotateAndRebase([]byte(htmlContent), "/s/"+slug))
+// unstyled; for private sites the mount carries the preview token, which the
+// rebased URLs must inherit), and the selection script is spliced in before
+// </body>, or appended when the page has none.
+func canvasEditBody(htmlContent, mount string) string {
+	annotated := string(domaddr.AnnotateAndRebase([]byte(htmlContent), mount))
 	if strings.Contains(annotated, "</body>") {
 		return strings.Replace(annotated, "</body>", canvasEditScriptTag+"</body>", 1)
 	}

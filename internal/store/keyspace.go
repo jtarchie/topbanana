@@ -27,6 +27,13 @@ const (
 	// (internal/editrec).
 	EditsPrefix = "_edits/"
 
+	// EditSummariesPrefix holds the slim per-run projections written beside
+	// each transcript, keyed `_editsum/{slug}/...` (internal/editrec). The
+	// workspace run feed and the agent's history block read these — a few
+	// hundred bytes — instead of full transcripts that carry the system
+	// prompt and every file's before/after content.
+	EditSummariesPrefix = "_editsum/"
+
 	// DefaultACMEPrefix is the default home of the autocert account key and
 	// certificate cache (store.ACMECache); overridable via --acme-cache-prefix.
 	// The server's CertTracker shares it, writing per-host issuance outcomes
