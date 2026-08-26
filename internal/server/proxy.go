@@ -124,10 +124,36 @@ func resolveContentType(stored, name string) string {
 	return store.DefaultContentType
 }
 
+// pathMountKey marks a request that reached the site proxy through the
+// /s/:slug path mount rather than a subdomain or custom domain.
+const pathMountKey = "path_mount"
+
+// pathMountCSP is applied to every HTML page served off the /s mount. The
+// `sandbox` directive gives the document an opaque origin: its scripts still
+// run (the canvas selection script needs to), but they get no cookies, no
+// credentialed fetch against the admin origin, and no access to the framing
+// page — a hosted site's own JS can never act as the signed-in admin.
+// frame-ancestors restricts embedding to the admin origin itself (the canvas
+// iframe), so other sites can't frame the mount either.
+//
+// Deliberately a response header, not an iframe sandbox attribute: an
+// attribute strips credentials from the REQUEST, which would blind the
+// canEdit gate and kill edit mode — the header lets the server authenticate
+// the request and then de-privilege the document it returns.
+//
+// Known limitation: the opaque origin makes the document's subresource
+// fetches credential-less, so a PRIVATE site's css/images 404 inside the
+// canvas (its HTML still renders). Acceptable until slice work adds a
+// ticketed asset path; the alternative is hostile JS running as the admin.
+const pathMountCSP = "sandbox allow-scripts allow-forms; frame-ancestors 'self'"
+
 // serveHTMLPage renders a stored HTML page: canvas edit mode for an
 // authorized ?tb_edit=1 request, otherwise the normal toolbar-injected,
 // minified serve.
 func (s *Server) serveHTMLPage(c *echo.Context, slug, candidate, content string) error {
+	if c.Get(pathMountKey) == true {
+		c.Response().Header().Set("Content-Security-Policy", pathMountCSP)
+	}
 	if c.QueryParam("tb_edit") == "1" && s.canEdit(c, slug) {
 		// Canvas edit mode: stamp every element with its address and inject
 		// the selection script instead of the viewer toolbar. Served

@@ -141,6 +141,13 @@ func (s *Server) pathRouteHandler(c *echo.Context) error {
 	}
 	req.URL.Path = rest
 
+	// Mark the request as path-mounted: /s serves hosted-site content on the
+	// SAME origin as the authenticated admin UI, so its HTML gets a CSP
+	// sandbox (see serveHTMLPage) that strips the document's origin — without
+	// it, any site's own <script> runs with the admin origin's cookies and a
+	// link to /s/<attacker-slug>/x.html is account takeover.
+	c.Set(pathMountKey, true)
+
 	return s.dispatchSite(c, slug)
 }
 

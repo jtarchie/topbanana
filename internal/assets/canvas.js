@@ -58,22 +58,19 @@
     return parts.join(' › ');
   }
 
-  // outerHTML with our own stamps removed, truncated — this is what the agent
-  // gets shown, and it should read as the site's real markup.
-  function cleanOuterHTML(el) {
-    var s = el.outerHTML.replace(/ data-tb-el="\d+"/g, '');
-    return s.length > 4000 ? s.slice(0, 4000) + '…' : s;
-  }
-
   var selected = null;
 
+  // The report carries the element's ADDRESS plus display-only context (tag,
+  // breadcrumb, a text snippet for the scope chip). Deliberately no markup:
+  // the server resolves the address against the stored source itself, so
+  // nothing the framed page's own scripts could forge ever reaches the agent
+  // prompt.
   function report(el) {
     var msg = { type: 'tb-select', el: null };
     if (el) {
       msg.el = parseInt(el.getAttribute('data-tb-el'), 10);
       msg.tag = el.tagName.toLowerCase();
       msg.breadcrumb = breadcrumb(el);
-      msg.outer_html = cleanOuterHTML(el);
       msg.text = (el.textContent || '').trim().slice(0, 120);
     }
     parent.postMessage(msg, '*');
@@ -116,8 +113,22 @@
   requestAnimationFrame(refresh);
 
   window.addEventListener('message', function (e) {
+    // Only the canvas page may drive the selection — the framed site's own
+    // scripts share this window and could otherwise spoof commands.
+    if (e.source !== window.parent) return;
     var d = e.data || {};
     if (d.type === 'tb-clear') select(null);
+    // tb-click selects by CSS selector — the canvas's automation seam (tests,
+    // and later breadcrumb navigation). Parent-only, and faithful to real
+    // click semantics including the step-out-to-parent on reselection, so
+    // whatever drives it exercises the same selection rules a pointer does.
+    if (d.type === 'tb-click' && typeof d.sel === 'string') {
+      var el;
+      try { el = document.querySelector(d.sel); } catch (_) { el = null; }
+      el = addressable(el);
+      if (el && el === selected) el = addressable(el.parentNode);
+      select(el);
+    }
   });
 
   parent.postMessage({ type: 'tb-ready', page: location.pathname }, '*');

@@ -687,10 +687,10 @@ func appLinkKey(a appLink) string {
 // check that pairs with maxPromptBodyBytes on the route.
 const maxPromptBytes = 4 * 1024
 
-// maxScopeBytes caps the canvas's element-selection context (the selected
-// element's markup plus its address). The canvas script already truncates the
-// outerHTML it sends; this bound is the server's own guarantee.
-const maxScopeBytes = 6 * 1024
+// maxScopeBytes caps the element markup the resolved selection embeds in the
+// agent prompt — big enough to show a whole section, small enough that a
+// selected <body> doesn't drag the entire page into the prompt twice.
+const maxScopeBytes = 4 * 1024
 
 // maxPromptBodyBytes caps the entire request body on prompt-bearing POSTs.
 // The handler-side check on maxPromptBytes still applies; this bounds the
@@ -899,31 +899,31 @@ func (s *sitesController) editSubmitHandler(c *echo.Context) error {
 		return err
 	}
 
-	// scope is the canvas's element-selection context: the address and markup
-	// of the one element the user pointed at. It rides the agent prompt only —
-	// history and the run feed show the user's own words.
-	scope := strings.TrimSpace(c.FormValue("scope"))
-	if len(scope) > maxScopeBytes {
-		return echo.NewHTTPError(http.StatusRequestEntityTooLarge,
-			fmt.Sprintf("selection context is too long (max %d bytes)", maxScopeBytes))
-	}
-
 	if s.buildInFlight(slug) {
 		return echo.NewHTTPError(http.StatusConflict, "edit already in progress for this site")
 	}
 
 	ctx := c.Request().Context()
+	// The canvas's element selection arrives as an ADDRESS (scope_el +
+	// scope_page), never as markup: the server resolves it against the stored
+	// source itself, so nothing a framed page's scripts could forge reaches
+	// the agent prompt, and the markup the agent sees is the real stored
+	// bytes rather than the /s-mount-rewritten serve.
+	scopeBlock, scopeErr := s.resolveScopeBlock(ctx, slug, c.FormValue("scope_page"), c.FormValue("scope_el"))
+	if scopeErr != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, scopeErr.Error())
+	}
 	meta := s.build.ReadMeta(ctx, slug)
 	tmpl := build.EffectiveTemplate(meta)
 	seeds := s.build.EditSeeds(ctx, slug, prompt)
 	tiers := s.effectiveTiersFor(userFromContext(c))
 	agentPrompt := s.build.EditPromptWithHistory(ctx, slug, prompt, page)
-	if scope != "" {
-		agentPrompt += "\n\n" + scope
+	if scopeBlock != "" {
+		agentPrompt += "\n\n" + scopeBlock
 	}
 	// EffectiveTemplate wraps templates.Get, which is non-nil at runtime
 	// (init guarantees defaultID is present).
-	slog.Info("edit.start", "slug", slug, "page", page, "template", tmpl.ID, "seeds", len(seeds), "attachments", len(attachments), "scoped", scope != "", "user", callerEmail(c), "tiers", tiers) //nolint:nilaway // see comment.
+	slog.Info("edit.start", "slug", slug, "page", page, "template", tmpl.ID, "seeds", len(seeds), "attachments", len(attachments), "scoped", scopeBlock != "", "user", callerEmail(c), "tiers", tiers) //nolint:nilaway // see comment.
 	return s.startBuild(c, build.Params{
 		Slug:        slug,
 		Prompt:      agentPrompt,

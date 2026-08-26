@@ -85,15 +85,22 @@ const (
 // Event is the payload streamed to subscribers and recorded for replay on
 // reconnect.
 type Event struct {
-	Type    string    `json:"type"`              // one of the Type* consts (status | tool | function | question)
-	Status  string    `json:"status,omitempty"`  // for type=status: one of the Status* consts
-	Tool    string    `json:"tool,omitempty"`    // for type=tool/function: the tool that acted (see the build agent's tool set)
-	Phase   string    `json:"phase,omitempty"`   // for type=tool/function: a Phase* const; for type=question: PhaseAsk|PhaseAnswer|PhaseTimeout
-	Path    string    `json:"path,omitempty"`    // for type=tool: file path the tool acted on
-	Message string    `json:"message,omitempty"` // optional human-readable detail (errors, retry reason)
-	Detail  string    `json:"detail,omitempty"`  // for type=status/failed: raw technical text behind the friendly Message
-	Files   []string  `json:"files,omitempty"`   // for type=result: distinct paths the run changed
-	Time    time.Time `json:"time"`
+	Type    string `json:"type"`              // one of the Type* consts (status | tool | function | question)
+	Status  string `json:"status,omitempty"`  // for type=status: one of the Status* consts
+	Tool    string `json:"tool,omitempty"`    // for type=tool/function: the tool that acted (see the build agent's tool set)
+	Phase   string `json:"phase,omitempty"`   // for type=tool/function: a Phase* const; for type=question: PhaseAsk|PhaseAnswer|PhaseTimeout
+	Path    string `json:"path,omitempty"`    // for type=tool: file path the tool acted on
+	Message string `json:"message,omitempty"` // optional human-readable detail (errors, retry reason)
+	Detail  string `json:"detail,omitempty"`  // for type=status/failed: raw technical text behind the friendly Message
+	// Files carries, for type=result, the distinct paths the run changed. It is
+	// deliberately NOT omitempty: an explicit empty (but non-nil) slice is the
+	// "completed but changed nothing" verdict, and the clients distinguish it
+	// from a missing verdict (older server / recording disabled) by the key's
+	// presence — omitempty would drop the empty slice and make a no-op run
+	// serialize identically to no verdict, re-celebrating it (the 2026-08-25
+	// regression this feature exists to prevent).
+	Files []string  `json:"files"`
+	Time  time.Time `json:"time"`
 
 	// Question fields — only set when Type == TypeQuestion.
 	QuestionID     string   `json:"question_id,omitempty"`
@@ -179,14 +186,23 @@ func (t *Tracker) Emit(slug string, event Event) {
 			s.Finished = event.Time
 			s.Error = event.Message
 			s.closePending()
+		case StatusBuilding:
+			// A new run begins here — Tracker.Start is the only emitter of
+			// StatusBuilding, and mid-run phases use their own statuses. Drop
+			// the previous run's events so a fresh SSE subscriber (the canvas
+			// opens a new EventSource per submit; the workspace reloads with
+			// ?building=1) replays only THIS run. Left in place, the prior
+			// run's terminal frame would be replayed first and the client
+			// would conclude the new run is already done. Also clears the
+			// terminal residue (stale Error/Finished) the restart carried.
+			s.Events = append(s.Events[:0], event)
+			s.Finished = time.Time{}
+			s.Error = ""
 		default:
-			// A new run (Start emits StatusBuilding) or a mid-run phase:
-			// clear terminal residue from the previous run. Left in place,
-			// the stale Error leaks onto status reads of the new run, and
-			// the stale Finished stamp makes the sweep evict an entry whose
-			// build is still active (any restart within TerminalTTL of the
-			// last finish) — closing SSE channels and dropping the
-			// already-building gate mid-run.
+			// A mid-run phase (linting/retry/polishing): clear terminal
+			// residue only. Left in place, a stale Error leaks onto status
+			// reads of the run, and a stale Finished stamp makes the sweep
+			// evict an entry whose build is still active.
 			s.Finished = time.Time{}
 			s.Error = ""
 		}

@@ -112,11 +112,20 @@
         // here. Anything longer is a real summary worth showing.
         card.appendChild(el('p', 'text-base-content/80', truncate(run.final_message, 200)));
       } else if (!changed && !noop) {
-        card.appendChild(el('p', 'text-base-content/80', 'Nothing was changed. Try again, or simplify the request.'));
+        // A failed run is NOT a no-op: the agent may have written some files
+        // before failing (the build does not roll back on failure), so those
+        // changes are live. Say so, and offer the pre-run restore below rather
+        // than claiming nothing happened.
+        card.appendChild(el('p', 'text-base-content/80',
+          run.undo_key
+            ? 'This change didn’t finish, so your site may be partly updated. Restore the previous version below if it looks wrong, then try again.'
+            : 'This change didn’t finish. Try again, or simplify the request.'));
       }
 
       var actions = el('div', 'flex items-center gap-3 flex-wrap');
-      if (changed && run.undo_key) actions.appendChild(undoForm(run));
+      // Undo is offered whenever a pre-run snapshot exists and the run wasn't a
+      // pure no-op — including a failed run that left partial changes live.
+      if (!noop && run.undo_key) actions.appendChild(undoForm(run));
       if (noop) {
         // Puts the failed prompt back in the composer, selected, ready to
         // edit — a visible action, not just a focus() nobody notices.

@@ -99,9 +99,23 @@
 
     // ----- selection wiring (messages from the edit-mode iframe) -----
     window.addEventListener('message', function (e) {
+      // Only trust messages from our own edit-mode iframe. Defence-in-depth
+      // against other frames/windows posting a forged selection (the selection
+      // rides the agent prompt); it does not stop the framed site's own script,
+      // which is why the scope text must be treated as untrusted server-side.
+      if (e.source && e.source !== frame.contentWindow) return;
       var d = e.data || {};
+      if (d.type === 'tb-ready') {
+        // The edit-mode script announced itself — selection is live. Exposed
+        // for tests; also the earliest moment the click-to-scope hint is true.
+        window.__tbReady = true;
+        return;
+      }
       if (d.type !== 'tb-select') return;
-      if (d.el == null) {
+      // A valid address is a finite integer; anything else (NaN from a garbled
+      // data-tb-el, a forged message) clears the scope rather than feeding
+      // "data-tb-el=NaN" into the prompt.
+      if (typeof d.el !== 'number' || !isFinite(d.el)) {
         scope = null;
         window.__tbScope = null;
         scopeLabel.textContent = 'Whole site';
@@ -148,24 +162,32 @@
       fd.append('prompt', text);
       fd.append('page', '');
       if (scope) {
-        fd.append('scope',
-          'The user selected one specific element on ' + page + ' and the change applies to THAT element only — ' +
-          'not to other elements with similar content (its address in the served page is data-tb-el=' + scope.el + '; ' +
-          'locate it in the source by the markup below). Selected element (' + (scope.breadcrumb || scope.tag) + '):\n\n' +
-          '```html\n' + scope.outer_html + '\n```');
+        // Only the ADDRESS crosses the trust boundary. The server resolves it
+        // against the stored source and composes the agent-facing context
+        // itself, so nothing the framed page's scripts could forge — and none
+        // of the /s-mount URL rewriting — ever reaches the agent prompt.
+        fd.append('scope_el', String(scope.el));
+        fd.append('scope_page', page);
       }
 
       setBusy(true);
       statusEl.textContent = 'Starting…';
       fetch('/edit/' + encodeURIComponent(slug), { method: 'POST', body: fd })
         .then(function (r) {
-          if (!r.ok && r.status !== 303) throw new Error('HTTP ' + r.status);
-          watch();
+          if (r.ok || r.status === 303) { watch(); return; }
+          // Surface the server's own message ({"message": "..."}) instead of a
+          // bare status code — "edit already in progress", "selection context
+          // is too long", etc. are the actionable text the user needs.
+          return r.text().then(function (body) {
+            var msg = '';
+            try { msg = (JSON.parse(body) || {}).message || ''; } catch (_) { msg = (body || '').trim(); }
+            throw new Error(msg || ('HTTP ' + r.status));
+          });
         })
         .catch(function (err) {
           setBusy(false);
           statusEl.textContent = '';
-          toast('Could not start the change: ' + err, 'error');
+          toast('Could not start the change: ' + (err && err.message ? err.message : err), 'error');
         });
     });
 
@@ -181,7 +203,21 @@
     function watch() {
       var pendingResult = null;
       var es = new EventSource('/events/' + encodeURIComponent(slug));
+      // Guard against a stream that never delivers a terminal event (session
+      // expired mid-run, server unreachable): EventSource then retries in
+      // CONNECTING forever and setBusy(false) below is never reached, leaving
+      // the composer disabled with no way out. Give up after a grace period.
+      var stallTimer = null;
+      function clearStall() { if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; } }
+      function giveUp(msg) {
+        clearStall();
+        es.close();
+        setBusy(false);
+        statusEl.textContent = '';
+        toast(msg, 'error');
+      }
       es.onmessage = function (e) {
+        clearStall();
         var ev; try { ev = JSON.parse(e.data); } catch (_) { return; }
         if (ev.type === 'result') { pendingResult = ev; return; }
         narrate(ev);
@@ -190,6 +226,8 @@
         setBusy(false);
         if (window.TBRunFeed) TBRunFeed.refresh(false);
 
+        // pendingResult.files present-but-empty means "changed nothing"; absent
+        // means no verdict (older server) and we keep the celebratory default.
         var changed = ev.status === 'completed' && (!pendingResult || !pendingResult.files || pendingResult.files.length > 0);
         if (ev.status === 'completed' && changed) {
           statusEl.textContent = '';
@@ -208,8 +246,27 @@
         }
       };
       es.onerror = function () {
-        if (es.readyState !== 2) statusEl.textContent = 'Reconnecting…';
+        if (es.readyState === 2) { // CLOSED — the browser will not reconnect
+          giveUp('Lost the connection to the builder. Reload the page to see the result of your change.');
+          return;
+        }
+        statusEl.textContent = 'Reconnecting…';
+        if (!stallTimer) {
+          stallTimer = setTimeout(function () {
+            giveUp('Still can’t reach the builder. Reload the page to check on your change.');
+          }, 30000);
+        }
       };
+    }
+
+    // Reattach to a run that was already in flight when this page loaded
+    // (started from the classic workspace, MCP, or another tab) instead of
+    // showing an idle composer whose first submit 409s and whose completion
+    // would otherwise never reach this page.
+    if ({{ if .Building }}true{{ else }}false{{ end }}) {
+      setBusy(true);
+      statusEl.textContent = 'A change is already in progress…';
+      watch();
     }
 
     // ----- changes slide-over -----
@@ -233,5 +290,9 @@
 </script>
 {{ template "runfeed_js" . }}
 {{ template "panel_js" . }}
+{{/* The run feed's Undo button is a js-confirm form; without this partial the
+     confirm dialog and its submit interceptor are absent and the destructive
+     restore would fire on a single click. */}}
+{{ template "confirm_dialog" . }}
 </body>
 </html>

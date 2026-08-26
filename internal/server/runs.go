@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -52,7 +53,7 @@ func (s *sitesController) runsFeedHandler(c *echo.Context) error {
 			files = []string{}
 		}
 		out = append(out, runFeedEntry{
-			WhenISO:      r.At.UTC().Format("2006-01-02T15:04:05Z07:00"),
+			WhenISO:      r.At.UTC().Format(time.RFC3339),
 			WhenLabel:    humanizeAge(r.At),
 			Prompt:       r.Prompt,
 			Status:       r.Status,
