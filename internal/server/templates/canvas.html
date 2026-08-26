@@ -46,7 +46,7 @@
         <span id="scope-label" class="truncate">Whole site</span>
       </span>
       <button type="button" id="scope-clear" class="btn btn-ghost btn-xs hidden">Clear</button>
-      <span class="text-base-content/50 max-sm:hidden" id="scope-hint">Click anything on the page to change just that.</span>
+      <span class="text-base-content/50 max-sm:hidden" id="scope-hint">Click anything to change just that · double-click text to edit it.</span>
     </div>
     <div class="flex gap-2 items-end">
       <textarea name="prompt" id="prompt" rows="1" maxlength="4096" required
@@ -111,6 +111,19 @@
         window.__tbReady = true;
         return;
       }
+      if (d.type === 'tb-text-start') {
+        statusEl.textContent = 'Editing text — Enter saves, Esc cancels.';
+        return;
+      }
+      if (d.type === 'tb-text-note') {
+        statusEl.textContent = '';
+        if (d.message) toast(d.message, 'warning');
+        return;
+      }
+      if (d.type === 'tb-text-save') {
+        saveText(d);
+        return;
+      }
       if (d.type !== 'tb-select') return;
       // A valid address is a finite integer; anything else (NaN from a garbled
       // data-tb-el, a forged message) clears the scope rather than feeding
@@ -145,6 +158,37 @@
     function reloadFrame() {
       var base = '/s/' + encodeURIComponent(slug) + '/' + page;
       frame.src = base + '?tb_edit=1&t=' + Date.now();
+    }
+
+    // saveText performs the frame's requested in-place text save. The frame
+    // is an opaque origin and cannot make a credentialed request itself —
+    // only the address, index, and text cross over; the server verifies the
+    // expectation against stored bytes before writing.
+    function saveText(d) {
+      var fd = new FormData();
+      fd.append('page', page);
+      fd.append('el', String(d.el));
+      fd.append('text_index', String(d.text_index));
+      fd.append('text', d.text == null ? '' : d.text);
+      fd.append('expect', d.expect == null ? '' : d.expect);
+      statusEl.textContent = 'Saving…';
+      fetch('/v2/text/' + encodeURIComponent(slug), { method: 'POST', body: fd })
+        .then(function (r) {
+          if (r.ok) return { ok: true, message: '' };
+          return r.text().then(function (body) {
+            var msg = '';
+            try { msg = (JSON.parse(body) || {}).message || ''; } catch (_) { msg = (body || '').trim(); }
+            return { ok: false, message: msg || ('HTTP ' + r.status) };
+          });
+        })
+        .catch(function (err) { return { ok: false, message: String(err) }; })
+        .then(function (res) {
+          statusEl.textContent = '';
+          var w = frame.contentWindow;
+          if (w) w.postMessage({ type: 'tb-text-result', ok: res.ok }, '*');
+          if (res.ok) toast('Saved.');
+          else toast(res.message || 'Could not save the text.', 'error');
+        });
     }
 
     // ----- run submission: stay on the canvas, watch over SSE -----

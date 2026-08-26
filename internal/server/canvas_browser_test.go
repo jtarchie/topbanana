@@ -132,6 +132,36 @@ func TestCanvas_SelectElementInBrowser(t *testing.T) {
 	}
 
 	assertSelectionByAddress(t, afterClick, stepOut, first, second)
+
+	// Direct text editing, end to end: the tb-text-edit seam mutates the
+	// second duplicated <p> in the frame and hands the save to the parent,
+	// which makes the credentialed POST the opaque frame cannot. The stored
+	// page must change at exactly that node.
+	err = chromedp.Run(navCtx,
+		chromedp.Evaluate(
+			`(document.getElementById('canvas-frame').contentWindow.postMessage({type:'tb-text-edit', sel:'[data-tb-el="8"]', text_index:0, text:'Edited live'}, '*'), true)`, nil),
+	)
+	if err != nil {
+		t.Fatalf("drive text edit: %v", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		obj, rerr := st.Read(ctx, slug, "index.html")
+		if rerr == nil && strings.Contains(obj.Content, "Edited live") {
+			if !strings.Contains(obj.Content, "<p data-tb-el") && strings.Count(obj.Content, "Same text") != 1 {
+				t.Fatalf("text edit must change only the addressed node:\n%s", obj.Content)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			content := ""
+			if rerr == nil {
+				content = obj.Content
+			}
+			t.Fatalf("stored page never received the in-place edit:\n%s", content)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // assertSelectionByAddress pins the selection contract: clicking selects by

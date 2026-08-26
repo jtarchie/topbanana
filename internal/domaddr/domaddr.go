@@ -143,18 +143,88 @@ func Count(doc []byte) int {
 	return n
 }
 
-// Resolve returns the byte span of element n in doc. The end of a non-void
-// element is the matching end tag by source nesting: every non-void start tag
-// deepens, every end tag shallows, and the tag that returns the depth to zero
-// closes the element. Documents that never close it span to EOF — a
-// deterministic answer for malformed HTML rather than an error, since the
-// browser will have rendered *something* for the element either way.
+// impliedClosers maps an open element to the start tags that implicitly
+// close it — the HTML optional-end-tag rules a browser applies while
+// parsing. Checked against the top of the open-element stack only, which is
+// what makes nesting work: an inner <li> under an open <ul> can't close the
+// outer <li> two levels up.
+var impliedClosers = map[string]map[string]bool{
+	"li":       {"li": true},
+	"dt":       {"dt": true, "dd": true},
+	"dd":       {"dt": true, "dd": true},
+	"option":   {"option": true, "optgroup": true},
+	"optgroup": {"optgroup": true},
+	"tr":       {"tr": true, "tbody": true, "tfoot": true, "thead": true},
+	"td":       {"td": true, "th": true, "tr": true, "tbody": true, "tfoot": true, "thead": true},
+	"th":       {"td": true, "th": true, "tr": true, "tbody": true, "tfoot": true, "thead": true},
+	"thead":    {"tbody": true, "tfoot": true},
+	"tbody":    {"tbody": true, "tfoot": true},
+	"caption":  {"tr": true, "tbody": true, "tfoot": true, "thead": true, "colgroup": true},
+	"colgroup": {"tr": true, "tbody": true, "tfoot": true, "thead": true, "caption": true},
+	"p": {
+		"address": true, "article": true, "aside": true, "blockquote": true,
+		"details": true, "div": true, "dl": true, "fieldset": true,
+		"figcaption": true, "figure": true, "footer": true, "form": true,
+		"h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
+		"header": true, "hgroup": true, "hr": true, "main": true, "menu": true,
+		"nav": true, "ol": true, "p": true, "pre": true, "section": true,
+		"table": true, "ul": true,
+	},
+}
+
+// openStack tracks the elements open inside a target element and applies the
+// browser's optional-end-tag rules. The target itself is the bottom entry;
+// when the stack empties the target has closed.
+type openStack struct{ names []string }
+
+func (s *openStack) depth() int { return len(s.names) }
+
+// openTag processes a start tag inside the target: implied end tags first (a
+// second <li> closes the first; a <div> closes an open <p> — top-of-stack
+// only, which is what keeps nesting correct), then the push. Reports whether
+// the implied closes reached the target itself.
+func (s *openStack) openTag(name string, void bool) (closedTarget bool) {
+	for len(s.names) > 0 && impliedClosers[s.names[len(s.names)-1]][name] {
+		s.names = s.names[:len(s.names)-1]
+	}
+	if len(s.names) == 0 {
+		return true
+	}
+	if !void {
+		s.names = append(s.names, name)
+	}
+	return false
+}
+
+// closeTag processes an end tag: void end tags (</br>) and end tags matching
+// nothing open are ignored, as in a browser; a match pops through any
+// implicitly-closable elements above it. Reports whether the target closed.
+func (s *openStack) closeTag(name string) (closedTarget bool) {
+	if voidElements[name] {
+		return false
+	}
+	for i := len(s.names) - 1; i >= 0; i-- {
+		if s.names[i] == name {
+			s.names = s.names[:i]
+			return len(s.names) == 0
+		}
+	}
+	return false
+}
+
+// Resolve returns the byte span of element n in doc: from its start tag
+// through the token that closes it. Closure follows the browser's rules via
+// openStack, not bare tag counting. An element the source never closes spans
+// to EOF: a deterministic answer for malformed HTML, since the browser
+// rendered *something* for it either way. An element closed *implicitly*
+// (a sibling start tag ended it) ends just before the token that closed it,
+// so the span never swallows the sibling.
 func Resolve(doc []byte, n int) (Span, error) {
 	if n < 0 {
 		return Span{}, fmt.Errorf("domaddr: negative address %d", n)
 	}
 	span := Span{Start: -1, End: -1}
-	depth := 0
+	var stack openStack
 	found := false
 	z := html.NewTokenizer(bytes.NewReader(doc))
 	offset := 0
@@ -169,27 +239,31 @@ func Resolve(doc []byte, n int) (Span, error) {
 		}
 		switch tt { //nolint:exhaustive // text/comment/doctype tokens carry no element structure.
 		case html.StartTagToken, html.SelfClosingTagToken:
-			name, _ := z.TagName()
-			void := voidElements[string(name)] || tt == html.SelfClosingTagToken
-			if index == n {
+			nameB, _ := z.TagName()
+			name := string(nameB)
+			void := voidElements[name] || tt == html.SelfClosingTagToken
+			switch {
+			case index == n:
 				found = true
 				span.Start = tokStart
 				if void {
 					span.End = offset
 					return span, nil
 				}
-				depth = 1
-			} else if found && !void {
-				depth++
+				stack.names = append(stack.names, name)
+			case found && stack.openTag(name, void):
+				span.End = tokStart
+				return span, nil
 			}
 			index++
 		case html.EndTagToken:
-			if found {
-				depth--
-				if depth == 0 {
-					span.End = offset
-					return span, nil
-				}
+			if !found {
+				continue
+			}
+			nameB, _ := z.TagName()
+			if stack.closeTag(string(nameB)) {
+				span.End = offset
+				return span, nil
 			}
 		}
 	}
@@ -208,3 +282,88 @@ func OuterHTML(doc []byte, n int) ([]byte, error) {
 	}
 	return doc[span.Start:span.End], nil
 }
+
+// TextSpan returns the byte span of the textIndex-th direct text node of
+// element n — "direct" meaning at depth 1 inside the element, matching how a
+// browser counts the element's childNodes text nodes (whitespace-only runs
+// included, text inside child elements excluded). One contiguous text run is
+// one node on both sides, which is what lets the canvas's in-place editor
+// name a text node by (element address, child text index) and have the server
+// find the same bytes.
+func TextSpan(doc []byte, n, textIndex int) (Span, error) {
+	if textIndex < 0 {
+		return Span{}, fmt.Errorf("domaddr: negative text index %d", textIndex)
+	}
+	elem, err := Resolve(doc, n)
+	if err != nil {
+		return Span{}, err
+	}
+
+	w := &textScan{target: n}
+	z := html.NewTokenizer(bytes.NewReader(doc))
+	offset := 0
+	for {
+		tt := z.Next()
+		raw := z.Raw()
+		tokStart := offset
+		offset += len(raw)
+		if tt == html.ErrorToken || tokStart >= elem.End {
+			break
+		}
+		switch tt { //nolint:exhaustive // comments/doctype are neither structure nor editable text.
+		case html.StartTagToken, html.SelfClosingTagToken:
+			nameB, _ := z.TagName()
+			err = w.startTag(string(nameB), tt == html.SelfClosingTagToken)
+			if err != nil {
+				return Span{}, err
+			}
+		case html.EndTagToken:
+			nameB, _ := z.TagName()
+			w.endTag(string(nameB))
+		case html.TextToken:
+			if w.directText() {
+				if w.seen == textIndex {
+					return Span{Start: tokStart, End: offset}, nil
+				}
+				w.seen++
+			}
+		}
+	}
+	return Span{}, fmt.Errorf("domaddr: element %d has no direct text node %d (found %d)", n, textIndex, w.seen)
+}
+
+// textScan is TextSpan's cursor: which element indexes have passed, whether
+// the scan is inside the target, and how many direct text nodes it has seen.
+type textScan struct {
+	stack  openStack
+	target int
+	index  int
+	inside bool
+	seen   int
+}
+
+func (w *textScan) startTag(name string, selfClosing bool) error {
+	void := voidElements[name] || selfClosing
+	switch {
+	case w.index == w.target:
+		if void {
+			return fmt.Errorf("domaddr: element %d is a void element with no text", w.target)
+		}
+		w.inside = true
+		w.stack.names = append(w.stack.names, name)
+	case w.inside && w.stack.openTag(name, void):
+		w.inside = false
+	}
+	w.index++
+	return nil
+}
+
+func (w *textScan) endTag(name string) {
+	if w.inside && w.stack.closeTag(name) {
+		w.inside = false
+	}
+}
+
+// directText reports whether a text token at the current position is a
+// direct child of the target — inside it, no intervening open element.
+func (w *textScan) directText() bool { return w.inside && w.stack.depth() == 1 }

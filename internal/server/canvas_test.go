@@ -153,6 +153,78 @@ const canvasScopedPage = `<!DOCTYPE html>
 </body>
 </html>`
 
+// TestTextEdit_ReplacesExactlyTheAddressedNode is the write-side identity
+// proof: two byte-identical paragraphs, and a direct edit addressed at the
+// second must change only the second. Plus the guards: a stale expectation
+// conflicts instead of clobbering, and typed markup is stored escaped.
+func TestTextEdit_ReplacesExactlyTheAddressedNode(t *testing.T) {
+	t.Parallel()
+
+	st := storetest.New(t, 0)
+	ctx := context.Background()
+	slug := freshSlug(t)
+	const owner = "textedit-owner@example.com"
+
+	mustWrite(t, ctx, st, slug, "index.html", canvasScopedPage, "text/html; charset=utf-8")
+	writeMeta(t, ctx, st, slug, build.SiteMeta{OwnerID: owner})
+	rig := newPrivateRig(t, st, snapshot.New(st, 0))
+	cookie := rig.session(t, owner, auth.RoleAdmin)
+
+	postText := func(form url.Values, cookie *http.Cookie) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/v2/text/"+slug, strings.NewReader(form.Encode()))
+		req.Host = "localhost"
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		rec := httptest.NewRecorder()
+		rig.handler.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// canvasScopedPage: the second duplicated <p> is element 10, its only
+	// text node index 0.
+	res := postText(url.Values{
+		"page": {"index.html"}, "el": {"10"}, "text_index": {"0"},
+		"text": {"Now different & <b>escaped</b>"}, "expect": {"Same text"},
+	}, cookie)
+	if res.Code != http.StatusOK {
+		t.Fatalf("text edit = %d, want 200: %s", res.Code, res.Body.String())
+	}
+
+	obj, err := st.Read(ctx, slug, "index.html")
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if !strings.Contains(obj.Content, "<p>Same text</p>") {
+		t.Fatalf("the FIRST duplicate must be untouched:\n%s", obj.Content)
+	}
+	if !strings.Contains(obj.Content, "<p>Now different &amp; &lt;b&gt;escaped&lt;/b&gt;</p>") {
+		t.Fatalf("the second duplicate must carry the new, escaped text:\n%s", obj.Content)
+	}
+	if strings.Count(obj.Content, "Same text") != 1 {
+		t.Fatalf("exactly one duplicate should remain:\n%s", obj.Content)
+	}
+
+	// The stored text changed, so the original expectation now conflicts.
+	res = postText(url.Values{
+		"page": {"index.html"}, "el": {"10"}, "text_index": {"0"},
+		"text": {"again"}, "expect": {"Same text"},
+	}, cookie)
+	if res.Code != http.StatusConflict || !strings.Contains(res.Body.String(), "reload") {
+		t.Fatalf("stale expect: got %d %q, want 409 with reload guidance", res.Code, res.Body.String())
+	}
+
+	// Ownership gate: strangers get the slug-hiding 404.
+	res = postText(url.Values{
+		"page": {"index.html"}, "el": {"10"}, "text_index": {"0"},
+		"text": {"x"}, "expect": {"x"},
+	}, rig.session(t, "stranger@example.com", auth.RoleAdmin))
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("non-owner text edit = %d, want 404", res.Code)
+	}
+}
+
 // TestEditScope_ResolvedServerSideFromStoredSource pins the trust boundary:
 // the canvas sends only an element address, and the markup the agent sees is
 // resolved from the stored bytes — never client-supplied.

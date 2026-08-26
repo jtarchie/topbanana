@@ -131,6 +131,107 @@ func TestResolve_OutOfRangeAndUnclosed(t *testing.T) {
 	}
 }
 
+func TestResolve_ImpliedEndTags(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		doc  string
+		n    int
+		want string
+	}{
+		{
+			name: "ul with unclosed li does not swallow following siblings",
+			doc:  `<ul><li>a<li>b</ul><p>after</p>`,
+			n:    0,
+			want: `<ul><li>a<li>b</ul>`,
+		},
+		{
+			name: "first unclosed li ends where the second begins",
+			doc:  `<ul><li>a<li>b</ul>`,
+			n:    1,
+			want: `<li>a`,
+		},
+		{
+			name: "nested list keeps inner li inside outer li",
+			doc:  `<ul><li>a<ul><li>x</ul><li>b</ul>`,
+			n:    1, // outer first li
+			want: `<li>a<ul><li>x</ul>`,
+		},
+		{
+			name: "table with unclosed rows does not engulf a trailing footer",
+			doc:  `<table><tr><td>a<tr><td>b</table><footer>f</footer>`,
+			n:    0,
+			want: `<table><tr><td>a<tr><td>b</table>`,
+		},
+		{
+			name: "stray void end tag closes nothing",
+			doc:  `<div>foo<br></br>bar</div>`,
+			n:    0,
+			want: `<div>foo<br></br>bar</div>`,
+		},
+		{
+			name: "p closed implicitly by a div sibling",
+			doc:  `<section><p>one<div>two</div></section>`,
+			n:    1,
+			want: `<p>one`,
+		},
+		{
+			name: "orphan end tag inside is ignored",
+			doc:  `<div>a</span>b</div><p>x</p>`,
+			n:    0,
+			want: `<div>a</span>b</div>`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := OuterHTML([]byte(tc.doc), tc.n)
+			if err != nil {
+				t.Fatalf("resolve: %v", err)
+			}
+			if string(got) != tc.want {
+				t.Fatalf("span mismatch:\n got: %q\nwant: %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestTextSpan_DirectTextNodesOnly(t *testing.T) {
+	t.Parallel()
+	doc := []byte("<div>\n  first <em>skip me</em> second\n</div><p>elsewhere</p>")
+	// div is element 0; its direct text nodes: "\n  first " (0), " second\n" (1).
+	// The em's content is NOT a direct child.
+
+	s0, err := TextSpan(doc, 0, 0)
+	if err != nil {
+		t.Fatalf("text 0: %v", err)
+	}
+	if string(doc[s0.Start:s0.End]) != "\n  first " {
+		t.Fatalf("text 0 = %q", doc[s0.Start:s0.End])
+	}
+	s1, err := TextSpan(doc, 0, 1)
+	if err != nil {
+		t.Fatalf("text 1: %v", err)
+	}
+	if string(doc[s1.Start:s1.End]) != " second\n" {
+		t.Fatalf("text 1 = %q", doc[s1.Start:s1.End])
+	}
+	_, err = TextSpan(doc, 0, 2)
+	if err == nil {
+		t.Fatal("text index past the direct nodes must error")
+	}
+
+	// Entities stay raw: the span covers the source bytes.
+	ent := []byte(`<p>We&rsquo;re here</p>`)
+	sp, err := TextSpan(ent, 0, 0)
+	if err != nil {
+		t.Fatalf("entity text: %v", err)
+	}
+	if string(ent[sp.Start:sp.End]) != "We&rsquo;re here" {
+		t.Fatalf("entity text = %q", ent[sp.Start:sp.End])
+	}
+}
+
 func TestAnnotateAndRebase_RewritesRootURLsInTagsOnly(t *testing.T) {
 	t.Parallel()
 	doc := []byte(`<html><head>

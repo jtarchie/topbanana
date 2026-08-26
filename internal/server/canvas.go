@@ -11,7 +11,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	gohtml "html"
 	"html/template"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -21,6 +23,8 @@ import (
 
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/domaddr"
+	"github.com/jtarchie/topbanana/internal/editrec"
+	"github.com/jtarchie/topbanana/internal/snapshot"
 )
 
 type canvasData struct {
@@ -71,6 +75,96 @@ func (s *Server) resolveScopeBlock(ctx context.Context, slug, scopePage, scopeEl
 	return fmt.Sprintf(
 		"The user selected one specific element on %s and the change applies to THAT element only — not to other elements with similar content. It is element #%d of the page in document order. Its current source markup:\n\n```html\n%s\n```",
 		scopePage, n, markup), nil
+}
+
+// maxDirectTextBytes caps a single in-place text edit. Text nodes are prose,
+// not documents; anything larger belongs to the agent path.
+const maxDirectTextBytes = 8 * 1024
+
+// textEditHandler is the canvas's direct text edit: replace one text node,
+// addressed as (page, element, direct-text-index), with new text — no LLM,
+// no lint loop, instant. The write is deterministic through domaddr.TextSpan
+// and guarded by an expect-text compare, so a page that changed since the
+// user started typing yields a clear conflict instead of a silent clobber —
+// and because the address names an element, duplicated content elsewhere on
+// the page is never touched.
+// textEditInput is the validated form of a direct text edit request.
+type textEditInput struct {
+	page      string
+	el        int
+	textIndex int
+	text      string
+	expect    string
+}
+
+// parseTextEditInput validates the request form; every failure is a
+// user-facing echo error with recovery guidance.
+func parseTextEditInput(c *echo.Context) (textEditInput, error) {
+	var in textEditInput
+	in.page = c.FormValue("page")
+	err := validatePage(in.page)
+	if err != nil || in.page == "" {
+		return in, echo.NewHTTPError(http.StatusBadRequest, "the edited page is missing — reload and try again")
+	}
+	in.el, err = strconv.Atoi(c.FormValue("el"))
+	if err != nil || in.el < 0 {
+		return in, echo.NewHTTPError(http.StatusBadRequest, "the selection is invalid — reload and try again")
+	}
+	in.textIndex, err = strconv.Atoi(c.FormValue("text_index"))
+	if err != nil || in.textIndex < 0 {
+		return in, echo.NewHTTPError(http.StatusBadRequest, "the selection is invalid — reload and try again")
+	}
+	in.text = c.FormValue("text")
+	if len(in.text) > maxDirectTextBytes {
+		return in, echo.NewHTTPError(http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("that's too much text for an in-place edit (max %d bytes) — use the Describe box instead", maxDirectTextBytes))
+	}
+	in.expect = c.FormValue("expect")
+	return in, nil
+}
+
+func (s *sitesController) textEditHandler(c *echo.Context) error {
+	slug, err := slugParam(c)
+	if err != nil {
+		return err
+	}
+	in, err := parseTextEditInput(c)
+	if err != nil {
+		return err
+	}
+	if s.buildInFlight(slug) {
+		return echo.NewHTTPError(http.StatusConflict, "the builder is working on this site — wait for it to finish")
+	}
+
+	ctx := c.Request().Context()
+	obj, err := s.store.Read(ctx, slug, in.page)
+	if err != nil || obj == nil || obj.Content == "" {
+		return echo.NewHTTPError(http.StatusConflict, "the page no longer exists — reload and try again")
+	}
+	doc := []byte(obj.Content)
+	span, err := domaddr.TextSpan(doc, in.el, in.textIndex)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusConflict, "the page changed since you started editing — reload and try again")
+	}
+	// Compare decoded text: the browser edits &rsquo; as ’, so the stored
+	// bytes and the browser's original only match after entity decoding.
+	if gohtml.UnescapeString(string(doc[span.Start:span.End])) != in.expect {
+		return echo.NewHTTPError(http.StatusConflict, "the page changed since you started editing — reload and try again")
+	}
+
+	before := obj.Content
+	after := string(doc[:span.Start]) + gohtml.EscapeString(in.text) + string(doc[span.End:])
+
+	s.snapshotBefore(ctx, slug, snapshot.ReasonText)
+	err = s.store.Write(ctx, slug, in.page, after, obj.ContentType, nil)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "save text", err)
+	}
+	// Recorded like the MCP direct edits: visible in /debug, absent from the
+	// run feed (it's an instant local change, not an agent request).
+	editrec.RecordEdit(ctx, s.store, slug, "text", "text_edit", in.page, before, after)
+	slog.Info("text_edit.save", "slug", slug, "page", in.page, "el", in.el, "text_index", in.textIndex, "user", callerEmail(c))
+	return c.JSON(http.StatusOK, map[string]any{"ok": true}) //nolint:wrapcheck
 }
 
 func (s *sitesController) canvasHandler(c *echo.Context) error {

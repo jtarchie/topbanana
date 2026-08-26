@@ -37,6 +37,7 @@ const archiveContentType = "application/zstd"
 const (
 	ReasonBuild      = "build"
 	ReasonEdit       = "edit"
+	ReasonText       = "text-edit"
 	ReasonThemeApply = "theme-apply"
 	ReasonSettings   = "settings"
 	ReasonUpload     = "upload"
