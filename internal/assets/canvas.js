@@ -26,6 +26,22 @@
   var hoverBox = makeBox('#f59e0b', true);
   var selectBox = makeBox('#2563eb', false);
 
+  // dropBar marks where a dragged image will land: a solid line hugging the
+  // top or bottom edge of the element under the cursor.
+  var dropBar = document.createElement('div');
+  dropBar.style.cssText = 'position:absolute;pointer-events:none;z-index:' + HALO_Z +
+    ';height:4px;border-radius:2px;background:#2563eb;box-shadow:0 0 0 2px rgba(255,255,255,.65);display:none;';
+  document.documentElement.appendChild(dropBar);
+
+  function placeDropBar(el, position) {
+    if (!el) { dropBar.style.display = 'none'; return; }
+    var r = el.getBoundingClientRect();
+    dropBar.style.display = 'block';
+    dropBar.style.left = (r.left + window.scrollX) + 'px';
+    dropBar.style.width = r.width + 'px';
+    dropBar.style.top = ((position === 'before' ? r.top : r.bottom) + window.scrollY - 2) + 'px';
+  }
+
   function place(box, el) {
     if (!el) { box.style.display = 'none'; return; }
     var r = el.getBoundingClientRect();
@@ -231,6 +247,58 @@
   }, true);
 
   document.addEventListener('submit', function (e) { e.preventDefault(); e.stopPropagation(); }, true);
+
+  // ----- image drop: files dragged from the desktop land as a placement
+  // request. The frame can't upload (opaque origin, no credentials); it hands
+  // the parent the File plus the target address and edge.
+  var dropTarget = null;
+
+  function dragHasFiles(e) {
+    var types = e.dataTransfer && e.dataTransfer.types;
+    if (!types) return false;
+    for (var i = 0; i < types.length; i++) {
+      if (types[i] === 'Files') return true;
+    }
+    return false;
+  }
+
+  document.addEventListener('dragover', function (e) {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault(); // required, or the browser refuses the drop
+    var el = addressable(e.target);
+    if (el && el.tagName === 'HTML') el = null;
+    if (!el) { dropTarget = null; placeDropBar(null); return; }
+    var r = el.getBoundingClientRect();
+    var position = e.clientY < r.top + r.height / 2 ? 'before' : 'after';
+    dropTarget = { el: el, position: position };
+    placeDropBar(el, position);
+    place(hoverBox, null);
+  }, true);
+
+  document.addEventListener('dragleave', function (e) {
+    if (!e.relatedTarget) { dropTarget = null; placeDropBar(null); }
+  }, true);
+
+  document.addEventListener('drop', function (e) {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var target = dropTarget;
+    dropTarget = null;
+    placeDropBar(null);
+    var file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!file || !target) return;
+    if (!/^image\//.test(file.type)) {
+      parent.postMessage({ type: 'tb-text-note', message: 'Only images can be dropped onto the page.' }, '*');
+      return;
+    }
+    parent.postMessage({
+      type: 'tb-image-drop',
+      el: parseInt(target.el.getAttribute('data-tb-el'), 10),
+      position: target.position,
+      file: file
+    }, '*');
+  }, true);
 
   document.addEventListener('keydown', function (e) {
     if (editing) {

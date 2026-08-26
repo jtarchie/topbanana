@@ -315,6 +315,9 @@ func TestCanvasPage_RendersForOwner(t *testing.T) {
 		`id="run-feed"`,      // verdict feed slide-over
 		"Whole site",         // default scope chip
 		"/workspace/" + slug, // escape hatch to classic
+		// Page menu: lazy live thumbnails (src-less until opened) + new page.
+		`data-thumb-src="/s/` + slug + `/index.html"`,
+		"New page…",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("canvas page missing %q", want)

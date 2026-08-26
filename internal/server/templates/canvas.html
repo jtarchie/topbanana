@@ -14,14 +14,29 @@
     <span class="font-semibold text-sm hidden sm:inline">{{ .SiteName }}</span>
   </a>
 
-  <div class="dropdown">
+  <div class="dropdown" id="page-menu">
     <button type="button" tabindex="0" class="btn btn-sm btn-ghost font-mono text-xs" id="page-btn" aria-haspopup="listbox">
       {{ .Page }} <span aria-hidden="true">▾</span>
     </button>
-    <ul tabindex="0" class="dropdown-content menu menu-sm z-30 mt-1 p-1 bg-base-100 border border-base-300 rounded-box shadow-lg w-56" role="listbox">
+    {{/* Thumbnails are live mini-renders of each page — plain scaled iframes
+         off the /s mount, so no screenshot infrastructure. They stay src-less
+         until the menu first opens (loadThumbs), so visiting the canvas
+         doesn't fetch every page of the site. */}}
+    <ul tabindex="0" class="dropdown-content menu menu-sm z-30 mt-1 p-1 bg-base-100 border border-base-300 rounded-box shadow-lg w-72 max-h-[70vh] overflow-y-auto flex-nowrap" role="listbox">
       {{ range .Pages }}
-      <li><a href="/v2/workspace/{{ $.Slug }}?page={{ . }}" class="font-mono text-xs{{ if eq . $.Page }} active{{ end }}">{{ . }}</a></li>
+      <li>
+        <a href="/v2/workspace/{{ $.Slug }}?page={{ . }}" class="flex items-center gap-3{{ if eq . $.Page }} active{{ end }}">
+          <span class="w-20 h-14 shrink-0 overflow-hidden rounded border border-base-300 bg-white relative" aria-hidden="true">
+            <iframe data-thumb-src="/s/{{ $.Slug }}/{{ . }}" tabindex="-1" title=""
+                    class="w-[640px] h-[448px] absolute top-0 left-0 origin-top-left scale-[0.125] pointer-events-none border-0"></iframe>
+          </span>
+          <span class="font-mono text-xs truncate">{{ . }}</span>
+        </a>
+      </li>
       {{ end }}
+      <li class="border-t border-base-300 mt-1 pt-1">
+        <button type="button" id="new-page-btn" class="text-xs">＋ New page…</button>
+      </li>
     </ul>
   </div>
 
@@ -124,6 +139,10 @@
         saveText(d);
         return;
       }
+      if (d.type === 'tb-image-drop') {
+        handleImageDrop(d);
+        return;
+      }
       if (d.type !== 'tb-select') return;
       // A valid address is a finite integer; anything else (NaN from a garbled
       // data-tb-el, a forged message) clears the scope rather than feeding
@@ -197,31 +216,28 @@
       applyBtn.disabled = busy;
     }
 
-    form.addEventListener('submit', function (e) {
-      e.preventDefault();
-      var text = promptEl.value.trim();
-      if (!text) return;
-
+    // startRun submits a change to the agent pipeline. scopeEl (nullable)
+    // scopes it to one element — only the ADDRESS crosses the trust boundary;
+    // the server resolves it against the stored source and composes the
+    // agent-facing context itself, so nothing the framed page's scripts could
+    // forge — and none of the /s-mount URL rewriting — ever reaches the agent
+    // prompt.
+    function startRun(text, scopeEl) {
       var fd = new FormData();
       fd.append('prompt', text);
       fd.append('page', '');
-      if (scope) {
-        // Only the ADDRESS crosses the trust boundary. The server resolves it
-        // against the stored source and composes the agent-facing context
-        // itself, so nothing the framed page's scripts could forge — and none
-        // of the /s-mount URL rewriting — ever reaches the agent prompt.
-        fd.append('scope_el', String(scope.el));
+      if (scopeEl != null) {
+        fd.append('scope_el', String(scopeEl));
         fd.append('scope_page', page);
       }
-
       setBusy(true);
       statusEl.textContent = 'Starting…';
       fetch('/edit/' + encodeURIComponent(slug), { method: 'POST', body: fd })
         .then(function (r) {
           if (r.ok || r.status === 303) { watch(); return; }
           // Surface the server's own message ({"message": "..."}) instead of a
-          // bare status code — "edit already in progress", "selection context
-          // is too long", etc. are the actionable text the user needs.
+          // bare status code — "edit already in progress", "the selection is
+          // stale", etc. are the actionable text the user needs.
           return r.text().then(function (body) {
             var msg = '';
             try { msg = (JSON.parse(body) || {}).message || ''; } catch (_) { msg = (body || '').trim(); }
@@ -233,7 +249,65 @@
           statusEl.textContent = '';
           toast('Could not start the change: ' + (err && err.message ? err.message : err), 'error');
         });
+    }
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var text = promptEl.value.trim();
+      if (!text) return;
+      startRun(text, scope ? scope.el : null);
     });
+
+    // ----- image drop: the frame hands the parent the file plus the target
+    // address; the parent uploads (the opaque frame can't make a credentialed
+    // request) and starts a scoped run to place it. Exposed for tests.
+    function handleImageDrop(d) {
+      if (!d || !d.file) return;
+      statusEl.textContent = 'Uploading image…';
+      var fd = new FormData();
+      fd.append('file', d.file, d.file.name || 'dropped-image');
+      fetch('/upload/' + encodeURIComponent(slug), { method: 'POST', body: fd })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j || {} }; }); })
+        .then(function (res) {
+          if (!res.ok) throw new Error(res.body.message || 'upload failed');
+          var where = d.position === 'before' ? 'immediately before' : 'immediately after';
+          var alt = res.body.alt ? ' (it shows: ' + res.body.alt + ')' : '';
+          startRun(
+            'Insert the image `' + res.body.path + '`' + alt + ' ' + where +
+            ' this element. Size and style it to match the page design.',
+            d.el);
+        })
+        .catch(function (err) {
+          statusEl.textContent = '';
+          toast('Could not add the image: ' + (err && err.message ? err.message : err), 'error');
+        });
+    }
+    window.__tbHandleImageDrop = handleImageDrop;
+
+    // ----- page menu: lazy thumbnails and the new-page starter -----
+    (function () {
+      var menu = document.getElementById('page-menu');
+      var loaded = false;
+      function loadThumbs() {
+        if (loaded || !menu) return;
+        loaded = true;
+        menu.querySelectorAll('iframe[data-thumb-src]').forEach(function (f) {
+          f.src = f.getAttribute('data-thumb-src');
+        });
+      }
+      if (menu) menu.addEventListener('focusin', loadThumbs);
+      var pageBtn = document.getElementById('page-btn');
+      if (pageBtn) pageBtn.addEventListener('click', loadThumbs);
+      var newPage = document.getElementById('new-page-btn');
+      if (newPage) {
+        newPage.addEventListener('click', function () {
+          promptEl.value = 'Create a new page called ';
+          promptEl.focus();
+          try { promptEl.setSelectionRange(promptEl.value.length, promptEl.value.length); } catch (_) {}
+          toast('Name the page and say what goes on it, then Apply.');
+        });
+      }
+    })();
 
     function narrate(ev) {
       if (ev.type === 'tool' && ev.phase === 'start' && ev.tool && ev.path) {

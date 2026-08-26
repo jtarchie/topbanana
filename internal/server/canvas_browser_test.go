@@ -164,6 +164,114 @@ func TestCanvas_SelectElementInBrowser(t *testing.T) {
 	}
 }
 
+// dropPNGJS builds a real 1x1 PNG File in the parent page and hands it to the
+// image-drop handler exactly as a frame message would — the seam sits right
+// after the postMessage hop, so upload, prompt composition, and the scoped
+// run are all the production path.
+const dropPNGJS = `(function(){
+	var b64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+	var bin = atob(b64);
+	var arr = new Uint8Array(bin.length);
+	for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+	window.__tbHandleImageDrop({ el: 9, position: 'after', file: new File([arr], 'drop.png', { type: 'image/png' }) });
+	return true;
+})()`
+
+// TestCanvas_ImageDropInBrowser drives the drop pipeline end to end: the
+// parent uploads the file and starts a run scoped to the drop target, whose
+// prompt names the stored asset path and the placement edge.
+func TestCanvas_ImageDropInBrowser(t *testing.T) {
+	st := minioStore(t)
+	chromePath := chromeExecPath(t)
+	if chromePath == "" {
+		t.Skip("no Chrome binary found — skipping browser test")
+	}
+
+	ctx := context.Background()
+	snapSvc := snapshot.New(st, 0)
+	slug := freshSlug(t)
+	cleanupSlug(t, ctx, st, snapSvc, slug)
+
+	mustWrite(t, ctx, st, slug, "index.html", canvasScopedPage, "text/html; charset=utf-8")
+	writeMeta(t, ctx, st, slug, build.SiteMeta{OwnerID: testAdminUser})
+
+	runner := &promptCaptureRunner{}
+	handler := buildServerWithRunner(t, st, snapSvc, runner)
+	httpSrv := httptest.NewServer(handler)
+	t.Cleanup(httpSrv.Close)
+
+	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(),
+		append(chromedp.DefaultExecAllocatorOptions[:],
+			chromedp.ExecPath(chromePath),
+			chromedp.Flag("headless", true),
+			chromedp.Flag("no-sandbox", true),
+			chromedp.Flag("disable-gpu", true),
+		)...,
+	)
+	defer cancelAlloc()
+	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
+	defer cancelBrowser()
+
+	host := strings.TrimPrefix(httpSrv.URL, "http://")
+	host = strings.SplitN(host, ":", 2)[0]
+
+	navCtx, cancelNav := context.WithTimeout(browserCtx, 30*time.Second)
+	defer cancelNav()
+
+	err := chromedp.Run(navCtx,
+		network.SetCookies([]*network.CookieParam{{
+			Name:   testSessionCookie.Name,
+			Value:  testSessionCookie.Value,
+			Domain: host,
+			Path:   "/",
+		}}),
+		chromedp.Navigate(httpSrv.URL+"/v2/workspace/"+slug),
+		chromedp.Poll(`window.__tbReady === true`, nil, chromedp.WithPollingTimeout(15*time.Second)),
+		chromedp.Evaluate(dropPNGJS, nil),
+	)
+	if err != nil {
+		if shouldSkipChrome(err) {
+			t.Skipf("chromedp run failed (%v) — skipping", err)
+		}
+		t.Fatalf("chromedp run: %v", err)
+	}
+
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		prompt := runner.first()
+		if prompt != "" {
+			for _, want := range []string{
+				"Insert the image `assets/",
+				"immediately after",
+				"element #9", // the server-resolved scope of the drop target
+			} {
+				if !strings.Contains(prompt, want) {
+					t.Errorf("drop run prompt missing %q:\n%s", want, prompt)
+				}
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the drop never started an agent run")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	files, err := st.List(ctx, slug)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	uploaded := false
+	for _, f := range files {
+		if strings.HasPrefix(f, "assets/") {
+			uploaded = true
+		}
+	}
+	if !uploaded {
+		t.Fatalf("dropped image was never stored: %v", files)
+	}
+}
+
 // assertSelectionByAddress pins the selection contract: clicking selects by
 // served address, reselecting steps out to the parent, and byte-identical
 // content still selects as distinct elements.
