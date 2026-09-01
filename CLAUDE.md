@@ -16,44 +16,12 @@ Top Banana is a "vibe coding" hosting platform that uses LLM agents to build and
 - [Task](https://taskfile.dev/) installed.
 - A local LLM provider (e.g., LM Studio) running at `http://localhost:1234/v1` (default).
 
-### Essential Commands
-Use `task` for development automation.
-
-| Command | Description |
-| --- | --- |
-| `task fmt` | Runs linters on the codebase |
-| `task quality` | Fast quality pass: `task fmt` + `task tidy` + `task vuln` + `task sec` + `task licenses`. Run before pushing. |
-| `task quality:deep` | Slow quality pass: `task quality` + `task bench` + `task fuzz` + `task nilaway`. Run when touching security-sensitive paths (auth, store, path validation, subdomain dispatch). |
-| `task install:tools` | Installs every Go CLI the quality tasks depend on (`govulncheck`, `gosec`, `go-licenses`, `nilaway`, `benchstat`). Run once after cloning. |
-| `task vuln` / `task sec` / `task licenses` / `task tidy` / `task nilaway` | Individual security and supply-chain gates. |
-| `task test:cover` / `task test:cover:summary` | Coverage with HTML report / total-percent line. |
-| `task bench` / `task bench:save` / `task bench:diff` | Run, snapshot, and benchstat-compare benchmarks. |
-| `task fuzz` | Runs the path-traversal, subdomain, and HTML-lint fuzz targets for 30s each. |
-| `task local` | Starts the application locally, ensuring Minio is ready and pointing to LM Studio. |
-| `task css` | Recompiles the embedded admin-UI stylesheet (`internal/assets/app.css`) from `app.input.css`. Run after editing the admin templates or input CSS. |
-| `task vendor:daisyui` | Re-vendors the daisyUI npm package into `internal/assets/daisyui` (then bump `DaisyUIVersion` in `internal/assets/embed.go` + run `task css`). |
-| `task minio:start` | Starts a background Minio server. |
-| `task minio:stop` | Stops the running Minio server. |
-| `task minio:ready` | Verifies or starts Minio if it's not currently running. |
+Run `task --list` for the automation surface; each task carries a `desc:` in `Taskfile.yml`.
 
 NOTE: Please run `task fmt` and resolve all issues after finish writing code.
 
-### Configuration
-The application is configured via CLI flags and environment variables (via `kong`).
-
-- `S3_BUCKET`: Name of the bucket to use for all sites.
-- `AWS_ENDPOINT_URL`: Override S3 endpoint (e.g., for Minio).
-- `LLM_MODEL`: The model string (e.g., `lmstudio/google/gemma-4-26b-a4b`).
-- `LLM_BASE_URL`: URL of the LLM provider.
-
 ## Agent Instructions & Constraints
-When building or modifying agents for this project, keep in mind the `systemPrompt` (found in `internal/agent/agent_prompt.md`):
-
-1.  **Strict File Types**: Create **only** `.html` files. CSS and JavaScript must be inlined.
-2.  **Entry Point**: Every site must have an `index.html`.
-3.  **No External Dependencies**: No external CDNs or frameworks. Everything must be self-contained.
-4.  **Tooling**: Use the provided `write_file`, `read_file`, and `list_files` tools to manage the site content.
-5.  **Relative Paths**: All links between pages must use relative URLs (e.g., `<a href="about.html">`).
+When building or modifying agents for this project, keep in mind the `systemPrompt` in `internal/agent/agent_prompt.md` — it is the authoritative list of constraints on generated sites (self-contained pages, relative links, required `index.html`).
 
 ## Code Organization
 - `internal/store/`: the storage layer — `Store` owns compression-at-rest, slug-prefix path validation, metadata encoding, and the ARC cache over an `objectBackend` seam (S3 in production, in-memory for tests via `store.NewInMemory`). `keyspace.go` is the single registry of reserved bucket prefixes (`_snapshots/`, `_edits/`, `_acme/`, in-slug `_state/`) — never re-declare those literals.
@@ -67,30 +35,6 @@ When building or modifying agents for this project, keep in mind the `systemProm
 - `internal/lint/`: the deterministic site-integrity gate (no LLM) every build/edit/relint runs. Check families: HTML parse + swallowed-attribute recovery; links and `#anchor` fragments (proxy-parity resolution via `resolveLinkTarget`/`resolveSiteTarget` in `links.go` — the single resolver shared by every path-shaped check); head hygiene (charset auto-fixed, lang, unique titles, meta description); form data-loss (unnamed controls, post-without-action, multipart/file inputs the API can't parse, inline-JS `fetch()` literals); dead interactions (label/for, duplicate ids, mailto:/tel: shape, undefined `on*` handlers, DOM lookups — the JS-aware checks stand down on dynamic-DOM or unparseable pages); self-containment (external scripts/styles with a Stripe allowlist, `http://` mixed content, unreferenced pages — template-skeleton pages exempt); cascade conflicts (`cascade.go` — a `width`/`height` attribute overruled by a fixed length in one of the site's *own* stylesheets, which is invisible otherwise: the attribute is a presentation hint any author rule beats, so the markup changes and the page does not). The cascade check is deliberately narrow because lint errors gate a build — it ignores fluid values (`auto`, `%`, `min()`), state selectors, and the generated `app.css`, since a missed warning costs less than a false failure. Errors flow verbatim to the agent via `build.LintFixPrompt`, and `internal/build/friendly.go` maps stable message substrings to user-facing copy — **reword a lint message, update friendlyRules in the same change**. **Template skeletons and examples must stay lint-clean**: `skeleton_conformance_test.go` seeds every shipped skeleton and asserts zero errors, so a new check that flags one is either finding a real template bug or is too noisy to ship.
 - `internal/model/`: LLM provider resolution logic.
 - `internal/templates/sites/{id}/`: Site templates the user picks from. Each ships a `prompt.md` (JSON frontmatter + system addendum for the agent), an optional `skeleton/` (seed files), and a `README.md` (contributor docs).
-
-## Adding a new site template
-Every directory under `internal/templates/sites/` must contain:
-
-1. **`prompt.md`** — JSON frontmatter with `label`, `description`, optional `checks`, optional `guide` (see below), optional `enables_functions`, optional `setup_notes` (end-user setup steps rendered on the manage page); markdown body after `---` is appended to the LLM system prompt.
-2. **`README.md`** — contributor docs with these sections (omit Config / Gotchas if there's nothing to say):
-   ```
-   # {label}
-   ## Purpose
-   ## What ships
-   ## Checks
-   ## Completeness guide
-   ## Config
-   ## Gotchas
-   ```
-3. **`skeleton/`** (optional) — files seeded onto the filesystem before the agent runs.
-
-### The `guide` frontmatter (owner-facing completeness checklist)
-`guide` is the deterministic, **no-AI** "Is my site complete?" checklist rendered on the manage page (`internal/guide` + the card in `manage.html`). It is the advisory counterpart to `checks`: where `checks` are hard build invariants fed to the agent, `guide` items tell the *owner* what a credible site of this type still needs. Each item is `{id, label, why, how, detector, params?, page?, scope?, required?}`:
-
-- `detector` is one of a fixed Go registry (`internal/guide/detectors.go`, asserted by `TestEveryTemplate_GuideIsWellFormed`): `tel_link`, `email_link`, `form`, `heading_matches` (`params.keywords`), `section_present` (`params.keywords` — heading match **plus** real body text, so an empty placeholder section fails), `address`, `map_link`, `min_images` (`params.min`), `min_links` (`params.min`).
-- `scope` selects how the per-page results combine: `""`/`any-page` (default — present if any page matches), `every-page` (all pages must match), `specific-file` (only `page`, default `index.html`).
-- `required: false` marks a nice-to-have — keep borderline detectors optional so a stray miss doesn't drag the badge to "incomplete".
-- Detectors key on **semantic** elements/hosts (a `tel:` link, a `<form>`, a maps host), never CSS classes, so a design refactor never flips a result.
 
 ## CSS pipeline (self-hosted Tailwind + daisyUI — no CDN)
 The design substrate is **compiled, not CDN-loaded**. daisyUI v5 is vendored in `internal/assets/daisyui/` and the Tailwind v4 **standalone CLI** (Node-free) compiles it:
@@ -109,16 +53,3 @@ The design substrate is **compiled, not CDN-loaded**. daisyUI v5 is vendored in 
 - `themes: all` is intentional so Theme Studio can switch themes without a recompile.
 - `optimizeCSS` runs *after* lint, so a page links `/app.css` before the file exists — both the lint broken-link check and the proxy must tolerate that ordering.
 
-## OpenRouter prompt caching
-`internal/model/openrouter_cache.go` wraps the adk-utils-go OpenAI adapter for the `openrouter` provider with a process-wide `http.DefaultClient.Transport` that scope-checks `openrouter.ai` and per-request does three things lifted straight from OpenRouter's documented prompt-caching API:
-
-1. **`x-session-id` header** — read from ctx via `model.WithSessionID(ctx, logKey)` (called once in `build.Service.Start` with `p.LogKey`). Activates OpenRouter's *provider sticky routing* on the very first request of a build/edit, keeping subsequent turns on the same provider endpoint so the prompt cache stays warm. Universal — every provider OpenRouter routes to honors it.
-2. **Top-level `cache_control: {type: "ephemeral"}` body field** — injected only when the request's `model` starts with `anthropic/` or `~anthropic/`. Enables Anthropic's auto-advancing rolling-tail cache (one breakpoint that covers the growing message history). Other providers (OpenAI / DeepSeek / Grok / Groq / Moonshot auto-cache; Gemini 2.5 implicit; Qwen / Anthropic explicit) get nothing — auto-cache providers handle it themselves and forcing Anthropic-direct routing would break non-Anthropic calls.
-3. **Tees response body into a per-call captureSlot** held in ctx. The adapter's `convertUsageMetadata` drops `usage.prompt_tokens_details.cached_tokens`; we parse it from the raw body (or the final SSE `data:` event when streaming) and stitch it onto `genai.UsageMetadata.CachedContentTokenCount`, which `agent.Usage.add` already plumbs into `editrec.Usage.Cached` and the `/debug/{slug}/edit` cache-hit ratio.
-
-`provider.order` is intentionally **never** set in the request body — the docs note sticky routing falls back to inactive when manual provider order is supplied.
-
-## Implementation Details (for developers)
-- **Subdomain Proxying**: The `subdomainMiddleware` in `internal/server/dispatch.go` is the heart of the routing. It strips the domain part to find the "slug" and uses that slug to query S3 (the serve path itself lives in `internal/server/proxy.go`).
-- **S3 Path Structure**: Files are stored as `{slug}/{path}` within the bucket.
-- **Logging**: Uses `slog`. Request logs include method, URI, status, latency, and host.
