@@ -126,6 +126,20 @@ func (b *memoryBackend) get(_ context.Context, key string) (*rawObject, error) {
 	}, nil
 }
 
+func (b *memoryBackend) head(_ context.Context, key string) (*rawObject, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	obj, ok := b.objects[key]
+	if !ok {
+		return nil, nil //nolint:nilnil // a clean miss, mirroring s3Backend.head.
+	}
+	return &rawObject{
+		etag:        obj.etag,
+		contentType: obj.contentType,
+		metadata:    cloneMetadata(obj.metadata),
+	}, nil
+}
+
 func (b *memoryBackend) list(_ context.Context, prefix string) ([]objectInfo, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()

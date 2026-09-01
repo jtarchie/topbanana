@@ -521,6 +521,20 @@ func (s *Store) ReadRaw(ctx context.Context, key string) (*S3Object, error) {
 	return &S3Object{Content: string(raw.body), ETag: raw.etag, ContentType: raw.contentType, Metadata: raw.metadata}, nil
 }
 
+// HeadRaw fetches an object's attributes (ETag, content-type, metadata) by
+// absolute bucket key without downloading the body. Same contract as ReadRaw
+// otherwise: an empty S3Object for missing keys (no error), metadata verbatim.
+func (s *Store) HeadRaw(ctx context.Context, key string) (*S3Object, error) {
+	raw, err := s.backend.head(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to head raw object %s: %w", key, err)
+	}
+	if raw == nil {
+		return &S3Object{}, nil
+	}
+	return &S3Object{ETag: raw.etag, ContentType: raw.contentType, Metadata: raw.metadata}, nil
+}
+
 // DeleteRaw removes an object by absolute bucket key.
 func (s *Store) DeleteRaw(ctx context.Context, key string) error {
 	return s.backend.remove(ctx, key)
@@ -538,6 +552,28 @@ func (s *Store) ListPrefix(ctx context.Context, prefix string) ([]string, error)
 		keys = append(keys, info.key)
 	}
 	return keys, nil
+}
+
+// PrefixObject is one row of ListPrefixInfo: the attributes a listing returns
+// without a per-object request.
+type PrefixObject struct {
+	Key          string
+	Size         int64
+	LastModified time.Time
+}
+
+// ListPrefixInfo is ListPrefix keeping the listing-level attributes, for
+// callers that would otherwise fetch every object just to learn its size.
+func (s *Store) ListPrefixInfo(ctx context.Context, prefix string) ([]PrefixObject, error) {
+	infos, err := s.backend.list(ctx, prefix)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PrefixObject, 0, len(infos))
+	for _, info := range infos {
+		out = append(out, PrefixObject{Key: info.key, Size: info.size, LastModified: info.lastModified})
+	}
+	return out, nil
 }
 
 // PrefixStats is the aggregate of SumBytesUnderPrefix: total bytes and object

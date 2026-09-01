@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/jtarchie/topbanana/internal/archive"
 	"github.com/jtarchie/topbanana/internal/store"
 )
@@ -116,44 +118,48 @@ func (s *Service) Create(ctx context.Context, slug, reason string) (Snapshot, er
 	return snap, nil
 }
 
-// List returns every snapshot for a slug, newest first.
+// List returns every snapshot for a slug, newest first. Everything but the
+// file count comes from the listing itself (size) and the key (timestamp,
+// reason — snapshotKey encodes both); the file count lives only in object
+// metadata, so it's filled by bounded-parallel HEADs. This used to GET every
+// archive body just to read its metadata, which made listing O(total archive
+// bytes) — seconds of load on a site with a deep history, paid on every
+// workspace render and every post-snapshot trim.
 func (s *Service) List(ctx context.Context, slug string) ([]Snapshot, error) {
 	prefix := snapshotPrefix + slug + "/"
-	keys, err := s.store.ListPrefix(ctx, prefix)
+	infos, err := s.store.ListPrefixInfo(ctx, prefix)
 	if err != nil {
 		return nil, fmt.Errorf("list snapshots %s: %w", slug, err)
 	}
 
-	out := make([]Snapshot, 0, len(keys))
-	for _, key := range keys {
-		obj, err := s.store.ReadRaw(ctx, key)
-		if err != nil {
-			slog.Warn("snapshot.read_metadata_failed", "key", key, "err", err)
-			continue
+	out := make([]Snapshot, len(infos))
+	grp, gctx := errgroup.WithContext(ctx)
+	grp.SetLimit(16)
+	for i, info := range infos {
+		out[i] = Snapshot{
+			Key:       info.Key,
+			SizeBytes: info.Size,
+			Reason:    reasonFromKey(info.Key),
+			Timestamp: timestampFromKey(info.Key),
 		}
-		snap := Snapshot{
-			Key:       key,
-			SizeBytes: int64(len(obj.Content)),
+		if out[i].Timestamp.IsZero() {
+			out[i].Timestamp = info.LastModified
 		}
-		if v := obj.Metadata["reason"]; v != "" {
-			snap.Reason = v
-		}
-		if v := obj.Metadata["file-count"]; v != "" {
-			var n int
-			_, _ = fmt.Sscanf(v, "%d", &n)
-			snap.FileCount = n
-		}
-		if v := obj.Metadata["created"]; v != "" {
-			t, err := time.Parse(time.RFC3339, v)
-			if err == nil {
-				snap.Timestamp = t
+		grp.Go(func() error {
+			obj, err := s.store.HeadRaw(gctx, info.Key)
+			if err != nil {
+				slog.Warn("snapshot.read_metadata_failed", "key", info.Key, "err", err)
+				return nil // best-effort: the row still renders without a count.
 			}
-		}
-		if snap.Timestamp.IsZero() {
-			snap.Timestamp = timestampFromKey(key)
-		}
-		out = append(out, snap)
+			if v := obj.Metadata["file-count"]; v != "" {
+				var n int
+				_, _ = fmt.Sscanf(v, "%d", &n)
+				out[i].FileCount = n
+			}
+			return nil
+		})
 	}
+	_ = grp.Wait()
 
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].Timestamp.After(out[j].Timestamp)
@@ -315,6 +321,17 @@ func ExtractArchive(ctx context.Context, st *store.Store, slug, archiveData stri
 // basic form sorts lexicographically.
 func snapshotKey(slug string, ts time.Time, reason string) string {
 	return fmt.Sprintf("%s%s/%s-%s.tar.zst", snapshotPrefix, slug, ts.Format("20060102T150405Z"), reason)
+}
+
+// reasonFromKey parses the reason out of a snapshotKey-shaped key:
+// `{timestamp}-{reason}.tar.zst`, where the timestamp carries no hyphen.
+func reasonFromKey(key string) string {
+	base := strings.TrimSuffix(path.Base(key), ".tar.zst")
+	idx := strings.IndexByte(base, '-')
+	if idx < 0 || idx+1 >= len(base) {
+		return ""
+	}
+	return base[idx+1:]
 }
 
 // timestampFromKey parses the timestamp out of a key whose metadata is

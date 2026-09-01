@@ -39,6 +39,9 @@ type objectBackend interface {
 	// get fetches key. Returns (nil, nil) when the key does not exist, so a
 	// clean miss is distinguishable from a backend fault (non-nil error).
 	get(ctx context.Context, key string) (*rawObject, error)
+	// head fetches key's attributes (etag, content-type, metadata) without the
+	// body. Same miss contract as get: (nil, nil) for an absent key.
+	head(ctx context.Context, key string) (*rawObject, error)
 	// list returns size + last-modified for every object whose key carries the
 	// given prefix.
 	list(ctx context.Context, prefix string) ([]objectInfo, error)
@@ -186,6 +189,35 @@ func (b *s3Backend) get(ctx context.Context, key string) (*rawObject, error) {
 		return nil, fmt.Errorf("failed to read object %s: %w", key, err)
 	}
 	obj := &rawObject{body: body}
+	if out.ETag != nil {
+		obj.etag = *out.ETag
+	}
+	if out.ContentType != nil {
+		obj.contentType = *out.ContentType
+	}
+	if len(out.Metadata) > 0 {
+		obj.metadata = make(map[string]string, len(out.Metadata))
+		for k, v := range out.Metadata {
+			obj.metadata[strings.ToLower(k)] = v
+		}
+	}
+	return obj, nil
+}
+
+func (b *s3Backend) head(ctx context.Context, key string) (*rawObject, error) {
+	out, err := b.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(b.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		// HeadObject reports a missing key as NotFound, not NoSuchKey.
+		var nf *types.NotFound
+		if errors.As(err, &nf) {
+			return nil, nil //nolint:nilnil // a clean miss, mirroring get.
+		}
+		return nil, fmt.Errorf("failed to head object %s: %w", key, err)
+	}
+	obj := &rawObject{}
 	if out.ETag != nil {
 		obj.etag = *out.ETag
 	}
