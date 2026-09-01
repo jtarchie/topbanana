@@ -39,7 +39,7 @@ import (
 	"strings"
 	"sync"
 
-	genaiopenai "github.com/achetronic/adk-utils-go/genai/openai"
+	genaiopenai "github.com/achetronic/adk-utils-go/genai/openai/completions"
 	adkmodel "google.golang.org/adk/v2/model"
 )
 

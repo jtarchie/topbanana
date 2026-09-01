@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	genaianthropic "github.com/achetronic/adk-utils-go/genai/anthropic"
-	genaiopenai "github.com/achetronic/adk-utils-go/genai/openai"
+	genaiopenai "github.com/achetronic/adk-utils-go/genai/openai/completions"
 	adkmodel "google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
