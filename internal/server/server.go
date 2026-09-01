@@ -10,6 +10,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"reflect"
 	"sort"
@@ -161,17 +162,17 @@ func New(d Deps) (*echo.Echo, *Server) {
 	// pages below. It must be parsed first so the others can reference its
 	// blocks.
 	template.Must(tpl.Parse(layoutTemplate))
-	// image_drawer.html defines the "image_drawer" partial used by the
-	// workspace and manage pages. Parse it alongside the
-	// layout so any page below can reference {{ template "image_drawer" . }}.
+	// image_drawer.html defines the "image_drawer" partial used by the canvas.
+	// Parse it alongside the layout so any page below can reference
+	// {{ template "image_drawer" . }}.
 	template.Must(tpl.Parse(imageDrawerTemplate))
-	// runfeed_js.html defines the shared verdict-feed script used by the
-	// classic workspace and the v2 canvas.
+	// runfeed_js.html defines the verdict-feed script the canvas's Changes
+	// panel hydrates from. Kept a separate partial (rather than inlined) so a
+	// second host page can pick it up without copying the SSE wiring.
 	template.Must(tpl.Parse(runFeedJSTemplate))
 	for _, t := range []struct{ name, body string }{
 		{"landing", landingTemplate},
 		{"apps", appsTemplate},
-		{"workspace", workspaceTemplate},
 		{"canvas", canvasTemplate},
 		{"manage", manageTemplate},
 		{"inbox", inboxTemplate},
@@ -266,6 +267,15 @@ func (s *Server) siteURL(c *echo.Context, slug, path string) string {
 	return c.Scheme() + "://" + slug + "." + s.domain + s.publicPort(c) + path
 }
 
+// siteHost is siteURL's authority without the scheme or path: the address a
+// visitor would type. The canvas top bar shows it rather than the full URL
+// because the scheme is noise at that size, and it deliberately names the
+// slug subdomain even when a custom domain is attached, so it agrees with
+// where "View site" next to it actually goes.
+func (s *Server) siteHost(c *echo.Context, slug string) string {
+	return slug + "." + s.domain + s.publicPort(c)
+}
+
 // faviconHandler serves the embedded Top Banana banana mark on the admin
 // host. Subdomain requests never reach here — subdomainMiddleware intercepts
 // them and proxies to S3, so user sites get their own favicon (or 404).
@@ -343,15 +353,23 @@ func (s *Server) startBuild(c *echo.Context, p build.Params) error {
 }
 
 // redirectToWorkspace is the GET handler for legacy /edit/:slug,
-// /edit/:slug/theme, and /history/:slug paths. Their content all lives inside
-// the workspace now — as the main editor for /edit, and as side panels for
-// theme + history.
+// /edit/:slug/theme, /history/:slug, and /v2/workspace/:slug paths. Their
+// content all lives inside the workspace now — as the main editor for /edit,
+// and as side panels for theme + history.
+//
+// ?page is carried through: the live site's toolbar links to
+// /edit/{slug}?page={the page being viewed}, so dropping it would land the
+// owner on index.html instead of the page they clicked Edit from.
 func (s *sitesController) redirectToWorkspace(c *echo.Context) error {
 	slug, err := slugParam(c)
 	if err != nil {
 		return err
 	}
-	return c.Redirect(http.StatusFound, "/workspace/"+slug) //nolint:wrapcheck
+	dest := "/workspace/" + slug
+	if page := c.QueryParam("page"); page != "" && validatePage(page) == nil {
+		dest += "?page=" + url.QueryEscape(page)
+	}
+	return c.Redirect(http.StatusFound, dest) //nolint:wrapcheck
 }
 
 // redirectToManage is the GET handler for legacy /settings/:slug. Manage
@@ -800,14 +818,6 @@ func (s *Server) allocateSlug(ctx context.Context) (string, error) {
 		}
 	}
 	return "", echo.NewHTTPError(http.StatusInternalServerError, "could not allocate a free slug")
-}
-
-// editAsset is the per-image row rendered in the workspace's image library.
-// Alt is shown next to the path so users can see what the captioner inferred
-// without round-tripping through the agent.
-type editAsset struct {
-	Path string
-	Alt  string
 }
 
 func validatePage(page string) error {

@@ -197,6 +197,21 @@
           <span class="text-base-content/60" aria-hidden="true">→</span>
         </a>
       </li>
+      {{/* Server functions. Listed here rather than in the editor: they are
+           backend handlers behind /api/*, with nothing on the canvas to point
+           at. Only rendered when the site actually has some — an empty
+           heading would advertise a surface most sites never use. */}}
+      {{ if .Functions }}
+      <li class="px-4 py-3">
+        <div class="text-sm font-medium">Server functions</div>
+        <p class="text-xs text-base-content/70 mt-0.5">The handlers behind this site's <code class="font-mono">/api/</code> endpoints.</p>
+        <ul class="mt-2 space-y-1">
+          {{ range .Functions }}
+          <li><a class="link link-hover font-mono text-xs break-all" href="/edit/{{ $.Slug }}/function/{{ . }}">{{ . }}</a></li>
+          {{ end }}
+        </ul>
+      </li>
+      {{ end }}
       <li>
         <a href="/debug/{{ .Slug }}" class="flex items-center gap-3 px-4 py-3 hover:bg-base-200 transition">
           <div class="flex-1">
@@ -205,6 +220,18 @@
           </div>
           <span class="text-base-content/60" aria-hidden="true">→</span>
         </a>
+      </li>
+      {{/* Validate runs the deterministic lint pass and auto-fixes what it can,
+           without spending an agent run. It redirects back to the editor with
+           a flash, which is where the result matters. */}}
+      <li>
+        <form method="POST" action="/apps/{{ .Slug }}/lint" class="flex items-center gap-3 px-4 py-3 hover:bg-base-200 transition">
+          <div class="flex-1">
+            <div class="text-sm font-medium">Validate site</div>
+            <p class="text-xs text-base-content/70 mt-0.5">Check every page for broken links, missing titles, and other integrity problems. Fixes what it safely can.</p>
+          </div>
+          <button type="submit" class="btn btn-sm btn-outline">Validate</button>
+        </form>
       </li>
       <li>
         <a href="/export/{{ .Slug }}" class="flex items-center gap-3 px-4 py-3 hover:bg-base-200 transition">

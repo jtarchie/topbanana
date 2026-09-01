@@ -1,6 +1,6 @@
 package server_test
 
-// Drives the v2 canvas in a real browser. The edit-mode iframe is served
+// Drives the canvas in a real browser. The edit-mode iframe is served
 // with a CSP sandbox (opaque origin), so the parent cannot reach its DOM —
 // exactly the isolation under test — and the canvas is driven the way the
 // product works: real mouse clicks routed into the frame, plus the
@@ -90,7 +90,7 @@ func TestCanvas_SelectElementInBrowser(t *testing.T) {
 			Path:   "/",
 		}}),
 		chromedp.EmulateViewport(1440, 900),
-		chromedp.Navigate(httpSrv.URL+"/v2/workspace/"+slug),
+		chromedp.Navigate(httpSrv.URL+"/workspace/"+slug),
 		// The sandboxed frame's script announces readiness over postMessage;
 		// the parent records it — the only readiness signal an opaque-origin
 		// frame can give.
@@ -226,7 +226,7 @@ func TestCanvas_ImageDropInBrowser(t *testing.T) {
 			Domain: host,
 			Path:   "/",
 		}}),
-		chromedp.Navigate(httpSrv.URL+"/v2/workspace/"+slug),
+		chromedp.Navigate(httpSrv.URL+"/workspace/"+slug),
 		chromedp.Poll(`window.__tbReady === true`, nil, chromedp.WithPollingTimeout(15*time.Second)),
 		chromedp.Evaluate(dropPNGJS, nil),
 	)
@@ -321,5 +321,104 @@ func assertSelectionByAddress(t *testing.T, afterClick, stepOut, first, second s
 	}
 	if first.El != 7 || second.El != 8 {
 		t.Fatalf("identical content must select distinct served addresses, got %d and %d", first.El, second.El)
+	}
+}
+
+// TestCanvas_StylesheetScopeInBrowser drives the page menu's stylesheet scope
+// end to end: click the entry, type a prompt, submit, and assert the run the
+// server started was confined to that file. The wiring between the button and
+// the composer's `page` field is the part with no server-side equivalent — a
+// silent regression there sends a whole-site run instead, and the only symptom
+// is the agent editing pages the owner never asked it to touch.
+//
+// Skips when Chrome isn't installed.
+func TestCanvas_StylesheetScopeInBrowser(t *testing.T) {
+	st := minioStore(t)
+	chromePath := chromeExecPath(t)
+	if chromePath == "" {
+		t.Skip("no Chrome binary found — skipping browser test")
+	}
+
+	ctx := context.Background()
+	snapSvc := snapshot.New(st, 0)
+	slug := freshSlug(t)
+	cleanupSlug(t, ctx, st, snapSvc, slug)
+
+	mustWrite(t, ctx, st, slug, "index.html", canvasScopedPage, "text/html; charset=utf-8")
+	mustWrite(t, ctx, st, slug, "site.css", "h1 { color: red }", "text/css")
+	writeMeta(t, ctx, st, slug, build.SiteMeta{OwnerID: testAdminUser})
+
+	runner := &promptCaptureRunner{}
+	httpSrv := httptest.NewServer(buildServerWithRunner(t, st, snapSvc, runner))
+	t.Cleanup(httpSrv.Close)
+
+	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(),
+		append(chromedp.DefaultExecAllocatorOptions[:],
+			chromedp.ExecPath(chromePath),
+			chromedp.Flag("headless", true),
+			chromedp.Flag("no-sandbox", true),
+			chromedp.Flag("disable-gpu", true),
+		)...,
+	)
+	defer cancelAlloc()
+	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
+	defer cancelBrowser()
+
+	host := strings.SplitN(strings.TrimPrefix(httpSrv.URL, "http://"), ":", 2)[0]
+	navCtx, cancelNav := context.WithTimeout(browserCtx, 30*time.Second)
+	defer cancelNav()
+
+	var chipLabel string
+	var scopeCleared bool
+	err := chromedp.Run(navCtx,
+		network.SetCookies([]*network.CookieParam{{
+			Name:   testSessionCookie.Name,
+			Value:  testSessionCookie.Value,
+			Domain: host,
+			Path:   "/",
+		}}),
+		chromedp.EmulateViewport(1440, 900),
+		chromedp.Navigate(httpSrv.URL+"/workspace/"+slug),
+		chromedp.WaitVisible(`#edit-form`, chromedp.ByID),
+		// Select an element first, so this also pins that the two scope kinds
+		// are mutually exclusive: picking a file must drop the element, or the
+		// run would carry both and the chip would name only one of them.
+		chromedp.Evaluate(tbClick("h1"), nil),
+		chromedp.Sleep(300*time.Millisecond),
+		chromedp.Evaluate(`document.querySelector('.js-css-scope[data-path="site.css"]').click()`, nil),
+		chromedp.Sleep(200*time.Millisecond),
+		chromedp.Evaluate(`window.__tbScope === null`, &scopeCleared),
+		chromedp.Text(`#scope-label`, &chipLabel, chromedp.ByID),
+		chromedp.Evaluate(`(function(){
+			document.getElementById('prompt').value = 'make the heading blue';
+			document.getElementById('edit-form').requestSubmit();
+			return true;
+		})()`, nil),
+	)
+	if err != nil {
+		if shouldSkipChrome(err) {
+			t.Skipf("chromedp run failed (%v) — skipping", err)
+		}
+		t.Fatalf("chromedp run: %v", err)
+	}
+	if !scopeCleared {
+		t.Error("picking a stylesheet must drop the element selection")
+	}
+	if chipLabel != "site.css" {
+		t.Errorf("scope chip = %q, want it to name the stylesheet", chipLabel)
+	}
+
+	// The run is started asynchronously by the POST; poll for the prompt the
+	// service handed the agent.
+	var prompt string
+	for range 100 {
+		prompt = runner.first()
+		if prompt != "" {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !strings.Contains(prompt, "Edit only the page 'site.css'") {
+		t.Errorf("agent prompt was not confined to the stylesheet:\n%s", prompt)
 	}
 }

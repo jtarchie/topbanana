@@ -16,7 +16,7 @@ import (
 
 // TestClarify_QuestionCardInBrowser drives the ask_user question card in a real
 // browser. The HTTP-level TestClarify_EndToEnd proves the server side of the
-// loop; it can't catch a client-side regression in workspace.html's
+// loop; it can't catch a client-side regression in canvas.html's
 // renderQuestionCard / postClarify / removeQuestionCard handlers. This does: it
 // waits for the card to render from the SSE PhaseAsk event, clicks "Use this
 // suggestion", and confirms the card is removed (PhaseAnswer) and the build
@@ -40,8 +40,8 @@ func TestClarify_QuestionCardInBrowser(t *testing.T) {
 	slug := "clfyui-" + freshSlug(t)
 	cleanupSlug(t, ctx, st, snapSvc, slug)
 
-	// Kick the build so the workspace renders in ?building=1 mode (status strip
-	// enabled). The stub agent asks a question and blocks until /clarify answers.
+	// Kick the build so the canvas reattaches to it on load and opens the SSE
+	// stream. The stub agent asks a question and blocks until /clarify answers.
 	postBuildForm(t, httpSrv.URL, url.Values{
 		"template": {"blank"},
 		"slug":     {slug},
@@ -69,6 +69,7 @@ func TestClarify_QuestionCardInBrowser(t *testing.T) {
 
 	var questionText string
 	var cardGone bool
+	var buildDone bool
 	err := chromedp.Run(navCtx,
 		network.SetCookies([]*network.CookieParam{{
 			Name:   testSessionCookie.Name,
@@ -77,10 +78,11 @@ func TestClarify_QuestionCardInBrowser(t *testing.T) {
 			Path:   "/",
 		}}),
 		chromedp.Navigate(httpSrv.URL+"/workspace/"+slug+"?building=1"),
-		chromedp.WaitVisible(`#status-strip`, chromedp.ByID),
-		// The question card renders from the SSE PhaseAsk event.
-		chromedp.WaitVisible(`[data-qid]`, chromedp.ByQuery),
-		chromedp.Text(`[data-qid] h3`, &questionText, chromedp.ByQuery, chromedp.NodeVisible),
+		chromedp.WaitVisible(`#canvas-status`, chromedp.ByID),
+		// The question card renders from the SSE PhaseAsk event, into the
+		// command bar's clarify host.
+		chromedp.WaitVisible(`#clarify-host [data-qid]`, chromedp.ByQuery),
+		chromedp.Text(`#clarify-host [data-qid] > div:first-child`, &questionText, chromedp.ByQuery, chromedp.NodeVisible),
 		// Click "Use this suggestion" — the .btn-primary inside the card — which
 		// POSTs the recommendation to /clarify via postClarify().
 		chromedp.Click(`[data-qid] .btn-primary`, chromedp.ByQuery),
@@ -90,8 +92,13 @@ func TestClarify_QuestionCardInBrowser(t *testing.T) {
 			&cardGone,
 			chromedp.WithPollingInterval(100*time.Millisecond),
 		),
-		// With the answer delivered the build completes and reveals the success panel.
-		chromedp.WaitVisible(`#build-success`, chromedp.ByID),
+		// With the answer delivered the build completes and the canvas releases
+		// the composer it disabled on reattach.
+		chromedp.Poll(
+			`document.getElementById('prompt').disabled === false`,
+			&buildDone,
+			chromedp.WithPollingInterval(100*time.Millisecond),
+		),
 	)
 	if err != nil {
 		if shouldSkipChrome(err) {
@@ -105,6 +112,9 @@ func TestClarify_QuestionCardInBrowser(t *testing.T) {
 	}
 	if !cardGone {
 		t.Error("question card was never removed after answering")
+	}
+	if !buildDone {
+		t.Error("composer was never re-enabled after the answered build finished")
 	}
 
 	// Clicking "Use this suggestion" must deliver the recommendation to the agent.

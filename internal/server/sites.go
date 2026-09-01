@@ -35,9 +35,12 @@ func (s *sitesController) register(g *echo.Group, owns echo.MiddlewareFunc) {
 	g.POST("/build", s.buildHandler, promptWithAttachmentsBodyCap)
 	g.GET("/apps", s.appsHandler)
 
-	g.GET("/workspace/:slug", s.workspaceHandler, owns)
-	g.GET("/v2/workspace/:slug", s.canvasHandler, owns)
-	g.POST("/v2/text/:slug", s.textEditHandler, owns, promptBodyCap)
+	g.GET("/workspace/:slug", s.canvasHandler, owns)
+	// The canvas shipped at /v2/workspace before it became the workspace.
+	// One redirect keeps those bookmarks alive; no ownership gate, since a
+	// redirect to a gated URL reveals nothing the gate wouldn't.
+	g.GET("/v2/workspace/:slug", s.redirectToWorkspace)
+	g.POST("/text/:slug", s.textEditHandler, owns, promptBodyCap)
 	g.GET("/manage/:slug", s.manageHandler, owns)
 	g.GET("/inbox/:slug", s.inboxHandler, owns)
 	g.GET("/edit/:slug", s.redirectToWorkspace, owns)

@@ -1,56 +1,162 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="lemonade">
 <head>
-<title>Canvas: {{ .SiteName }} — Top Banana</title>
+<title>Canvas: {{ .SiteName }} · Top Banana</title>
 {{ template "head" . }}
 </head>
 <body class="h-screen flex flex-col bg-base-200 overflow-hidden">
 
-{{/* Top bar: identity, page switcher, and the ways out. Everything else in
-     v2 lives on the canvas itself. */}}
-<header class="flex items-center gap-3 px-3 h-12 bg-base-100 border-b border-base-300 shrink-0">
-  <a href="/apps" class="flex items-center gap-2 shrink-0" aria-label="Back to your apps">
+{{/* Top bar: identity, page switcher, and the ways out. Everything else lives
+     on the canvas itself.
+
+     The chrome sits on base-300, a rung darker than any surface a generated
+     site is likely to use, because the canvas below is full-bleed: on the
+     old base-100 bar a light site's own header butted straight against the
+     tool's and the two read as one navigation stack. The tool has to be
+     visibly a different material from the artifact. */}}
+<header class="flex items-center gap-2 sm:gap-3 px-2 sm:px-3 h-12 bg-base-300 border-b border-base-content/15 shrink-0">
+  <a href="/apps" class="flex items-center gap-2 shrink-0 min-w-0" aria-label="Back to your apps">
     <img src="/favicon.svg" alt="" width="22" height="22">
-    <span class="font-semibold text-sm hidden sm:inline">{{ .SiteName }}</span>
+    <span class="font-semibold text-[0.9375rem] leading-none truncate max-w-[10rem] hidden sm:inline">{{ .SiteName }}</span>
   </a>
 
+  {{/* Page switcher. A plain list of paths: the earlier live-iframe
+       thumbnails rendered every page of the site just to open a menu, and a
+       12%-scaled screenshot of a mostly-text page is not what anyone reads to
+       pick one — the filename is. */}}
   <div class="dropdown" id="page-menu">
     <button type="button" tabindex="0" class="btn btn-sm btn-ghost font-mono text-xs" id="page-btn" aria-haspopup="listbox">
       {{ .Page }} <span aria-hidden="true">▾</span>
     </button>
-    {{/* Thumbnails are live mini-renders of each page — plain scaled iframes
-         off the /s mount, so no screenshot infrastructure. They stay src-less
-         until the menu first opens (loadThumbs), so visiting the canvas
-         doesn't fetch every page of the site. */}}
-    <ul tabindex="0" class="dropdown-content menu menu-sm z-30 mt-1 p-1 bg-base-100 border border-base-300 rounded-box shadow-lg w-72 max-h-[70vh] overflow-y-auto flex-nowrap" role="listbox">
+    <ul tabindex="0" class="dropdown-content menu menu-sm z-30 mt-1 p-1 bg-base-100 border border-base-300 rounded-box shadow-lg w-64 max-h-[70vh] overflow-y-auto flex-nowrap" role="listbox">
       {{ range .Pages }}
       <li>
-        <a href="/v2/workspace/{{ $.Slug }}?page={{ . }}" class="flex items-center gap-3{{ if eq . $.Page }} active{{ end }}">
-          <span class="w-20 h-14 shrink-0 overflow-hidden rounded border border-base-300 bg-white relative" aria-hidden="true">
-            <iframe data-thumb-src="{{ $.PreviewBase }}/{{ . }}" tabindex="-1" title=""
-                    class="w-[640px] h-[448px] absolute top-0 left-0 origin-top-left scale-[0.125] pointer-events-none border-0"></iframe>
-          </span>
-          <span class="font-mono text-xs truncate">{{ . }}</span>
-        </a>
+        <a href="/workspace/{{ $.Slug }}?page={{ . }}" class="font-mono text-xs break-all{{ if eq . $.Page }} active{{ end }}">{{ . }}</a>
       </li>
+      {{ end }}
+      {{/* Stylesheets are a scope, not a destination: there is nothing to
+           render in the frame for a .css file, so picking one aims the
+           composer at it (the run's `page` field) instead of navigating. On a
+           bring-your-own-CSS site this sheet IS the design, and it's the file
+           lint names by path — without this the owner can only reach it
+           through the raw file list. */}}
+      {{ if .Stylesheets }}
+      <li class="menu-title text-xs">Stylesheet</li>
+      {{ range .Stylesheets }}
+      <li>
+        <button type="button" class="js-css-scope font-mono text-xs break-all" data-path="{{ . }}">{{ . }}</button>
+      </li>
+      {{ end }}
       {{ end }}
       <li class="border-t border-base-300 mt-1 pt-1">
         <button type="button" id="new-page-btn" class="text-xs">＋ New page…</button>
       </li>
+      <li>
+        <button type="button" id="rename-page-btn" class="text-xs">Rename this page…</button>
+      </li>
+      <li>
+        {{/* Deleting the page you're looking at: the confirm dialog carries the
+             homepage warning, and the form posts the path as its own
+             confirmation token the way the file list does. */}}
+        <form method="POST" action="/files/{{ .Slug }}" class="js-confirm contents"
+              data-confirm-title="Delete {{ .Page }}?"
+              data-confirm="{{ if eq .Page `index.html` }}This is your homepage. Your site will be unreachable until you create a new index.html. {{ end }}This permanently removes the file. There's no undo."
+              data-confirm-ok="Delete">
+          <input type="hidden" name="_method" value="DELETE">
+          <input type="hidden" name="path" value="{{ .Page }}">
+          <input type="hidden" name="confirm" value="{{ .Page }}">
+          {{/* daisyUI pads `li > *`, which here is the form — and padding on a
+               display:contents box does nothing. The button restates the menu
+               item's own padding so it lines up with its siblings. */}}
+          <button type="submit" class="text-xs text-error w-full text-left px-3 py-1.5 rounded-field">Delete this page</button>
+        </form>
+      </li>
     </ul>
   </div>
 
-  <span id="canvas-status" class="text-sm text-base-content/70 truncate flex-1 min-w-0" role="status" aria-live="polite"></span>
+  {{/* Centre zone, one slot with two tenants. At rest it names the address
+       being edited, which is both the answer to "which site is this" and the
+       thing the owner shares; during a run the live status takes over. They
+       swap in CSS off :empty, so nothing has to remember to restore the
+       address when a run ends. The status keeps the live region to itself so
+       the address is never announced as an update. */}}
+  <div class="flex-1 min-w-0 flex justify-center px-2">
+    <span id="canvas-status" class="text-sm text-base-content/80 truncate" role="status" aria-live="polite"></span>
+    {{/* The address is the first thing to go when the bar is tight: on a phone
+         the actions have to fit, and the page switcher already says where you
+         are. The ID rule above still outranks `sm:inline`, so the status can
+         take the slot at any width. */}}
+    {{/* /70, not the /55 this started at: it's 12px mono, so AA wants the
+         same 4.5:1 as body text, and the muted-caption tint misses that on
+         base-300 in both themes. */}}
+    <span id="canvas-host" class="text-xs font-mono text-base-content/70 truncate hidden sm:inline">{{ .SiteHost }}</span>
+  </div>
 
-  <button type="button" id="changes-btn" data-panel="changes" class="btn btn-sm btn-ghost">Changes</button>
-  <a href="{{ .SiteURL }}" target="_blank" rel="noopener" class="btn btn-sm btn-ghost">View site</a>
-  <a href="/workspace/{{ .Slug }}" class="btn btn-sm btn-ghost text-base-content/70" title="Back to the classic workspace">Classic</a>
+  <button type="button" id="changes-btn" data-panel="changes" class="btn btn-sm btn-ghost text-[0.8125rem]">Changes</button>
+
+  {{/* Overflow menu. Only the tools that need the live canvas live here:
+       Themes stages a theme into the frame before writing anything, Images
+       pastes a reference into the composer, and Version history is the wider
+       sibling of the feed's per-run Undo. The non-visual ones (validate,
+       export, server functions, all files) sit on the Settings tab.
+
+       Grouped and labelled because the menu spans two different axes: things
+       that act on this site, and the site's other two tabs. Unlabelled they
+       read as one list where "Settings" is a peer of "Themes", which is the
+       junk-drawer smell. The canvas is full-bleed and has no room for the
+       shared site_subnav, so this is where Inbox and Settings live. */}}
+  <div class="dropdown dropdown-end">
+    <button type="button" tabindex="0" class="btn btn-sm btn-ghost btn-square" aria-haspopup="menu" aria-label="More tools">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+    </button>
+    <ul tabindex="0" class="dropdown-content menu menu-sm z-30 mt-1 p-1 bg-base-100 border border-base-300 rounded-box shadow-lg w-52" role="menu">
+      <li class="menu-title text-xs">This site</li>
+      <li><button type="button" data-panel="themes">Themes</button></li>
+      <li><button type="button" id="open-image-drawer">Images</button></li>
+      <li><button type="button" data-panel="history">Version history</button></li>
+      <li class="menu-title text-xs">Go to</li>
+      <li><a href="/inbox/{{ .Slug }}">Inbox</a></li>
+      <li><a href="/manage/{{ .Slug }}">Settings</a></li>
+    </ul>
+  </div>
+
+  {{/* Icon-only on a phone. At 390px the labelled version pushed itself off
+       the right edge and rendered as "View s", which is worse than an icon
+       with an accessible name. */}}
+  <a href="{{ .SiteURL }}" target="_blank" rel="noopener" aria-label="View site in a new tab"
+     class="btn btn-sm btn-ghost text-[0.8125rem] max-sm:btn-square shrink-0">
+    <svg class="sm:hidden" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg>
+    <span class="max-sm:hidden">View site</span>
+  </a>
 </header>
+<style>
+  /* The centre slot's two tenants: the run status wins whenever it has text,
+     and the site address returns the moment it's cleared. In CSS because
+     every existing `statusEl.textContent = ''` then restores the address on
+     its own, with nothing to remember at a dozen call sites. */
+  #canvas-status:not(:empty) ~ #canvas-host { display: none; }
+</style>
 
-{{/* The site, full bleed, in edit mode. */}}
-<div class="flex-1 relative min-h-0">
+{{/* Flash values are SENTINELS mapped to copy here, never echoed text — a
+     crafted ?flash= link must not print its own words in a trusted banner. */}}
+{{ if or (eq .Flash "restored") (eq .Flash "snapshot-deleted") (eq .Flash "lint-clean") (eq .Flash "lint-autofixed") }}
+<div class="alert alert-success rounded-none py-2 shrink-0" role="status">
+  <span>
+    {{ if eq .Flash "restored" }}Restored. The current state was saved first, so you can bring it back from Version history.{{ end }}
+    {{ if eq .Flash "snapshot-deleted" }}Snapshot deleted.{{ end }}
+    {{ if eq .Flash "lint-clean" }}Validation passed. No issues found.{{ end }}
+    {{ if eq .Flash "lint-autofixed" }}Issues fixed automatically. No agent run was needed.{{ end }}
+  </span>
+</div>
+{{ end }}
+
+{{/* The site in edit mode, inset just enough to read as a document sitting in
+     the tool rather than as more of the tool. Twelve pixels and a border cost
+     ~1% of the editing area and buy the one distinction the page has to make:
+     everything inside the border is yours, everything outside it is ours. */}}
+<div class="flex-1 relative min-h-0 p-3">
   <iframe id="canvas-frame" src="{{ .EditURL }}" title="Your site, in edit mode"
-          class="w-full h-full block bg-white"></iframe>
+          class="w-full h-full block bg-white rounded-lg border border-base-content/15 shadow-sm"></iframe>
 
   {{/* Floating command bar. The scope chip names what the prompt applies to:
        the whole site by default, or the element selected on the canvas.
@@ -75,12 +181,16 @@
   </style>
   <form id="edit-form" method="POST" action="/edit/{{ .Slug }}"
         class="absolute bottom-4 w-[min(44rem,calc(100%-2rem))] bg-base-100 border border-base-300 rounded-box shadow-xl p-3 flex flex-col gap-2">
+    {{/* The agent's ask_user questions land here, inside the command bar: a
+         question is about the change being asked for, and the bar is pinned
+         open while a run is live so a card can never scroll away. */}}
+    <div id="clarify-host" class="flex flex-col gap-2 empty:hidden"></div>
     <div class="flex items-center gap-2 text-xs">
       <span id="scope-chip" class="badge badge-ghost gap-1 max-w-full">
         <span id="scope-label" class="truncate">Whole site</span>
       </span>
       <button type="button" id="scope-clear" class="btn btn-ghost btn-xs hidden">Clear</button>
-      <span class="text-base-content/50 max-sm:hidden" id="scope-hint">Click anything to change just that · double-click text to edit it.</span>
+      <span class="text-base-content/50 max-sm:hidden" id="scope-hint">Click anything to change just that. Double-click text to edit it.</span>
     </div>
     <div class="flex gap-2 items-end">
       <textarea name="prompt" id="prompt" rows="1" maxlength="4096" required
@@ -103,6 +213,105 @@
   </div>
 </aside>
 
+{{/* Themes slide-over. The gallery stages a theme by postMessage into the edit
+     frame — canvas.js applies it to the live document — and only writes on
+     Apply, so the whole picker is a preview until the owner commits. */}}
+<div class="side-scrim" id="scrim-themes" data-scrim="themes"></div>
+<aside class="side-panel bg-base-100 border-l border-base-300 flex flex-col" id="panel-themes" aria-label="Themes" aria-hidden="true">
+  <header class="flex items-center justify-between p-4 border-b border-base-300">
+    <h2 class="font-semibold">Themes</h2>
+    <button type="button" class="btn btn-ghost btn-sm btn-square" data-close="themes" aria-label="Close themes panel">×</button>
+  </header>
+  <div class="p-4 flex items-center gap-3 flex-wrap border-b border-base-300">
+    <span class="text-xs text-base-content/60">Applied:</span>
+    <span id="theme-current" class="badge badge-primary">{{ .CurrentTheme }}</span>
+    <span id="theme-staged" class="badge badge-warning hidden">previewing</span>
+    <button type="button" id="theme-revert" class="btn btn-ghost btn-xs ml-auto" disabled>Cancel</button>
+    <button type="button" id="theme-apply" class="btn btn-primary btn-xs" disabled>Apply</button>
+  </div>
+  <div id="theme-gallery" class="overflow-y-auto p-3 space-y-3 flex-1"></div>
+  <div id="theme-warnings" class="alert alert-warning text-xs m-3 hidden">
+    <div>
+      <strong>Saved with warnings:</strong>
+      <ul id="theme-warning-list" class="list-disc list-inside mt-1"></ul>
+    </div>
+  </div>
+</aside>
+
+{{/* Version history slide-over. The run feed's Undo restores the snapshot for
+     one specific run; this is the same store viewed whole, including the
+     snapshots no run in the feed produced (imports, text edits, restores). */}}
+<div class="side-scrim" id="scrim-history" data-scrim="history"></div>
+<aside class="side-panel bg-base-100 border-l border-base-300 flex flex-col" id="panel-history" aria-label="Version history" aria-hidden="true">
+  <header class="flex items-center justify-between p-4 border-b border-base-300">
+    <h2 class="font-semibold">Version history</h2>
+    <button type="button" class="btn btn-ghost btn-sm btn-square" data-close="history" aria-label="Close history panel">×</button>
+  </header>
+  <div class="overflow-y-auto p-3 space-y-2 flex-1">
+    {{ if .Snapshots }}
+      <p class="text-xs text-base-content/60 px-1">A new version is saved before every change. Restore brings the site back to that state, saving the current state first so you can always come forward.</p>
+      <ul class="timeline timeline-vertical timeline-compact mt-2">
+        {{ range $i, $s := .Snapshots }}
+        <li>
+          {{ if $i }}<hr/>{{ end }}
+          <div class="timeline-middle"><span class="badge badge-primary badge-xs"></span></div>
+          <div class="timeline-end timeline-box w-full !p-3">
+            <div class="text-sm font-medium">{{ $s.WhenLabel }}</div>
+            <div class="text-xs text-base-content/60 mt-1">{{ $s.Reason }} · {{ $s.FileCount }} files · {{ $s.SizeLabel }}</div>
+            <div class="flex gap-2 mt-2">
+              <form method="POST" action="/history/{{ $.Slug }}"
+                    class="js-confirm contents"
+                    data-confirm-title="Restore this version?"
+                    data-confirm="The current state will be saved first, then the site will be restored to this version."
+                    data-confirm-ok="Restore"
+                    data-confirm-tone="primary">
+                <input type="hidden" name="_method" value="PUT">
+                <input type="hidden" name="key" value="{{ $s.Key }}">
+                <button type="submit" class="btn btn-ghost btn-xs">Restore</button>
+              </form>
+              <form method="POST" action="/history/{{ $.Slug }}"
+                    class="js-confirm contents"
+                    data-confirm-title="Delete this version?"
+                    data-confirm="Permanently remove this saved version. The current site is unaffected."
+                    data-confirm-ok="Delete">
+                <input type="hidden" name="_method" value="DELETE">
+                <input type="hidden" name="key" value="{{ $s.Key }}">
+                <button type="submit" class="btn btn-ghost btn-xs text-error">Delete</button>
+              </form>
+            </div>
+          </div>
+        </li>
+        {{ end }}
+      </ul>
+    {{ else }}
+      <p class="text-sm text-base-content/70 px-1">No versions saved yet. The first one will appear after your next change.</p>
+    {{ end }}
+  </div>
+</aside>
+
+{{/* Rename lives in a dialog rather than inline in the page menu: the menu
+     closes on the first interaction, which a text field cannot survive. */}}
+<dialog id="rename-dialog" class="modal">
+  {{/* The dialog is its own confirmation — it names the file and states the
+       consequence — so it carries no js-confirm, which would stack a second
+       modal on top of this one. */}}
+  <form method="POST" action="/files/{{ .Slug }}" class="modal-box">
+    <input type="hidden" name="_method" value="PATCH">
+    <input type="hidden" name="from" value="{{ .Page }}">
+    <h3 class="font-semibold mb-3">Rename <code class="font-mono text-sm">{{ .Page }}</code></h3>
+    <label for="rename-to" class="text-xs text-base-content/60">New path</label>
+    <input id="rename-to" type="text" name="to" value="{{ .Page }}" autocomplete="off"
+           class="input input-sm font-mono text-xs w-full mt-1">
+    <p class="text-xs text-base-content/70 mt-2">Links and bookmarks pointing at <code class="font-mono">/{{ .Page }}</code> will break. There's no automatic redirect.</p>
+    <div class="modal-action">
+      <button type="button" class="btn btn-sm btn-ghost" id="rename-cancel">Cancel</button>
+      <button type="submit" class="btn btn-sm btn-primary">Rename</button>
+    </div>
+  </form>
+</dialog>
+
+{{ template "image_drawer" . }}
+
 <div id="toast" class="toast toast-end z-50"></div>
 
 <script>
@@ -119,7 +328,14 @@
     var scopeLabel = document.getElementById('scope-label');
     var scopeClear = document.getElementById('scope-clear');
     var scopeHint = document.getElementById('scope-hint');
-    var scope = null; // {el, tag, breadcrumb, outer_html}
+    // Two kinds of scope, mutually exclusive — the chip names exactly one
+    // thing the next run applies to. `scope` is an element clicked on the
+    // canvas (rides scope_el + scope_page, server-resolved from stored bytes);
+    // `fileScope` is a stylesheet picked from the page menu (rides the run's
+    // `page` field). Setting either clears the other, and paintScope is the
+    // single writer of the chip so they can never disagree.
+    var scope = null;     // {el, tag, breadcrumb, text}
+    var fileScope = null; // stored path of a stylesheet, e.g. "site.css"
 
     function toast(msg, kind) {
       var t = document.getElementById('toast');
@@ -147,7 +363,7 @@
         return;
       }
       if (d.type === 'tb-text-start') {
-        statusEl.textContent = 'Editing text — Enter saves, Esc cancels.';
+        statusEl.textContent = 'Editing text. Enter saves, Esc cancels.';
         return;
       }
       if (d.type === 'tb-text-note') {
@@ -174,29 +390,58 @@
       // "data-tb-el=NaN" into the prompt.
       if (typeof d.el !== 'number' || !isFinite(d.el)) {
         scope = null;
-        window.__tbScope = null;
-        scopeLabel.textContent = 'Whole site';
-        scopeClear.classList.add('hidden');
-        scopeHint.style.display = '';
+        paintScope();
         return;
       }
       scope = d;
-      // Exposed for tests and debugging: the selection's identity is the
-      // element address (el), never its text — two elements with identical
-      // content differ only here.
-      window.__tbScope = scope;
-      scopeLabel.textContent = 'This ' + (d.tag || 'element') + (d.text ? ' — “' + d.text.slice(0, 40) + (d.text.length > 40 ? '…' : '') + '”' : '');
-      scopeClear.classList.remove('hidden');
-      scopeHint.style.display = 'none';
+      fileScope = null;
+      paintScope();
       promptEl.focus();
     });
-    scopeClear.addEventListener('click', function () {
+
+    // paintScope is the only writer of the scope chip. `window.__tbScope` is
+    // exposed for tests and debugging: a selection's identity is the element
+    // address (el), never its text — two elements with identical content
+    // differ only there.
+    function paintScope() {
+      window.__tbScope = scope;
+      var label = 'Whole site';
+      if (scope) {
+        label = 'This ' + (scope.tag || 'element') +
+          (scope.text ? ': “' + scope.text.slice(0, 40) + (scope.text.length > 40 ? '…' : '') + '”' : '');
+      } else if (fileScope) {
+        label = fileScope;
+      }
+      scopeLabel.textContent = label;
+      var scoped = !!(scope || fileScope);
+      scopeClear.classList.toggle('hidden', !scoped);
+      scopeHint.style.display = scoped ? 'none' : '';
+    }
+
+    // clearScope drops both kinds and tells the frame to drop its selection
+    // halo. Safe to call when nothing is selected.
+    function clearScope() {
       scope = null;
-      scopeLabel.textContent = 'Whole site';
-      scopeClear.classList.add('hidden');
-      scopeHint.style.display = '';
+      fileScope = null;
+      paintScope();
       var w = frame.contentWindow;
       if (w) w.postMessage({ type: 'tb-clear' }, '*');
+    }
+    scopeClear.addEventListener('click', clearScope);
+
+    // Picking a stylesheet aims the composer at that file. It also drops any
+    // element selection — including the frame's halo, which would otherwise
+    // keep pointing at markup the next run is no longer about.
+    Array.prototype.forEach.call(document.querySelectorAll('.js-css-scope'), function (btn) {
+      btn.addEventListener('click', function () {
+        scope = null;
+        fileScope = btn.getAttribute('data-path');
+        var w = frame.contentWindow;
+        if (w) w.postMessage({ type: 'tb-clear' }, '*');
+        paintScope();
+        expandBar();
+        promptEl.focus();
+      });
     });
 
     function reloadFrame() {
@@ -215,7 +460,7 @@
       fd.append('text', d.text == null ? '' : d.text);
       fd.append('expect', d.expect == null ? '' : d.expect);
       statusEl.textContent = 'Saving…';
-      fetch('/v2/text/' + encodeURIComponent(slug), { method: 'POST', body: fd })
+      fetch('/text/' + encodeURIComponent(slug), { method: 'POST', body: fd })
         .then(function (r) {
           if (r.ok) return { ok: true, message: '' };
           return r.text().then(function (body) {
@@ -265,7 +510,10 @@
     function startRun(text, scopeEl) {
       var fd = new FormData();
       fd.append('prompt', text);
-      fd.append('page', '');
+      // `page` confines the run to one file. Only ever a stylesheet here: the
+      // canvas scopes work on a *page* by element address instead, which is
+      // narrower and survives duplicated content. Empty means the whole site.
+      fd.append('page', (scopeEl == null && fileScope) ? fileScope : '');
       if (scopeEl != null) {
         fd.append('scope_el', String(scopeEl));
         fd.append('scope_page', page);
@@ -324,20 +572,8 @@
     }
     window.__tbHandleImageDrop = handleImageDrop;
 
-    // ----- page menu: lazy thumbnails and the new-page starter -----
+    // ----- page menu: the new-page starter and the rename dialog -----
     (function () {
-      var menu = document.getElementById('page-menu');
-      var loaded = false;
-      function loadThumbs() {
-        if (loaded || !menu) return;
-        loaded = true;
-        menu.querySelectorAll('iframe[data-thumb-src]').forEach(function (f) {
-          f.src = f.getAttribute('data-thumb-src');
-        });
-      }
-      if (menu) menu.addEventListener('focusin', loadThumbs);
-      var pageBtn = document.getElementById('page-btn');
-      if (pageBtn) pageBtn.addEventListener('click', loadThumbs);
       var newPage = document.getElementById('new-page-btn');
       if (newPage) {
         newPage.addEventListener('click', function () {
@@ -347,11 +583,283 @@
           toast('Name the page and say what goes on it, then Apply.');
         });
       }
+      var dlg = document.getElementById('rename-dialog');
+      var renameBtn = document.getElementById('rename-page-btn');
+      if (dlg && renameBtn) {
+        renameBtn.addEventListener('click', function () { dlg.showModal(); });
+        var cancel = document.getElementById('rename-cancel');
+        if (cancel) cancel.addEventListener('click', function () { dlg.close(); });
+      }
     })();
+
+    // ----- images: the shared drawer, pasting `assets/<path>` into the
+    // composer. Dropping a file onto the page places it directly; this is the
+    // path for an image the site already has, or one you'd rather describe
+    // than aim. -----
+    (function () {
+      if (!window.TBImageDrawer) return;
+      TBImageDrawer.init({
+        slug: slug,
+        mode: 'insert',
+        onInsert: function (asset) {
+          var snippet = '`' + asset.path + '`';
+          // A never-focused textarea reports selection 0,0 — prepending there
+          // would put the snippet ahead of text the user already typed.
+          var start = promptEl.selectionStart || 0;
+          var end = promptEl.selectionEnd || 0;
+          if (document.activeElement !== promptEl && start === 0 && end === 0 && promptEl.value.length > 0) {
+            start = end = promptEl.value.length;
+          }
+          var pre = promptEl.value.slice(0, start);
+          var post = promptEl.value.slice(end);
+          var pad = pre && !/\s$/.test(pre) ? ' ' : '';
+          promptEl.value = pre + pad + snippet + ' ' + post;
+          var caret = (pre + pad + snippet + ' ').length;
+          expandBar();
+          promptEl.focus();
+          try { promptEl.setSelectionRange(caret, caret); } catch (_) {}
+          toast('Added ' + asset.path + '. Describe how to use it.');
+        },
+      });
+      var btn = document.getElementById('open-image-drawer');
+      if (btn) btn.addEventListener('click', function () { TBImageDrawer.open(); });
+    })();
+
+    // ----- theme picker: stage into the live frame, write only on Apply -----
+    (function () {
+      var themes = {{ .ThemesJSON }};
+      var appliedTheme = {{ .CurrentThemeJSON }};
+      var stagedTheme = appliedTheme;
+
+      var gallery = document.getElementById('theme-gallery');
+      if (!gallery) return;
+      var currentBadge = document.getElementById('theme-current');
+      var stagedBadge = document.getElementById('theme-staged');
+      var themeApply = document.getElementById('theme-apply');
+      var themeRevert = document.getElementById('theme-revert');
+      var warningsBox = document.getElementById('theme-warnings');
+      var warningsList = document.getElementById('theme-warning-list');
+
+      var groups = {};
+      themes.forEach(function (t) { (groups[t.category] = groups[t.category] || []).push(t); });
+      Object.keys(groups).forEach(function (cat) {
+        var section = document.createElement('section');
+        var h = document.createElement('h3');
+        h.className = 'text-xs uppercase tracking-wide text-base-content/60 font-semibold mb-2 mt-2';
+        h.textContent = cat;
+        section.appendChild(h);
+        var grid = document.createElement('div');
+        grid.className = 'grid grid-cols-2 gap-2';
+        groups[cat].forEach(function (t) {
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'swatch text-left p-2 rounded-box border border-base-300 bg-base-100 hover:border-primary transition cursor-pointer';
+          btn.dataset.theme = t.name;
+          var top = document.createElement('div');
+          top.className = 'flex items-center justify-between text-xs mb-1';
+          var name = document.createElement('span');
+          name.className = 'font-medium';
+          name.textContent = t.name;
+          var tag = document.createElement('span');
+          tag.className = 'tag text-base-content/60';
+          top.appendChild(name);
+          top.appendChild(tag);
+          btn.appendChild(top);
+          var chips = document.createElement('div');
+          chips.className = 'flex gap-1';
+          ['primary', 'secondary', 'accent', 'base'].forEach(function (k) {
+            var chip = document.createElement('div');
+            chip.className = 'flex-1 h-4 rounded';
+            chip.style.background = t[k];
+            chip.style.border = '1px solid rgba(0,0,0,0.08)';
+            chips.appendChild(chip);
+          });
+          btn.appendChild(chips);
+          btn.addEventListener('click', function () { stageTheme(t.name); });
+          grid.appendChild(btn);
+        });
+        section.appendChild(grid);
+        gallery.appendChild(section);
+      });
+
+      function postTheme(theme) {
+        var w = frame.contentWindow;
+        if (w) w.postMessage({ type: 'topbanana:settheme', theme: theme }, '*');
+      }
+      function paintThemes() {
+        Array.prototype.forEach.call(gallery.querySelectorAll('.swatch'), function (el) {
+          var t = el.dataset.theme;
+          el.classList.toggle('border-success', t === appliedTheme);
+          el.classList.toggle('bg-success/10', t === appliedTheme);
+          el.classList.toggle('border-primary', t === stagedTheme && t !== appliedTheme);
+          el.classList.toggle('bg-primary/10', t === stagedTheme && t !== appliedTheme);
+          var tag = el.querySelector('.tag');
+          if (t === appliedTheme) tag.textContent = 'applied';
+          else if (t === stagedTheme) tag.textContent = 'previewing';
+          else tag.textContent = '';
+        });
+        currentBadge.textContent = appliedTheme;
+        var dirty = stagedTheme !== appliedTheme;
+        stagedBadge.classList.toggle('hidden', !dirty);
+        themeApply.disabled = !dirty;
+        themeRevert.disabled = !dirty;
+      }
+      function stageTheme(theme) { stagedTheme = theme; postTheme(theme); paintThemes(); }
+
+      themeRevert.addEventListener('click', function () {
+        stagedTheme = appliedTheme;
+        postTheme(appliedTheme);
+        paintThemes();
+      });
+      themeApply.addEventListener('click', function () {
+        themeApply.disabled = true;
+        fetch('/edit/' + encodeURIComponent(slug) + '/theme', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ theme: stagedTheme })
+        }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j || {} }; }); })
+          .then(function (res) {
+            if (!res.ok) { toast('Apply failed: ' + (res.body.message || 'unknown error'), 'error'); themeApply.disabled = false; return; }
+            appliedTheme = stagedTheme;
+            paintThemes();
+            warningsList.innerHTML = '';
+            if (res.body.warnings && res.body.warnings.length) {
+              res.body.warnings.forEach(function (w) { var li = document.createElement('li'); li.textContent = w; warningsList.appendChild(li); });
+              warningsBox.classList.remove('hidden');
+            } else {
+              warningsBox.classList.add('hidden');
+            }
+            toast('Theme applied.');
+            reloadFrame();
+          })
+          .catch(function (err) { toast('Apply failed: ' + err, 'error'); themeApply.disabled = false; });
+      });
+      paintThemes();
+      // The frame reloads on every applied change; re-stage so a theme the
+      // owner is still previewing survives it.
+      frame.addEventListener('load', function () {
+        if (stagedTheme !== appliedTheme) postTheme(stagedTheme);
+      });
+    })();
+
+    // ----- clarify: the agent's ask_user tool pauses the run until an answer
+    // arrives (or it times out). Without a card here the run looks hung and
+    // the owner has no way to unblock it. question_id → card, so an answer or
+    // a timeout removes exactly the one it belongs to.
+    var clarifyHost = document.getElementById('clarify-host');
+    var questionCards = {};
+
+    function removeQuestionCard(qid) {
+      var card = questionCards[qid];
+      if (card) { card.remove(); delete questionCards[qid]; }
+    }
+
+    function postClarify(qid, answer) {
+      return fetch('/clarify/' + encodeURIComponent(slug), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question_id: qid, answer: answer })
+      }).then(function (r) {
+        if (r.ok) return true;
+        // Resolve to false — never reject — so the caller can re-enable the
+        // card. A dead card on a transient failure blocks the run until the
+        // ask_user timeout with no way for the owner to retry.
+        return r.json().then(
+          function (j) { toast((j && j.message) || 'Failed to submit answer.', 'error'); return false; },
+          function () { toast('Failed to submit answer.', 'error'); return false; }
+        );
+      }).catch(function (err) { toast('Failed to submit answer: ' + err, 'error'); return false; });
+    }
+
+    function renderQuestionCard(ev) {
+      var qid = ev.question_id;
+      if (!qid || questionCards[qid]) return;
+      expandBar();
+
+      var card = document.createElement('div');
+      card.className = 'rounded-box border border-info/40 bg-info/10 p-3 text-sm';
+      card.dataset.qid = qid;
+
+      var h = document.createElement('div');
+      h.className = 'font-semibold mb-2';
+      h.textContent = ev.question || 'The builder has a question for you.';
+      card.appendChild(h);
+
+      if (ev.recommendation) {
+        var sug = document.createElement('p');
+        sug.className = 'text-xs mb-2';
+        var strong = document.createElement('strong');
+        strong.textContent = 'Our suggestion: ';
+        sug.appendChild(strong);
+        sug.appendChild(document.createTextNode(ev.recommendation + (ev.why ? ' (' + ev.why + ')' : '')));
+        card.appendChild(sug);
+      }
+
+      var btnRow = document.createElement('div');
+      btnRow.className = 'flex flex-wrap gap-2';
+      // Locked while an answer is in flight; unlocked again if it failed, so a
+      // blip doesn't leave the owner staring at a card they can't resubmit.
+      function setLocked(on) {
+        card.querySelectorAll('button').forEach(function (b) { b.disabled = on; });
+      }
+      function submitAnswer(answer) {
+        setLocked(true);
+        postClarify(qid, answer).then(function (ok) { if (!ok) setLocked(false); });
+      }
+      function makeBtn(label, cls, answer) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn btn-xs max-w-full whitespace-normal h-auto ' + cls;
+        b.textContent = label;
+        b.addEventListener('click', function () { submitAnswer(answer); });
+        return b;
+      }
+      if (ev.recommendation) btnRow.appendChild(makeBtn('Use this suggestion', 'btn-primary', ev.recommendation));
+      (ev.options || []).forEach(function (opt) {
+        if (opt !== ev.recommendation) btnRow.appendChild(makeBtn(opt, 'btn-ghost btn-outline', opt));
+      });
+      card.appendChild(btnRow);
+
+      // Free-text fallback. Nested inside the command bar's <form>, so the
+      // submit control is type=button — otherwise clicking it would submit the
+      // composer instead of the answer.
+      var details = document.createElement('details');
+      details.className = 'text-xs mt-2';
+      var summary = document.createElement('summary');
+      summary.className = 'cursor-pointer text-base-content/60 hover:text-base-content';
+      summary.textContent = 'Or tell us in your own words…';
+      details.appendChild(summary);
+      var row = document.createElement('div');
+      row.className = 'flex gap-2 mt-2';
+      var input = document.createElement('textarea');
+      input.className = 'textarea textarea-xs flex-1';
+      input.rows = 2;
+      input.placeholder = 'Type your answer here…';
+      var sendBtn = document.createElement('button');
+      sendBtn.type = 'button';
+      sendBtn.className = 'btn btn-xs btn-secondary self-end';
+      sendBtn.textContent = 'Submit';
+      sendBtn.addEventListener('click', function () {
+        var val = input.value.trim();
+        if (!val) return;
+        submitAnswer(val);
+      });
+      row.appendChild(input);
+      row.appendChild(sendBtn);
+      details.appendChild(row);
+      card.appendChild(details);
+
+      questionCards[qid] = card;
+      clarifyHost.appendChild(card);
+    }
+
+    function clearQuestionCards() {
+      Object.keys(questionCards).forEach(removeQuestionCard);
+    }
 
     function narrate(ev) {
       if (ev.type === 'tool' && ev.phase === 'start' && ev.tool && ev.path) {
-        statusEl.textContent = 'Working — ' + ev.tool.replace(/_/g, ' ') + ' ' + ev.path;
+        statusEl.textContent = 'Working: ' + ev.tool.replace(/_/g, ' ') + ' ' + ev.path;
       } else if (ev.type === 'status') {
         var m = { building: 'Working on it…', linting: 'Checking the result…', retry: 'Fixing an issue…', polishing: 'Polishing…' }[ev.status];
         if (m) statusEl.textContent = m;
@@ -371,6 +879,7 @@
         clearStall();
         es.close();
         setBusy(false);
+        clearQuestionCards();
         statusEl.textContent = '';
         toast(msg, 'error');
       }
@@ -378,10 +887,16 @@
         clearStall();
         var ev; try { ev = JSON.parse(e.data); } catch (_) { return; }
         if (ev.type === 'result') { pendingResult = ev; return; }
+        if (ev.type === 'question') {
+          if (ev.phase === 'ask') renderQuestionCard(ev);
+          else if (ev.phase === 'answer' || ev.phase === 'timeout') removeQuestionCard(ev.question_id);
+          return;
+        }
         narrate(ev);
         if (ev.type !== 'status' || !(ev.status === 'completed' || ev.status === 'failed' || ev.status === 'unknown')) return;
         es.close();
         setBusy(false);
+        clearQuestionCards();
         if (window.TBRunFeed) TBRunFeed.refresh(false);
 
         // pendingResult.files present-but-empty means "changed nothing"; absent
@@ -390,12 +905,12 @@
         if (ev.status === 'completed' && changed) {
           statusEl.textContent = '';
           promptEl.value = '';
-          scopeClear.click();
-          toast('Done — your change is live.');
+          clearScope();
+          toast('Done. Your change is live.');
           reloadFrame();
         } else if (ev.status === 'completed') {
-          statusEl.textContent = 'Finished — no changes were made.';
-          toast('The builder finished without changing anything — see Changes for why.', 'warning');
+          statusEl.textContent = 'Finished without changing anything.';
+          toast('The builder finished without changing anything. Open Changes to see why.', 'warning');
           openPanel();
         } else {
           statusEl.textContent = '';
@@ -418,7 +933,7 @@
     }
 
     // Reattach to a run that was already in flight when this page loaded
-    // (started from the classic workspace, MCP, or another tab) instead of
+    // (started from MCP or another tab) instead of
     // showing an idle composer whose first submit 409s and whose completion
     // would otherwise never reach this page.
     if ({{ if .Building }}true{{ else }}false{{ end }}) {

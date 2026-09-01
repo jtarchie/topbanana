@@ -209,7 +209,9 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	if !strings.Contains(resp.Request.URL.Path, "/workspace/"+slug) {
 		t.Errorf("expected redirect to /workspace/%s, landed at %s", slug, resp.Request.URL.Path)
 	}
-	for _, want := range []string{"status-strip", `data-step="design"`, "Designing", ">Edit<"} {
+	// The canvas has no separate progress page: it reattaches to the run in
+	// flight, disabling the composer and opening the SSE stream itself.
+	for _, want := range []string{`id="canvas-status"`, "A change is already in progress"} {
 		if !strings.Contains(string(workspaceBody), want) {
 			t.Errorf("workspace (building) missing %q", want)
 		}
@@ -241,10 +243,11 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 		t.Errorf("site body missing canned content; got %q", trim(siteBody, 200))
 	}
 
-	// 6. Workspace renders with the redesigned IA — left rail, prompt input,
-	//    theme picker + history side panels. The legacy /edit/:slug path now
-	//    redirects to /workspace/:slug; we follow the redirect and assert the
-	//    workspace markers land.
+	// 6. Workspace renders the canvas — the site full-bleed, the command bar,
+	//    and the theme + history side panels reachable from its overflow menu
+	//    (which is also where Inbox and Settings live, since the full-bleed
+	//    page has no room for the shared site_subnav). The legacy /edit/:slug
+	//    path redirects here; we follow it and assert the markers land.
 	resp, body = authedGET("/edit/" + slug) //nolint:bodyclose // see authedGET comment above.
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /edit/%s (after redirect): %d", slug, resp.StatusCode)
@@ -252,7 +255,7 @@ func TestHappyPath_EndToEnd(t *testing.T) {
 	if !strings.Contains(resp.Request.URL.Path, "/workspace/"+slug) {
 		t.Errorf("expected /edit/%s to redirect to /workspace, landed at %s", slug, resp.Request.URL.Path)
 	}
-	for _, want := range []string{">Edit<", ">Inbox<", ">Settings<", "Describe a change", "panel-themes", "panel-history"} {
+	for _, want := range []string{">Inbox<", ">Settings<", "Describe a change", "panel-themes", "panel-history"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("workspace missing %q", want)
 		}

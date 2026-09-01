@@ -1,11 +1,13 @@
 package server
 
-// The v2 workspace ("Canvas"): the site itself is the interface. The page
-// renders the site full-bleed through the /s/:slug path in edit mode — same
-// origin as the admin UI, so the injected selection script can report element
-// addresses (see internal/domaddr) back to the floating command bar. The
-// classic workspace stays untouched at /workspace/:slug; each links to the
-// other while v2 earns its way to default.
+// The workspace ("Canvas"): the site itself is the interface. The page renders
+// the site full-bleed through the /s/:slug path in edit mode — same origin as
+// the admin UI, so the injected selection script can report element addresses
+// (see internal/domaddr) back to the floating command bar. It replaced the
+// classic form-and-preview workspace at /workspace/:slug; the non-visual tools
+// that lived in that page's rail (validate, export, server functions) moved to
+// the Settings tab, and the two that drive the live preview (Themes, Version
+// history) are slide-overs here.
 
 import (
 	"context"
@@ -31,19 +33,42 @@ type canvasData struct {
 	Chrome
 	Page  string
 	Pages []string
-	// PreviewBase is the mount the canvas loads site content from: /s/{slug}
-	// normally, or the tokenized /sp mount for private sites so the sandboxed
-	// (cookie-less) document's subresources pass the private gate.
-	PreviewBase     template.URL
+	// SiteHost is the address the site answers on, shown in the top bar's
+	// centre slot whenever no run is narrating there.
+	SiteHost string
+	// Stylesheets are the sheets the site authored for itself. They are not
+	// navigable — there is nothing to render in the frame — so the page menu
+	// offers them as a composer *scope* instead: picking one sends `page` on
+	// the run, the same file-scoping field the classic workspace used.
+	Stylesheets []string
+	// PreviewBaseJSON is the mount the canvas loads site content from:
+	// /s/{slug} normally, or the tokenized /sp mount for private sites so the
+	// sandboxed (cookie-less) document's subresources pass the private gate.
+	// Only the JS form is rendered — the page reaches the mount through the
+	// script's reloadFrame(), never as a markup attribute.
 	PreviewBaseJSON template.JS
 	EditURL         template.URL
 	SlugJSON        template.JS
 	PageJSON        template.JS
 	// Building is true when a run is already in flight for this slug (started
-	// from the classic workspace, MCP, or another tab). The canvas reattaches
-	// to it on load — without this the page renders an idle composer that 409s
-	// on submit, and the in-flight run's completion never updates the page.
+	// from MCP or another tab). The canvas reattaches to it on load — without
+	// this the page renders an idle composer that 409s on submit, and the
+	// in-flight run's completion never updates the page.
 	Building bool
+
+	// Flash is a SENTINEL from a redirect (restore, snapshot delete, relint),
+	// mapped to copy in the template — never echoed text.
+	Flash string
+
+	// Themes panel. The gallery stages a theme by postMessage into the edit
+	// frame (canvas.js applies it to the live document) and only writes on
+	// Apply, so the picker needs the site's current theme to mark "applied".
+	CurrentTheme     string
+	CurrentThemeJSON template.JS
+	ThemesJSON       template.JS
+
+	// Version history panel.
+	Snapshots []historyRow
 }
 
 // resolveScopeBlock turns the canvas's element selection (page + address)
@@ -197,6 +222,7 @@ func (s *sitesController) canvasHandler(c *echo.Context) error {
 	if siteName == "" {
 		siteName = slug
 	}
+	currentTheme := s.readCurrentTheme(ctx, slug)
 
 	previewBase := "/s/" + url.PathEscape(slug)
 	if meta.Private {
@@ -213,11 +239,22 @@ func (s *sitesController) canvasHandler(c *echo.Context) error {
 		},
 		Page:            page,
 		Pages:           pages,
-		PreviewBase:     template.URL(previewBase), //nolint:gosec // validated slug + hex token.
+		SiteHost:        s.siteHost(c, slug),
+		Stylesheets:     authorStylesheets(all),
 		PreviewBaseJSON: toJSONLiteral(previewBase),
 		EditURL:         template.URL(editURL), //nolint:gosec // built from the base and a validated page.
 		SlugJSON:        toJSONLiteral(slug),
 		PageJSON:        toJSONLiteral(page),
-		Building:        s.buildInFlight(slug),
+		// ?building=1 comes from the POST /build redirect and is trusted on
+		// its own: the events tracker may not have registered the run yet, and
+		// rendering an idle composer for a build that just started is the one
+		// case buildInFlight can miss.
+		Building: c.QueryParam("building") == "1" || s.buildInFlight(slug),
+
+		Flash:            c.QueryParam("flash"),
+		CurrentTheme:     currentTheme,
+		CurrentThemeJSON: toJSONLiteral(currentTheme),
+		ThemesJSON:       toJSONLiteral(daisyThemes),
+		Snapshots:        s.listSnapshotRows(ctx, slug),
 	})
 }

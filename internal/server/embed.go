@@ -23,9 +23,6 @@ var landingTemplate string
 //go:embed templates/apps.html
 var appsTemplate string
 
-//go:embed templates/workspace.html
-var workspaceTemplate string
-
 //go:embed templates/canvas.html
 var canvasTemplate string
 

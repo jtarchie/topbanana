@@ -2,6 +2,7 @@ package server
 
 import (
 	"html/template"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -92,6 +93,10 @@ type manageData struct {
 	// MaxCollaborators hides the add form once the list is full, rather than
 	// letting the submit fail the length check server-side.
 	MaxCollaborators int
+	// Functions names the site's server-side handlers, each linking to its
+	// editor. This is their only direct entry point outside the raw file
+	// list — the canvas has nothing to point at for a backend handler.
+	Functions []string
 }
 
 // urlPattern matches bare http/https URLs anywhere in setup-notes text. Kept
@@ -191,6 +196,17 @@ func (s *sitesController) manageHandler(c *echo.Context) error {
 	// sidecar here instead would let the page and the gate disagree.
 	isOwner := s.isOwner(slug, userFromContext(c))
 
+	// A listing failure hides the functions rows rather than failing the page:
+	// they're one entry point among several, and Settings must still render
+	// its toggles and danger zone.
+	var functions []string
+	all, err := s.store.List(ctx, slug)
+	if err != nil {
+		slog.Warn("manage.list_files", "slug", slug, "err", err)
+	} else {
+		functions = collectFunctionNames(all)
+	}
+
 	return s.render(c, "manage", manageData{
 		Chrome:           s.siteChrome(c, slug, meta.Title, "manage"),
 		Title:            meta.Title,
@@ -211,6 +227,7 @@ func (s *sitesController) manageHandler(c *echo.Context) error {
 		OwnerEmail:       meta.OwnerID,
 		Collaborators:    meta.Collaborators,
 		MaxCollaborators: maxCollaborators,
+		Functions:        functions,
 	})
 }
 

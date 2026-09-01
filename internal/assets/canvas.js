@@ -361,6 +361,17 @@
       if (editing) cancelTextEdit();
       select(null);
     }
+    // Live theme staging for the Themes panel. Edit mode replaces the normal
+    // serve path's theme_preview_listener injection (canvas.js is spliced in
+    // instead of the toolbar bundle), so the same contract lives here — same
+    // message shape, same [a-z]{2,20} guard on the value that becomes a
+    // data-theme attribute.
+    if (d.type === 'topbanana:settheme') {
+      if (typeof d.theme === 'string' && /^[a-z]{2,20}$/.test(d.theme)) {
+        document.documentElement.setAttribute('data-theme', d.theme);
+      }
+      return;
+    }
     // tb-scrollto scrolls the frame programmatically — the automation seam
     // for the scroll-reporting path, since synthetic input can't reach a
     // sandboxed out-of-process frame. Parent-only, like everything here.
