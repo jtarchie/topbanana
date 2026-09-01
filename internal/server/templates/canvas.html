@@ -28,7 +28,7 @@
     <button type="button" tabindex="0" class="btn btn-sm btn-ghost font-mono text-xs" id="page-btn" aria-haspopup="listbox">
       {{ .Page }} <span aria-hidden="true">▾</span>
     </button>
-    <ul tabindex="0" class="dropdown-content menu menu-sm z-30 mt-1 p-1 bg-base-100 border border-base-300 rounded-box shadow-lg w-64 max-h-[70vh] overflow-y-auto flex-nowrap" role="listbox">
+    <ul tabindex="0" class="dropdown-content menu menu-sm z-30 mt-1 p-1 bg-base-100 border border-base-300 rounded-box shadow-lg max-h-[70vh] overflow-y-auto flex-nowrap" role="listbox">
       {{ range .Pages }}
       <li>
         <a href="/workspace/{{ $.Slug }}?page={{ . }}" class="font-mono text-xs break-all{{ if eq . $.Page }} active{{ end }}">{{ . }}</a>
@@ -105,11 +105,11 @@
        read as one list where "Settings" is a peer of "Themes", which is the
        junk-drawer smell. The canvas is full-bleed and has no room for the
        shared site_subnav, so this is where Inbox and Settings live. */}}
-  <div class="dropdown dropdown-end">
+  <div class="dropdown dropdown-end" id="tools-menu">
     <button type="button" tabindex="0" class="btn btn-sm btn-ghost btn-square" aria-haspopup="menu" aria-label="More tools">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
     </button>
-    <ul tabindex="0" class="dropdown-content menu menu-sm z-30 mt-1 p-1 bg-base-100 border border-base-300 rounded-box shadow-lg w-52" role="menu">
+    <ul tabindex="0" class="dropdown-content menu menu-sm z-30 mt-1 p-1 bg-base-100 border border-base-300 rounded-box shadow-lg" role="menu">
       <li class="menu-title text-xs">This site</li>
       <li><button type="button" data-panel="themes">Themes</button></li>
       <li><button type="button" id="open-image-drawer">Images</button></li>
@@ -135,6 +135,17 @@
      every existing `statusEl.textContent = ''` then restores the address on
      its own, with nothing to remember at a dozen call sites. */
   #canvas-status:not(:empty) ~ #canvas-host { display: none; }
+
+  /* Both header menus get their width here rather than from a w-* utility.
+     daisyUI's .menu is `width: fit-content`, and fit-content on an
+     absolutely positioned box resolves against its containing block, which
+     for these is the dropdown trigger: 32px for the square ⋯ button. So the
+     moment a width utility isn't applied, the menu doesn't fall back to its
+     content width, it collapses to a ~80px sliver with "Version history"
+     broken across two lines. Owning the width outright removes the cascade
+     race instead of relying on it going our way. */
+  #page-menu > .dropdown-content { width: 16rem; }
+  #tools-menu > .dropdown-content { width: 13rem; }
 </style>
 
 {{/* Flash values are SENTINELS mapped to copy here, never echoed text — a
