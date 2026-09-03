@@ -7,8 +7,16 @@ import (
 	"fmt"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/jtarchie/topbanana/auth/blob"
 )
+
+// listConcurrency bounds the parallel reads a store listing issues. The
+// listings here are one small JSON object per record, so the limit is about
+// not opening an unbounded number of connections to the object store on a
+// bucket that has grown, not about the records being expensive.
+const listConcurrency = 16
 
 const inviteStorePrefix = "_auth/invites/"
 
@@ -148,25 +156,40 @@ func (s *InviteStore) Revoke(ctx context.Context, token string) error {
 }
 
 // List returns every invite record under the prefix, used by the super
-// admin UI to render the pending-invite table. O(N) over invite count;
-// fine at our scale.
+// admin UI to render the pending-invite table.
+//
+// Reads run bounded-parallel: each is an independent round trip, and the
+// count only grows — consumed and expired invites stay in the bucket, so the
+// admin page was paying a serial RTT for records it then filtered out.
 func (s *InviteStore) List(ctx context.Context) ([]*Invite, error) {
 	keys, err := s.blobs.List(ctx, inviteStorePrefix)
 	if err != nil {
 		return nil, fmt.Errorf("auth: list invites: %w", err)
 	}
-	invites := make([]*Invite, 0, len(keys))
-	for _, key := range keys {
-		obj, err := s.blobs.Get(ctx, key)
-		if err != nil || obj.Content == "" {
-			continue
+	found := make([]*Invite, len(keys))
+	grp, gctx := errgroup.WithContext(ctx)
+	grp.SetLimit(listConcurrency)
+	for i, key := range keys {
+		grp.Go(func() error {
+			obj, readErr := s.blobs.Get(gctx, key)
+			if readErr != nil || obj.Content == "" {
+				return nil
+			}
+			inv := &Invite{}
+			if json.Unmarshal([]byte(obj.Content), inv) != nil {
+				return nil
+			}
+			found[i] = inv
+			return nil
+		})
+	}
+	_ = grp.Wait()
+
+	invites := make([]*Invite, 0, len(found))
+	for _, inv := range found {
+		if inv != nil {
+			invites = append(invites, inv)
 		}
-		inv := &Invite{}
-		err = json.Unmarshal([]byte(obj.Content), inv)
-		if err != nil {
-			continue
-		}
-		invites = append(invites, inv)
 	}
 	return invites, nil
 }

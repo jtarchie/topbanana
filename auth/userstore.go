@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/jtarchie/topbanana/auth/blob"
 
 	"github.com/egregors/passkey"
@@ -155,23 +157,41 @@ func (s *UserStore) Save(ctx context.Context, user *User) error {
 // admin's /admin/users page. Returns concrete *User values (not the
 // passkey.User interface) because callers want Role + Meta, not just
 // the WebAuthn methods.
+//
+// The reads run bounded-parallel because they are one round trip each to a
+// remote store and independent of each other: serially, the admin page cost
+// one full RTT per account and paid it again on every render. A record that
+// fails to read or parse is dropped, same as before — this is a listing, and
+// one unreadable object should not blank the page.
 func (s *UserStore) List(ctx context.Context) ([]*User, error) {
 	keys, err := s.blobs.List(ctx, userStorePrefix)
 	if err != nil {
 		return nil, fmt.Errorf("auth: list users: %w", err)
 	}
-	users := make([]*User, 0, len(keys))
-	for _, key := range keys {
-		obj, readErr := s.blobs.Get(ctx, key)
-		if readErr != nil || obj.Content == "" {
-			continue
+	found := make([]*User, len(keys))
+	grp, gctx := errgroup.WithContext(ctx)
+	grp.SetLimit(listConcurrency)
+	for i, key := range keys {
+		grp.Go(func() error {
+			obj, readErr := s.blobs.Get(gctx, key)
+			if readErr != nil || obj.Content == "" {
+				return nil
+			}
+			user := &User{}
+			if json.Unmarshal([]byte(obj.Content), user) != nil {
+				return nil
+			}
+			found[i] = user
+			return nil
+		})
+	}
+	_ = grp.Wait()
+
+	users := make([]*User, 0, len(found))
+	for _, user := range found {
+		if user != nil {
+			users = append(users, user)
 		}
-		user := &User{}
-		parseErr := json.Unmarshal([]byte(obj.Content), user)
-		if parseErr != nil {
-			continue
-		}
-		users = append(users, user)
 	}
 	return users, nil
 }
