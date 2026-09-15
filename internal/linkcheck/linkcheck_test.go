@@ -150,8 +150,8 @@ func TestCheck_GuardRefusesPrivateAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rep.Results) != 1 || rep.Results[0].Status != StatusDead || hits.Load() != 0 {
-		t.Fatalf("loopback link must be dead without a request reaching it: %+v hits=%d", rep.Results, hits.Load())
+	if len(rep.Results) != 1 || rep.Results[0].Status != StatusUnverified || hits.Load() != 0 {
+		t.Fatalf("loopback link must be unverified (never dead) without a request reaching it: %+v hits=%d", rep.Results, hits.Load())
 	}
 }
 

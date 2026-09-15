@@ -29,9 +29,9 @@ import (
 type Status string
 
 const (
-	StatusDead       Status = "dead"       // certain: no such domain, 404/410, or a private address
+	StatusDead       Status = "dead"       // certain: no such domain, or 404/410
 	StatusSuspect    Status = "suspect"    // may be transient: 5xx, timeout, refused, bad certificate
-	StatusUnverified Status = "unverified" // the host refuses automated checks: 401/403/429/999
+	StatusUnverified Status = "unverified" // can't judge from here: a bot wall (401/403/429/999) or a private address
 	StatusUnchecked  Status = "unchecked"
 	StatusOK         Status = "ok"
 )
@@ -52,6 +52,7 @@ const (
 	requestTimeout = 8 * time.Second
 	concurrency    = 8
 	userAgent      = "Mozilla/5.0 (compatible; TopBananaLinkCheck/1.0)"
+	canaryHost     = "example.com"
 )
 
 type Result struct {
@@ -92,6 +93,7 @@ type Checker struct {
 	store  *store.Store
 	client *http.Client
 	now    func() time.Time
+	canary func(ctx context.Context) error
 
 	mu      sync.Mutex
 	running map[string]bool
@@ -123,8 +125,19 @@ func newChecker(s *store.Store, control func(network, address string, c syscall.
 			},
 		},
 		now:     time.Now,
+		canary:  resolveCanary,
 		running: map[string]bool{},
 	}
+}
+
+func resolveCanary(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err := net.DefaultResolver.LookupHost(ctx, canaryHost)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", canaryHost, err)
+	}
+	return nil
 }
 
 // linkAttrs is navigations and embedded media only: preconnect hints and form actions answer 404/405 to a bare GET while working fine.
@@ -238,6 +251,8 @@ func (c *Checker) report(ctx context.Context, links map[string][]string, probe b
 		rep     Report
 		sem     = make(chan struct{}, concurrency)
 		hostMus = map[string]*sync.Mutex{} // one request per host at a time, so 40 links to one domain aren't a flood
+		// An offline resolver answers "no such host" for every name, so that answer only counts once a known-good name resolves.
+		dnsUp = sync.OnceValue(func() bool { return c.canary(context.WithoutCancel(ctx)) == nil })
 	)
 	for u, pages := range links {
 		host := hostOf(u)
@@ -249,7 +264,8 @@ func (c *Checker) report(ctx context.Context, links map[string][]string, probe b
 		go func() {
 			defer wg.Done()
 			sem <- struct{}{}
-			r, found := c.lookup(ctx, u)
+			// A lookup queued behind 30s of probes must not inherit the spent budget, or a fresh cached answer reads as unchecked.
+			r, found := c.lookup(context.WithoutCancel(ctx), u)
 			<-sem
 			stale := !found || c.now().Sub(r.CheckedAt) > ttl[r.Status]
 			if !found {
@@ -258,11 +274,11 @@ func (c *Checker) report(ctx context.Context, links map[string][]string, probe b
 			if probe && stale {
 				hostMu.Lock()
 				sem <- struct{}{}
-				fresh := c.probe(ctx, u)
+				fresh, err := c.probe(ctx, u)
 				<-sem
 				hostMu.Unlock()
-				// A probe the budget cut short says nothing about the link; keep the old answer.
-				if ctx.Err() == nil {
+				// A probe the budget cut short, or an NXDOMAIN while DNS itself is down, says nothing about the link; keep the old answer.
+				if ctx.Err() == nil && (!nxdomain(err) || dnsUp()) {
 					r, stale = fresh, false
 					c.save(ctx, r)
 				}
@@ -321,14 +337,14 @@ func (c *Checker) save(ctx context.Context, r Result) {
 	}
 }
 
-func (c *Checker) probe(ctx context.Context, u string) Result {
+func (c *Checker) probe(ctx context.Context, u string) (Result, error) {
 	code, err := c.fetch(ctx, http.MethodHead, u)
-	// Many servers reject or mis-answer HEAD, so only a clean HEAD or a certain failure is final; GET decides the rest.
+	// Many servers reject or mis-answer HEAD, so only a clean HEAD or a failure a GET can't change is final.
 	if (err == nil && code >= 400) || (err != nil && !certain(err)) {
 		code, err = c.fetch(ctx, http.MethodGet, u)
 	}
 	status, reason := classify(code, err)
-	return Result{URL: u, Status: status, Code: code, Reason: reason, CheckedAt: c.now()}
+	return Result{URL: u, Status: status, Code: code, Reason: reason, CheckedAt: c.now()}, err
 }
 
 func (c *Checker) fetch(ctx context.Context, method, u string) (int, error) {
@@ -347,19 +363,23 @@ func (c *Checker) fetch(ctx context.Context, method, u string) (int, error) {
 }
 
 func certain(err error) bool {
+	return errors.Is(err, netguard.ErrBlocked) || nxdomain(err)
+}
+
+func nxdomain(err error) bool {
 	var dnsErr *net.DNSError
-	return errors.Is(err, netguard.ErrBlocked) || (errors.As(err, &dnsErr) && dnsErr.IsNotFound)
+	return errors.As(err, &dnsErr) && dnsErr.IsNotFound
 }
 
 func classify(code int, err error) (Status, string) {
 	if err != nil {
-		var dnsErr *net.DNSError
 		var certErr *tls.CertificateVerificationError
 		var netErr net.Error
 		switch {
 		case errors.Is(err, netguard.ErrBlocked):
-			return StatusDead, "points at a private or local address visitors can't reach"
-		case errors.As(err, &dnsErr) && dnsErr.IsNotFound:
+			// A router guide's 192.168.0.1 or a tutorial's localhost works for the reader; the agent must never be told to delete it.
+			return StatusUnverified, "a private or local address, reachable only on the visitor's own network"
+		case nxdomain(err):
 			return StatusDead, "the domain does not exist"
 		case errors.As(err, &certErr):
 			return StatusSuspect, "the site's security certificate is invalid"

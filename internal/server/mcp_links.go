@@ -18,7 +18,7 @@ type checkLinksInput struct {
 func (s *Server) registerCheckLinks(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "check_links",
-		Description: "Check every link and embedded image/video/iframe on a site the caller owns that points at another website, by requesting each URL from the server. Links between the site's own pages are lint_site's job; this covers the rest. Each problem is dead (the domain does not exist, 404/410, or a private/local address: fix or remove it, and never guess a replacement URL), suspect (timeout, server error, bad certificate: may be temporary), unverified (the host blocks automated checks, as LinkedIn does: usually fine), or unchecked (the time budget ran out; run again). Answers are cached for up to a week, so re-running is cheap. Advisory: nothing here blocks publishing.",
+		Description: "Check every link and embedded image/video/iframe on a site the caller owns that points at another website, by requesting each URL from the server. Links between the site's own pages are lint_site's job; this covers the rest. Each problem is dead (the domain does not exist, or 404/410: fix or remove it, and never guess a replacement URL), suspect (timeout, server error, bad certificate: may be temporary), unverified (the host blocks automated checks as LinkedIn does, or the address is private and reachable only on the visitor's own network: usually fine), or unchecked (the time budget ran out; run again). Answers are cached for up to a week, so re-running is cheap. Advisory: nothing here blocks publishing.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in checkLinksInput) (*mcp.CallToolResult, any, error) {
 		_, err := s.mcpUserAndAuthorize(ctx, in.Slug)
 		if err != nil {
