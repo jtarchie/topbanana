@@ -42,6 +42,7 @@ func (s *sitesController) register(g *echo.Group, owns echo.MiddlewareFunc) {
 	g.GET("/v2/workspace/:slug", s.redirectToWorkspace)
 	g.POST("/text/:slug", s.textEditHandler, owns, promptBodyCap)
 	g.GET("/manage/:slug", s.manageHandler, owns)
+	g.POST("/manage/:slug/links", s.checkLinksHandler, owns)
 	g.GET("/inbox/:slug", s.inboxHandler, owns)
 	g.GET("/edit/:slug", s.redirectToWorkspace, owns)
 	g.POST("/edit/:slug", s.editSubmitHandler, owns, promptWithAttachmentsBodyCap)

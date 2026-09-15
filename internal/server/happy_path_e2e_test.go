@@ -81,7 +81,7 @@ func buildServerWithRunner(t *testing.T, st *store.Store, snapSvc *snapshot.Serv
 // buildServerWithRunnerAndInfo is buildServerWithRunner plus a SystemInfo
 // override. The system dashboard test uses it to plant a known model string
 // so it can assert /system surfaces config it didn't make up.
-func buildServerWithRunnerAndInfo(t *testing.T, st *store.Store, snapSvc *snapshot.Service, runner build.Runner, info server.SystemInfo) http.Handler {
+func buildServerWithRunnerAndInfo(t *testing.T, st *store.Store, snapSvc *snapshot.Service, runner build.Runner, info server.SystemInfo, opts ...func(*server.Deps)) http.Handler {
 	t.Helper()
 	tracker := events.NewTracker()
 	t.Cleanup(tracker.Close)
@@ -107,7 +107,7 @@ func buildServerWithRunnerAndInfo(t *testing.T, st *store.Store, snapSvc *snapsh
 		t.Fatalf("inject test session: %v", err)
 	}
 	testSessionCookie = &http.Cookie{Name: authSvc.SessionCookieName(), Value: token}
-	e, _ := server.New(server.Deps{
+	deps := server.Deps{
 		Store:      st,
 		Build:      buildSvc,
 		Events:     tracker,
@@ -117,7 +117,11 @@ func buildServerWithRunnerAndInfo(t *testing.T, st *store.Store, snapSvc *snapsh
 		Domain:     "localhost",
 		Port:       "8080",
 		SystemInfo: info,
-	})
+	}
+	for _, o := range opts {
+		o(&deps)
+	}
+	e, _ := server.New(deps)
 	return e
 }
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/guide"
+	"github.com/jtarchie/topbanana/internal/linkcheck"
 	"github.com/jtarchie/topbanana/internal/templates"
 )
 
@@ -81,6 +82,12 @@ type manageData struct {
 	GuidePresent  int
 	GuideTotal    int
 	GuideComplete bool
+	// Links* back the "Links to other sites" card; LinksEnabled is false when the server runs no checker.
+	LinksEnabled  bool
+	LinksTotal    int
+	LinksOK       int
+	LinksProblems []linkcheck.Result
+	LinksStale    bool
 	// IsOwner gates the owner-only region: sharing, transfer, and delete.
 	// A collaborator reaching this page sees everything else — the routes
 	// behind those forms answer 403 either way, so this only keeps the page
@@ -192,6 +199,23 @@ func (s *sitesController) manageHandler(c *echo.Context) error {
 	// describe the site type, not its runtime capabilities.
 	report := guide.Evaluate(ctx, s.store, slug, base)
 
+	// Cache-only so the page never waits on third-party hosts; a stale answer kicks a background re-check, which is how link rot surfaces without a scheduler.
+	var links linkcheck.Report
+	if s.linkChecker != nil {
+		links, err = s.linkChecker.Cached(ctx, slug)
+		if err != nil {
+			slog.Warn("manage.linkcheck", "slug", slug, "err", err)
+		} else if links.Stale {
+			s.linkChecker.RefreshAsync(slug)
+		}
+	}
+	var linkProblems []linkcheck.Result
+	for _, r := range links.Results {
+		if r.Status != linkcheck.StatusOK {
+			linkProblems = append(linkProblems, r)
+		}
+	}
+
 	// Same predicate the requireSlugOwner gate enforces — deriving it from the
 	// sidecar here instead would let the page and the gate disagree.
 	isOwner := s.isOwner(slug, userFromContext(c))
@@ -223,6 +247,11 @@ func (s *sitesController) manageHandler(c *echo.Context) error {
 		GuidePresent:     report.Present,
 		GuideTotal:       report.Total,
 		GuideComplete:    report.Complete(),
+		LinksEnabled:     s.linkChecker != nil,
+		LinksTotal:       len(links.Results),
+		LinksOK:          links.Count(linkcheck.StatusOK),
+		LinksProblems:    linkProblems,
+		LinksStale:       links.Stale,
 		IsOwner:          isOwner,
 		OwnerEmail:       meta.OwnerID,
 		Collaborators:    meta.Collaborators,

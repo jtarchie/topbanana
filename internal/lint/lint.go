@@ -195,6 +195,7 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 			fnLiterals = append(fnLiterals, jsFileLiterals(file, obj.Content)...)
 		}
 	}
+	errs = append(errs, checkStylesheetURLs(ctx, s, slug, files, lc)...)
 
 	// Cross-page checks (a fragment can target an id on another page; titles
 	// must be unique across the site; a page may be referenced from anywhere)
@@ -659,10 +660,15 @@ func checkHTMLLinks(filename string, doc *html.Node, lc linkCheckContext) []Erro
 func checkNodeLinks(filename, dir string, n *html.Node, lc linkCheckContext) []Error {
 	var errs []Error
 	for _, attr := range n.Attr {
-		if attr.Key != "href" && attr.Key != "src" && attr.Key != "action" {
-			continue
+		for _, v := range attrLinkValues(n, attr) {
+			errs = append(errs, checkLink(filename, dir, v, lc)...)
 		}
-		errs = append(errs, checkLink(filename, dir, attr.Val, lc)...)
+	}
+	// An inline <style> resolves url() against the page, same as style="".
+	if n.Data == "style" && n.FirstChild != nil && n.FirstChild.Type == html.TextNode {
+		for _, v := range cssURLs(n.FirstChild.Data) {
+			errs = append(errs, checkLink(filename, dir, v, lc)...)
+		}
 	}
 	return errs
 }

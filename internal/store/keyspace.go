@@ -41,6 +41,9 @@ const (
 	// (and as long as) the certificate it explains.
 	DefaultACMEPrefix = "_acme/"
 
+	// LinkCheckPrefix caches external-link probe answers as `_linkcheck/{sha256(url)}.json` (internal/linkcheck), shared across sites.
+	LinkCheckPrefix = "_linkcheck/"
+
 	// StateDir is the in-slug directory for persisted form/KV data:
 	// `{slug}/_state/data.json` (internal/state). Unlike the prefixes above it
 	// exists once per site, so any bucket-level aggregation must walk slugs.

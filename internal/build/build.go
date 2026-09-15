@@ -87,6 +87,8 @@ type Service struct {
 	daisyOnce   sync.Once
 	daisyDir    string
 	daisyErr    error
+
+	linkChecker LinkChecker
 }
 
 // LLMFactory resolves a model identifier (typically "provider/name") to an
@@ -137,6 +139,9 @@ type Config struct {
 	// for the post-build per-site CSS compile. Empty falls back to PATH /
 	// npx, then to a no-op (pages keep CDN tags). See css_compile.go.
 	TailwindCLI string
+
+	// LinkChecker, when set, gives each finished build one turn to repair external links that are certainly dead.
+	LinkChecker LinkChecker
 }
 
 // New is the legacy constructor used by tests that just want a Service
@@ -180,6 +185,7 @@ func NewWithConfig(cfg Config) *Service {
 		port:            cfg.Port,
 		insecure:        cfg.Insecure,
 		tailwindCLI:     cfg.TailwindCLI,
+		linkChecker:     cfg.LinkChecker,
 		llmFactory:      cfg.LLMFactory,
 		runners:         map[string]Runner{},
 		llms:            map[string]adkmodel.LLM{},
@@ -425,6 +431,7 @@ func (svc *Service) Start(p Params) {
 			return
 		}
 		svc.maybePolish(ctx, editorRunner, p, rec)
+		svc.fixDeadLinks(ctx, editorRunner, p, rec)
 		// Compile a minimal, self-contained stylesheet for the finished site
 		// and rewrite its pages to link /app.css. Best-effort, exactly like
 		// refreshDescription: a failure (no CLI, compile error) logs and moves

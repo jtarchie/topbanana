@@ -93,6 +93,7 @@ func (s *Server) buildMCPServer() *mcp.Server {
 	s.registerGetSite(srv)
 	s.registerCreateSite(srv)
 	s.registerGetSiteGuide(srv)
+	s.registerCheckLinks(srv)
 	s.registerReadFile(srv)
 	s.registerWriteFile(srv)
 	s.registerCreateUploadTicket(srv)

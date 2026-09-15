@@ -74,37 +74,6 @@ func TestValidateReferenceURL(t *testing.T) {
 	}
 }
 
-func TestIsBlockedIP(t *testing.T) {
-	blocked := []string{
-		"127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1",
-		"169.254.169.254", "0.0.0.0", "::1", "fc00::1", "fe80::1", "224.0.0.1",
-	}
-	for _, raw := range blocked {
-		ip := net.ParseIP(raw)
-		if ip == nil {
-			t.Fatalf("could not parse %q", raw)
-		}
-		if !isBlockedIP(ip) {
-			t.Errorf("expected %s to be blocked", raw)
-		}
-	}
-
-	allowed := []string{
-		"93.184.216.34",
-		"8.8.8.8",
-		"2606:2800:220:1:248:1893:25c8:1946",
-	}
-	for _, raw := range allowed {
-		ip := net.ParseIP(raw)
-		if ip == nil {
-			t.Fatalf("could not parse %q", raw)
-		}
-		if isBlockedIP(ip) {
-			t.Errorf("expected %s to be allowed", raw)
-		}
-	}
-}
-
 // allowLoopback flips blockedIPCheck so httptest.Server (which binds 127.0.0.1)
 // passes the SSRF guard for the duration of a test.
 func allowLoopback(t *testing.T) {

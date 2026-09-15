@@ -83,6 +83,39 @@
     </section>
   {{ end }}
 
+  {{ if and .LinksEnabled (gt .LinksTotal 0) }}
+    <section class="card bg-base-100 border border-base-300" aria-labelledby="links-heading">
+      <div class="card-body">
+        <div class="flex items-start justify-between gap-3 flex-wrap">
+          <h2 id="links-heading" class="card-title text-lg">Links to other sites</h2>
+          <form method="POST" action="/manage/{{ .Slug }}/links">
+            <button type="submit" class="btn btn-sm">Check now</button>
+          </form>
+        </div>
+        <p class="text-sm text-base-content/70">
+          We open every link, image, and video on your pages that points at another website, the way a visitor would. {{ .LinksOK }} of {{ .LinksTotal }} work.
+          {{ if .LinksStale }}Some answers are being refreshed now; reload in a minute.{{ end }}
+        </p>
+        {{ if .LinksProblems }}
+        <ul class="divide-y divide-base-300 border border-base-300 rounded-box mt-2 overflow-hidden">
+          {{ range .LinksProblems }}
+          <li class="flex items-start gap-3 px-4 py-3 {{ if eq .Status "dead" }}bg-warning/10{{ end }}">
+            <span class="badge badge-sm shrink-0 mt-0.5 {{ if eq .Status "dead" }}badge-warning{{ else }}badge-ghost{{ end }}">
+              {{- if eq .Status "dead" }}Broken{{ else if eq .Status "suspect" }}Couldn't reach{{ else if eq .Status "unverified" }}Can't verify{{ else }}Not checked yet{{ end -}}
+            </span>
+            <div class="flex-1 min-w-0">
+              <a class="link text-sm font-mono break-all" href="{{ .URL }}" target="_blank" rel="noopener noreferrer">{{ .URL }}</a>
+              {{ if .Reason }}<p class="text-xs text-base-content/70 mt-0.5">{{ .Reason }}{{ if eq .Status "unverified" }}. Open it yourself to confirm{{ end }}</p>{{ end }}
+              <p class="text-xs text-base-content/70 mt-0.5">On {{ range $i, $p := .Pages }}{{ if $i }}, {{ end }}{{ $p }}{{ end }}</p>
+            </div>
+          </li>
+          {{ end }}
+        </ul>
+        {{ end }}
+      </div>
+    </section>
+  {{ end }}
+
   {{ if .SetupNotes }}
     <section class="card bg-base-100 border border-base-300" aria-labelledby="setup-heading">
       <div class="card-body">

@@ -22,6 +22,7 @@ import (
 	"google.golang.org/adk/v2/tool/functiontool"
 
 	"github.com/jtarchie/topbanana/internal/events"
+	"github.com/jtarchie/topbanana/internal/netguard"
 )
 
 type fetchReferenceArgs struct {
@@ -92,15 +93,7 @@ func validateReferenceURL(rawURL string, resolve func(host string) ([]net.IP, er
 	return parsed, nil
 }
 
-func isBlockedIP(ip net.IP) bool {
-	return ip == nil ||
-		ip.IsLoopback() ||
-		ip.IsPrivate() ||
-		ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() ||
-		ip.IsUnspecified() ||
-		ip.IsMulticast()
-}
+func isBlockedIP(ip net.IP) bool { return netguard.IsBlocked(ip) }
 
 // newFetchReferenceClient builds an HTTP client that re-validates every
 // redirect target so a 302 to an internal IP can't bypass the initial SSRF

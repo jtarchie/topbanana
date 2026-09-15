@@ -3,9 +3,89 @@ package lint
 import (
 	"fmt"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
+
+	"golang.org/x/net/html"
 )
+
+// attrLinkValues returns the site-relative targets one attribute carries; srcset and style can hold several.
+func attrLinkValues(n *html.Node, a html.Attribute) []string {
+	switch {
+	case a.Key == "href", a.Key == "src", a.Key == "action", a.Key == "poster":
+		return []string{a.Val}
+	case a.Key == "data" && n.Data == "object":
+		return []string{a.Val}
+	case a.Key == "srcset":
+		return srcsetURLs(a.Val)
+	case a.Key == "style":
+		return cssURLs(a.Val)
+	case a.Key == "content" && n.Data == "meta" && strings.EqualFold(attrVal(n, "http-equiv"), "refresh"):
+		if u := refreshURL(a.Val); u != "" {
+			return []string{u}
+		}
+	}
+	return nil
+}
+
+// srcsetURLs walks candidates by whitespace, not commas, because data: URLs contain commas.
+func srcsetURLs(v string) []string {
+	var out []string
+	s := v
+	for {
+		s = strings.TrimLeft(s, " \t\n\r\f,")
+		if s == "" {
+			return out
+		}
+		end := strings.IndexAny(s, " \t\n\r\f")
+		if end == -1 {
+			end = len(s)
+		}
+		u := s[:end]
+		s = s[end:]
+		if strings.HasSuffix(u, ",") {
+			out = append(out, strings.TrimRight(u, ","))
+			continue
+		}
+		out = append(out, u)
+		i := strings.IndexByte(s, ',')
+		if i == -1 {
+			return out
+		}
+		s = s[i+1:]
+	}
+}
+
+var (
+	cssCommentRe = regexp.MustCompile(`(?s)/\*.*?\*/`)
+	cssURLRe     = regexp.MustCompile(`(?i)url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"'\s]*))\s*\)`)
+)
+
+// cssURLs strips comments first so a commented-out url() is not reported.
+func cssURLs(css string) []string {
+	matches := cssURLRe.FindAllStringSubmatch(cssCommentRe.ReplaceAllString(css, ""), -1)
+	out := make([]string, 0, len(matches))
+	for _, m := range matches {
+		out = append(out, m[1]+m[2]+m[3])
+	}
+	return out
+}
+
+// refreshURL pulls the target out of a meta refresh content value like `5; url=/next.html`.
+func refreshURL(content string) string {
+	i := strings.IndexAny(content, ";,")
+	if i == -1 {
+		return ""
+	}
+	rest := strings.TrimSpace(content[i+1:])
+	if len(rest) >= 3 && strings.EqualFold(rest[:3], "url") {
+		if after, ok := strings.CutPrefix(strings.TrimSpace(rest[3:]), "="); ok {
+			rest = strings.TrimSpace(after)
+		}
+	}
+	return strings.Trim(rest, `"'`)
+}
 
 // This file owns link-target resolution and the agent-facing wording for
 // broken links. The resolver is the single source of truth shared by the

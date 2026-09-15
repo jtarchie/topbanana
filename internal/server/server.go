@@ -29,6 +29,7 @@ import (
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/editrec"
 	"github.com/jtarchie/topbanana/internal/events"
+	"github.com/jtarchie/topbanana/internal/linkcheck"
 	"github.com/jtarchie/topbanana/internal/model"
 	"github.com/jtarchie/topbanana/internal/photowall"
 	"github.com/jtarchie/topbanana/internal/quotas"
@@ -93,6 +94,9 @@ type Deps struct {
 	// QuotaDefaults are the platform-wide per-user fallbacks (max apps, model
 	// tiers) applied when a user record carries no policy of its own.
 	QuotaDefaults quotas.Defaults
+
+	// LinkChecker probes sites' external links for the manage card and check_links; nil hides both.
+	LinkChecker *linkcheck.Checker
 }
 
 // Server is the wired-up state shared across handlers.
@@ -133,6 +137,8 @@ type Server struct {
 
 	// blobs backs the auth stack + OAuth server; see Deps.Blobs.
 	blobs blob.Blobs
+
+	linkChecker *linkcheck.Checker
 
 	// photoLimiter throttles the unauthenticated /_photos upload endpoint per
 	// (slug, client IP) so an open QR upload link can't be flooded.
@@ -213,6 +219,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		certs:         d.Certs,
 		mcpSecret:     d.MCPSecret,
 		blobs:         d.Blobs,
+		linkChecker:   d.LinkChecker,
 		quotaDefaults: d.QuotaDefaults,
 		// ~1 upload / 5s sustained with a burst of 5 per (slug, IP): enough for
 		// a person snapping a few shots in a row, tight enough to blunt a script

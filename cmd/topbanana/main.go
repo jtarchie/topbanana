@@ -17,6 +17,7 @@ import (
 	"github.com/jtarchie/topbanana/auth/blob/s3blob"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/events"
+	"github.com/jtarchie/topbanana/internal/linkcheck"
 	"github.com/jtarchie/topbanana/internal/model"
 	"github.com/jtarchie/topbanana/internal/quotas"
 	"github.com/jtarchie/topbanana/internal/sandbox"
@@ -157,7 +158,9 @@ func run() error {
 		}
 		return llm, nil
 	}
+	linkChecker := linkcheck.New(s)
 	buildSvc := build.NewWithConfig(build.Config{
+		LinkChecker:     linkChecker,
 		Store:           s,
 		TierMap:         tierMap,
 		LLMFactory:      llmFactory,
@@ -213,16 +216,17 @@ func run() error {
 			MaxApps: cli.DefaultMaxApps,
 			Tiers:   tierMap,
 		},
-		Store:     s,
-		Build:     buildSvc,
-		Events:    tracker,
-		Sandbox:   sb,
-		State:     stateStore,
-		Snapshot:  snapshotSvc,
-		Auth:      authSvc,
-		Domain:    cli.Domain,
-		Port:      cli.Port,
-		MCPSecret: cli.MCPSecret,
+		Store:       s,
+		Build:       buildSvc,
+		Events:      tracker,
+		Sandbox:     sb,
+		State:       stateStore,
+		Snapshot:    snapshotSvc,
+		Auth:        authSvc,
+		Domain:      cli.Domain,
+		Port:        cli.Port,
+		MCPSecret:   cli.MCPSecret,
+		LinkChecker: linkChecker,
 		SystemInfo: server.SystemInfo{
 			LLMTiers:           tierMap,
 			LLMBaseURL:         cli.LLMBaseURL,
