@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="/app.css">
 </head>
 <body class="bg-base-200 min-h-screen text-base-content">
-  <div class="max-w-2xl mx-auto px-6 py-12">
+  <main class="max-w-2xl mx-auto px-6 py-12">
     <h1 class="text-4xl font-bold tracking-tight">Guestbook</h1>
     <p class="text-base-content/70 mt-2 mb-8">Sign in if you stopped by. The wall below is everyone who has.</p>
 
@@ -29,7 +29,7 @@
     <div id="wall" class="space-y-3">
       <p class="text-base-content/60 italic">Loading…</p>
     </div>
-  </div>
+  </main>
   <script>
     fetch('/api/list')
       .then(function (r) { return r.json(); })

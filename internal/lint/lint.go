@@ -116,7 +116,82 @@ const (
 	// no link, no inline-script URL, no functions redirect. Visitors can
 	// never find it.
 	KindUnreferencedPage Kind = "unreferenced_page"
+
+	// KindARIAInvalidRole is a role= value the ARIA spec does not define, or an abstract one no element may carry.
+	KindARIAInvalidRole Kind = "aria_invalid_role"
+	// KindARIAInvalidAttr is an aria-* attribute the spec does not define — almost always a typo, and silently ignored.
+	KindARIAInvalidAttr Kind = "aria_invalid_attr"
+	// KindARIAInvalidAttrValue is a defined aria-* attribute whose value is outside its grammar, so the state reads as unset.
+	KindARIAInvalidAttrValue Kind = "aria_invalid_attr_value"
+	// KindARIABrokenRef is an aria-labelledby/describedby/controls pointing at an id no element on the page has.
+	KindARIABrokenRef Kind = "aria_broken_ref"
+	// KindARIARequiredAttr is a role missing a state that has no implicit default, leaving it unreportable.
+	KindARIARequiredAttr Kind = "aria_required_attr"
+	// KindARIAAllowedAttr is an aria-* the element's role does not support; warning because it rides on an implicit-role guess.
+	KindARIAAllowedAttr Kind = "aria_allowed_attr"
+	// KindARIAProhibitedAttr is a name on a role that cannot carry one, so assistive technology drops it.
+	KindARIAProhibitedAttr Kind = "aria_prohibited_attr"
+	// KindARIARequiredParent is a role placed outside the container role that gives it meaning.
+	KindARIARequiredParent Kind = "aria_required_parent"
+	// KindARIARequiredChildren is a composite role with none of the child roles it must own.
+	KindARIARequiredChildren Kind = "aria_required_children"
+	// KindMissingAlt is an <img> with no alt attribute at all, so screen readers fall back to announcing the file name.
+	KindMissingAlt Kind = "missing_alt"
+	// KindMissingControlName is a button or link with no accessible name by any route — announced only as "button".
+	KindMissingControlName Kind = "missing_control_name"
+	// KindMissingFieldLabel is a form field with no label, aria-label, or title, so its purpose is never announced.
+	KindMissingFieldLabel Kind = "missing_field_label"
+	// KindHeadingOrder is a heading level skipped on the way down, which breaks heading-to-heading navigation.
+	KindHeadingOrder Kind = "heading_order"
+	// KindLandmarkMain is a page with no <main>, or more than one, so "skip to content" has no unambiguous target.
+	KindLandmarkMain Kind = "landmark_main"
+	// KindPositiveTabindex is tabindex >= 1, which yanks the element out of document order for every keyboard user.
+	KindPositiveTabindex Kind = "positive_tabindex"
+	// KindNestedInteractive is a focusable control inside another, which collapses to one confusing stop.
+	KindNestedInteractive Kind = "nested_interactive"
 )
+
+// Severity decides whether an Error gates a build. The zero value is SeverityError so a
+// kind that forgets to declare one keeps the pre-existing blocking behaviour.
+type Severity int
+
+const (
+	SeverityError Severity = iota
+	SeverityWarning
+)
+
+// warningKinds are the checks that report without failing a build: each rests on a heuristic
+// (an implicit-role guess, a document-structure convention) where a false positive would cost
+// a user their build, and a missed warning costs nothing.
+var warningKinds = map[Kind]bool{
+	KindARIAAllowedAttr:      true,
+	KindARIAProhibitedAttr:   true,
+	KindARIARequiredParent:   true,
+	KindARIARequiredChildren: true,
+	KindHeadingOrder:         true,
+	KindLandmarkMain:         true,
+	KindPositiveTabindex:     true,
+	KindNestedInteractive:    true,
+}
+
+// Severity reports whether this error blocks a build.
+func (e *Error) Severity() Severity {
+	if warningKinds[e.Kind] {
+		return SeverityWarning
+	}
+	return SeverityError
+}
+
+// Blocking filters out warnings, leaving the errors a build must not ship with.
+func Blocking(errs []Error) []Error {
+	out := make([]Error, 0, len(errs))
+	for i := range errs {
+		if errs[i].Severity() == SeverityError {
+			out = append(out, errs[i])
+		}
+	}
+	return out
+}
 
 type Error struct {
 	File    string
@@ -181,6 +256,9 @@ func App(ctx context.Context, s *store.Store, slug string, tmpl *templates.SiteT
 			errs = append(errs, checkFetchTargets(pi, facts, lc)...)
 			errs = append(errs, checkDeadInteractions(pi, facts)...)
 			errs = append(errs, checkExternalResources(pi)...)
+			errs = append(errs, checkARIA(pi, facts)...)
+			errs = append(errs, checkAccessibleNames(pi, facts)...)
+			errs = append(errs, checkPageStructure(pi)...)
 		case strings.HasSuffix(file, ".js"):
 			// JS files are allowed under functions/ only — JSFile rejects
 			// .js files anywhere else. The agent's path validation also

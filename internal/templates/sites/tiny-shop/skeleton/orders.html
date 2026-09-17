@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="/app.css">
 </head>
 <body class="bg-base-200 min-h-screen text-base-content">
-  <div class="max-w-4xl mx-auto px-6 py-12">
+  <main class="max-w-4xl mx-auto px-6 py-12">
     <h1 class="text-3xl font-bold tracking-tight mb-2">Orders</h1>
     <p class="mb-6"><a class="link link-primary" href="/">← back to shop</a></p>
     <div id="orders" class="card bg-base-100 shadow-xl">
@@ -16,7 +16,7 @@
         <p class="text-base-content/60 italic text-center py-4">Loading…</p>
       </div>
     </div>
-  </div>
+  </main>
   <script>
     fetch('/api/orders')
       .then(function (r) { return r.json(); })

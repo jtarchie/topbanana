@@ -30,6 +30,7 @@ import (
 	"github.com/jtarchie/topbanana/internal/editrec"
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/linkcheck"
+	"github.com/jtarchie/topbanana/internal/lint"
 	"github.com/jtarchie/topbanana/internal/model"
 	"github.com/jtarchie/topbanana/internal/photowall"
 	"github.com/jtarchie/topbanana/internal/quotas"
@@ -972,8 +973,10 @@ func (s *sitesController) relintHandler(c *echo.Context) error {
 	tmpl := build.EffectiveTemplate(meta)
 	lintErrs := s.build.Lint(ctx, slug, tmpl)
 
-	if len(lintErrs) == 0 {
-		slog.Info("relint.clean", "slug", slug)
+	// Warnings are advisory: they must never spend an LLM run, and the agent
+	// fix-up path has regenerated pages from error text alone before now.
+	if len(lint.Blocking(lintErrs)) == 0 {
+		slog.Info("relint.clean", "slug", slug, "warnings", len(lintErrs))
 		return c.Redirect(http.StatusSeeOther, "/workspace/"+slug+"?flash=lint-clean") //nolint:wrapcheck
 	}
 
@@ -986,8 +989,8 @@ func (s *sitesController) relintHandler(c *echo.Context) error {
 	s.build.AutoFix(ctx, slug, lintErrs)
 	s.build.OptimizeCSS(ctx, slug)
 	residual := s.build.Lint(ctx, slug, tmpl)
-	if len(residual) == 0 {
-		slog.Info("relint.autofixed", "slug", slug, "fixed", len(lintErrs))
+	if len(lint.Blocking(residual)) == 0 {
+		slog.Info("relint.autofixed", "slug", slug, "fixed", len(lintErrs)-len(residual))
 		return c.Redirect(http.StatusSeeOther, "/workspace/"+slug+"?flash=lint-autofixed") //nolint:wrapcheck
 	}
 
@@ -1002,7 +1005,7 @@ func (s *sitesController) relintHandler(c *echo.Context) error {
 	resolved := s.effectiveTiersFor(userFromContext(c))
 	tiers := model.TierMap{model.TierAuthor: resolved.Resolve(model.TierEditor)}
 	prompt := build.LintFixPrompt(residual)
-	slog.Info("relint.start", "slug", slug, "issues", len(residual), "template", tmpl.ID, "tiers", tiers)
+	slog.Info("relint.start", "slug", slug, "issues", len(lint.Blocking(residual)), "template", tmpl.ID, "tiers", tiers)
 	return s.startBuild(c, build.Params{
 		Slug:     slug,
 		Prompt:   prompt,

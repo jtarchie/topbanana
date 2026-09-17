@@ -244,7 +244,8 @@ func TestApp_LinkAndAnchorChecks(t *testing.T) {
 		}
 	}
 
-	errs := App(ctx, s, slug, nil)
+	// Bare test pages: the structural warnings they trip are not what this test is about.
+	errs := Blocking(App(ctx, s, slug, nil))
 	if len(errs) != 2 {
 		t.Fatalf("expected 2 errors (broken link + broken anchor), got %d: %+v", len(errs), errs)
 	}

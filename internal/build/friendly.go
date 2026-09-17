@@ -179,6 +179,36 @@ var friendlyRules = []friendlyRule{
 		hint:     "Try again and mention where the page should appear in the menu.",
 	},
 	{
+		match:    "missing alt text",
+		headline: "An image had no description.",
+		hint:     "Screen readers announce the file name instead. Try again, or say in a sentence what each image shows.",
+	},
+	{
+		match:    "unlabeled form field",
+		headline: "A form field had nothing saying what it asks for.",
+		hint:     "Try again and describe what each field should collect — the label is what a screen reader reads out.",
+	},
+	{
+		match:    "unnamed control",
+		headline: "A button had no readable name.",
+		hint:     "Icon-only buttons need a short description. Try again and say what the button does.",
+	},
+	{
+		match:    "broken ARIA reference",
+		headline: "An accessibility label pointed at something not on the page.",
+		hint:     "Try again — this usually clears up on a second attempt.",
+	},
+	{
+		match:    "incomplete ARIA role",
+		headline: "An interactive element was missing part of its accessibility setup.",
+		hint:     "Try again — this usually clears up on a second attempt.",
+	},
+	{
+		match:    "invalid ARIA",
+		headline: "A page used an accessibility setting browsers don't recognize.",
+		hint:     "Try again — this usually clears up on a second attempt.",
+	},
+	{
 		match:    "lint errors after",
 		headline: "We built your site, but a few things didn't pass our checks.",
 		hint:     "Try again — small changes usually clear it up.",

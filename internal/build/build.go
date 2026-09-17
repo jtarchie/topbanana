@@ -673,7 +673,8 @@ func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slu
 	for attempt := 0; attempt <= maxLintRetries; attempt++ {
 		emit(events.Event{Type: events.TypeStatus, Status: events.StatusLinting})
 		lintErrs := svc.Lint(ctx, slug, tmpl)
-		if len(lintErrs) == 0 {
+		// Warnings ride along in the fix prompt but never cause a retry of their own.
+		if len(lint.Blocking(lintErrs)) == 0 {
 			return nil
 		}
 
@@ -690,20 +691,22 @@ func (svc *Service) buildAndLint(ctx context.Context, author, editor Runner, slu
 				"residual", len(residual),
 			)
 		}
-		if len(residual) == 0 {
+		blocking := lint.Blocking(residual)
+		if len(blocking) == 0 {
 			continue
 		}
 
 		if attempt == maxLintRetries {
-			msgs := make([]string, 0, len(residual))
-			for _, e := range residual {
+			// Only blocking errors explain the failure; a warning is not why the build stopped.
+			msgs := make([]string, 0, len(blocking))
+			for _, e := range blocking {
 				msgs = append(msgs, e.Error())
 			}
 			return fmt.Errorf("lint errors after %d retries: %s", maxLintRetries, strings.Join(msgs, "; "))
 		}
 
-		slog.Info("build.lint_retry", "slug", slug, "attempt", attempt+1, "issues", len(residual))
-		emit(events.Event{Type: events.TypeStatus, Status: events.StatusRetry, Message: fmt.Sprintf("fixing %d issue(s)", len(residual))})
+		slog.Info("build.lint_retry", "slug", slug, "attempt", attempt+1, "issues", len(blocking), "warnings", len(residual)-len(blocking))
+		emit(events.Event{Type: events.TypeStatus, Status: events.StatusRetry, Message: fmt.Sprintf("fixing %d issue(s)", len(blocking))})
 		// Seed the retry agent with the affected files' current content (the
 		// LintFixPrompt names them) so the fix-up edits in place rather than
 		// writing blind.

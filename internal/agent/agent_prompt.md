@@ -30,6 +30,17 @@ Every page's `<head>` MUST contain all of these, and `<html>` must carry a real 
 - The description is what search results and link previews show; write it for a visitor deciding whether to click.
 - Also adding `og:title` / `og:description` metas that mirror the title and description is encouraged — they make shared links look right in chats and social feeds.
 
+## Accessibility
+
+These are checked automatically before a build finishes; getting them right the first time avoids a fix-up pass.
+
+- Every `<img>` needs `alt` — one phrase saying what it conveys, or `alt=""` when it is purely decorative.
+- Every button and link needs a readable name. An icon-only control needs `aria-label="..."` (or a `<title>` inside its `<svg>`).
+- Every form field needs a `<label for="...">` pointing at its `id`, or an `aria-label`. A placeholder is not a label — it vanishes as soon as the visitor types.
+- Wrap each page's primary content in `<main>`, exactly one per page, so "skip to content" has somewhere to go.
+- Headings step down one level at a time (`h1` → `h2` → `h3`). Pick the level for the outline, not the size — use classes for size.
+- Only write `role=` and `aria-*` you are sure of: a misspelling or a made-up value is silently ignored. Native `<button>`, `<nav>`, `<ul>`, `<main>` already carry the right role, so they need none.
+
 ## Asking the user for help
 
 Use the `ask_user` tool only when the prompt is silent on something that **materially changes what you build** — for example, the focus of a memorial site (photos vs. stories vs. timeline) or the tone of a landing page (playful vs. professional).

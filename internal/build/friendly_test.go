@@ -137,6 +137,28 @@ func TestHumanizeFailure_RealLintOutput(t *testing.T) {
 			wantHeadline: "A size change didn't take effect on the page.",
 		},
 		{
+			name: "unnamed icon button",
+			files: map[string]string{
+				"index.html": `<!DOCTYPE html><html lang="en"><head>` + validHead + `<meta name="description" content="A page for the accessibility check."></head><body><main><button><svg viewBox="0 0 1 1"></svg></button></main></body></html>`,
+			},
+			wantHeadline: "A button had no readable name.",
+		},
+		{
+			name: "image without alt",
+			files: map[string]string{
+				"index.html": `<!DOCTYPE html><html lang="en"><head>` + validHead + `<meta name="description" content="A page for the accessibility check."></head><body><main><img src="p.png"></main></body></html>`,
+				"p.png":      "png-bytes",
+			},
+			wantHeadline: "An image had no description.",
+		},
+		{
+			name: "misspelled aria attribute",
+			files: map[string]string{
+				"index.html": `<!DOCTYPE html><html lang="en"><head>` + validHead + `<meta name="description" content="A page for the accessibility check."></head><body><main><button aria-labell="Save">Save</button></main></body></html>`,
+			},
+			wantHeadline: "A page used an accessibility setting browsers don't recognize.",
+		},
+		{
 			name: "missing home page",
 			files: map[string]string{
 				"about.html": `<!DOCTYPE html><html lang="en"><head>` + validHead + `</head><body><h1>about</h1></body></html>`,
@@ -158,7 +180,8 @@ func TestHumanizeFailure_RealLintOutput(t *testing.T) {
 				}
 			}
 
-			errs := lint.App(ctx, st, slug, nil)
+			// Only blocking errors reach HumanizeFailure in production; buildAndLint drops warnings.
+			errs := lint.Blocking(lint.App(ctx, st, slug, nil))
 			if len(errs) == 0 {
 				t.Fatal("expected lint errors, got none")
 			}

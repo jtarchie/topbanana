@@ -83,7 +83,7 @@ func TestApp_ExtendedLinkSources(t *testing.T) {
 	}
 
 	var got []string
-	for _, e := range App(ctx, s, slug, nil) {
+	for _, e := range Blocking(App(ctx, s, slug, nil)) {
 		if !strings.Contains(e.Message, "broken link") {
 			t.Errorf("unexpected non-link error: %s", e.Error())
 			continue

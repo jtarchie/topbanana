@@ -722,7 +722,9 @@ func (s *Server) registerLintSite(srv *mcp.Server) {
 		problems, msgs := mcpLintProblems(errs)
 		return mcpJSON(map[string]any{
 			"slug": in.Slug,
-			"ok":   len(errs) == 0,
+			// Advisory warnings are reported but do not make a site "not ok" —
+			// they would not have failed a web build either.
+			"ok": len(lint.Blocking(errs)) == 0,
 			// problems is the structured form (file/message/kind/autofixable);
 			// errors keeps the flat "file: message" strings for older clients.
 			"problems": problems,
@@ -733,8 +735,9 @@ func (s *Server) registerLintSite(srv *mcp.Server) {
 }
 
 // mcpLintProblems shapes lint errors into the structured problems the MCP
-// lint_site result carries (file/message/kind/autofixable) plus the flat
-// "file: message" strings kept for older clients. autofixable mirrors the build
+// lint_site result carries (file/message/kind/severity/autofixable) plus the flat
+// "file: message" strings kept for older clients. severity is what tells a client
+// which problems would have failed a web build and which are advisory. autofixable mirrors the build
 // loop: a kind in lint.AutoFixers is mechanically repaired (by OptimizeCSS,
 // which runs before this lint, for the /app.css link and the viewport meta);
 // everything else is for the agent to fix.
@@ -745,10 +748,15 @@ func mcpLintProblems(errs []lint.Error) (problems []map[string]any, msgs []strin
 		e := &errs[i]
 		msgs = append(msgs, e.Error())
 		_, fixable := lint.AutoFixers[e.Kind]
+		severity := "error"
+		if e.Severity() == lint.SeverityWarning {
+			severity = "warning"
+		}
 		problems = append(problems, map[string]any{
 			"file":        e.File,
 			"message":     e.Message,
 			"kind":        string(e.Kind),
+			"severity":    severity,
 			"autofixable": fixable,
 		})
 	}

@@ -16,19 +16,19 @@
   <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-10">
     <div class="card bg-base-200">
       <div class="card-body p-5">
-        <h3 class="card-title text-base">Feature one</h3>
+        <h2 class="card-title text-base">Feature one</h2>
         <p class="text-sm text-base-content/70">What it does and why it's useful.</p>
       </div>
     </div>
     <div class="card bg-base-200">
       <div class="card-body p-5">
-        <h3 class="card-title text-base">Feature two</h3>
+        <h2 class="card-title text-base">Feature two</h2>
         <p class="text-sm text-base-content/70">What it does and why it's useful.</p>
       </div>
     </div>
     <div class="card bg-base-200">
       <div class="card-body p-5">
-        <h3 class="card-title text-base">Feature three</h3>
+        <h2 class="card-title text-base">Feature three</h2>
         <p class="text-sm text-base-content/70">What it does and why it's useful.</p>
       </div>
     </div>
@@ -39,7 +39,7 @@
       <h2 class="card-title">Get early access</h2>
       <p class="text-neutral-content/70 mb-3">Drop your email — we'll send an invite when it's ready.</p>
       <form id="waitlist-form" onsubmit="document.getElementById('thanks').style.display='block'; this.style.display='none'; return false;" class="flex flex-wrap gap-2">
-        <input type="email" name="email" placeholder="you@example.com" autocomplete="email" required class="input flex-1 min-w-56 text-base-content">
+        <input type="email" name="email" aria-label="Email address" placeholder="you@example.com" autocomplete="email" required class="input flex-1 min-w-56 text-base-content">
         <button type="submit" class="btn btn-primary">Join waitlist</button>
       </form>
       <p id="thanks" class="text-success mt-3" style="display:none;">Thanks — you're on the list.</p>

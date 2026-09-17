@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="/app.css">
 </head>
 <body class="min-h-screen grid place-items-center bg-base-200 px-4 py-8">
-  <div class="card bg-base-100 shadow-xl max-w-lg w-full">
+  <main class="card bg-base-100 shadow-xl max-w-lg w-full">
     <div class="card-body">
       <h1 class="card-title text-3xl">Sign up</h1>
       <p class="text-base-content/70 mb-4">Replace this copy to describe what visitors are signing up for.</p>
@@ -25,7 +25,7 @@
       </form>
       <p class="text-center text-sm text-base-content/60 mt-4"><span id="count">…</span> submissions so far</p>
     </div>
-  </div>
+  </main>
   <script>
     fetch('/api/count')
       .then(function (r) { return r.json(); })

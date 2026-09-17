@@ -8,16 +8,16 @@
 <link rel="stylesheet" href="/app.css">
 </head>
 <body class="min-h-screen grid place-items-center bg-gradient-to-br from-primary/20 via-base-100 to-secondary/20 px-4 py-8">
-  <div class="card bg-base-100/90 backdrop-blur shadow-2xl max-w-md w-full">
+  <main class="card bg-base-100/90 backdrop-blur shadow-2xl max-w-md w-full">
     <div class="card-body text-center">
       <span class="badge badge-primary badge-outline mx-auto mb-2">Coming soon</span>
       <h1 class="card-title text-3xl justify-center">Coming soon</h1>
       <p class="text-base-content/70 mb-2">Replace this with a one-line value proposition. Drop your email to get notified.</p>
       <form action="/api/submit" method="post" class="flex flex-col gap-2">
-        <input type="email" name="email" placeholder="you@example.com" autocomplete="email" required class="input w-full">
+        <input type="email" name="email" aria-label="Email address" placeholder="you@example.com" autocomplete="email" required class="input w-full">
         <button type="submit" class="btn btn-primary">Notify me</button>
       </form>
     </div>
-  </div>
+  </main>
 </body>
 </html>
