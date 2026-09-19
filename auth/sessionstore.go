@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -196,45 +197,61 @@ func (s *UserSessionStore) Delete(token string) {
 	}
 }
 
+// Get is the passkey.SessionStore read. The interface has no error path, so a
+// store fault reads as a miss here; anything that acts on a miss destructively
+// (logging out deletes the record) must call Lookup instead.
 func (s *UserSessionStore) Get(token string) (*passkey.UserSessionData, bool) {
+	data, err := s.Lookup(context.Background(), token)
+	return data, err == nil
+}
+
+// ErrSessionNotFound is Lookup's "no such session": missing, expired, or
+// unreadable. Any other error means the store could not answer.
+var ErrSessionNotFound = errors.New("session not found")
+
+// Lookup is Get with the store's faults kept apart from its misses:
+// ErrSessionNotFound is a verdict, any other error is "could not find out". Collapsing the two
+// is how a brief outage — or one request whose client went away — becomes a
+// deleted session: the caller sees a miss, logs the cookie out, and the
+// logout removes a record that was perfectly valid.
+func (s *UserSessionStore) Lookup(ctx context.Context, token string) (*passkey.UserSessionData, error) {
 	entry, ok := s.cache.Get(token)
 	if ok && time.Since(entry.inserted) < sessionCacheTTL {
 		// Treat expired (past UserSessionData.Expires) like a miss so the
 		// library refuses the cookie and we drop the entry.
 		if time.Now().After(entry.data.Expires) {
 			s.cache.Remove(token)
-			return nil, false
+			return nil, ErrSessionNotFound
 		}
-		return &entry.data, true
+		return &entry.data, nil
 	}
-	loaded, ok := s.load(token)
-	if !ok {
-		return nil, false
-	}
-	return &loaded, true
+	return s.load(ctx, token)
 }
 
-func (s *UserSessionStore) load(token string) (passkey.UserSessionData, bool) {
-	obj, err := s.blobs.Get(context.Background(), sessionKey(token))
+func (s *UserSessionStore) load(ctx context.Context, token string) (*passkey.UserSessionData, error) {
+	obj, err := s.blobs.Get(ctx, sessionKey(token))
 	if err != nil {
-		return passkey.UserSessionData{}, false
+		return nil, fmt.Errorf("auth: read session: %w", err)
 	}
 	if obj.Content == "" {
-		return passkey.UserSessionData{}, false
+		return nil, ErrSessionNotFound
 	}
 	var data passkey.UserSessionData
 	err = json.Unmarshal([]byte(obj.Content), &data)
 	if err != nil {
-		return passkey.UserSessionData{}, false
+		// A record that cannot be read will never become readable; this is
+		// a miss, not a fault worth retrying.
+		return nil, ErrSessionNotFound
 	}
 	if time.Now().After(data.Expires) {
 		// Tidy up an expired session record so a future revoke-all doesn't
 		// have to wade through them.
-		_ = s.blobs.Delete(context.Background(), sessionKey(token))
-		return passkey.UserSessionData{}, false
+		// Background, not ctx: the tidy-up should outlive a caller that hung up.
+		_ = s.blobs.Delete(context.Background(), sessionKey(token)) //nolint:contextcheck // deliberate, see above
+		return nil, ErrSessionNotFound
 	}
 	s.cache.Add(token, cachedSession{data: data, inserted: time.Now()})
-	return data, true
+	return &data, nil
 }
 
 // RevokeAllForUser deletes every persisted session whose UserID matches the

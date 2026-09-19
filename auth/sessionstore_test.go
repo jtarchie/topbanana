@@ -3,8 +3,10 @@ package auth
 import (
 	"bytes"
 	"context"
+	"errors"
 	"github.com/jtarchie/topbanana/auth/blob"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -303,5 +305,66 @@ func TestUserSessionStore_GetUnknownTokenReturnsFalse(t *testing.T) {
 
 	if _, ok := uss.Get("nope-" + freshSuffix()); ok {
 		t.Errorf("Get(unknown) returned ok=true")
+	}
+}
+
+// downBlobs fails every read while down is set, the way a bucket that is
+// briefly unreachable does.
+type downBlobs struct {
+	blob.Blobs
+	down atomic.Bool
+}
+
+func (b *downBlobs) Get(ctx context.Context, key string) (blob.Object, error) {
+	if b.down.Load() {
+		return blob.Object{}, errors.New("bucket unreachable")
+	}
+	return b.Blobs.Get(ctx, key) //nolint:wrapcheck // transparent wrapper
+}
+
+// A store that cannot answer is not a store that answered no. Get has no way
+// to say so, which is why Lookup exists: knowhere logged people out — deleting
+// the session — whenever a read failed.
+func TestUserSessionStore_LookupKeepsFaultsApartFromMisses(t *testing.T) {
+	t.Parallel()
+
+	st := &downBlobs{Blobs: blob.NewMemory()}
+	writer, err := NewUserSessionStore(st)
+	if err != nil {
+		t.Fatalf("NewUserSessionStore: %v", err)
+	}
+	token, err := writer.Create(passkey.UserSessionData{
+		UserID:  []byte("alice+" + freshSuffix() + "@example.com"),
+		Expires: time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// A second store over the same bucket has a cold cache, so the read
+	// reaches the bucket — what the 60s TTL produces in production.
+	cold, err := NewUserSessionStore(st)
+	if err != nil {
+		t.Fatalf("NewUserSessionStore: %v", err)
+	}
+
+	st.down.Store(true)
+	data, err := cold.Lookup(context.Background(), token)
+	if err == nil || errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("Lookup with the bucket down = (%+v, %v), want a fault, not a verdict", data, err)
+	}
+	if _, ok := cold.Get(token); ok {
+		t.Errorf("Get with the bucket down returned ok=true")
+	}
+
+	st.down.Store(false)
+	data, err = cold.Lookup(context.Background(), token)
+	if err != nil || data == nil {
+		t.Fatalf("Lookup once the bucket is back = (%+v, %v), want the session", data, err)
+	}
+
+	missing, err := cold.Lookup(context.Background(), "no-such-token")
+	if missing != nil || !errors.Is(err, ErrSessionNotFound) {
+		t.Errorf("Lookup of an unknown token = (%+v, %v), want ErrSessionNotFound", missing, err)
 	}
 }

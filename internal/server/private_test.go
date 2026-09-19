@@ -31,8 +31,16 @@ type privateTestRig struct {
 
 func newPrivateRig(t *testing.T, st *store.Store, snapSvc *snapshot.Service) *privateTestRig {
 	t.Helper()
+	return newPrivateRigOver(t, st, snapSvc, blob.NewMemory())
+}
+
+// newPrivateRigOver is newPrivateRig on a caller-supplied account bucket, so
+// two rigs can share one (the second starts with cold caches) or a test can
+// wrap it to fail reads.
+func newPrivateRigOver(t *testing.T, st *store.Store, snapSvc *snapshot.Service, blobs blob.Blobs) *privateTestRig {
+	t.Helper()
 	authSvc, err := auth.New(auth.Config{
-		Blobs:           blob.NewMemory(),
+		Blobs:           blobs,
 		Domain:          "localhost",
 		SuperAdminEmail: testAdminUser,
 		InsecureCookies: true,

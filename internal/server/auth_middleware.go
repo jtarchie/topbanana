@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -47,8 +48,11 @@ func (s *Server) isMainDomainHost(host string) bool {
 // library's session cookie, resolve it to a user record, and stash the
 // user in the request context for handlers.
 //
-// On any failure the request is redirected to /login — a 401 / 404 would
-// leave the user staring at a blank page without a way back in.
+// A missing session, a deleted account, or a disabled one redirects to
+// /login — a 401 / 404 would leave the user staring at a blank page without a
+// way back in. A user lookup that *failed* is none of those: logging out
+// deletes the session record, so treating "the bucket didn't answer" (or "the
+// client hung up mid-request") as a verdict costs a live session. That is a 503.
 func (s *Server) requireUser(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		host := stripPort(c.Request().Host)
@@ -65,11 +69,10 @@ func (s *Server) requireUser(next echo.HandlerFunc) echo.HandlerFunc {
 			return c.Redirect(http.StatusSeeOther, "/login")
 		}
 		user, err := s.auth.Users.LookupCached(c.Request().Context(), email)
-		if err != nil {
-			s.auth.Passkey.Logout(c.Response(), c.Request())
-			return c.Redirect(http.StatusSeeOther, "/login")
+		if err != nil && !errors.Is(err, auth.ErrUserNotFound) {
+			return echo.NewHTTPError(http.StatusServiceUnavailable, "could not check your session").Wrap(err)
 		}
-		if user.Disabled {
+		if err != nil || user.Disabled {
 			s.auth.Passkey.Logout(c.Response(), c.Request())
 			return c.Redirect(http.StatusSeeOther, "/login")
 		}
