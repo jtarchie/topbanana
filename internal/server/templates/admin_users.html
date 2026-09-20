@@ -29,14 +29,14 @@
     <h2 id="invites-heading" class="text-lg font-semibold tracking-tight mb-1">
       Pending invites <span class="text-sm font-normal text-base-content/70 ml-1">· {{ .PendingInvites }}</span>
     </h2>
-    <p class="text-sm text-base-content/70 mb-3">These links work until they're used or they expire. Copy one and send it however you like.</p>
+    <p class="text-sm text-base-content/70 mb-3">These links work until they're used or they expire. Copy one and send it however you like — only to the person named on it, since whoever opens it gets that account.</p>
     <div class="overflow-x-auto rounded-box border border-base-300">
       <table class="table table-zebra">
           <thead><tr><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Expires</th><th scope="col">Invite URL</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
           <tbody>
             {{ range .Invites }}
             <tr>
-              <td>{{ .Email }}</td>
+              <td>{{ .Email }}{{ if .Recovery }} <span class="badge badge-warning badge-sm ml-1" title="This address already has an account — the link adds a passkey to it">passkey recovery</span>{{ end }}</td>
               <td>{{ .Role }}</td>
               <td>{{ .Expires }}</td>
               <td>
@@ -101,6 +101,15 @@
                         data-model-utility="{{ .ModelUtility }}"
                         data-model-vision="{{ .ModelVision }}"
                         aria-label="Edit quotas for {{ .Email }}">Quotas</button>
+                {{/* Shown on your own row too: the point is enrolling a device
+                     you can't currently sign in from, and /account only helps
+                     on a device that is already signed in. */}}
+                <form method="POST" action="/admin/users/{{ .Email }}/recovery" class="js-confirm"
+                      data-confirm-title="Issue a recovery link for {{ .Email }}?"
+                      data-confirm="It adds a passkey to their existing account and expires in an hour. Anyone who opens it can sign in as them, so send it to them directly."
+                      data-confirm-ok="Issue link" data-confirm-tone="primary">
+                  <button class="btn btn-ghost btn-sm" aria-label="Issue a passkey recovery link for {{ .Email }}">Recovery link</button>
+                </form>
                 {{ if not .IsSelf }}
                   {{ if .Disabled }}
                     <form method="POST" action="/admin/users/{{ .Email }}">

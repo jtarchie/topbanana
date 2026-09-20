@@ -129,6 +129,7 @@ func (s *Server) buildMCPServer() *mcp.Server {
 	// every client's list, but each one gates on the caller's role at call
 	// time (mcpSuperAdmin), so a regular admin only ever gets a refusal.
 	s.registerIssueInvite(srv)
+	s.registerIssueRecovery(srv)
 	s.registerListInvites(srv)
 	s.registerRevokeInvite(srv)
 

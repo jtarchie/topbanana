@@ -38,6 +38,7 @@ func (s *adminController) register(e *echo.Echo, super echo.MiddlewareFunc) {
 		return c.Redirect(http.StatusMovedPermanently, "/admin/system")
 	}, super)
 	e.POST("/admin/users/invite", s.adminInviteCreateHandler, super)
+	e.POST("/admin/users/:email/recovery", s.adminUserRecoveryHandler, super)
 	e.POST("/admin/invites/:token/revoke", s.adminInviteRevokeHandler, super)
 	e.POST("/admin/mcp-clients/:id/revoke", s.adminMCPClientRevokeHandler, super)
 	e.PATCH("/admin/users/:email", s.adminUserSetDisabledHandler, super)
@@ -70,6 +71,13 @@ type adminInviteRow struct {
 	Role    string
 	Expires string
 	URL     string
+	// Recovery marks an invite whose address already has an account, so
+	// redeeming it binds an extra passkey to a live account instead of
+	// creating one. Derived from the user list on render rather than stored on
+	// the record: "is there a user with this email" is the whole definition,
+	// and answering it from the same listing the page already loaded keeps the
+	// two tables from disagreeing.
+	Recovery bool
 }
 
 // adminMCPClientRow is one row in the registered-MCP-clients table. Name is
@@ -155,6 +163,14 @@ func (s *adminController) adminUsersHandler(c *echo.Context) error {
 		})
 	}
 
+	// Which pending invites are recoveries rather than onboardings: the two
+	// land in the same table and read identically, but one adds a passkey to
+	// an account that already has sites and sessions behind it.
+	hasAccount := make(map[string]bool, len(users))
+	for _, u := range users {
+		hasAccount[auth.NormalizeEmail(u.Email)] = true
+	}
+
 	invites, err := s.auth.Invites.List(ctx)
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "list invites", err)
@@ -172,8 +188,9 @@ func (s *adminController) adminUsersHandler(c *echo.Context) error {
 			// Full absolute URL (scheme + host + port match the admin's
 			// current request) so the operator can copy a ready-to-share
 			// link instead of a bare /register?invite=<token> path.
-			Expires: inv.Expires.UTC().Format("2006-01-02 15:04"),
-			URL:     s.adminURL(c, "/register?invite="+inv.Token),
+			Expires:  inv.Expires.UTC().Format("2006-01-02 15:04"),
+			URL:      s.adminURL(c, "/register?invite="+inv.Token),
+			Recovery: hasAccount[auth.NormalizeEmail(inv.Email)],
 		})
 	}
 	sort.SliceStable(inviteRows, func(i, j int) bool { return inviteRows[i].Email < inviteRows[j].Email })
@@ -289,6 +306,56 @@ func (s *adminController) adminInviteRevokeHandler(c *echo.Context) error {
 		return httpErr(http.StatusInternalServerError, "revoke invite", err)
 	}
 	return c.Redirect(http.StatusSeeOther, "/admin/users?flash=invite+revoked") //nolint:wrapcheck
+}
+
+// adminUserRecoveryHandler issues a passkey-recovery link for an account that
+// already exists — the answer to "I lost the device my only passkey was on."
+// It is the ordinary invite flow pointed at a live account: /register consumes
+// the token, CreateFromInvite finds the existing record and returns it
+// untouched, and the WebAuthn ceremony appends a credential. So the role and
+// quotas on the invite never reach the user record; both are copied off the
+// account only so the pending-invites table doesn't display a lie.
+//
+// The token stays out of the redirect: it's a live credential, and a flash
+// query parameter lands in browser history, the referrer of every asset on the
+// next page, and any proxy log in between. The operator copies it from the
+// pending-invites table, which is one row down and has the Copy button.
+//
+// Refuses a disabled account rather than minting a link that dies at
+// registerBegin (UserStore.Create rejects disabled users), and 404s an address
+// with no account — that case is an invite, not a recovery.
+func (s *adminController) adminUserRecoveryHandler(c *echo.Context) error {
+	email := emailParam(c)
+	if email == "" {
+		return notFound()
+	}
+	ctx := c.Request().Context()
+	user, err := s.auth.Users.Load(ctx, email)
+	if err != nil {
+		if errors.Is(err, auth.ErrUserNotFound) {
+			return notFound()
+		}
+		return httpErr(http.StatusInternalServerError, "load user", err)
+	}
+	if user.Disabled {
+		return c.Redirect(http.StatusSeeOther, "/admin/users?error="+urlEscape("Enable "+email+" first — a disabled account can't enroll a passkey.")) //nolint:wrapcheck
+	}
+	// Role and quotas are copied off the account for the same reason: the
+	// pending-invites row (and list_invites, which renders max_apps and the
+	// model overrides from the invite's own Meta) would otherwise describe the
+	// system defaults rather than this account. Redeeming applies neither.
+	inv, err := s.auth.Invites.Issue(ctx, email, user.Role, user.Meta, auth.RecoveryInviteTTL)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "issue recovery invite", err)
+	}
+	byEmail := ""
+	if current := userFromContext(c); current != nil {
+		byEmail = current.Email
+	}
+	slog.Info("admin.user.recovery", "email", email, "by", byEmail, "expires", inv.Expires)
+	msg := fmt.Sprintf("Recovery link for %s is in Pending invites above — expires %s UTC. Send it to them directly; anyone holding it can sign in as them.",
+		email, inv.Expires.UTC().Format("2006-01-02 15:04"))
+	return c.Redirect(http.StatusSeeOther, "/admin/users?flash="+urlEscape(msg)) //nolint:wrapcheck
 }
 
 // adminUserSetDisabledHandler toggles a user's Disabled flag — PATCH

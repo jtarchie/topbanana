@@ -233,3 +233,80 @@ func TestMCP_IssueInvite_RejectsBadRole(t *testing.T) {
 		t.Errorf("unexpected error text: %s", text)
 	}
 }
+
+// TestMCP_IssueRecovery_RequiresLiveAccount: issue_recovery is issue_invite
+// with the guardrails that only make sense for an account that already exists
+// — so the cases it must refuse are the point of it being a separate tool.
+func TestMCP_IssueRecovery_RequiresLiveAccount(t *testing.T) {
+	st := minioStore(t)
+	ctx := context.Background()
+	const admin = "boss@example.com"
+
+	srv, authBlobs, _ := buildMCPTestServer(t, st, freshSlug(t), admin)
+	seedSuperAdmin(t, authBlobs, admin)
+	session := connectMCP(t, srv, admin)
+	a := testAuth(t, authBlobs)
+
+	// An address with no account: that is an invite, and the error must say so
+	// rather than minting a token nothing can redeem.
+	res := callTool(t, session, "issue_recovery", map[string]any{"email": "ghost@example.com"})
+	if !res.IsError || !strings.Contains(toolText(res), "issue_invite") {
+		t.Errorf("recovery for a nonexistent account should point at issue_invite, got: %s", toolText(res))
+	}
+
+	// A disabled account: UserStore.Create rejects it at registerBegin, so a
+	// link here is one that fails in the recipient's hands.
+	const off = "off@example.com"
+	err := a.Users.Save(ctx, &auth.User{Email: off, Role: auth.RoleAdmin, Disabled: true, Created: time.Now().UTC()})
+	if err != nil {
+		t.Fatalf("seed disabled user: %v", err)
+	}
+	res = callTool(t, session, "issue_recovery", map[string]any{"email": off})
+	if !res.IsError || !strings.Contains(toolText(res), "disabled") {
+		t.Errorf("recovery for a disabled account should refuse, got: %s", toolText(res))
+	}
+
+	// The live case, with a ttl_hours past the 24h recovery ceiling: the
+	// returned link is redeemable, carries the account's own role, and is
+	// clamped rather than honoured.
+	const lost = "lost@example.com"
+	err = a.Users.Save(ctx, &auth.User{Email: lost, Role: auth.RoleSuperAdmin, Created: time.Now().UTC()})
+	if err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	out := mustCallTool(t, session, "issue_recovery", map[string]any{"email": "LOST@Example.com", "ttl_hours": 999})
+	invite, ok := out["invite"].(map[string]any)
+	if !ok {
+		t.Fatalf("no invite object in result: %v", out)
+	}
+	token, _ := invite["token"].(string)
+	stored, err := testAuth(t, authBlobs).Invites.Get(ctx, token)
+	if err != nil {
+		t.Fatalf("issued recovery link is not redeemable: %v", err)
+	}
+	if stored.Email != lost {
+		t.Errorf("email = %q; want the normalized %s", stored.Email, lost)
+	}
+	if stored.Role != auth.RoleSuperAdmin {
+		t.Errorf("role = %q; want the account's own super_admin", stored.Role)
+	}
+	if stored.Expires.After(time.Now().Add(25 * time.Hour)) {
+		t.Errorf("expiry %s exceeds the 24h recovery cap", stored.Expires)
+	}
+}
+
+// TestMCP_IssueRecovery_RefusesNonSuperAdmin: the tool hands over an account,
+// so the role gate matters more here than on any other invite tool.
+func TestMCP_IssueRecovery_RefusesNonSuperAdmin(t *testing.T) {
+	st := minioStore(t)
+	const owner = "owner@example.com"
+
+	srv, authBlobs, _ := buildMCPTestServer(t, st, freshSlug(t), owner)
+	seedUser(t, authBlobs, owner) // RoleAdmin
+	session := connectMCP(t, srv, owner)
+
+	res := callTool(t, session, "issue_recovery", map[string]any{"email": owner})
+	if !res.IsError || !strings.Contains(toolText(res), "super-admin") {
+		t.Errorf("issue_recovery for a non-super-admin: %s", toolText(res))
+	}
+}

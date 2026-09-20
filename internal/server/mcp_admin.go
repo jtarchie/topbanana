@@ -17,15 +17,37 @@ import (
 )
 
 // The super-admin half of the MCP surface: issuing, listing, and revoking the
-// invites that are the only way onto this instance. Everything else in the MCP
-// tools is scoped to sites the caller owns; these three are scoped to the
-// caller's *role*, so they live in their own file with their own gate rather
-// than sharing mcpUserAndAuthorize's slug-shaped one.
+// invites that are the only way onto this instance, plus the recovery link
+// that re-passkeys an account already on it. Everything else in the MCP tools
+// is scoped to sites the caller owns; these are scoped to the caller's *role*,
+// so they live in their own file with their own gate rather than sharing
+// mcpUserAndAuthorize's slug-shaped one.
 
 // mcpMaxInviteTTL bounds ttl_hours. An invite is a bearer credential for an
 // account on this instance, so "never expires" is not an option a tool call
 // gets to pick; 30 days is past any plausible "I'll send it next week".
 const mcpMaxInviteTTL = 30 * 24 * time.Hour
+
+// mcpMaxRecoveryTTL is the same bound for issue_recovery, tighter because a
+// recovery link is a credential for an account that already exists — with its
+// sites, its collaborators' sites, and possibly the super-admin role behind it.
+// "I'll send it next week" isn't a case here: the account isn't waiting on the
+// link, so the answer to a stale one is to issue another.
+const mcpMaxRecoveryTTL = 24 * time.Hour
+
+// inviteTTL turns a caller-supplied ttl_hours into a duration, falling back to
+// def and clamping to maxTTL.
+//
+// The clamp happens on the hours, before the multiply: time.Duration is an
+// int64 of nanoseconds, so a large ttl_hours overflows in the multiply and
+// wraps negative — which slips past a post-multiply ceiling check and mints an
+// invite that expired before it was returned.
+func inviteTTL(hours int, def, maxTTL time.Duration) time.Duration {
+	if hours <= 0 {
+		return def
+	}
+	return time.Duration(min(hours, int(maxTTL/time.Hour))) * time.Hour
+}
 
 // mcpSuperAdmin resolves the caller from the bearer token and requires the
 // super-admin role, mirroring requireSuperAdmin on the web surface. The error
@@ -179,15 +201,7 @@ func (s *Server) registerIssueInvite(srv *mcp.Server) {
 			return nil, nil, fmt.Errorf("encode quotas: %w", err)
 		}
 
-		// Clamp the hours before multiplying: time.Duration is an int64 of
-		// nanoseconds, so a large ttl_hours overflows in the multiply and wraps
-		// negative — which slips past a post-multiply ceiling check and mints
-		// an invite that expired before it was returned.
-		ttl := auth.DefaultInviteTTL
-		if in.TTLHours > 0 {
-			hours := min(in.TTLHours, int(mcpMaxInviteTTL/time.Hour))
-			ttl = time.Duration(hours) * time.Hour
-		}
+		ttl := inviteTTL(in.TTLHours, auth.DefaultInviteTTL, mcpMaxInviteTTL)
 
 		inv, err := s.auth.Invites.Issue(ctx, email, role, meta, ttl)
 		if err != nil {
@@ -199,6 +213,62 @@ func (s *Server) registerIssueInvite(srv *mcp.Server) {
 		return mcpJSON(map[string]any{
 			"ok": true, "invite": row,
 			"next": "send this url only to " + inv.Email + " — anyone holding it can claim the account until it expires or you revoke_invite it",
+		})
+	})
+}
+
+type issueRecoveryInput struct {
+	Email    string `json:"email"               jsonschema:"Email address of the EXISTING account that needs a new passkey."`
+	TTLHours int    `json:"ttl_hours,omitempty" jsonschema:"How long the link stays redeemable, in hours. Defaults to 1; capped at 24."`
+}
+
+// registerIssueRecovery is issue_invite pointed at an account that already
+// exists: the same token and the same /register page, but redeeming it appends
+// a passkey to the live record instead of creating one (CreateFromInvite
+// returns the existing user untouched, so neither role nor quotas move). It
+// exists as its own tool rather than a flag on issue_invite because the two
+// have different blast radii — one provisions an empty account, the other hands
+// over a populated one — and because the guardrails only make sense here: the
+// account must exist and must not be disabled.
+func (s *Server) registerIssueRecovery(srv *mcp.Server) {
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "issue_recovery",
+		Description: "Super-admin only. Issue a short-lived link that lets an EXISTING user add a new passkey to their account — the fix for a lost or unsyncable device. Returns a URL to hand to that person directly. " +
+			"That URL is a live credential for an account that already has sites and sessions: whoever opens it can bind a passkey and sign in as them. Use issue_invite instead for an address that has no account yet.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in issueRecoveryInput) (*mcp.CallToolResult, any, error) {
+		caller, err := s.mcpSuperAdmin(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		email := auth.NormalizeEmail(in.Email)
+		if email == "" {
+			return nil, nil, errors.New("email is required")
+		}
+		user, err := s.auth.Users.Load(ctx, email)
+		if errors.Is(err, auth.ErrUserNotFound) {
+			return nil, nil, fmt.Errorf("no account for %s — recovery adds a passkey to an existing account; use issue_invite to create one", email)
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("load user: %w", err)
+		}
+		if user.Disabled {
+			return nil, nil, fmt.Errorf("%s is disabled — enable the account first, or the link fails when they try to enroll", email)
+		}
+
+		// Role and quotas ride along only so list_invites and the /admin/users
+		// table describe the pending row accurately — mcpInviteRowOf renders
+		// max_apps and the model overrides off the invite's own Meta, so a nil
+		// one would report the system defaults for an account that has its
+		// own. Redeeming applies neither.
+		inv, err := s.auth.Invites.Issue(ctx, email, user.Role, user.Meta, inviteTTL(in.TTLHours, auth.RecoveryInviteTTL, mcpMaxRecoveryTTL))
+		if err != nil {
+			return nil, nil, fmt.Errorf("issue recovery invite: %w", err)
+		}
+		slog.Info("invite.recovery", "email", inv.Email, "by", caller.Email, "via", "mcp", "expires", inv.Expires)
+
+		return mcpJSON(map[string]any{
+			"ok": true, "invite": s.mcpInviteRowOf(inv),
+			"next": "send this url only to " + inv.Email + " — anyone holding it can sign in as them until it expires or you revoke_invite it",
 		})
 	})
 }

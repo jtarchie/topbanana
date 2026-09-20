@@ -25,6 +25,14 @@ const inviteStorePrefix = "_auth/invites/"
 // token from being burnable months later if the inbox is breached."
 const DefaultInviteTTL = 7 * 24 * time.Hour
 
+// RecoveryInviteTTL is the window for a passkey-recovery invite: one issued
+// for an address that already has an account, so its holder binds an extra
+// credential to a live account rather than creating one. Much shorter than
+// DefaultInviteTTL because the account already exists and has sites, sessions
+// and (for a super admin) other people's data behind it — and because delivery
+// is hands-on, so the operator can time the send. Reissuing is one click.
+const RecoveryInviteTTL = time.Hour
+
 // BootstrapInviteTTL is the shorter window for the first super-admin
 // invite that the server logs on startup. The operator should consume it
 // promptly; if they don't, it regenerates on the next restart.

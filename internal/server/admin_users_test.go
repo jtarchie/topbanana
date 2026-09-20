@@ -51,6 +51,37 @@ func TestAdminUsers_DeleteControls(t *testing.T) {
 	}
 }
 
+// TestAdminUsers_RecoveryControls: every row can issue a recovery link (your
+// own included — the point is enrolling a device you can't sign in from, which
+// /account can't help with), and a pending invite whose address already has an
+// account is marked as such. Without the badge the two kinds of link read
+// identically in the table, and one of them hands over a populated account.
+func TestAdminUsers_RecoveryControls(t *testing.T) {
+	t.Parallel()
+
+	html := renderAdminUsers(t, adminUsersData{
+		Users: []adminUserRow{
+			{Email: "boss@example.com", Role: "super_admin", IsSelf: true},
+			{Email: "user@example.com", Role: "admin"},
+		},
+		Invites: []adminInviteRow{
+			{Token: "t1", Email: "user@example.com", Role: "admin", Recovery: true},
+			{Token: "t2", Email: "newbie@example.com", Role: "admin"},
+		},
+	})
+
+	for _, email := range []string{"boss@example.com", "user@example.com"} {
+		if !strings.Contains(html, `action="/admin/users/`+email+`/recovery"`) {
+			t.Errorf("no recovery control for %s", email)
+		}
+	}
+	// Count the badge markup, not the phrase: the per-row buttons carry it in
+	// their aria-label too.
+	if n := strings.Count(html, `badge-warning badge-sm ml-1`); n != 1 {
+		t.Errorf("recovery badge rendered %d times; want exactly the one invite that has an account", n)
+	}
+}
+
 // renderAdminClients mirrors renderAdminUsers for the Connections page, which
 // the MCP client table moved to when the operator surfaces were split by
 // subject (people vs machines).
