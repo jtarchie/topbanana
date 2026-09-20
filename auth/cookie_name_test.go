@@ -57,7 +57,9 @@ func TestAuth_SessionCookieName_TracksLibraryWriteSide(t *testing.T) {
 	// Seed the probe user so UserStore.Create can find it. The library
 	// refuses to mint a brand-new user on registerBegin by design — our
 	// /register handler is the only path that creates users (from an
-	// invite).
+	// invite) — and Create additionally requires a live enrollment grant, so
+	// reaching the ceremony at all means standing in for the /register or
+	// /account handler that would have issued one.
 	ctx := context.Background()
 	probe := &User{Email: probeEmail, Role: RoleAdmin, Created: time.Now().UTC()}
 	err = a.Users.Save(ctx, probe)
@@ -65,6 +67,10 @@ func TestAuth_SessionCookieName_TracksLibraryWriteSide(t *testing.T) {
 		t.Fatalf("seed probe user: %v", err)
 	}
 	t.Cleanup(func() { _ = a.Users.Delete(ctx, probeEmail) })
+	err = a.Users.GrantEnrollment(ctx, probeEmail)
+	if err != nil {
+		t.Fatalf("grant enrollment: %v", err)
+	}
 
 	mux := http.NewServeMux()
 	a.Passkey.MountRoutes(mux, "/auth/")

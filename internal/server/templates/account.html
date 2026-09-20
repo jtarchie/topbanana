@@ -222,6 +222,19 @@
       okEl.classList.add('hidden');
       btn.disabled = true;
       try {
+        // Open the enrollment window first. The ceremony endpoints below are
+        // unauthenticated (a caller binding their first passkey has nothing to
+        // authenticate with), so this session-gated call is what proves the
+        // request is this account's own.
+        var grantRes = await fetch('/account/passkeys/enroll', {
+          method: 'POST',
+          credentials: 'same-origin',
+        });
+        if (!grantRes.ok) {
+          showError('Could not start: your session may have expired. Reload and try again.');
+          btn.disabled = false;
+          return;
+        }
         var beginRes = await fetch('/auth/passkey/registerBegin', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},

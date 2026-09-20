@@ -50,12 +50,17 @@ func TestAuth_RPDisplayName_ReachesTheCeremony(t *testing.T) {
 			}
 			t.Cleanup(func() { _ = a.Close() })
 
-			// Seed the probe user: the library refuses to mint one on
-			// registerBegin, same as the cookie-name test.
+			// Seed the probe user and open its enrollment window: the library
+			// refuses to mint one on registerBegin, and Create refuses without a
+			// grant, same as the cookie-name test.
 			probe := &User{Email: probeEmail, Role: RoleAdmin, Created: time.Now().UTC()}
 			err = a.Users.Save(context.Background(), probe)
 			if err != nil {
 				t.Fatalf("seed probe user: %v", err)
+			}
+			err = a.Users.GrantEnrollment(context.Background(), probeEmail)
+			if err != nil {
+				t.Fatalf("grant enrollment: %v", err)
 			}
 
 			mux := http.NewServeMux()

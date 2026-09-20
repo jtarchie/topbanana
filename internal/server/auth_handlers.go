@@ -37,6 +37,7 @@ func (s *accountController) registerAccount(g *echo.Group) {
 	g.DELETE("/account/sessions", s.accountSignOutEverywhereHandler)
 	g.POST("/account/delete", s.accountDeleteHandler)
 	g.POST("/account/passkeys/delete", s.accountRemovePasskeyHandler)
+	g.POST("/account/passkeys/enroll", s.accountEnrollHandler)
 }
 
 // loginData backs templates/login.html. The page itself doesn't yet know
@@ -122,10 +123,19 @@ func (s *accountController) registerHandler(c *echo.Context) error {
 	}
 	// Pre-create the user record so passkey.UserStore.Create can return it
 	// when the browser hits /auth/passkey/registerBegin. Safe to call
-	// repeatedly because CreateFromInvite is idempotent.
+	// repeatedly because CreateFromInvite is idempotent. For a recovery invite
+	// the record already exists and comes back untouched.
 	_, err = s.auth.Users.CreateFromInvite(ctx, *inv)
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "create user", err)
+	}
+	// Opening the enrollment window is what a valid invite actually buys: the
+	// ceremony endpoints are unauthenticated, so without a grant registerBegin
+	// refuses and the invite would be decorative. Granting on the GET is safe
+	// because reaching here required a token that Get has just validated.
+	err = s.auth.Users.GrantEnrollment(ctx, inv.Email)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "grant enrollment", err)
 	}
 	return s.render(c, "register", registerData{
 		Chrome:      Chrome{Active: "register"},
@@ -301,6 +311,29 @@ func (s *accountController) accountDeleteHandler(c *echo.Context) error {
 
 	slog.Info("account.delete", "email", email, "apps", apps, "shared_revoked", shared)
 	return c.Redirect(http.StatusSeeOther, "/login?flash="+urlEscape("Account deleted")) //nolint:wrapcheck
+}
+
+// accountEnrollHandler opens the enrollment window for the signed-in user, so
+// the account page's "add a passkey" button can complete the ceremony. It is
+// the session-holder half of the two ways to earn a grant; the other is
+// redeeming an invite.
+//
+// The email comes from the session, never from the request body: a parameter
+// here would be the same hole the grant exists to close, letting any signed-in
+// user open an enrollment window on somebody else's account.
+func (s *accountController) accountEnrollHandler(c *echo.Context) error {
+	if s.auth == nil {
+		return notFound()
+	}
+	user := userFromContext(c)
+	if user == nil {
+		return notFound()
+	}
+	err := s.auth.Users.GrantEnrollment(c.Request().Context(), user.Email)
+	if err != nil {
+		return httpErr(http.StatusInternalServerError, "grant enrollment", err)
+	}
+	return c.NoContent(http.StatusNoContent) //nolint:wrapcheck
 }
 
 // accountRemovePasskeyHandler unbinds one passkey from the logged-in user's

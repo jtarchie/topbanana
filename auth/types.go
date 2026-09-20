@@ -121,6 +121,29 @@ type User struct {
 	Credentials []webauthn.Credential `json:"credentials,omitempty"`
 	Created     time.Time             `json:"created"`
 	Disabled    bool                  `json:"disabled,omitempty"`
+	// EnrollUntil is the enrollment grant: the deadline before which this
+	// account may bind a NEW passkey. Zero means it may not.
+	//
+	// It exists because the WebAuthn ceremony endpoints are necessarily
+	// unauthenticated — the whole point of registerBegin is that the caller
+	// has no credential yet — and the ceremony itself asks only "does this
+	// username resolve to a user", which an email address answers. Without a
+	// grant, knowing someone's address is enough to attach your own
+	// authenticator to their account and sign in as them. So the ceremony is
+	// gated on state only an authorized path can write: a redeemed invite, or
+	// a request from a session that is already this user.
+	//
+	// Deliberately on the record rather than in a process-local map: the
+	// grant is written by one request and read by the next, which on a
+	// multi-instance deploy is a different process.
+	EnrollUntil time.Time `json:"enroll_until,omitempty"`
+}
+
+// MayEnroll reports whether the account currently holds a live enrollment
+// grant. The zero EnrollUntil (never granted, or already spent) is always in
+// the past, so the default is no.
+func (u *User) MayEnroll(now time.Time) bool {
+	return !u.EnrollUntil.IsZero() && now.Before(u.EnrollUntil)
 }
 
 // WebAuthnID is the user handle stored in the credential and returned in

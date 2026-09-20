@@ -34,6 +34,18 @@ const userCacheCapacity = 256
 // S3 write, so the TTL only matters when something bypasses the store.
 const userCacheTTL = 60 * time.Second
 
+// EnrollmentGrantTTL is how long an enrollment grant stays live. It spans one
+// human interaction — click "add a passkey", then confirm on the device — so
+// it is minutes, not hours. During the window, anyone who knows the address
+// can complete the ceremony, which is exactly why it closes fast and why
+// Update spends it on first use.
+const EnrollmentGrantTTL = 10 * time.Minute
+
+// ErrEnrollmentNotAllowed is returned by Create when the account holds no live
+// enrollment grant. Callers should not show it to the caller of an
+// unauthenticated endpoint — see Create.
+var ErrEnrollmentNotAllowed = errors.New("auth: enrollment not allowed")
+
 // ErrUserNotFound is the canonical "no such user" error. Distinct from a
 // transport error so callers can branch on it without parsing strings.
 var ErrUserNotFound = errors.New("user not found")
@@ -240,29 +252,87 @@ func (s *UserStore) CreateFromInvite(ctx context.Context, inv Invite) (*User, er
 
 // --- passkey.UserStore interface --------------------------------------------
 
-// Create is the library's entry point on the first registerBegin call.
-// We deliberately do NOT create new users here — our /register handler
-// (commit 3) builds the User record from a validated invite first. So
-// Create's only job is to return the existing record, or refuse if the
-// caller hasn't gone through the invite flow.
+// Create is the library's entry point on the first registerBegin call, and the
+// only gate on the WebAuthn enrollment ceremony — which is mounted
+// unauthenticated, because a caller enrolling their first passkey has no
+// credential to authenticate with. Everything the ceremony itself checks, an
+// email address satisfies.
+//
+// So this refuses unless the account holds a live enrollment grant
+// (GrantEnrollment). Without that check, knowing an address is enough to bind
+// your own authenticator to that account and then sign in as them: /register
+// and the account page's "add a passkey" button would be conventions in
+// JavaScript, not gates, since nothing stops a client from calling
+// registerBegin directly.
+//
+// It also never creates users. The invite flow is the only thing that
+// materializes a record, so an unknown username is a refusal, not a signup.
+//
+// The three refusals share one error text and log the real reason instead: the
+// caller is unauthenticated and the library returns this string to them
+// verbatim, so distinguishing "no such user" from "not allowed to enroll"
+// hands an anonymous prober a membership oracle for any address.
 func (s *UserStore) Create(username string) (passkey.User, error) {
 	user, err := s.Load(context.Background(), username)
 	if err != nil {
-		return nil, fmt.Errorf("auth.create: %w", err)
+		slog.Warn("auth.enroll.refused", "username", NormalizeEmail(username), "reason", "load", "err", err)
+		return nil, ErrEnrollmentNotAllowed
 	}
 	if user.Disabled {
-		return nil, fmt.Errorf("auth.create: user %s is disabled", username)
+		slog.Warn("auth.enroll.refused", "email", user.Email, "reason", "disabled")
+		return nil, ErrEnrollmentNotAllowed
+	}
+	if !user.MayEnroll(time.Now()) {
+		slog.Warn("auth.enroll.refused", "email", user.Email, "reason", "no_grant")
+		return nil, ErrEnrollmentNotAllowed
 	}
 	return user, nil
 }
 
+// GrantEnrollment opens the enrollment window for email, letting the next
+// registerBegin/registerFinish pair through Create. Only two callers may issue
+// one: the handler that has just validated an invite for this address, and a
+// request already carrying this user's own session. Anything else is handing
+// out the account.
+//
+// Loads fresh rather than reusing a cached pointer, so it doesn't mutate a
+// *User another in-flight request is reading.
+func (s *UserStore) GrantEnrollment(ctx context.Context, email string) error {
+	email = NormalizeEmail(email)
+	user, err := s.Load(ctx, email)
+	if err != nil {
+		return err
+	}
+	if user.Disabled {
+		return fmt.Errorf("auth: cannot grant enrollment to disabled user %s", email)
+	}
+	user.EnrollUntil = time.Now().UTC().Add(EnrollmentGrantTTL)
+	err = s.Save(ctx, user)
+	if err != nil {
+		return err
+	}
+	slog.Info("auth.enroll.granted", "email", email, "until", user.EnrollUntil)
+	return nil
+}
+
 // Update persists a user record back to S3. Called by the library after
 // PutCredential to record a new passkey or an updated sign-count.
+//
+// It also SPENDS the enrollment grant, which makes a grant good for one
+// ceremony rather than for its whole TTL — the window is unauthenticated, so
+// the less of it that stays open after the legitimate enrollment lands, the
+// better. This is the only post-ceremony hook the library offers.
+//
+// The library calls Update on successful login too, so a login racing a
+// pending grant spends it and the enrollment then fails at registerBegin.
+// That is the safe direction to fail, and the fix is to click the button
+// again.
 func (s *UserStore) Update(u passkey.User) error {
 	concrete, ok := u.(*User)
 	if !ok {
 		return fmt.Errorf("auth.update: unexpected user type %T", u)
 	}
+	concrete.EnrollUntil = time.Time{}
 	return s.Save(context.Background(), concrete)
 }
 
