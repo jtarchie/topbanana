@@ -107,16 +107,22 @@ func humanizeBytes(n int64) string {
 // urlEscape produces a query-safe value for the flash message redirect.
 // Echo's Redirect doesn't take query params separately so the message is
 // embedded in the URL directly.
+//
+// Iterates BYTES, not runes: percent-encoding is defined over octets, so
+// ranging by rune and formatting the code point with %02X turned an em dash
+// (U+2014) into "%2014" — a space followed by a literal "14" once the browser
+// decoded it. Several flash strings carry em dashes and typographic quotes.
 func urlEscape(s string) string {
 	var b strings.Builder
-	for _, r := range s {
+	for i := range len(s) {
+		c := s[i]
 		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
-			b.WriteRune(r)
-		case r == ' ':
-			b.WriteRune('+')
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '_', c == '.':
+			b.WriteByte(c)
+		case c == ' ':
+			b.WriteByte('+')
 		default:
-			fmt.Fprintf(&b, "%%%02X", r)
+			fmt.Fprintf(&b, "%%%02X", c)
 		}
 	}
 	return b.String()
