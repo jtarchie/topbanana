@@ -5,6 +5,7 @@ go 1.26.6
 require (
 	github.com/PuerkitoBio/goquery v1.13.0
 	github.com/achetronic/adk-utils-go v1.1.0
+	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/alecthomas/kong v1.16.1
 	github.com/aws/aws-sdk-go-v2 v1.45.1
 	github.com/aws/aws-sdk-go-v2/config v1.33.2

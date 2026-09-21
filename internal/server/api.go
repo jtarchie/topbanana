@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"io"
 	"log/slog"
 	"net/http"
@@ -426,9 +427,10 @@ func (s *functionsController) functionEditHandler(c *echo.Context) error {
 			SiteURL:  s.siteURL(c, slug, "/"),
 			Active:   "workspace",
 		},
-		Name:   name,
-		APIURL: s.siteURL(c, slug, "/api/"+name),
-		Source: obj.Content,
+		Name:      name,
+		APIURL:    s.siteURL(c, slug, "/api/"+name),
+		Source:    highlightJS(obj.Content),
+		SourceCSS: highlightCSS(),
 	})
 }
 
@@ -437,9 +439,10 @@ func (s *functionsController) functionEditHandler(c *echo.Context) error {
 // shared brand partial pick up IsSuperAdmin via embedded promotion.
 type functionEditData struct {
 	Chrome
-	Name   string
-	APIURL string
-	Source string
+	Name      string
+	APIURL    string
+	Source    template.HTML
+	SourceCSS template.CSS
 }
 
 // functionTestRequest is the JSON body the editor sends to /test/:slug/api/:name.

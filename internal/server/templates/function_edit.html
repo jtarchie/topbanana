@@ -3,6 +3,13 @@
 <head>
 <title>Function {{ .Name }} ({{ .Slug }}) — Top Banana</title>
 {{ template "head" . }}
+<style>
+{{ .SourceCSS }}
+/* chroma nests a <pre class="chroma"> per line-number table cell inside the
+   wrapper it also names .chroma, so the box styling keys off the wrapper. */
+.fn-source > .chroma { padding: 1rem; border-radius: var(--radius-box); overflow-x: auto; tab-size: 2; }
+.fn-source .lntable { width: 100%; }
+</style>
 </head>
 <body class="min-h-screen flex flex-col bg-base-100">
 {{ template "brand" . }}
@@ -40,9 +47,7 @@
   </div>
 
   <section data-pane="source">
-    <div class="mockup-code text-sm w-full">
-      <pre><code>{{ .Source }}</code></pre>
-    </div>
+    <div class="fn-source text-sm w-full">{{ .Source }}</div>
   </section>
 
   <section data-pane="test" class="hidden">
