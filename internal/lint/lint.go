@@ -772,6 +772,7 @@ func IsExternalLink(link string) bool {
 		strings.HasPrefix(lower, "https://") ||
 		strings.HasPrefix(lower, "mailto:") ||
 		strings.HasPrefix(lower, "tel:") ||
+		strings.HasPrefix(lower, "sms:") ||
 		strings.HasPrefix(lower, "//") ||
 		strings.HasPrefix(lower, "data:")
 }

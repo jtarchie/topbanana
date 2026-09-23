@@ -89,6 +89,10 @@ func TestCheckContactHrefs(t *testing.T) {
 		{"short tel flags", "tel:123456", true},
 		{"lettered tel flags", "tel:CALL-NOW", true},
 		{"empty tel flags", "tel:", true},
+		{"valid sms passes", "sms:+15551234567", false},
+		{"sms with body query passes", "sms:+15551234567?body=Hi", false},
+		{"short sms flags", "sms:123", true},
+		{"empty sms flags", "sms:", true},
 		{"plain links ignored", "about.html", false},
 	}
 

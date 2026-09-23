@@ -99,7 +99,7 @@ var emailRE = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 // flagging local numbers.
 const minTelDigits = 7
 
-// checkContactHrefs validates mailto: and tel: href values — the
+// checkContactHrefs validates mailto:, tel:, and sms: href values — the
 // click-to-contact links a non-technical owner never tests and whose
 // failure costs them exactly the visitors who tried to reach them.
 func checkContactHrefs(pi pageInfo) []Error {
@@ -117,7 +117,10 @@ func checkContactHrefs(pi pageInfo) []Error {
 		case strings.HasPrefix(lower, "mailto:"):
 			e = checkMailtoHref(pi.name, href)
 		case strings.HasPrefix(lower, "tel:"):
-			e = checkTelHref(pi.name, href)
+			e = checkTelHref(pi.name, href, "tel")
+		case strings.HasPrefix(lower, "sms:"):
+			// same number shape as tel:; the query (?body=...) is stripped below
+			e = checkTelHref(pi.name, href, "sms")
 		}
 		if e != nil {
 			errs = append(errs, *e)
@@ -156,8 +159,8 @@ func checkMailtoHref(filename, href string) *Error {
 	}
 }
 
-func checkTelHref(filename, href string) *Error {
-	num := href[len("tel:"):]
+func checkTelHref(filename, href, scheme string) *Error {
+	num := href[len(scheme)+1:]
 	if i := strings.IndexByte(num, '?'); i != -1 {
 		num = num[:i]
 	}
@@ -180,8 +183,8 @@ func checkTelHref(filename, href string) *Error {
 		File: filename,
 		Kind: KindBrokenContactHref,
 		Message: fmt.Sprintf(
-			`broken tel link — href=%q does not contain a dialable phone number (at least %d digits; spaces, dashes, dots, parentheses, and a leading + are fine). Use the full number (href="tel:+15551234567") or remove the link.`,
-			href, minTelDigits),
+			`broken %s link — href=%q does not contain a dialable phone number (at least %d digits; spaces, dashes, dots, parentheses, and a leading + are fine). Use the full number (href="%s:+15551234567") or remove the link.`,
+			scheme, href, minTelDigits, scheme),
 	}
 }
 

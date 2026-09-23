@@ -149,6 +149,11 @@ var friendlyRules = []friendlyRule{
 		hint:     "Double-check the phone number and try again.",
 	},
 	{
+		match:    "broken sms link",
+		headline: "A text-message link didn't contain a real phone number.",
+		hint:     "Double-check the phone number and try again.",
+	},
+	{
 		match:    "undefined handler",
 		headline: "A button was wired to an action that doesn't exist.",
 		hint:     "Try again — this usually clears up on a second attempt.",
