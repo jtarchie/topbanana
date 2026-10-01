@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
@@ -149,6 +150,14 @@ func isMissingKey(err error) bool {
 		return apiErr.ErrorCode() == "NoSuchKey" || apiErr.ErrorCode() == "404"
 	}
 	return false
+}
+
+// RetryThrottled retries R2's per-object write throttle (429 ServiceUnavailable), unretried by default; safe for If-Match since a throttled put never applied.
+func RetryThrottled(o *s3.Options) {
+	if o.Retryer == nil {
+		o.Retryer = retry.NewStandard()
+	}
+	o.Retryer = retry.AddWithErrorCodes(o.Retryer, "ServiceUnavailable")
 }
 
 // isPreconditionFailed reports whether err is S3's 412 for a failed If-Match /

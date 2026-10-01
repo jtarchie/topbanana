@@ -74,7 +74,7 @@ func S3Client(t *testing.T) *s3.Client {
 	if err != nil {
 		t.Fatalf("load aws config: %v", err)
 	}
-	return s3.NewFromConfig(cfg, func(o *s3.Options) {
+	return s3.NewFromConfig(cfg, store.RetryThrottled, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(os.Getenv("AWS_ENDPOINT_URL"))
 		o.UsePathStyle = true
 	})

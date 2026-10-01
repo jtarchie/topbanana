@@ -126,7 +126,7 @@ func run() error {
 		return fmt.Errorf("aws config: %w", err)
 	}
 
-	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+	s3Client := s3.NewFromConfig(cfg, store.RetryThrottled, func(o *s3.Options) {
 		if cli.S3EndpointURL != "" {
 			o.BaseEndpoint = aws.String(cli.S3EndpointURL)
 			o.UsePathStyle = true
