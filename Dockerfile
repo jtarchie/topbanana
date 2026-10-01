@@ -21,7 +21,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags='-s -w' -o /out/topbanana ./cmd/t
 FROM alpine
 # libstdc++/libgcc: the Tailwind standalone "musl" build is not fully static —
 # it dynamically links the C++ runtime, so it fails to relocate on bare alpine.
-RUN apk add --no-cache ca-certificates libstdc++ libgcc
+RUN apk add --no-cache ca-certificates libstdc++ libgcc openssh
 COPY --from=builder /out/topbanana /usr/local/bin/topbanana
 # tailwindcss on PATH — build.Service.optimizeCSS resolves it for the per-site
 # compile. If absent, sites fall back to keeping their CDN substrate tags.
