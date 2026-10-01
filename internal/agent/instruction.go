@@ -29,7 +29,7 @@ func formatTemplateChecks(checks []templates.Check) string {
 		}
 		needles := make([]string, 0, len(c.MustContain))
 		for _, n := range c.MustContain {
-			needles = append(needles, fmt.Sprintf("`%s`", n))
+			needles = append(needles, "`"+n+"`")
 		}
 		line := fmt.Sprintf("- %s must contain %s", c.File, strings.Join(needles, " and "))
 		if c.Message != "" {
