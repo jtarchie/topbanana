@@ -86,24 +86,6 @@ func TestRefresh_RenewsWithoutReauthorizing(t *testing.T) {
 	}
 }
 
-// Rotation: the old link dies the moment it is used.
-func TestRefresh_OldTokenStopsWorkingAfterRotation(t *testing.T) {
-	s := newOAuthTestServer(t)
-	clientID, first := connect(t, s)
-
-	_, status := refresh(t, s, clientID, first.RefreshToken)
-	if status != http.StatusOK {
-		t.Fatalf("first refresh = %d", status)
-	}
-	tok, status := refresh(t, s, clientID, first.RefreshToken)
-	if status == http.StatusOK {
-		t.Fatal("a rotated-away refresh token was accepted a second time")
-	}
-	if tok.Error != "invalid_grant" {
-		t.Fatalf("error = %q, want invalid_grant", tok.Error)
-	}
-}
-
 // Reuse detection: replaying a spent token means someone has a copy, so the
 // whole chain dies — including the link the legitimate client still holds.
 func TestRefresh_ReuseRevokesTheWholeChain(t *testing.T) {
@@ -134,6 +116,91 @@ func TestRefresh_ReuseRevokesTheWholeChain(t *testing.T) {
 	}
 	if tok.Error != "invalid_grant" {
 		t.Fatalf("error = %q, want invalid_grant", tok.Error)
+	}
+}
+
+// A lost response must not cost the session: the client retries the link it
+// still holds and gets the successor it missed, which then keeps working.
+func TestRefresh_RetryWithinGraceReturnsSameSuccessor(t *testing.T) {
+	s := newOAuthTestServer(t)
+	clientID, first := connect(t, s)
+
+	lost, status := refresh(t, s, clientID, first.RefreshToken)
+	if status != http.StatusOK {
+		t.Fatalf("first refresh = %d", status)
+	}
+	retry, status := refresh(t, s, clientID, first.RefreshToken)
+	if status != http.StatusOK {
+		t.Fatalf("retry within grace = %d (%+v) — a dropped response revoked the session", status, retry)
+	}
+	if retry.RefreshToken != lost.RefreshToken {
+		t.Fatal("retry minted a second successor; one link must not fork into two live chains")
+	}
+	_, status = refresh(t, s, clientID, retry.RefreshToken)
+	if status != http.StatusOK {
+		t.Fatalf("successor after retry = %d", status)
+	}
+}
+
+// Once the successor is spent, the old link's holder is not the client that
+// moved on — that is a replay, grace or not.
+func TestRefresh_RetryAfterSuccessorSpentIsReuse(t *testing.T) {
+	s := newOAuthTestServer(t)
+	clientID, first := connect(t, s)
+
+	second, _ := refresh(t, s, clientID, first.RefreshToken)
+	third, status := refresh(t, s, clientID, second.RefreshToken)
+	if status != http.StatusOK {
+		t.Fatalf("second refresh = %d", status)
+	}
+	_, status = refresh(t, s, clientID, first.RefreshToken)
+	if status == http.StatusOK {
+		t.Fatal("a link whose successor was already spent was honoured")
+	}
+	_, status = refresh(t, s, clientID, third.RefreshToken)
+	if status == http.StatusOK {
+		t.Fatal("chain survived a replay inside the grace window")
+	}
+}
+
+func TestRefresh_RetryAfterGraceIsReuse(t *testing.T) {
+	s := newOAuthTestServer(t)
+	ctx := context.Background()
+	clientID, first := connect(t, s)
+
+	second, status := refresh(t, s, clientID, first.RefreshToken)
+	if status != http.StatusOK {
+		t.Fatalf("first refresh = %d", status)
+	}
+
+	// Age the consumption past the grace window.
+	key := s.st.refreshKey(first.RefreshToken)
+	obj, err := s.st.store.Get(ctx, key)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	rec := refreshRecord{}
+	err = json.Unmarshal([]byte(obj.Content), &rec)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	rec.ConsumedAt = time.Now().Add(-2 * refreshReuseGrace)
+	body, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	err = s.st.store.Put(ctx, key, string(body))
+	if err != nil {
+		t.Fatalf("put: %v", err)
+	}
+
+	_, status = refresh(t, s, clientID, first.RefreshToken)
+	if status == http.StatusOK {
+		t.Fatal("a consumed link was honoured after the grace window")
+	}
+	_, status = refresh(t, s, clientID, second.RefreshToken)
+	if status == http.StatusOK {
+		t.Fatal("chain survived a replay after the grace window")
 	}
 }
 
@@ -192,29 +259,33 @@ func TestRefresh_RevokingClientKillsItsTokens(t *testing.T) {
 	}
 }
 
-// Concurrent refreshes on the same link: exactly one may win, or the losing
-// caller would get a second live chain from one token.
+// Concurrent refreshes on the same link: exactly one may rotate it. Callers
+// that arrive after the claim are grace retries and get that same successor;
+// two different successors would be two live chains from one token.
 func TestRefresh_ConcurrentUseYieldsOneWinner(t *testing.T) {
 	s := newOAuthTestServer(t)
 	ctx := context.Background()
 	clientID, first := connect(t, s)
 
 	const callers = 6
-	results := make(chan bool, callers)
+	results := make(chan string, callers)
 	for range callers {
 		go func() {
-			_, ok, err := s.st.redeemRefresh(ctx, first.RefreshToken, clientID)
-			results <- ok && err == nil
+			rec, ok, err := s.st.redeemRefresh(ctx, first.RefreshToken, clientID)
+			if !ok || err != nil {
+				rec.Successor = ""
+			}
+			results <- rec.Successor
 		}()
 	}
-	winners := 0
+	successors := map[string]bool{}
 	for range callers {
-		if <-results {
-			winners++
+		if next := <-results; next != "" {
+			successors[next] = true
 		}
 	}
-	if winners != 1 {
-		t.Fatalf("%d concurrent refreshes were granted, want exactly 1", winners)
+	if len(successors) != 1 {
+		t.Fatalf("%d distinct successors from concurrent refreshes, want exactly 1", len(successors))
 	}
 }
 
@@ -291,6 +362,7 @@ func TestRefresh_SweepIsThrottled(t *testing.T) {
 	s := newOAuthTestServer(t)
 	ctx := context.Background()
 	clientID, first := connect(t, s)
+	s.st.sweeps.Wait()
 
 	// A record already past its grace window: the sweep would remove it.
 	dead := refreshRecord{
@@ -313,6 +385,7 @@ func TestRefresh_SweepIsThrottled(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("refresh = %d", status)
 	}
+	s.st.sweeps.Wait()
 	obj, err := s.st.store.Get(ctx, deadKey)
 	if err != nil {
 		t.Fatalf("get: %v", err)
@@ -325,6 +398,7 @@ func TestRefresh_SweepIsThrottled(t *testing.T) {
 	// sweep rather than disabling it.
 	s.st.lastRefreshSweep.Store(0)
 	s.st.maybeSweepRefresh(ctx)
+	s.st.sweeps.Wait()
 	obj, err = s.st.store.Get(ctx, deadKey)
 	if err != nil {
 		t.Fatalf("get: %v", err)

@@ -41,6 +41,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -129,6 +130,9 @@ type mcpOAuthState struct {
 	// used to throttle it. Per-instance: a few extra sweeps across a fleet is
 	// harmless, and coordinating them would cost more than it saves.
 	lastRefreshSweep atomic.Int64
+
+	// sweeps tracks the background refresh sweep so tests can wait on it.
+	sweeps sync.WaitGroup
 }
 
 type mcpOAuthClient struct {
@@ -730,7 +734,7 @@ func (s *Server) exchangeCode(c *echo.Context) error {
 			"error_description": "PKCE verification failed",
 		})
 	}
-	return s.grant(c, ac.Email, clientID, "")
+	return s.grant(c, ac.Email, clientID, "", "")
 }
 
 func (s *Server) exchangeRefresh(c *echo.Context) error {
@@ -765,22 +769,23 @@ func (s *Server) exchangeRefresh(c *echo.Context) error {
 	if !ok {
 		return mcpRespJSON(c, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
 	}
-	return s.grant(c, rec.Email, clientID, rec.Family)
+	return s.grant(c, rec.Email, clientID, rec.Family, rec.Successor)
 }
 
 // grant mints an access token plus the refresh token that renews it. family
-// continues an existing rotation chain, or starts one when empty.
+// continues an existing rotation chain, or starts one when empty; refresh is
+// the successor redeemRefresh already reserved, or empty to mint one.
 //
 // A failure to issue the refresh token fails the whole exchange rather than
 // returning the access token alone: a client that gets one without the other
 // looks connected for twelve hours and then needs a human, which is the exact
 // failure this is meant to end.
-func (s *Server) grant(c *echo.Context, email, clientID, family string) error {
+func (s *Server) grant(c *echo.Context, email, clientID, family, refresh string) error {
 	token, err := auth.MintMCPToken(s.cfg.Secret, email, auth.MCPTokenTTL)
 	if err != nil {
 		return mcpRespJSON(c, http.StatusInternalServerError, map[string]string{"error": "server_error"})
 	}
-	refresh, err := s.st.issueRefresh(c.Request().Context(), email, clientID, family)
+	refresh, err = s.st.issueRefresh(c.Request().Context(), email, clientID, family, refresh)
 	if err != nil {
 		slog.Warn("mcp.oauth.issue_refresh_failed", "err", err)
 		return mcpRespJSON(c, http.StatusServiceUnavailable, map[string]string{"error": "temporarily_unavailable"})

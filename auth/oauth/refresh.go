@@ -31,6 +31,25 @@ import (
 // family is revoked rather than just that token. The legitimate client loses
 // its session and re-authorizes, which is the correct outcome when a
 // credential is known to have escaped.
+//
+// # Retry grace
+//
+// Strict detection alone punishes a lost response as if it were a leak: the
+// server consumes the old link and mints a new one, the client never receives
+// it (timeout, dropped connection, a deploy cutting the request off), retries
+// with the only token it has, and loses the whole chain. A consumed link
+// therefore records the successor it was rotated into, and re-presenting it
+// within refreshReuseGrace hands back that same successor instead of revoking
+// — but only while the successor is itself unspent. Once the successor has
+// been used, the holder of the old link is provably not the client that moved
+// on, so it is a replay and the chain dies as before.
+
+// refreshReuseGrace is how long a consumed link can be retried. Long enough to
+// cover a client timeout plus a single-machine deploy's restart; short enough
+// that a leaked copy rarely lands in it, and one that does only gets the token
+// the legitimate client also holds, which trips detection at their next
+// rotation.
+const refreshReuseGrace = 2 * time.Minute
 
 // refreshRecord is one link in a rotation chain.
 type refreshRecord struct {
@@ -45,6 +64,11 @@ type refreshRecord struct {
 	// indistinguishable from one that never existed, and that difference is
 	// the entire signal reuse detection runs on.
 	Consumed bool `json:"consumed,omitempty"`
+	// ConsumedAt and Successor make a retry of a consumed link idempotent:
+	// within refreshReuseGrace it yields Successor again. Records written
+	// before these fields existed have neither and get no grace.
+	ConsumedAt time.Time `json:"consumed_at,omitzero"`
+	Successor  string    `json:"successor,omitempty"`
 }
 
 func (st *mcpOAuthState) refreshPrefix() string { return st.prefix + "refresh/" }
@@ -53,13 +77,17 @@ func (st *mcpOAuthState) refreshKey(token string) string {
 	return st.refreshPrefix() + token + ".json"
 }
 
-// issueRefresh mints a token in the given family, or starts a new family when
-// family is empty.
-func (st *mcpOAuthState) issueRefresh(ctx context.Context, email, clientID, family string) (string, error) {
+// issueRefresh writes token (minting one when empty) in the given family, or
+// starts a new family when family is empty. Create-only: a grace retry writes
+// the same successor again, and overwriting it would un-consume a link the
+// client has since spent.
+func (st *mcpOAuthState) issueRefresh(ctx context.Context, email, clientID, family, token string) (string, error) {
 	if family == "" {
 		family = mcpRandomToken()
 	}
-	token := mcpRandomToken()
+	if token == "" {
+		token = mcpRandomToken()
+	}
 	body, err := json.Marshal(refreshRecord{
 		Email:    email,
 		ClientID: clientID,
@@ -69,8 +97,8 @@ func (st *mcpOAuthState) issueRefresh(ctx context.Context, email, clientID, fami
 	if err != nil {
 		return "", fmt.Errorf("oauth: marshal refresh token: %w", err)
 	}
-	err = st.store.Put(ctx, st.refreshKey(token), string(body))
-	if err != nil {
+	err = st.store.PutIfAbsent(ctx, st.refreshKey(token), string(body))
+	if err != nil && !errors.Is(err, blob.ErrPrecondition) {
 		return "", fmt.Errorf("oauth: write refresh token: %w", err)
 	}
 	return token, nil
@@ -82,9 +110,11 @@ func (st *mcpOAuthState) issueRefresh(ctx context.Context, email, clientID, fami
 // merely expired.
 var errRefreshReused = errors.New("oauth: refresh token reused")
 
-// redeemRefresh consumes a refresh token and returns the identity it carries,
-// claiming it with a compare-and-set so two concurrent refreshes cannot both
-// win. ok=false with a nil error means "no such token, or expired, or the
+// redeemRefresh consumes a refresh token and returns the identity it carries
+// plus, in Successor, the token the grant must hand out. The claim is a
+// compare-and-set so two concurrent refreshes cannot both rotate the link; a
+// later retry within the grace window gets the same Successor (see the
+// package-level "Retry grace"). ok=false with a nil error means "no such token, or expired, or the
 // wrong client" — all invalid_grant, none of them distinguishable to a caller
 // on purpose.
 func (st *mcpOAuthState) redeemRefresh(ctx context.Context, token, clientID string) (refreshRecord, bool, error) {
@@ -109,6 +139,15 @@ func (st *mcpOAuthState) redeemRefresh(ctx context.Context, token, clientID stri
 	// is working from a copy. Revoke the whole chain — including the link the
 	// legitimate client currently holds, which is the point.
 	if rec.Consumed {
+		retry, err := st.isGraceRetry(ctx, rec, clientID)
+		if err != nil {
+			return refreshRecord{}, false, err
+		}
+		if retry {
+			slog.Info("mcp.oauth.refresh_retry_within_grace",
+				"client_id", clientID, "family", rec.Family)
+			return rec, true, nil
+		}
 		return rec, false, errRefreshReused
 	}
 	if rec.ClientID != clientID || time.Now().After(rec.Expires) {
@@ -116,6 +155,8 @@ func (st *mcpOAuthState) redeemRefresh(ctx context.Context, token, clientID stri
 	}
 
 	rec.Consumed = true
+	rec.ConsumedAt = time.Now()
+	rec.Successor = mcpRandomToken()
 	consumed, err := json.Marshal(rec)
 	if err != nil {
 		return refreshRecord{}, false, fmt.Errorf("oauth: marshal consumed refresh token: %w", err)
@@ -130,6 +171,31 @@ func (st *mcpOAuthState) redeemRefresh(ctx context.Context, token, clientID stri
 		return refreshRecord{}, false, fmt.Errorf("oauth: claim refresh token: %w", err)
 	}
 	return rec, true, nil
+}
+
+// isGraceRetry reports whether a consumed link is being retried by the client
+// it was rotated for, recently enough, with its successor still unspent. A
+// failed read of the successor is an error, not a "no": revoking a chain
+// because the store blinked is the failure this exists to prevent.
+func (st *mcpOAuthState) isGraceRetry(ctx context.Context, rec refreshRecord, clientID string) (bool, error) {
+	if rec.Successor == "" || rec.ClientID != clientID || time.Since(rec.ConsumedAt) > refreshReuseGrace {
+		return false, nil
+	}
+	obj, err := st.store.Get(ctx, st.refreshKey(rec.Successor))
+	if err != nil {
+		return false, fmt.Errorf("oauth: read refresh successor: %w", err)
+	}
+	if obj.Content == "" {
+		// Claimed but never written: the grant failed after the claim, and
+		// the retry is what writes it.
+		return true, nil
+	}
+	next := refreshRecord{}
+	err = json.Unmarshal([]byte(obj.Content), &next)
+	if err != nil {
+		return false, nil //nolint:nilerr // unparseable successor gets no grace
+	}
+	return !next.Consumed, nil
 }
 
 // revokeFamily deletes every token in a rotation chain. Called on reuse
@@ -191,7 +257,10 @@ func (st *mcpOAuthState) maybeSweepRefresh(ctx context.Context) {
 	if !st.lastRefreshSweep.CompareAndSwap(last, now) {
 		return
 	}
-	st.sweepRefresh(ctx)
+	// Off the request path: a fresh process always sweeps on its first grant,
+	// and holding that client's response for a LIST + GET-per-record is what
+	// made it time out and retry into reuse detection after every deploy.
+	st.sweeps.Go(func() { st.sweepRefresh(context.WithoutCancel(ctx)) })
 }
 
 // deleteMatching removes every refresh record satisfying match. Unparseable
