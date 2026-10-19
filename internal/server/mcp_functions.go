@@ -283,12 +283,13 @@ type configureSiteInput struct {
 	Private         *bool   `json:"private,omitempty"           jsonschema:"Hide the site from the public web (owner/super-admin only)."`
 	EnableFunctions *bool   `json:"enable_functions,omitempty"  jsonschema:"Enable server-side functions (/api/* handlers). Ignored when the template already enables them."`
 	EnablePublicAPI *bool   `json:"enable_public_api,omitempty" jsonschema:"Let /api/* bypass the same-origin check (genuine public APIs / webhooks)."`
+	TurnstileSecret *string `json:"turnstile_secret,omitempty"  jsonschema:"Cloudflare Turnstile secret key. When set, every POST/PUT/PATCH/DELETE to /api/* must carry a valid cf-turnstile-response token or is rejected with 403 before the handler runs. Pair it with the widget (<script src=\"https://challenges.cloudflare.com/turnstile/v0/api.js\" async defer></script> plus <div class=\"cf-turnstile\" data-sitekey=\"...\"></div> inside each form). Write-only: never returned. Empty string turns it off."`
 }
 
 func (s *Server) registerConfigureSite(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "configure_site",
-		Description: "Update settings on a site the caller owns: title, description, private, enable_functions, enable_public_api. Only the fields you pass are changed. (Custom domains have their own tools — attach_domain / detach_domain / get_domain_status / check_domain. Ownership transfer and deletion stay in the web UI.)",
+		Description: "Update settings on a site the caller owns: title, description, private, enable_functions, enable_public_api, turnstile_secret. Only the fields you pass are changed. (Custom domains have their own tools — attach_domain / detach_domain / get_domain_status / check_domain. Ownership transfer and deletion stay in the web UI.)",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in configureSiteInput) (*mcp.CallToolResult, any, error) {
 		_, err := s.mcpUserAndAuthorize(ctx, in.Slug)
 		if err != nil {
@@ -312,6 +313,9 @@ func (s *Server) registerConfigureSite(srv *mcp.Server) {
 			if in.EnablePublicAPI != nil {
 				m.EnablesPublicAPI = *in.EnablePublicAPI
 			}
+			if in.TurnstileSecret != nil {
+				m.TurnstileSecret = strings.TrimSpace(*in.TurnstileSecret)
+			}
 			if in.EnableFunctions != nil {
 				// Only honour the override when the template doesn't already
 				// enable functions, mirroring settingsSubmitHandler so the
@@ -333,6 +337,7 @@ func (s *Server) registerConfigureSite(srv *mcp.Server) {
 			"title": meta.Title, "description": meta.Description,
 			"private": meta.Private, "enables_functions": meta.EnablesFunctions,
 			"enables_public_api": meta.EnablesPublicAPI,
+			"turnstile":          meta.TurnstileSecret != "",
 		})
 	})
 }

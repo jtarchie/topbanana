@@ -69,6 +69,8 @@ type SiteMeta struct {
 	// and transfer moves — so collaboration is additive and needs no
 	// migration. Canonical emails, deduped, never containing OwnerID.
 	Collaborators []string `json:"collaborators,omitempty"`
+	// TurnstileSecret, when set, makes every state-changing /api/* call carry a valid Cloudflare Turnstile token.
+	TurnstileSecret string `json:"turnstile_secret,omitempty"`
 }
 
 // EffectiveTemplate returns the template a build/edit/route lookup should use,

@@ -111,6 +111,13 @@ func (s *Server) apiHandler(c *echo.Context, slug, name string) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
+	if meta.TurnstileSecret != "" && !isAPISafeMethod(req.Method) {
+		err = checkTurnstile(ctx, meta.TurnstileSecret, &req)
+		if err != nil {
+			return err
+		}
+	}
+
 	logFn := func(level, line string) {
 		slog.Info("function.log", "slug", slug, "fn", name, "level", level, "line", line)
 		s.events.Emit(slug, events.Event{

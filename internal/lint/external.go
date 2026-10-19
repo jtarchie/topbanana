@@ -18,10 +18,12 @@ import (
 
 // allowedScriptHosts are the platform-blessed third-party script origins:
 // Stripe payment embeds, which the tiny-shop and pricing templates
-// intentionally ship and which cannot be inlined.
+// intentionally ship, and the Cloudflare Turnstile widget that /api/* verifies
+// server-side. Neither can be inlined.
 var allowedScriptHosts = map[string]bool{
-	"js.stripe.com":  true,
-	"buy.stripe.com": true,
+	"js.stripe.com":             true,
+	"buy.stripe.com":            true,
+	"challenges.cloudflare.com": true,
 }
 
 // checkExternalResources flags external <script src>, external stylesheet
@@ -75,7 +77,7 @@ func checkScriptSrc(filename string, n *html.Node) *Error {
 		File: filename,
 		Kind: KindExternalScript,
 		Message: fmt.Sprintf(
-			`external script — <script src=%q> loads third-party JavaScript, but sites here are fully self-contained: if that host changes or goes down, the page silently breaks. Inline the logic in a <script> on the page instead. (Stripe embeds are the one exception: https://js.stripe.com and https://buy.stripe.com are allowed.)`,
+			`external script — <script src=%q> loads third-party JavaScript, but sites here are fully self-contained: if that host changes or goes down, the page silently breaks. Inline the logic in a <script> on the page instead. (Stripe embeds and the Cloudflare Turnstile widget are the exceptions: https://js.stripe.com, https://buy.stripe.com, and https://challenges.cloudflare.com are allowed.)`,
 			src),
 	}
 }
