@@ -21,6 +21,9 @@ import (
 // literal can mark a page referenced (false-negative direction), but a
 // false "unreachable" would block a build.
 //
+// 404.html is exempt: the proxy serves it for every unresolved path, so it
+// is reachable without any link pointing at it.
+//
 // skeletonPages are exempt: pages the chosen template ships deliberately
 // unlinked (e.g. tiny-shop's owner-facing /orders.html order log) are the
 // template author's design, not an agent mistake.
@@ -29,7 +32,7 @@ func checkUnreferencedPages(pages []pageInfo, factsByPage map[string]jsFacts, fn
 
 	var errs []Error
 	for _, p := range pages {
-		if p.name == "index.html" || referenced[p.name] || skeletonPages[p.name] {
+		if p.name == "index.html" || p.name == "404.html" || referenced[p.name] || skeletonPages[p.name] {
 			continue
 		}
 		errs = append(errs, Error{

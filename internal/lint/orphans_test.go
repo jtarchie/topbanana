@@ -49,6 +49,17 @@ func TestCheckUnreferencedPages(t *testing.T) {
 		}
 	})
 
+	t.Run("404.html never flags", func(t *testing.T) {
+		t.Parallel()
+		errs := orphanSite(t, map[string]string{
+			"index.html": `<p>home</p>`,
+			"404.html":   `<p>gone</p>`,
+		}, nil, nil)
+		if len(errs) != 0 {
+			t.Fatalf("404.html is served for unresolved paths, not linked: %+v", errs)
+		}
+	})
+
 	t.Run("index.html never flags", func(t *testing.T) {
 		t.Parallel()
 		errs := orphanSite(t, map[string]string{"index.html": `<p>alone</p>`}, nil, nil)

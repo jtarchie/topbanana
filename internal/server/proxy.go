@@ -82,12 +82,33 @@ func (s *Server) proxyHandler(c *echo.Context, slug string) error {
 
 		ct := resolveContentType(obj.ContentType, candidate)
 		if strings.HasPrefix(ct, "text/html") {
-			return s.serveHTMLPage(c, slug, candidate, obj.Content)
+			return s.serveHTMLPage(c, slug, candidate, obj.Content, http.StatusOK)
 		}
 		return c.Blob(http.StatusOK, ct, []byte(obj.Content)) //nolint:wrapcheck
 	}
 
-	return notFound()
+	return s.serveSiteNotFound(c, slug)
+}
+
+// notFoundPage is the site-authored page served, with a 404 status, for any
+// path that resolves to nothing. Only reached after the reserved/traversal
+// guards, so it never answers a probe of _state/ or the sidecar.
+const notFoundPage = "404.html"
+
+// serveSiteNotFound serves the site's own 404.html when it has one, else the
+// platform's generic 404. A failed read degrades to the generic page rather
+// than a 500 — the visitor asked for a missing page either way.
+func (s *Server) serveSiteNotFound(c *echo.Context, slug string) error {
+	obj, err := s.store.Read(c.Request().Context(), slug, notFoundPage)
+	if err != nil {
+		slog.Warn("serve.not_found_page_read_failed", "slug", slug, "err", err)
+		return notFound()
+	}
+	if obj.Content == "" {
+		return notFound()
+	}
+	setProxyCacheHeaders(c)
+	return s.serveHTMLPage(c, slug, notFoundPage, obj.Content, http.StatusNotFound)
 }
 
 // setProxyCacheHeaders picks cache headers for static-proxy responses based
@@ -155,8 +176,9 @@ const pathMountCSP = "sandbox allow-scripts allow-forms; frame-ancestors 'self'"
 
 // serveHTMLPage renders a stored HTML page: canvas edit mode for an
 // authorized ?tb_edit=1 request, otherwise the normal toolbar-injected,
-// minified serve.
-func (s *Server) serveHTMLPage(c *echo.Context, slug, candidate, content string) error {
+// minified serve. status is 200 for a resolved page, 404 for the site's own
+// 404.html.
+func (s *Server) serveHTMLPage(c *echo.Context, slug, candidate, content string, status int) error {
 	mount, _ := c.Get(pathMountKey).(string)
 	if mount != "" {
 		c.Response().Header().Set("Content-Security-Policy", pathMountCSP)
@@ -173,7 +195,7 @@ func (s *Server) serveHTMLPage(c *echo.Context, slug, candidate, content string)
 	if mErr != nil {
 		slog.Warn("serve.minify_failed", "slug", slug, "path", candidate, "err", mErr)
 	}
-	return c.HTML(http.StatusOK, minified) //nolint:wrapcheck
+	return c.HTML(status, minified) //nolint:wrapcheck
 }
 
 // canvasEditScriptTag loads the selection script from the admin origin —
