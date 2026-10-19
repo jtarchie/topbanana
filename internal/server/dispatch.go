@@ -188,6 +188,9 @@ func (s *Server) dispatchSite(c *echo.Context, slug string) error {
 	if s.registry.isPrivate(slug) && !s.callerCanViewPrivate(c, slug) && !previewTokenAllows(c, reqPath) {
 		return notFound()
 	}
+	// Past the private gate, so naming the site on its error page leaks
+	// nothing the visitor couldn't already see.
+	c.Set(siteSlugKey, slug)
 	// Event-photo-wall reserved endpoints (POST /_photos, GET /_photos/approved).
 	// Claimed only when the path shape matches, so non-photo-wall sites don't
 	// pay a metadata read on every request.

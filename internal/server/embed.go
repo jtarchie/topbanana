@@ -71,6 +71,9 @@ var adminClientsTemplate string
 //go:embed templates/error.html
 var errorTemplate string
 
+//go:embed templates/site_error.html
+var siteErrorTemplate string
+
 //go:embed templates/privacy.html
 var privacyTemplate string
 

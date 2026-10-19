@@ -65,6 +65,11 @@ func (s *Server) httpErrorHandler(c *echo.Context, err error) {
 		return
 	}
 
+	if s.isSiteRequest(c) {
+		s.renderSiteError(c, code, msg)
+		return
+	}
+
 	title, tagline := errorCopyForStatus(code)
 	// Surface the specific reason only for client errors, and only when it
 	// carries information beyond the generic status text. 5xx messages often
@@ -115,4 +120,78 @@ func errorCopyForStatus(code int) (title, tagline string) {
 // preserve the existing API contract.
 func wantsHTML(c *echo.Context) bool {
 	return strings.Contains(c.Request().Header.Get("Accept"), "text/html")
+}
+
+// siteSlugKey marks a request that dispatchSite routed to a slug *after* the
+// private-site gate. Its presence is what lets the error page name the site.
+const siteSlugKey = "site_slug"
+
+// siteErrorData backs templates/site_error.html: the error page a hosted
+// site's visitors see. SiteName and HomeURL are empty when the request never
+// resolved to a viewable site (unknown host, private gate) — the page then
+// names nothing and offers no home link that would only 404 again.
+type siteErrorData struct {
+	Status      int
+	Title       string
+	Tagline     string
+	SiteName    string
+	HomeURL     string
+	Path        string
+	PlatformURL string
+}
+
+// isSiteRequest reports whether the request was for a hosted site rather
+// than the admin UI: dispatched to a slug, path-mounted under /s or /sp, or
+// arriving on any host other than the platform's own.
+func (s *Server) isSiteRequest(c *echo.Context) bool {
+	if slug, _ := c.Get(siteSlugKey).(string); slug != "" {
+		return true
+	}
+	if mount, _ := c.Get(pathMountKey).(string); mount != "" {
+		return true
+	}
+	host := stripPort(c.Request().Host)
+	return host != s.domain && !fallThroughHosts[host]
+}
+
+// renderSiteError writes the visitor-facing error page for a hosted site.
+func (s *Server) renderSiteError(c *echo.Context, code int, msg string) {
+	title, tagline := siteErrorCopyForStatus(code)
+	data := siteErrorData{
+		Status:      code,
+		Title:       title,
+		Tagline:     tagline,
+		PlatformURL: s.adminURL(c, "/"),
+	}
+	if code == http.StatusNotFound {
+		data.Path = c.Request().URL.Path
+	}
+	if slug, _ := c.Get(siteSlugKey).(string); slug != "" {
+		data.SiteName = s.build.ReadMeta(c.Request().Context(), slug).Title
+		mount, _ := c.Get(pathMountKey).(string)
+		data.HomeURL = mount + "/"
+	}
+	var buf bytes.Buffer
+	err := s.tpl.ExecuteTemplate(&buf, "site_error", data)
+	if err != nil {
+		_ = c.String(code, msg)
+		return
+	}
+	_ = c.HTML(code, buf.String())
+}
+
+// siteErrorCopyForStatus is the plain-spoken copy for a hosted site's
+// visitors. No platform wordplay: the visitor came for someone else's site,
+// and a banana joke there reads as the site being broken by a stranger.
+func siteErrorCopyForStatus(code int) (title, tagline string) {
+	switch {
+	case code == http.StatusNotFound:
+		return "Page not found", "There's nothing at this address. It may have moved, or the link may have a typo."
+	case code == http.StatusUnauthorized || code == http.StatusForbidden:
+		return "This page isn't available", "You don't have access to this page."
+	case code >= 500:
+		return "This site hit a problem", "Something went wrong on our end, not yours. Try again in a moment."
+	default:
+		return "That didn't work", "The request couldn't be completed. Try going back."
+	}
 }

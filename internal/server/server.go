@@ -197,6 +197,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		{"admin_users", adminUsersTemplate},
 		{"admin_clients", adminClientsTemplate},
 		{"error", errorTemplate},
+		{"site_error", siteErrorTemplate},
 		{"privacy", privacyTemplate},
 		{"terms", termsTemplate},
 	} {

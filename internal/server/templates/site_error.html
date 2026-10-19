@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{ .Title }}{{ if .SiteName }} — {{ .SiteName }}{{ end }}</title>
+{{/* Served on a hosted site's own host, to that site's visitors. Fully
+     self-contained on purpose: a relative /app.css here would resolve to the
+     *site's* purged sheet (or nothing), and the platform's banana branding
+     is the wrong voice for someone else's audience. Neutral greys so it sits
+     quietly beside any site's palette. */}}
+<style>
+  :root { color-scheme: light dark; --bg: #fafaf9; --fg: #1c1917; --muted: #57534e; --line: #e7e5e4; --chip: #f5f5f4; --accent: #1c1917; --accent-fg: #fafaf9; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161514; --fg: #f5f5f4; --muted: #a8a29e; --line: #2e2c2a; --chip: #211f1d; --accent: #f5f5f4; --accent-fg: #161514; } }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; display: grid; grid-template-rows: 1fr auto; background: var(--bg); color: var(--fg); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  main { align-self: center; justify-self: center; width: 100%; max-width: 34rem; padding: 3rem 1.25rem; }
+  .code { font: 500 .8125rem/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing: .12em; color: var(--muted); margin: 0 0 1.25rem; }
+  h1 { font-size: clamp(1.75rem, 5vw, 2.25rem); line-height: 1.15; letter-spacing: -.02em; font-weight: 650; margin: 0 0 .75rem; text-wrap: balance; }
+  p { margin: 0 0 1rem; color: var(--muted); text-wrap: pretty; }
+  .path { display: inline-block; max-width: 100%; overflow-wrap: anywhere; font: .875rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--fg); background: var(--chip); border: 1px solid var(--line); border-radius: 6px; padding: .35rem .6rem; }
+  .actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 2rem; }
+  .btn { display: inline-flex; align-items: center; min-height: 44px; padding: 0 1.1rem; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--fg); font: inherit; font-weight: 550; text-decoration: none; cursor: pointer; }
+  .btn:hover { border-color: var(--muted); }
+  .btn-primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  .btn-primary:hover { opacity: .88; }
+  :focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
+  footer { padding: 1.25rem; text-align: center; font-size: .75rem; color: var(--muted); border-top: 1px solid var(--line); }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <p class="code">ERROR {{ .Status }}</p>
+  <h1>{{ .Title }}</h1>
+  <p>{{ .Tagline }}</p>
+  {{ if .Path }}<p><span class="path">{{ .Path }}</span></p>{{ end }}
+  <div class="actions">
+    {{ if .HomeURL }}<a class="btn btn-primary" href="{{ .HomeURL }}">{{ if .SiteName }}Go to {{ .SiteName }}{{ else }}Go to the home page{{ end }}</a>{{ end }}
+    <button type="button" id="error-back" class="btn">Go back</button>
+  </div>
+</main>
+<footer>Hosted on <a href="{{ .PlatformURL }}">Top Banana</a></footer>
+<script>
+  // history.back() is a no-op on a direct visit; don't offer it then.
+  (function () {
+    var btn = document.getElementById('error-back');
+    if (!btn) return;
+    if (window.history.length <= 1) { btn.remove(); return; }
+    btn.addEventListener('click', function () { history.back(); });
+  })();
+</script>
+</body>
+</html>
