@@ -75,6 +75,14 @@ func (s *Server) deleteApp(ctx context.Context, slug string) (DeleteAppResult, e
 		snaps = len(snapList)
 	}
 
+	// Mail lives outside the slug prefix, so the file sweep above never reaches it; a re-registered slug must not inherit it.
+	if s.mail != nil {
+		_, merr := s.mail.DeleteTenant(ctx, slug)
+		if merr != nil {
+			return DeleteAppResult{}, fmt.Errorf("delete mail: %w", merr)
+		}
+	}
+
 	s.events.Forget(slug)
 	return DeleteAppResult{FilesDeleted: len(paths), SnapshotsDeleted: snaps}, nil
 }

@@ -83,6 +83,12 @@ var cli struct {
 	// sites on behalf of a logged-in user). The value is the HMAC secret that
 	// signs bearer tokens — keep it stable and private. Empty disables MCP.
 	MCPSecret string `env:"MCP_SECRET" help:"HMAC secret that signs MCP bearer tokens. When set, enables the MCP server + OAuth endpoints at /mcp. Empty disables MCP." name:"mcp-secret"`
+
+	// Caught mail. Off unless --smtp-addr is set; each site still needs a super admin to enable it.
+	SMTPAddr          string `env:"SMTP_ADDR"           help:"SMTP listen address (e.g. :2525). Empty disables mail."                                 name:"smtp-addr"`
+	SMTPHostname      string `env:"SMTP_HOSTNAME"       help:"MX hostname announced in the greeting and used for its TLS cert. Empty is mx.{domain}." name:"smtp-hostname"`
+	SMTPProxyProtocol bool   `env:"SMTP_PROXY_PROTOCOL" help:"Parse PROXY v1 on SMTP connections (Fly proxy_proto handler)."                          name:"smtp-proxy-protocol"`
+	SMTPImpl          string `default:"gosmtp"          enum:"gosmtp,ragel"                                                                           env:"SMTP_IMPL"            help:"SMTP server implementation." name:"smtp-impl"`
 }
 
 func main() {
@@ -216,17 +222,19 @@ func run() error {
 			MaxApps: cli.DefaultMaxApps,
 			Tiers:   tierMap,
 		},
-		Store:       s,
-		Build:       buildSvc,
-		Events:      tracker,
-		Sandbox:     sb,
-		State:       stateStore,
-		Snapshot:    snapshotSvc,
-		Auth:        authSvc,
-		Domain:      cli.Domain,
-		Port:        cli.Port,
-		MCPSecret:   cli.MCPSecret,
-		LinkChecker: linkChecker,
+		Store:        s,
+		Build:        buildSvc,
+		Events:       tracker,
+		Sandbox:      sb,
+		State:        stateStore,
+		Snapshot:     snapshotSvc,
+		Auth:         authSvc,
+		Domain:       cli.Domain,
+		Port:         cli.Port,
+		MCPSecret:    cli.MCPSecret,
+		LinkChecker:  linkChecker,
+		Mail:         newMailStore(s),
+		MailHostname: smtpHostname(),
 		SystemInfo: server.SystemInfo{
 			LLMTiers:           tierMap,
 			LLMBaseURL:         cli.LLMBaseURL,
@@ -239,9 +247,19 @@ func run() error {
 		},
 	}
 
+	return serve(ctx, s, deps, tierMap)
+}
+
+// serve picks plain HTTP or autocert TLS and starts SMTP alongside; split from run so each stays readable.
+func serve(ctx context.Context, s *store.Store, deps server.Deps, tierMap model.TierMap) error {
+	var err error
 	// Plain-HTTP path (dev / no ACME). echo.Start blocks until shutdown.
 	if cli.ACMEEmail == "" {
-		e, _ := server.New(deps)
+		e, srv := server.New(deps) //nolint:contextcheck // New only wires handlers; each request carries its own context
+		err = startSMTP(ctx, deps.Mail, srv, nil)
+		if err != nil {
+			return err
+		}
 		slog.Info("app.started", "port", cli.Port, "domain", cli.Domain, "tiers", tierMap, "tls", false)
 		err = e.Start(":" + cli.Port)
 		if err != nil {
@@ -269,12 +287,16 @@ func run() error {
 	tlsOpts.Tracker = certTracker
 	deps.Certs = certTracker
 
-	e, srv := server.New(deps)
+	e, srv := server.New(deps) //nolint:contextcheck // New only wires handlers; each request carries its own context
 	mgr.HostPolicy = func(_ context.Context, host string) error {
-		if srv.HostAllowed(host) {
+		if srv.HostAllowed(host) || (deps.Mail != nil && host == smtpHostname()) {
 			return nil
 		}
 		return fmt.Errorf("acme: host %q not configured", host)
+	}
+	err = startSMTP(ctx, deps.Mail, srv, mgr.GetCertificate)
+	if err != nil {
+		return err
 	}
 
 	slog.Info("app.started", "tls_port", cli.TLSPort, "http_port", cli.HTTPPort,

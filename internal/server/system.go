@@ -212,6 +212,7 @@ var reservedPrefixes = []struct {
 	{Label: "Build transcripts", Prefix: store.EditsPrefix},
 	{Label: "TLS certs (ACME)", Prefix: store.DefaultACMEPrefix},
 	{Label: "Link check cache", Prefix: store.LinkCheckPrefix},
+	{Label: "Caught mail", Prefix: store.MailPrefix},
 }
 
 func (s *Server) systemHandler(c *echo.Context) error {

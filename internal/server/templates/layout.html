@@ -179,6 +179,7 @@
     <div role="tablist" class="tabs tabs-bordered inline-flex flex-wrap -mb-px gap-1">
       <a href="/workspace/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `workspace` }} tab-active{{ end }}">Edit</a>
       <a href="/inbox/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `inbox` }} tab-active{{ end }}">Inbox</a>
+      {{ if or .MailTab (eq .Active `mail`) }}<a href="/mail/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `mail` }} tab-active{{ end }}">Mail</a>{{ end }}
       <a href="/manage/{{ .Slug }}" role="tab" class="tab{{ if eq .Active `manage` }} tab-active{{ end }}">Settings</a>
       {{ if .SiteURL }}<a class="tab tab-disabled-link ml-auto text-sm link link-hover font-medium" href="{{ .SiteURL }}" target="_blank" rel="noopener">View site →</a>{{ end }}
     </div>

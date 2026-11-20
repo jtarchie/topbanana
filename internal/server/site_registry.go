@@ -37,6 +37,7 @@ type siteRegistry struct {
 	ownerIndex   map[string]string
 	collabIndex  map[string][]string
 	privateIndex map[string]bool
+	mailIndex    map[string]time.Duration // slug → retention, present only while mail is enabled
 }
 
 // newSiteRegistry returns an empty registry; call initialRebuildIndexes (or
@@ -50,6 +51,7 @@ func newSiteRegistry(st *store.Store, b *build.Service) *siteRegistry {
 		ownerIndex:   map[string]string{},
 		collabIndex:  map[string][]string{},
 		privateIndex: map[string]bool{},
+		mailIndex:    map[string]time.Duration{},
 	}
 }
 
@@ -68,6 +70,7 @@ func (r *siteRegistry) rebuildIndexes(ctx context.Context) error {
 	owners := make(map[string]string, len(apps))
 	collabs := make(map[string][]string, len(apps))
 	privates := make(map[string]bool, len(apps))
+	mails := map[string]time.Duration{}
 	for _, slug := range apps {
 		slugs[slug] = true
 		meta := r.build.ReadMeta(ctx, slug)
@@ -79,6 +82,9 @@ func (r *siteRegistry) rebuildIndexes(ctx context.Context) error {
 		}
 		if meta.Private {
 			privates[slug] = true
+		}
+		if meta.MailEnabled {
+			mails[slug] = meta.MailTTL()
 		}
 		for _, d := range meta.Domains {
 			if existing, dup := idx[d]; dup && existing != slug {
@@ -94,6 +100,7 @@ func (r *siteRegistry) rebuildIndexes(ctx context.Context) error {
 	r.ownerIndex = owners
 	r.collabIndex = collabs
 	r.privateIndex = privates
+	r.mailIndex = mails
 	r.mu.Unlock()
 	slog.Info("site_index.rebuilt", "domains", len(idx), "slugs", len(slugs), "owners", len(owners), "shared", len(collabs), "private", len(privates))
 	return nil
@@ -240,6 +247,14 @@ func (r *siteRegistry) rebuildIndexesLogging(ctx context.Context) {
 	if err != nil {
 		slog.Warn("site_index.refresh_failed", "err", err)
 	}
+}
+
+// mailTTL reports whether slug accepts mail, and for how long it keeps it.
+func (r *siteRegistry) mailTTL(slug string) (time.Duration, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ttl, ok := r.mailIndex[slug]
+	return ttl, ok
 }
 
 // lookupCustomDomain returns the slug that owns host, if any.

@@ -162,11 +162,15 @@ func (s *sitesController) siteChrome(c *echo.Context, slug, title, active string
 		siteName = slug
 	}
 
+	_, mailOn := s.registry.mailTTL(slug)
 	return Chrome{
 		Slug:     slug,
 		SiteName: siteName,
 		SiteURL:  s.siteURL(c, slug, "/"),
 		Active:   active,
+		MailTab:  s.mail != nil && mailOn,
+
+		MailAvailable: s.mail != nil,
 	}
 }
 

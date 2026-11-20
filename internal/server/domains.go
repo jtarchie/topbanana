@@ -138,11 +138,12 @@ type domainCertStatus struct {
 }
 
 type domainStatus struct {
-	Domain string           `json:"domain"`
-	Serves bool             `json:"serves"`
-	DNS    domainDNSStatus  `json:"dns"`
-	Cert   domainCertStatus `json:"cert"`
-	Detail string           `json:"detail,omitempty"`
+	Domain string            `json:"domain"`
+	Serves bool              `json:"serves"`
+	DNS    domainDNSStatus   `json:"dns"`
+	Cert   domainCertStatus  `json:"cert"`
+	Mail   *domainMailStatus `json:"mail,omitempty"`
+	Detail string            `json:"detail,omitempty"`
 }
 
 // dnsLookupTimeout bounds each resolver round-trip. A status call fans out a
@@ -294,5 +295,9 @@ func (s *Server) domainStatusFor(ctx context.Context, slug, host string, target 
 		return out
 	}
 	out.Cert = s.checkCert(ctx, host)
+	if _, on := s.registry.mailTTL(slug); on && s.mailHost != "" {
+		m := checkMX(ctx, host, s.mailHost)
+		out.Mail = &m
+	}
 	return out
 }

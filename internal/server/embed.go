@@ -35,6 +35,9 @@ var manageTemplate string
 //go:embed templates/inbox.html
 var inboxTemplate string
 
+//go:embed templates/mail.html
+var mailTemplate string
+
 //go:embed templates/photo_queue.html
 var photoQueueTemplate string
 

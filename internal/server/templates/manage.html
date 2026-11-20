@@ -221,6 +221,17 @@
   <section aria-labelledby="advanced-heading">
     <h2 id="advanced-heading" class="text-sm font-semibold uppercase tracking-wide text-base-content/70 px-1 mb-2">Advanced tools</h2>
     <ul class="divide-y divide-base-300 border border-base-300 rounded-box overflow-hidden bg-base-100">
+      {{ if and .MailAvailable (or .MailTab .IsSuperAdmin) }}
+      <li>
+        <a href="/mail/{{ .Slug }}" class="flex items-center gap-3 px-4 py-3 hover:bg-base-200 transition">
+          <div class="flex-1">
+            <div class="text-sm font-medium">Mail</div>
+            <p class="text-xs text-base-content/70 mt-0.5">{{ if .MailTab }}Catch-all inbox for this site's addresses: retention and caught messages.{{ else }}Off. Only a super admin can turn on mail for a site.{{ end }}</p>
+          </div>
+          <span class="text-base-content/60" aria-hidden="true">→</span>
+        </a>
+      </li>
+      {{ end }}
       <li>
         <a href="/files/{{ .Slug }}" class="flex items-center gap-3 px-4 py-3 hover:bg-base-200 transition">
           <div class="flex-1">

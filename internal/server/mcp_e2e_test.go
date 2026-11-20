@@ -38,7 +38,7 @@ const mcpTestSecret = "mcp-e2e-test-secret"
 // the sharing is threaded explicitly rather than left to coincidence. The KV
 // state store comes back too, so a test can seed or assert on the submissions
 // the tools read and delete.
-func buildMCPTestServer(t *testing.T, st *store.Store, slug, ownerEmail string) (*httptest.Server, blob.Blobs, state.Store) {
+func buildMCPTestServer(t *testing.T, st *store.Store, slug, ownerEmail string, opts ...func(*server.Deps)) (*httptest.Server, blob.Blobs, state.Store) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -60,7 +60,7 @@ func buildMCPTestServer(t *testing.T, st *store.Store, slug, ownerEmail string) 
 	t.Cleanup(func() { _ = authSvc.Close() })
 
 	kv := state.NewMemory()
-	e, _ := server.New(server.Deps{
+	deps := server.Deps{
 		Store:     st,
 		Build:     build.New(st, nil, tracker, snapshot.New(st, 0)),
 		Events:    tracker,
@@ -72,7 +72,11 @@ func buildMCPTestServer(t *testing.T, st *store.Store, slug, ownerEmail string) 
 		Domain:    "localhost",
 		Port:      "8080",
 		MCPSecret: mcpTestSecret,
-	})
+	}
+	for _, o := range opts {
+		o(&deps)
+	}
+	e, _ := server.New(deps)
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 	return srv, authBlobs, kv

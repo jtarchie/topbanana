@@ -26,6 +26,11 @@ type Chrome struct {
 	// `btn-active` / `tab-active`.
 	Active string
 
+	// MailTab shows the Mail tab; only sites a super admin enabled mail on have one.
+	MailTab bool
+	// MailAvailable is whether this instance receives SMTP at all; it gates the super admin's way in to enable a site.
+	MailAvailable bool
+
 	// IsSuperAdmin gates the "Admin" nav link and the whole operator
 	// section. Populated by render() from the session role; handlers
 	// should NOT set it themselves — any value they pass gets

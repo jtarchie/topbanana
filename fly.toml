@@ -28,6 +28,20 @@ primary_region = "sjc"
     port = 80
     handlers = ["proxy_proto"]
 
+# Inbound SMTP for caught mail. Needs the dedicated IPv4 (a shared one can't
+# route raw SMTP); proxy_proto carries the sender's real IP, hence
+# SMTP_PROXY_PROTOCOL. No auto_stop: a suspended machine defers all mail.
+[[services]]
+  protocol = "tcp"
+  internal_port = 2525
+  [[services.ports]]
+    port = 25
+    handlers = ["proxy_proto"]
+
+[env]
+  SMTP_ADDR = ":2525"
+  SMTP_PROXY_PROTOCOL = "true"
+
 [[vm]]
   size = "shared-cpu-1x"
   memory = "256mb"

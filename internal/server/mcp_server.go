@@ -55,7 +55,10 @@ const (
 		"/app.css per site. Run lint_site when you finish: it compiles /app.css and reports " +
 		"what is broken; get_site_guide reports what a credible site of this type is still " +
 		"missing. If you create test rows while verifying a form, remove them with " +
-		"delete_submission — the owner's export can't tell them from real data. attach_domain " +
+		"delete_submission — the owner's export can't tell them from real data. When a super " +
+		"admin has enabled mail for a site, list_mail / read_mail show email sent to any " +
+		"address at its hosts (e.g. a signup confirmation your form triggered); delete_mail " +
+		"removes test messages. attach_domain " +
 		"puts a site on a custom hostname and returns the DNS record the owner must create " +
 		"(detach_domain reverses it); get_domain_status reports that record plus the live DNS " +
 		"and TLS certificate state, and check_domain retries " +
@@ -120,6 +123,9 @@ func (s *Server) buildMCPServer() *mcp.Server {
 	s.registerConfigureSite(srv)
 	s.registerListSubmissions(srv)
 	s.registerDeleteSubmission(srv)
+	if s.mail != nil {
+		s.registerMailTools(srv)
+	}
 	s.registerAttachDomain(srv)
 	s.registerDetachDomain(srv)
 	s.registerGetDomainStatus(srv)

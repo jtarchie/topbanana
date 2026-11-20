@@ -41,6 +41,9 @@ const (
 	// (and as long as) the certificate it explains.
 	DefaultACMEPrefix = "_acme/"
 
+	// MailPrefix holds caught mail as `_mail/{slug}/{key}` (internal/mail); top-level so listings, snapshots and exports never sweep it.
+	MailPrefix = "_mail/"
+
 	// LinkCheckPrefix caches external-link probe answers as `_linkcheck/{sha256(url)}.json` (internal/linkcheck), shared across sites.
 	LinkCheckPrefix = "_linkcheck/"
 

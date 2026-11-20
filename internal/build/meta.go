@@ -71,6 +71,21 @@ type SiteMeta struct {
 	Collaborators []string `json:"collaborators,omitempty"`
 	// TurnstileSecret, when set, makes every state-changing /api/* call carry a valid Cloudflare Turnstile token.
 	TurnstileSecret string `json:"turnstile_secret,omitempty"`
+	// MailEnabled is a super-admin grant: accepting SMTP for a site's hosts risks spam and our IP's reputation, so owners can't self-enable.
+	MailEnabled bool `json:"mail_enabled,omitempty"`
+	// MailTTLHours is the owner's retention choice; zero means DefaultMailTTL.
+	MailTTLHours int `json:"mail_ttl_hours,omitempty"`
+}
+
+// DefaultMailTTL is how long caught mail lives when the owner hasn't picked.
+const DefaultMailTTL = 7 * 24 * time.Hour
+
+// MailTTL is the retention a delivery to this site gets.
+func (m SiteMeta) MailTTL() time.Duration {
+	if m.MailTTLHours <= 0 {
+		return DefaultMailTTL
+	}
+	return time.Duration(m.MailTTLHours) * time.Hour
 }
 
 // EffectiveTemplate returns the template a build/edit/route lookup should use,

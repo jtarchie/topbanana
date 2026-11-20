@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="lemonade">
+<head>
+<title>Mail: {{ .SiteName }} — Top Banana</title>
+{{ template "head" . }}
+</head>
+<body class="min-h-screen flex flex-col bg-base-200">
+{{ template "brand" . }}
+{{ template "site_subnav" . }}
+<main class="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 py-8 space-y-6">
+
+  {{ if .Flash }}
+    <div class="alert alert-success" role="status"><span>{{ .Flash }}</span></div>
+  {{ end }}
+
+  {{ with .Message }}
+  {{/* One message. HTML mail only ever renders inside the sandboxed iframe
+       (no scripts, no remote images, opaque origin); attachments are listed
+       but their bytes are never served. */}}
+  <nav aria-label="Breadcrumb"><a href="/mail/{{ $.Slug }}" class="link link-hover text-sm">← All mail</a></nav>
+  <article class="card bg-base-100 border border-base-300" aria-labelledby="msg-subject">
+    <div class="card-body gap-3">
+      <h1 id="msg-subject" class="text-xl font-semibold break-words">{{ if .Subject }}{{ .Subject }}{{ else }}(no subject){{ end }}</h1>
+      <dl class="grid grid-cols-[4rem_1fr] gap-x-3 gap-y-1 text-sm">
+        <dt class="text-base-content/60">From</dt><dd class="break-all">{{ .From }}</dd>
+        <dt class="text-base-content/60">To</dt><dd class="font-mono break-all">{{ .Inbox }}@{{ .Domain }}</dd>
+        <dt class="text-base-content/60">Received</dt><dd><time datetime="{{ .ReceivedAt.Format "2006-01-02T15:04:05Z07:00" }}">{{ .ReceivedAt.Format "Jan 2, 2006 15:04 MST" }}</time></dd>
+        <dt class="text-base-content/60">Expires</dt><dd><time datetime="{{ .ExpiresAt.Format "2006-01-02T15:04:05Z07:00" }}">{{ .ExpiresAt.Format "Jan 2, 2006 15:04 MST" }}</time></dd>
+      </dl>
+      <div class="flex flex-wrap gap-2">
+        <a href="/mail/{{ $.Slug }}/m/{{ .Inbox }}/{{ .ID }}/raw" class="btn btn-ghost btn-sm">View source</a>
+        <form method="POST" action="/mail/{{ $.Slug }}/m/{{ .Inbox }}/{{ .ID }}/delete" class="js-confirm"
+              data-confirm-title="Delete this message?" data-confirm="There's no undo." data-confirm-ok="Delete">
+          <button type="submit" class="btn btn-ghost btn-sm text-error">Delete</button>
+        </form>
+      </div>
+      {{ if $.Body.Truncated }}<div class="alert alert-warning text-sm" role="status">This message is too deeply nested to show in full.</div>{{ end }}
+      {{ if $.Body.HTML }}
+        <iframe title="Message body (HTML, sandboxed)" src="/mail/{{ $.Slug }}/m/{{ .Inbox }}/{{ .ID }}/html"
+                sandbox="allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" loading="lazy"
+                class="w-full min-h-[32rem] rounded-box border border-base-300 bg-white"></iframe>
+      {{ else }}
+        <pre class="whitespace-pre-wrap break-words text-sm bg-base-200 rounded-box p-4">{{ $.Body.Text }}</pre>
+      {{ end }}
+      {{ if $.Body.Attachments }}
+      <section aria-labelledby="att-heading">
+        <h2 id="att-heading" class="text-sm font-semibold mt-2">Attachments</h2>
+        <p class="text-xs text-base-content/70">Listed only; attachment files are never downloadable here.</p>
+        <ul class="text-sm list-disc ps-5 mt-1">
+          {{ range $.Body.Attachments }}<li><span class="font-mono">{{ .Filename }}</span> <span class="text-base-content/60">{{ .ContentType }}, {{ .Size }} bytes</span></li>{{ end }}
+        </ul>
+      </section>
+      {{ end }}
+    </div>
+  </article>
+  {{ else }}
+
+  <header>
+    <h1 class="text-2xl font-semibold tracking-tight">Mail</h1>
+    <p class="text-sm text-base-content/70 mt-1">Email sent to any address at {{ .SiteName }}'s web addresses. Receive-only: nothing here can reply or send.</p>
+  </header>
+
+  <section class="card bg-base-100 border border-base-300" aria-labelledby="mail-settings-heading">
+    <form method="POST" action="/mail/{{ .Slug }}/settings" class="card-body gap-3">
+      <h2 id="mail-settings-heading" class="card-title text-lg">Settings</h2>
+      {{ if .IsSuperAdmin }}
+      <label class="flex items-start gap-3 cursor-pointer">
+        <input type="checkbox" name="enabled" {{ if .Enabled }}checked{{ end }} class="toggle toggle-primary shrink-0 mt-0.5">
+        <span class="text-sm">
+          <span class="font-medium">Receive mail for this site</span>
+          <span class="block text-xs text-base-content/60">Super admins only. Opens this site's addresses to mail from anyone on the internet.</span>
+        </span>
+      </label>
+      {{ else if not .Enabled }}
+      <p class="text-sm text-base-content/70">Mail is off for this site. Ask a super admin to turn it on.</p>
+      {{ end }}
+      <label class="form-control max-w-xs">
+        <span class="label-text text-sm font-medium mb-1">Keep messages for</span>
+        <select name="ttl_hours" class="select select-bordered select-sm">
+          {{ range .TTLs }}<option value="{{ .Hours }}"{{ if eq .Hours $.TTLHours }} selected{{ end }}>{{ .Label }}</option>{{ end }}
+        </select>
+      </label>
+      <p class="text-xs text-base-content/60">A shorter period applies to mail that arrives after you save.</p>
+      {{ if .Enabled }}
+      <div class="text-sm">
+        <p class="font-medium">Addresses</p>
+        <ul class="font-mono text-sm mt-1 space-y-0.5">{{ range .Addresses }}<li class="break-all">{{ . }}</li>{{ end }}</ul>
+        <p class="text-xs text-base-content/60 mt-1">Any name before the @ works. A custom domain that is a CNAME to this site's address receives mail automatically. A root domain (<span class="font-mono">example.com</span>) needs its own record: <code class="font-mono bg-base-200 px-1 rounded">MX 10 {{ .MXHost }}</code>. That replaces any mail provider the domain already uses.</p>
+      </div>
+      {{ end }}
+      <div class="card-actions justify-end"><button type="submit" class="btn btn-primary btn-sm">Save</button></div>
+    </form>
+  </section>
+
+  <section class="card bg-base-100 border border-base-300" aria-labelledby="messages-heading">
+    <div class="card-body">
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <h2 id="messages-heading" class="card-title text-lg">Messages</h2>
+        {{ if .Messages }}
+        <form method="POST" action="/mail/{{ .Slug }}/clear" class="js-confirm"
+              data-confirm-title="Delete all mail?" data-confirm="Every caught message for this site is removed. There's no undo." data-confirm-ok="Delete all">
+          <button type="submit" class="btn btn-ghost btn-sm text-error">Delete all</button>
+        </form>
+        {{ end }}
+      </div>
+      {{ if gt (len .Inboxes) 1 }}
+      <nav aria-label="Filter by address" class="flex flex-wrap gap-1">
+        <a href="/mail/{{ .Slug }}" class="btn btn-xs{{ if not .Inbox }} btn-active{{ else }} btn-ghost{{ end }}">All</a>
+        {{ range .Inboxes }}<a href="/mail/{{ $.Slug }}?inbox={{ . }}" class="btn btn-xs font-mono{{ if eq . $.Inbox }} btn-active{{ else }} btn-ghost{{ end }}">{{ . }}</a>{{ end }}
+      </nav>
+      {{ end }}
+      {{ if .Messages }}
+      <ul class="divide-y divide-base-300 border border-base-300 rounded-box mt-2">
+        {{ range .Messages }}
+        <li>
+          <a href="/mail/{{ $.Slug }}/m/{{ .Inbox }}/{{ .ID }}" class="flex flex-col sm:flex-row sm:items-baseline gap-x-3 px-4 py-2.5 hover:bg-base-200">
+            <span class="font-medium text-sm break-words flex-1">{{ if .Subject }}{{ .Subject }}{{ else }}(no subject){{ end }}</span>
+            <span class="text-xs text-base-content/70 break-all">{{ .From }} → <span class="font-mono">{{ .Inbox }}</span></span>
+            <time class="text-xs text-base-content/60 shrink-0" datetime="{{ .ReceivedAt.Format "2006-01-02T15:04:05Z07:00" }}">{{ .ReceivedAt.Format "Jan 2 15:04" }}</time>
+          </a>
+        </li>
+        {{ end }}
+      </ul>
+      {{ else if .Enabled }}
+      <p class="text-sm text-base-content/70">Nothing yet. Send a message to <span class="font-mono">{{ index .Addresses 0 }}</span> and it shows up here.</p>
+      {{ else }}
+      <p class="text-sm text-base-content/70">No mail.</p>
+      {{ end }}
+    </div>
+  </section>
+  {{ end }}
+</main>
+{{ template "footer" . }}
+{{ template "confirm_dialog" . }}
+</body>
+</html>

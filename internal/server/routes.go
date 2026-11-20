@@ -95,4 +95,7 @@ func (s *Server) mountRoutes(e *echo.Echo) {
 	(&assetsController{s}).register(admin, owns)
 	(&photowallController{s}).register(admin, owns)
 	(&debugController{s}).register(admin, owns)
+	if s.mail != nil {
+		(&mailController{s}).register(admin, owns)
+	}
 }

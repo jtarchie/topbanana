@@ -31,6 +31,7 @@ import (
 	"github.com/jtarchie/topbanana/internal/events"
 	"github.com/jtarchie/topbanana/internal/linkcheck"
 	"github.com/jtarchie/topbanana/internal/lint"
+	"github.com/jtarchie/topbanana/internal/mail"
 	"github.com/jtarchie/topbanana/internal/model"
 	"github.com/jtarchie/topbanana/internal/photowall"
 	"github.com/jtarchie/topbanana/internal/quotas"
@@ -98,6 +99,11 @@ type Deps struct {
 
 	// LinkChecker probes sites' external links for the manage card and check_links; nil hides both.
 	LinkChecker *linkcheck.Checker
+
+	// Mail is the caught-mail driver; nil (no --smtp-addr) hides the Mail surface entirely.
+	Mail *mail.Store
+	// MailHostname is the MX host custom domains must point at; domain status checks against it.
+	MailHostname string
 }
 
 // Server is the wired-up state shared across handlers.
@@ -140,6 +146,8 @@ type Server struct {
 	blobs blob.Blobs
 
 	linkChecker *linkcheck.Checker
+	mail        *mail.Store
+	mailHost    string
 
 	// photoLimiter throttles the unauthenticated /_photos upload endpoint per
 	// (slug, client IP) so an open QR upload link can't be flooded.
@@ -183,6 +191,7 @@ func New(d Deps) (*echo.Echo, *Server) {
 		{"canvas", canvasTemplate},
 		{"manage", manageTemplate},
 		{"inbox", inboxTemplate},
+		{"mail", mailTemplate},
 		{"photo_queue", photoQueueTemplate},
 		{"system", systemTemplate},
 		{"toolbar", editToolbarTemplate},
@@ -222,6 +231,8 @@ func New(d Deps) (*echo.Echo, *Server) {
 		mcpSecret:     d.MCPSecret,
 		blobs:         d.Blobs,
 		linkChecker:   d.LinkChecker,
+		mail:          d.Mail,
+		mailHost:      d.MailHostname,
 		quotaDefaults: d.QuotaDefaults,
 		// ~1 upload / 5s sustained with a burst of 5 per (slug, IP): enough for
 		// a person snapping a few shots in a row, tight enough to blunt a script
