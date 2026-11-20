@@ -313,3 +313,34 @@ func TestMCP_ConfigureSiteMail(t *testing.T) {
 		t.Fatalf("index not refreshed: %s", toolText(res))
 	}
 }
+
+// TestMail_RestoreKeepsSuperAdminGrant: a snapshot from while mail was on must not let an owner re-open mail a super admin shut off.
+func TestMail_RestoreKeepsSuperAdminGrant(t *testing.T) {
+	const owner = "mail-restore@test"
+	slug := "mailrs-" + freshSlug(t)
+	r := newMailRig(t, slug, owner, build.SiteMeta{MailEnabled: true})
+	ownerCookie := r.session(t, owner, auth.RoleAdmin)
+	superCookie := r.session(t, testAdminUser, auth.RoleSuperAdmin)
+
+	snap, err := snapshot.New(r.store, 0).Create(context.Background(), slug, snapshot.ReasonSettings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := postForm(t, r.base, "/mail/"+slug+"/settings", superCookie, url.Values{"ttl_hours": {"168"}})
+	_ = resp.Body.Close()
+	if _, _, on := r.srv.MailRoute(slug + ".localhost"); on {
+		t.Fatal("super admin could not disable mail")
+	}
+
+	resp = postForm(t, r.base, "/history/"+slug, ownerCookie, url.Values{"_method": {"PUT"}, "key": {snap.Key}})
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("owner restore: got %d want 303", resp.StatusCode)
+	}
+	if readMetaDirect(t, r.privateTestRig, slug).MailEnabled {
+		t.Error("restore brought back mail_enabled from the snapshot")
+	}
+	if _, _, on := r.srv.MailRoute(slug + ".localhost"); on {
+		t.Error("restored snapshot re-opened mail routing")
+	}
+}

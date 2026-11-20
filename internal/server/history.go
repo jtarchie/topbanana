@@ -1,12 +1,15 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/jtarchie/topbanana/auth"
+	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/labstack/echo/v5"
 )
 
@@ -35,7 +38,8 @@ func (s *sitesController) historyRestoreHandler(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "key is required")
 	}
 
-	err = s.snapshot.Restore(c.Request().Context(), slug, key)
+	u := userFromContext(c)
+	err = s.restoreSnapshot(c.Request().Context(), slug, key, u != nil && u.Role == auth.RoleSuperAdmin)
 	if err != nil {
 		return httpErr(http.StatusInternalServerError, "restore snapshot", err)
 	}
@@ -44,6 +48,25 @@ func (s *sitesController) historyRestoreHandler(c *echo.Context) error {
 	// text through ?flash= would let any crafted link print its own words in
 	// the workspace's trusted success banner.
 	return c.Redirect(http.StatusSeeOther, "/workspace/"+slug+"?flash=restored") //nolint:wrapcheck
+}
+
+// restoreSnapshot rolls site content back but keeps super-admin-only grants as they are now: an archived sidecar must not let an owner or collaborator re-open mail a super admin shut off.
+func (s *Server) restoreSnapshot(ctx context.Context, slug, key string, superAdmin bool) error {
+	// A failed read answers a zero SiteMeta, so a lost read keeps mail off: the safe direction.
+	mailWas := s.build.ReadMeta(ctx, slug).MailEnabled
+	err := s.snapshot.Restore(ctx, slug, key)
+	if err != nil {
+		return fmt.Errorf("restore: %w", err)
+	}
+	if !superAdmin {
+		_, err = s.build.UpdateMeta(ctx, slug, func(m *build.SiteMeta) { m.MailEnabled = mailWas })
+		if err != nil {
+			return fmt.Errorf("keep mail grant after restore: %w", err)
+		}
+	}
+	// Restored Private/Domains/MailEnabled route through the indexes; without a rebuild they'd wait for an unrelated save.
+	s.registry.rebuildIndexesLogging(ctx)
+	return nil
 }
 
 func (s *sitesController) historyDeleteHandler(c *echo.Context) error {
