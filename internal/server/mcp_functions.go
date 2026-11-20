@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/jtarchie/topbanana/auth"
 	"github.com/jtarchie/topbanana/internal/agent"
 	"github.com/jtarchie/topbanana/internal/build"
 	"github.com/jtarchie/topbanana/internal/sandbox"
@@ -283,48 +284,66 @@ type configureSiteInput struct {
 	Private         *bool   `json:"private,omitempty"           jsonschema:"Hide the site from the public web (owner/super-admin only)."`
 	EnableFunctions *bool   `json:"enable_functions,omitempty"  jsonschema:"Enable server-side functions (/api/* handlers). Ignored when the template already enables them."`
 	EnablePublicAPI *bool   `json:"enable_public_api,omitempty" jsonschema:"Let /api/* bypass the same-origin check (genuine public APIs / webhooks)."`
+	MailEnabled     *bool   `json:"mail_enabled,omitempty"      jsonschema:"Receive email for every address at the site's hosts. Super admins only; anyone else is refused."`
+	MailTTLHours    *int    `json:"mail_ttl_hours,omitempty"    jsonschema:"How long caught mail is kept: 1, 24, 168 or 720 hours."`
 	TurnstileSecret *string `json:"turnstile_secret,omitempty"  jsonschema:"Cloudflare Turnstile secret key. When set, every POST/PUT/PATCH/DELETE to /api/* must carry a valid cf-turnstile-response token or is rejected with 403 before the handler runs. Pair it with the widget (<script src=\"https://challenges.cloudflare.com/turnstile/v0/api.js\" async defer></script> plus <div class=\"cf-turnstile\" data-sitekey=\"...\"></div> inside each form). Write-only: never returned. Empty string turns it off."`
+}
+
+// apply touches only the fields the caller passed; split out to keep the tool handler readable.
+func (in configureSiteInput) apply(m *build.SiteMeta) {
+	if in.Title != nil {
+		m.Title = strings.TrimSpace(*in.Title)
+	}
+	if in.Description != nil {
+		m.Description = strings.TrimSpace(*in.Description)
+	}
+	if in.Private != nil {
+		m.Private = *in.Private
+	}
+	if in.EnablePublicAPI != nil {
+		m.EnablesPublicAPI = *in.EnablePublicAPI
+	}
+	if in.TurnstileSecret != nil {
+		m.TurnstileSecret = strings.TrimSpace(*in.TurnstileSecret)
+	}
+	if in.MailEnabled != nil {
+		m.MailEnabled = *in.MailEnabled
+	}
+	if in.MailTTLHours != nil {
+		m.MailTTLHours = *in.MailTTLHours
+	}
+	if in.EnableFunctions != nil {
+		// Only honour the override when the template doesn't already
+		// enable functions, mirroring settingsSubmitHandler so the
+		// surfaces agree.
+		if base := templates.Get(m.Template); base == nil || !base.EnablesFunctions {
+			m.EnablesFunctions = *in.EnableFunctions
+		}
+	}
 }
 
 func (s *Server) registerConfigureSite(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "configure_site",
-		Description: "Update settings on a site the caller owns: title, description, private, enable_functions, enable_public_api, turnstile_secret. Only the fields you pass are changed. (Custom domains have their own tools — attach_domain / detach_domain / get_domain_status / check_domain. Ownership transfer and deletion stay in the web UI.)",
+		Description: "Update settings on a site the caller owns: title, description, private, enable_functions, enable_public_api, turnstile_secret, mail_ttl_hours, and (super admins only) mail_enabled. Only the fields you pass are changed. (Custom domains have their own tools — attach_domain / detach_domain / get_domain_status / check_domain. Ownership transfer and deletion stay in the web UI.)",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in configureSiteInput) (*mcp.CallToolResult, any, error) {
-		_, err := s.mcpUserAndAuthorize(ctx, in.Slug)
+		user, err := s.mcpUserAndAuthorize(ctx, in.Slug)
 		if err != nil {
 			return nil, nil, err
+		}
+		// Same rule as the web Mail page: opening a site's MX is an operator grant, never self-serve.
+		if in.MailEnabled != nil && user.Role != auth.RoleSuperAdmin {
+			return nil, nil, errors.New("not permitted: only a super admin can turn mail on or off for a site")
+		}
+		if in.MailTTLHours != nil && !validMailTTL(*in.MailTTLHours) {
+			return nil, nil, errors.New("mail_ttl_hours must be one of 1, 24, 168, 720")
 		}
 		s.snapshotBefore(ctx, in.Slug, snapshot.ReasonSettings)
 		// Compare-and-set: only the fields the caller passed are touched, so a
 		// concurrent change by someone else with access to the same site (a
 		// share, a domain attach, the web settings form) survives instead of
 		// being written back out by a stale read.
-		meta, err := s.build.UpdateMeta(ctx, in.Slug, func(m *build.SiteMeta) {
-			if in.Title != nil {
-				m.Title = strings.TrimSpace(*in.Title)
-			}
-			if in.Description != nil {
-				m.Description = strings.TrimSpace(*in.Description)
-			}
-			if in.Private != nil {
-				m.Private = *in.Private
-			}
-			if in.EnablePublicAPI != nil {
-				m.EnablesPublicAPI = *in.EnablePublicAPI
-			}
-			if in.TurnstileSecret != nil {
-				m.TurnstileSecret = strings.TrimSpace(*in.TurnstileSecret)
-			}
-			if in.EnableFunctions != nil {
-				// Only honour the override when the template doesn't already
-				// enable functions, mirroring settingsSubmitHandler so the
-				// surfaces agree.
-				if base := templates.Get(m.Template); base == nil || !base.EnablesFunctions {
-					m.EnablesFunctions = *in.EnableFunctions
-				}
-			}
-		})
+		meta, err := s.build.UpdateMeta(ctx, in.Slug, in.apply)
 		if err != nil {
 			return nil, nil, fmt.Errorf("save settings: %w", err)
 		}
@@ -338,6 +357,8 @@ func (s *Server) registerConfigureSite(srv *mcp.Server) {
 			"private": meta.Private, "enables_functions": meta.EnablesFunctions,
 			"enables_public_api": meta.EnablesPublicAPI,
 			"turnstile":          meta.TurnstileSecret != "",
+			"mail_enabled":       meta.MailEnabled,
+			"mail_ttl_hours":     int(meta.MailTTL().Hours()),
 		})
 	})
 }

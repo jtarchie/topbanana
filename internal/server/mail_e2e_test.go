@@ -282,3 +282,34 @@ func TestMail_SMTPEndToEnd(t *testing.T) {
 		t.Errorf("site TTL not applied: %v", ttl)
 	}
 }
+
+// TestMCP_ConfigureSiteMail: the MCP toggle keeps the web rule, super admins only.
+func TestMCP_ConfigureSiteMail(t *testing.T) {
+	st := minioStore(t)
+	slug := freshSlug(t)
+	const owner = "mail-cfg@example.com"
+	const super = "mail-cfg-super@example.com"
+	ms := mail.New(st, mail.Options{Prefix: store.MailPrefix + storetest.FreshSlug(t, "mailcfg") + "/"})
+	srv, authBlobs, _ := buildMCPTestServer(t, st, slug, owner, func(d *server.Deps) { d.Mail = ms })
+	seedUser(t, authBlobs, owner)
+	seedSuperAdmin(t, authBlobs, super)
+	ownerS := connectMCP(t, srv, owner)
+	superS := connectMCP(t, srv, super)
+
+	res := callTool(t, ownerS, "configure_site", map[string]any{"slug": slug, "mail_enabled": true})
+	if !res.IsError {
+		t.Fatalf("owner enabled mail: %s", toolText(res))
+	}
+	res = callTool(t, ownerS, "configure_site", map[string]any{"slug": slug, "mail_ttl_hours": 24})
+	if res.IsError || !strings.Contains(toolText(res), `"mail_ttl_hours":24`) {
+		t.Fatalf("owner ttl: %s", toolText(res))
+	}
+	res = callTool(t, superS, "configure_site", map[string]any{"slug": slug, "mail_enabled": true})
+	if res.IsError || !strings.Contains(toolText(res), `"mail_enabled":true`) {
+		t.Fatalf("super admin enable: %s", toolText(res))
+	}
+	res = callTool(t, ownerS, "list_mail", map[string]any{"slug": slug})
+	if !strings.Contains(toolText(res), `"enabled":true`) {
+		t.Fatalf("index not refreshed: %s", toolText(res))
+	}
+}
