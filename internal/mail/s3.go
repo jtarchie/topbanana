@@ -113,6 +113,7 @@ func (s *Store) Deliver(ctx context.Context, msgs []mailstore.Message) error {
 		if err != nil {
 			return fmt.Errorf("deliver %s/%s: %w", m.Tenant, m.Inbox, err)
 		}
+		slog.Info("mail.delivered", "slug", m.Tenant, "domain", m.Domain, "bytes", len(m.Raw))
 	}
 	return nil
 }

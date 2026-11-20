@@ -45,6 +45,10 @@ func startSMTP(ctx context.Context, ms *mail.Store, srv *server.Server, getCert 
 		Hostname: host,
 		Resolve: func(domain string) (smtpd.Route, bool) {
 			slug, ttl, ok := srv.MailRoute(domain)
+			if !ok {
+				// Domain only, never the local part: enough to see "mail is arriving for a host that isn't enabled".
+				slog.Info("smtp.rcpt_rejected", "domain", domain)
+			}
 			return smtpd.Route{Tenant: slug, TTL: ttl}, ok
 		},
 		TLSConfig:     tlsConfig,
